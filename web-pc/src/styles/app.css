@@ -161,3 +161,9 @@ body{
 
 /* ===== Heat tile ===== */
 .heat-tile{display:inline-block;padding:3px 8px;border-radius:3px;font-size:12px;color:#fff;font-weight:500}
+
+/* ===== Table style fixes ===== */
+.arco-table-th { padding: 10px 14px !important; font-size: 13px !important; }
+.arco-table-td { padding: 10px 14px !important; }
+.arco-table-th, .arco-table-td { white-space: nowrap; }
+.arco-table tr:last-child td { border-bottom: none; }
