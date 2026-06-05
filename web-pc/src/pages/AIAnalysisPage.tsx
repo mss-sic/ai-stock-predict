@@ -1,49 +1,46 @@
 import { useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { Card, Input, Button } from '@arco-design/web-react';
+import { Input, Button } from '@arco-design/web-react';
+import { Sparkles, Send } from 'lucide-react';
 import { postAIAnalyze } from '../services/api';
 
-interface Message { role: 'user' | 'ai'; text: string; }
+interface Message { role: 'user' | 'ai'; text: string }
 
 export default function AIAnalysisPage() {
   const { code } = useParams<{ code: string }>();
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [msgs, setMsgs] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
 
   const send = async () => {
     if (!input.trim() || !code) return;
-    const userMsg: Message = { role: 'user', text: input };
-    setMessages((prev) => [...prev, userMsg]);
-    setInput('');
-    setLoading(true);
+    setMsgs(p => [...p, { role: 'user', text: input }]);
+    setInput(''); setLoading(true);
     try {
-      const res: any = await postAIAnalyze(code, userMsg.text);
-      setMessages((prev) => [...prev, { role: 'ai', text: res.data.reply }]);
-    } catch {
-      setMessages((prev) => [...prev, { role: 'ai', text: '分析服务暂时不可用，请稍后再试。' }]);
-    } finally {
-      setLoading(false);
-    }
+      const res: any = await postAIAnalyze(code, input);
+      setMsgs(p => [...p, { role: 'ai', text: res.data.reply }]);
+    } catch { setMsgs(p => [...p, { role: 'ai', text: '分析服务暂不可用，请稍后重试。' }]); }
+    finally { setLoading(false); }
   };
 
   return (
-    <Card title={`🤖 AI 智能分析 - ${code}`} style={{ height: 'calc(100vh - 120px)', display: 'flex', flexDirection: 'column' }}>
-      <div style={{ flex: 1, overflow: 'auto', marginBottom: 16 }}>
-        {messages.map((m, i) => (
-          <div key={i} style={{ marginBottom: 12, textAlign: m.role === 'user' ? 'right' : 'left' }}>
-            <div style={{ display: 'inline-block', padding: '8px 16px', borderRadius: 8,
-              background: m.role === 'user' ? 'var(--color-primary-light-1)' : 'var(--color-fill-2)',
-              maxWidth: '80%' }}>
-              {m.text}
+    <div style={{ height: 'calc(100vh - 160px)', display: 'flex', flexDirection: 'column' }}>
+      <div className="page-header"><h2><Sparkles size={20} style={{marginRight:4}} />AI 智能分析</h2><span className="muted">{code} · 深度研报解读 + 信号归因</span></div>
+      <div className="card" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <div className="card-body" style={{ flex: 1, overflow: 'auto' }}>
+          {msgs.map((m, i) => (
+            <div key={i} className={`chat-msg ${m.role}`}>
+              <div className="avatar">{m.role === 'ai' ? 'AI' : 'U'}</div>
+              <div className="body">{m.text}</div>
             </div>
-          </div>
-        ))}
+          ))}
+          {msgs.length === 0 && <div className="muted" style={{textAlign:'center',padding:40}}>输入问题开始 AI 分析，例如：<br/>"分析这只股票的近期走势和风险"</div>}
+        </div>
+        <div className="card-header" style={{ borderTop: '1px solid var(--color-border-1)', borderBottom: 'none' }}>
+          <Input value={input} onChange={setInput} onPressEnter={send} placeholder="输入分析问题..." style={{ flex: 1 }} />
+          <Button type="primary" icon={<Send size={14} />} onClick={send} loading={loading}>发送</Button>
+        </div>
       </div>
-      <div style={{ display: 'flex', gap: 8 }}>
-        <Input value={input} onChange={setInput} onPressEnter={send} placeholder="输入分析问题..." />
-        <Button type="primary" onClick={send} loading={loading}>发送</Button>
-      </div>
-    </Card>
+    </div>
   );
 }

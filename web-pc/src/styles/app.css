@@ -1,0 +1,163 @@
+/* ==========================================================================
+   Arco Design Tokens + Stock Platform Styles — 智策投研
+   Convention: 涨=红, 跌=绿 (CN stock market)
+   ========================================================================== */
+:root {
+  --arcoblue-1:#E8F3FF;--arcoblue-2:#BEDAFF;--arcoblue-3:#94BFFF;
+  --arcoblue-4:#6AA1FF;--arcoblue-5:#4080FF;--arcoblue-6:#165DFF;
+  --arcoblue-7:#0E42D2;--arcoblue-8:#072CA6;
+  --red-1:#FFECE8;--red-5:#F76560;--red-6:#F53F3F;--red-7:#CB272D;
+  --orange-1:#FFF7E8;--orange-6:#FF7D00;
+  --green-1:#E8FFEA;--green-6:#00B42A;--green-7:#009A29;
+  --purple-1:#F5E8FF;--purple-6:#722ED1;
+  --gray-1:#F7F8FA;--gray-2:#F2F3F5;--gray-3:#E5E6EB;
+  --gray-4:#C9CDD4;--gray-5:#A9AEB8;--gray-6:#86909C;
+  --gray-7:#6B7785;--gray-8:#4E5969;--gray-9:#272E3B;--gray-10:#1D2129;
+
+  --color-primary:var(--arcoblue-6);
+  --color-primary-hover:var(--arcoblue-5);
+  --color-primary-active:var(--arcoblue-7);
+  --color-success:var(--green-6);--color-warning:var(--orange-6);--color-danger:var(--red-6);
+  --color-bg-1:#fff;--color-fill-1:var(--gray-1);--color-fill-2:var(--gray-2);
+  --color-text-1:var(--gray-10);--color-text-2:var(--gray-8);--color-text-3:var(--gray-6);
+  --color-border-1:var(--gray-3);--color-border-2:var(--gray-4);
+  --radius-sm:2px;--radius-md:4px;--radius-lg:8px;
+  --shadow-sm:0 1px 3px rgba(0,0,0,.06);--shadow-md:0 2px 8px rgba(0,0,0,.08);
+  --stock-up:var(--red-6);--stock-up-soft:#FDE7E6;
+  --stock-down:var(--green-6);--stock-down-soft:#DBF5DF;
+  --stock-flat:var(--gray-6);
+  --sidebar-w:200px;--topbar-h:52px;
+}
+
+*{margin:0;padding:0;box-sizing:border-box}
+html,body,#root{height:100%;overflow:hidden}
+body{
+  margin:0;background:var(--gray-1);
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  -webkit-font-smoothing:antialiased;font-size:14px;color:var(--color-text-1)
+}
+
+/* ===== Shell ===== */
+.app-shell{display:grid;grid-template-columns:var(--sidebar-w) 1fr;height:100vh}
+.app-main{display:flex;flex-direction:column;min-width:0;overflow:hidden}
+.app-topbar{
+  height:var(--topbar-h);background:var(--color-bg-1);border-bottom:1px solid var(--color-border-1);
+  display:flex;align-items:center;padding:0 24px;gap:12px;flex:none
+}
+.app-topbar .title{font-size:14px;font-weight:600;color:var(--color-text-1)}
+.page-content{flex:1;overflow:auto;padding:20px 24px 24px;min-width:0}
+
+/* ===== Sidebar ===== */
+.app-sidebar{
+  background:var(--color-bg-1);border-right:1px solid var(--color-border-1);
+  display:flex;flex-direction:column
+}
+.sidebar-brand{
+  display:flex;align-items:center;gap:10px;padding:0 20px;height:var(--topbar-h);
+  font-size:16px;font-weight:700;border-bottom:1px solid var(--color-border-1)
+}
+.sidebar-brand .brand-icon{font-size:20px}
+.sidebar-brand .brand-text{
+  background:linear-gradient(135deg,var(--arcoblue-6),var(--purple-6));
+  -webkit-background-clip:text;background-clip:text;color:transparent
+}
+.sidebar-nav{flex:1;padding:8px 0;overflow-y:auto}
+.nav-item{
+  display:flex;align-items:center;gap:10px;padding:9px 16px;margin:2px 8px;
+  border-radius:6px;font-size:13px;color:var(--color-text-2);cursor:pointer;
+  transition:all 120ms;text-decoration:none;border:none;background:none;
+  width:calc(100% - 16px);text-align:left;font-family:inherit
+}
+.nav-item:hover{background:var(--color-fill-2);color:var(--color-text-1)}
+.nav-item.active{background:var(--arcoblue-1);color:var(--arcoblue-6);font-weight:600}
+.nav-item svg{width:16px;height:16px;stroke-width:1.8;flex:none}
+
+/* ===== Cards ===== */
+.card{background:var(--color-bg-1);border:1px solid var(--color-border-1);border-radius:var(--radius-md)}
+.card-header{display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid var(--color-border-1)}
+.card-header .card-title{font-size:15px;font-weight:600}
+.card-body{padding:20px}
+
+/* ===== Tags ===== */
+.tag{display:inline-flex;align-items:center;gap:3px;padding:1px 8px;font-size:11px;line-height:18px;border-radius:2px;white-space:nowrap;font-weight:500}
+.tag-blue{background:var(--arcoblue-1);color:var(--arcoblue-6)}
+.tag-green{background:var(--green-1);color:var(--green-7)}
+.tag-red{background:var(--red-1);color:var(--red-6)}
+.tag-orange{background:var(--orange-1);color:var(--orange-6)}
+.tag-purple{background:var(--purple-1);color:var(--purple-6)}
+.tag-gray{background:var(--gray-2);color:var(--gray-7)}
+
+/* ===== Utilities ===== */
+.up{color:var(--stock-up);font-weight:600}
+.down{color:var(--stock-down);font-weight:600}
+.muted{color:var(--color-text-3);font-size:13px}
+.num{font-variant-numeric:tabular-nums;font-feature-settings:"tnum"}
+.row{display:flex;align-items:center;gap:12px}
+.col{display:flex;flex-direction:column}
+.gap8{gap:8px}.gap12{gap:12px}.gap16{gap:16px}
+.mb8{margin-bottom:8px}.mb12{margin-bottom:12px}.mb16{margin-bottom:16px}.mb24{margin-bottom:24px}
+.mt8{margin-top:8px}.mt16{margin-top:16px}
+.ai-gradient{background:linear-gradient(135deg,var(--arcoblue-1),var(--purple-1))}
+
+/* ===== Page header ===== */
+.page-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px}
+.page-header h2{font-size:18px;font-weight:600}
+
+/* ===== Stat grid ===== */
+.stat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
+.stat-card{background:var(--color-bg-1);border:1px solid var(--color-border-1);border-radius:var(--radius-md);padding:16px 20px}
+.stat-card .stat-label{font-size:12px;color:var(--color-text-3);margin-bottom:4px}
+.stat-card .stat-value{font-size:24px;font-weight:600;font-variant-numeric:tabular-nums}
+.stat-card .stat-sub{font-size:12px;margin-top:4px}
+
+/* ===== Table overrides ===== */
+.arco-table{font-size:13px!important}
+.arco-table th{background:var(--gray-1)!important;color:var(--color-text-3)!important;font-weight:500!important;font-size:12px!important;padding:10px 12px!important}
+.arco-table td{padding:11px 12px!important;font-size:13px!important;border-bottom-color:var(--color-border-1)!important}
+.arco-table tr:hover td{background:var(--color-fill-1)!important}
+
+/* ===== Arco component overrides ===== */
+.arco-card{border-radius:var(--radius-md)!important;border-color:var(--color-border-1)!important;box-shadow:none!important}
+.arco-card-header{border-bottom-color:var(--color-border-1)!important}
+.arco-layout-sider{background:var(--color-bg-1)!important}
+.arco-btn-text:hover{background:var(--color-fill-2)!important}
+.arco-input,.arco-input-wrapper{border-radius:var(--radius-md)!important}
+.arco-tabs-nav::before{border-bottom-color:var(--color-border-1)!important}
+
+/* ===== Scrollbars ===== */
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-thumb{background:var(--gray-4);border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:var(--gray-5)}
+
+/* ===== Signal row ===== */
+.signal-row{display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--color-fill-2);border-radius:6px;font-size:13px}
+
+/* ===== Chips ===== */
+.chips{display:inline-flex;gap:6px;flex-wrap:wrap}
+.chip{font-size:12px;padding:3px 12px;border-radius:12px;background:var(--color-fill-2);color:var(--color-text-2);cursor:pointer;border:1px solid transparent;transition:all 100ms;font-family:inherit}
+.chip:hover{color:var(--color-text-1)}
+.chip.active{background:var(--arcoblue-1);color:var(--arcoblue-6);border-color:var(--arcoblue-2);font-weight:500}
+
+/* ===== AI Chat ===== */
+.chat-msg{display:flex;gap:12px;padding:10px 0}
+.chat-msg .avatar{width:32px;height:32px;border-radius:6px;flex:none;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600;color:#fff}
+.chat-msg.user .avatar{background:var(--gray-3);color:var(--gray-8)}
+.chat-msg.ai .avatar{background:linear-gradient(135deg,var(--arcoblue-6),var(--purple-6))}
+.chat-msg .body{flex:1;min-width:0;font-size:14px;line-height:22px}
+
+/* ===== Segmented ===== */
+.seg{display:inline-flex;background:var(--color-fill-2);padding:2px;border-radius:6px}
+.seg button{border:0;background:transparent;padding:5px 14px;font-size:13px;line-height:20px;color:var(--color-text-2);border-radius:4px;cursor:pointer;font-family:inherit;transition:all 100ms}
+.seg button.active{background:#fff;color:var(--color-text-1);box-shadow:var(--shadow-sm);font-weight:500}
+.seg button:hover:not(.active){color:var(--color-text-1)}
+
+/* ===== Upload ===== */
+.upload-zone{border:2px dashed var(--color-border-2);border-radius:var(--radius-md);padding:32px;text-align:center;color:var(--color-text-3);cursor:pointer;transition:all 150ms}
+.upload-zone:hover{border-color:var(--arcoblue-4);background:var(--arcoblue-1)}
+
+/* ===== Price ===== */
+.price-lg{font-size:32px;font-weight:600;line-height:1;font-variant-numeric:tabular-nums}
+.price-chg{font-size:15px;font-weight:500}
+
+/* ===== Heat tile ===== */
+.heat-tile{display:inline-block;padding:3px 8px;border-radius:3px;font-size:12px;color:#fff;font-weight:500}
