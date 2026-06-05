@@ -59,3 +59,13 @@ func (h *StockHandler) GetIndicator(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"data": ind})
 }
+
+func (h *StockHandler) GetSignal(c *gin.Context) {
+	code := c.Param("code")
+	signal, err := h.svc.GetSignal(code)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "signal not found"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": signal})
+}

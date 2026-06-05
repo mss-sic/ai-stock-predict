@@ -33,3 +33,7 @@ func (s *StockService) GetKLine(code string, from, to string) ([]model.StockDail
 func (s *StockService) GetIndicator(code string) (*model.StockDailyIndicator, error) {
 	return s.repo.GetIndicator(code, time.Now())
 }
+
+func (s *StockService) GetSignal(code string) (*model.StockSignal, error) {
+	return s.repo.GetSignal(code)
+}

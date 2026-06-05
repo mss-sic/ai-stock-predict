@@ -52,3 +52,14 @@ func (h *BoardHandler) StockHeatmap(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"data": data})
 }
+
+func (h *BoardHandler) HeatmapEnriched(c *gin.Context) {
+	from := c.Query("from")
+	to := c.Query("to")
+	data, err := h.svc.GetEnrichedHeatmap(from, to)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": data})
+}

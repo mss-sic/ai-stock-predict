@@ -28,3 +28,9 @@ func (s *BoardService) GetHeatmap(from, to string) ([]model.AlgorithmPickDetail,
 func (s *BoardService) GetStockHeatmap(code string) ([]model.AlgorithmPickDetail, error) {
 	return s.repo.GetStockHeatmap(code)
 }
+
+func (s *BoardService) GetEnrichedHeatmap(from, to string) ([]model.HeatmapEnriched, error) {
+	if from == "" { from = "2026-01-01" }
+	if to == "" { to = "2099-01-01" }
+	return s.repo.GetEnrichedHeatmap(from, to)
+}

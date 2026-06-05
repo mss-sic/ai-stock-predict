@@ -23,6 +23,7 @@ export const fetchIndicator = (code: string) => api.get(`/stocks/${code}/indicat
 // Board
 export const fetchTodayBoard = () => api.get('/board/today');
 export const fetchHistoryBoard = (date: string) => api.get('/board/history', { params: { date } });
+export const fetchEnrichedHeatmap = (from?: string, to?: string) => api.get("/board/heatmap-enriched", { params: { from, to } });
 export const fetchHeatmap = (from?: string, to?: string) => api.get('/board/heatmap', { params: { from, to } });
 export const fetchStockHeatmap = (code: string) => api.get(`/board/heatmap/${code}`);
 
@@ -38,6 +39,9 @@ export const uploadExcel = (file: File) => {
   form.append('file', file);
   return api.post('/import/excel', form, { headers: { 'Content-Type': 'multipart/form-data' } });
 };
+
+// Import history
+export const fetchImportHistory = () => api.get("/import/history");
 
 // Collector
 export const triggerCollection = () => api.post('/collector/trigger');

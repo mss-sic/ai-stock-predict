@@ -51,3 +51,24 @@ func (r *BoardRepo) UpsertBoard(date time.Time, details []model.AlgorithmPickDet
 	}
 	return tx.Commit().Error
 }
+
+func (r *BoardRepo) GetEnrichedHeatmap(from, to string) ([]model.HeatmapEnriched, error) {
+	var rows []model.HeatmapEnriched
+	err := db.PG.Raw(`
+		SELECT 
+			a.pick_date,
+			a.stock_code,
+			COALESCE(s.name, a.stock_code) AS stock_name,
+			a.rank,
+			COALESCE(a.score, 0) AS score,
+			COALESCE(k.open, 0) AS open,
+			COALESCE(k.close, 0) AS close,
+			CASE WHEN k.open > 0 THEN ROUND(((k.close - k.open) / k.open * 100)::numeric, 2) ELSE 0 END AS chg_pct
+		FROM algorithm_pick_details a
+		LEFT JOIN stocks_basic s ON s.code = a.stock_code
+		LEFT JOIN stocks_daily_k k ON k.code = a.stock_code AND k.trade_date = a.pick_date
+		WHERE a.pick_date >= ? AND a.pick_date <= ?
+		ORDER BY a.pick_date ASC, a.rank ASC
+	`, from, to).Scan(&rows).Error
+	return rows, err
+}

@@ -8,12 +8,22 @@ import (
 
 func AutoMigrate() {
 	if PG != nil {
+		// Create stock_signals manually (in case AutoMigrate ordering fails)
+		PG.Exec(`CREATE TABLE IF NOT EXISTS stock_signals (
+			id SERIAL PRIMARY KEY,
+			code VARCHAR(10) UNIQUE,
+			signal_value NUMERIC(12,6),
+			source VARCHAR(50) DEFAULT 'excel_import',
+			updated_at TIMESTAMPTZ DEFAULT NOW()
+		)`)
+
 		if err := PG.AutoMigrate(
 			&model.StockBasic{},
 			&model.StockDailyK{},
 			&model.StockDailyIndicator{},
 			&model.AlgorithmPick{},
 			&model.AlgorithmPickDetail{},
+			&model.StockSignal{},
 		); err != nil {
 			log.Printf("PG migrate warning: %v", err)
 		}

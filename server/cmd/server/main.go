@@ -39,17 +39,20 @@ func main() {
 		api.GET("/stocks/:code", stockH.GetDetail)
 		api.GET("/stocks/:code/kline", stockH.GetKLine)
 		api.GET("/stocks/:code/indicator", stockH.GetIndicator)
+		api.GET("/stocks/:code/signal", stockH.GetSignal)
 
 		// Board endpoints
 		boardH := handler.NewBoardHandler()
 		api.GET("/board/today", boardH.Today)
 		api.GET("/board/history", boardH.History)
 		api.GET("/board/heatmap", boardH.Heatmap)
+		api.GET("/board/heatmap-enriched", boardH.HeatmapEnriched)
 		api.GET("/board/heatmap/:code", boardH.StockHeatmap)
 
 		// Import
 		importH := handler.NewImportHandler()
 		api.POST("/import/excel", importH.Upload)
+		api.GET("/import/history", importH.History)
 
 		// Collector
 		collectorH := handler.NewCollectorHandler(sched)

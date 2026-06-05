@@ -60,3 +60,9 @@ func (r *StockRepo) UpsertBasic(stock *model.StockBasic) error {
 func (r *StockRepo) UpsertDailyK(k *model.StockDailyK) error {
 	return db.PG.Where("code = ? AND trade_date = ?", k.Code, k.TradeDate).Assign(k).FirstOrCreate(k).Error
 }
+
+func (r *StockRepo) GetSignal(code string) (*model.StockSignal, error) {
+	var signal model.StockSignal
+	err := db.PG.Where("code = ?", code).First(&signal).Error
+	return &signal, err
+}

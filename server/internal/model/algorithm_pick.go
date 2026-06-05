@@ -23,3 +23,15 @@ type AlgorithmPickDetail struct {
 }
 
 func (AlgorithmPickDetail) TableName() string { return "algorithm_pick_details" }
+
+// HeatmapEnriched combines board data with stock name and K-line change
+type HeatmapEnriched struct {
+	PickDate  time.Time `json:"pickDate"`
+	StockCode string    `json:"stockCode"`
+	StockName string    `json:"stockName"`
+	Rank      int       `json:"rank"`
+	Score     float64   `json:"score"`
+	Open      float64   `json:"open"`
+	Close     float64   `json:"close"`
+	ChgPct    float64   `json:"chgPct"`
+}
