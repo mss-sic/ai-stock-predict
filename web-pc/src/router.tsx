@@ -10,7 +10,9 @@ import WatchlistPage from './pages/WatchlistPage';
 import StrategyPage from './pages/StrategyPage';
 import HoldingsPage from './pages/HoldingsPage';
 import RiskPage from './pages/RiskPage';
+import StockListPage from "./pages/StockListPage";
 import DataManagementPage from './pages/DataManagementPage';
+import SettingsPage from './pages/SettingsPage';
 
 const router = createBrowserRouter([
   {
@@ -23,11 +25,13 @@ const router = createBrowserRouter([
       { path: 'stock/:code', element: <StockDetailPage /> },
       { path: 'forecast/:code', element: <ForecastPage /> },
       { path: 'ai/:code', element: <AIAnalysisPage /> },
+      { path: "stocks", element: <StockListPage /> },
       { path: 'watchlist', element: <WatchlistPage /> },
       { path: 'strategy', element: <StrategyPage /> },
       { path: 'holdings', element: <HoldingsPage /> },
       { path: 'risk', element: <RiskPage /> },
       { path: 'data', element: <DataManagementPage /> },
+      { path: 'settings', element: <SettingsPage /> },
     ],
   },
 ]);

@@ -1,38 +1,555 @@
 package collector
 
 import (
+	"encoding/json"
+	"fmt"
+	"io"
 	"log"
+	"net/http"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/ai-stock-predict/server/internal/db"
 	"github.com/ai-stock-predict/server/internal/model"
 )
 
-func RunFullCollection() {
-	log.Println("[collector] Starting full collection...")
-	start := time.Now()
+type SSELine struct {
+	Type    string       `json:"type"`
+	Phase   string       `json:"phase,omitempty"`
+	Message string       `json:"message,omitempty"`
+	Level   string       `json:"level,omitempty"`
+	Result  *PhaseResult `json:"result,omitempty"`
+}
 
-	// Phase 1: Update stock basics
-	basicResult := RunBasicTask()
-	log.Printf("[collector] Basic info: %d/%d success, %d failed",
-		basicResult.Success, basicResult.Total, basicResult.Failed)
+type sseWriter struct {
+	mu      sync.Mutex
+	buf     strings.Builder
+	level   string
+	writers []io.Writer
+}
 
-	// Phase 2: Fetch daily K-line
-	kResult := RunDailyKTask()
-	log.Printf("[collector] Daily K: %d/%d success, %d failed",
-		kResult.Success, kResult.Total, kResult.Failed)
-
-	// Log to import_logs
-	logEntry := model.ImportLog{
-		FileName:     "auto_collection",
-		RowsImported: kResult.Success,
-		Status:       "success",
-		ImportedAt:   time.Now(),
+func (w *sseWriter) Write(p []byte) (n int, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[sseWriter] panic: %v", r)
+		}
+	}()
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	n = len(p)
+	for _, b := range p {
+		if b == '\n' {
+			line := strings.TrimSpace(w.buf.String())
+			w.buf.Reset()
+			line = strings.TrimPrefix(line, "\r")
+			if line != "" {
+				data, _ := json.Marshal(SSELine{Type: "log", Message: line, Level: w.level})
+				sseLine := fmt.Sprintf("data: %s\n\n", data)
+				for _, wr := range w.writers {
+					wr.Write([]byte(sseLine))
+					if f, ok := wr.(http.Flusher); ok {
+						f.Flush()
+					}
+				}
+			}
+		} else {
+			w.buf.WriteByte(b)
+		}
 	}
-	if kResult.Failed > 0 || basicResult.Failed > 0 {
-		logEntry.Status = "partial"
+	return
+}
+
+func (w *sseWriter) addWriter(wr io.Writer) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.writers = append(w.writers, wr)
+}
+
+func (w *sseWriter) flushRemaining() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.buf.Len() > 0 {
+		line := strings.TrimSpace(w.buf.String())
+		if line != "" {
+			data, _ := json.Marshal(SSELine{Type: "log", Message: line, Level: w.level})
+			sseLine := fmt.Sprintf("data: %s\n\n", data)
+			for _, wr := range w.writers {
+				wr.Write([]byte(sseLine))
+			}
+		}
+		w.buf.Reset()
+	}
+}
+
+// ---- Progress State ----
+
+type PhaseResult struct {
+	Phase      string `json:"phase"`
+	Total      int    `json:"total"`
+	New        int    `json:"new"`
+	Skipped    int    `json:"skipped"`
+	Errors     int    `json:"errors"`
+	DurationMs int64  `json:"durationMs"`
+}
+
+type CollectionProgress struct {
+	mu       sync.RWMutex
+	Running  bool          `json:"running"`
+	Phase    string        `json:"phase"`
+	Current  int           `json:"current"`
+	Total    int           `json:"total"`
+	Message  string        `json:"message"`
+	Results  []PhaseResult `json:"results"`
+	Started  time.Time     `json:"started"`
+	Finished *time.Time    `json:"finished"`
+	LastRun  interface{}   `json:"lastRun"`
+	Errors   []string      `json:"errors"`
+}
+
+var (
+	progress     = &CollectionProgress{}
+	activeWriter *sseWriter
+	writerMu     sync.Mutex
+)
+
+func GetProgress() *CollectionProgress {
+	progress.mu.RLock()
+	defer progress.mu.RUnlock()
+	cp := *progress
+	cp.Results = make([]PhaseResult, len(progress.Results))
+	copy(cp.Results, progress.Results)
+	cp.Errors = make([]string, len(progress.Errors))
+	copy(cp.Errors, progress.Errors)
+	return &cp
+}
+
+func sseSend(line SSELine) {
+	writerMu.Lock()
+	w := activeWriter
+	writerMu.Unlock()
+	if w != nil {
+		data, _ := json.Marshal(line)
+		w.mu.Lock()
+		for _, wr := range w.writers {
+			fmt.Fprintf(wr, "data: %s\n\n", data)
+			if f, ok := wr.(http.Flusher); ok {
+				f.Flush()
+			}
+		}
+		w.mu.Unlock()
+	}
+}
+
+func runPythonStream(script string) error {
+	return runPythonStreamWithArgs(script)
+}
+
+func runPythonStreamWithArgs(script string, args ...string) error {
+	scriptPath := filepath.Join(scriptsRoot(), script)
+	cmdArgs := append([]string{"-u", scriptPath}, args...)
+	cmd := exec.Command("python3", cmdArgs...)
+	cmd.Dir = scriptsRoot()
+	cmd.Env = append(cmd.Environ(), "PYTHONUNBUFFERED=1", "PYTHONIOENCODING=utf-8")
+
+	stdoutW := &sseWriter{level: "info"}
+	stderrW := &sseWriter{level: "stderr"}
+	writerMu.Lock()
+	if activeWriter != nil {
+		stdoutW.writers = append(stdoutW.writers, activeWriter.writers...)
+		stderrW.writers = append(stderrW.writers, activeWriter.writers...)
+	}
+	writerMu.Unlock()
+
+	cmd.Stdout = stdoutW
+	cmd.Stderr = stderrW
+	err := cmd.Run()
+	stdoutW.flushRemaining()
+	stderrW.flushRemaining()
+	return err
+}
+
+// RunManualCollection runs all phases. If phases is non-empty, only those phases run.
+func RunManualCollection(phases []string) {
+	progress.mu.Lock()
+	if progress.Running {
+		progress.mu.Unlock()
+		log.Println("[collector] already running, skip")
+		return
+	}
+	progress.Running = true
+	progress.Phase = "starting"
+	progress.Current = 0
+	totalPhases := len(phases)
+	if totalPhases == 0 {
+		totalPhases = 9
+	}
+	progress.Total = totalPhases
+	progress.Results = nil
+	progress.Errors = nil
+	progress.Started = time.Now()
+	progress.Finished = nil
+	progress.mu.Unlock()
+
+	logEntry := model.CollectionLog{
+		Status:    "running",
+		StartedAt: time.Now(),
 	}
 	db.MySQL.Create(&logEntry)
 
-	log.Printf("[collector] Full collection completed in %s", time.Since(start))
+	defer func() {
+		now := time.Now()
+		progress.mu.Lock()
+		progress.Running = false
+		progress.Phase = "done"
+		progress.Finished = &now
+		progress.Current = len(progress.Results)
+		progress.mu.Unlock()
+
+		totalNew, totalSkipped, totalErrors := 0, 0, 0
+		for _, r := range progress.Results {
+			totalNew += r.New
+			totalSkipped += r.Skipped
+			totalErrors += r.Errors
+		}
+		status := "success"
+		if totalErrors > 0 {
+			status = "partial"
+		}
+		durationMs := now.Sub(logEntry.StartedAt).Milliseconds()
+		phasesJSON, _ := json.Marshal(progress.Results)
+		db.MySQL.Model(&logEntry).Updates(map[string]interface{}{
+			"phases": string(phasesJSON), "total_new": totalNew,
+			"total_skipped": totalSkipped, "total_errors": totalErrors,
+			"status": status, "duration_ms": durationMs, "finished_at": now,
+		})
+		sseSend(SSELine{Type: "done", Phase: "done", Level: "success",
+			Message: fmt.Sprintf("采集完成: 新增 %d, 跳过 %d, 错误 %d, 耗时 %dms", totalNew, totalSkipped, totalErrors, durationMs)})
+	}()
+
+	shouldRun := func(p string) bool {
+		if len(phases) == 0 {
+			return true
+		}
+		for _, ph := range phases {
+			if ph == p {
+				return true
+			}
+		}
+		return false
+	}
+
+	if shouldRun("full_sync") {
+		appendResult(runFullSyncPhase())
+	}
+	if shouldRun("kline") {
+		appendResult(runKLinePhase())
+	}
+	if shouldRun("indicator") {
+		appendResult(runIndicatorPhase())
+	}
+	if shouldRun("industry") {
+		appendResult(runIndustryPhase())
+	}
+	if shouldRun("quote") {
+		appendResult(runQuotePhase())
+	}
+	if shouldRun("shareholder") {
+		appendResult(runShareholderPhase())
+	}
+	if shouldRun("financial") {
+		appendResult(runFinancialPhase())
+	}
+	if shouldRun("news") {
+		appendResult(runNewsPhase())
+	}
+
+	if shouldRun("reports") {
+		appendResult(runReportsPhase())
+	}
+}
+
+func runFullSyncPhase() PhaseResult {
+	setPhase("full_sync", "同步A股股票列表...")
+	sseSend(SSELine{Type: "phase", Phase: "full_sync", Message: "开始同步A股股票列表...", Level: "info"})
+	t0 := time.Now()
+	var before int64
+	db.PG.Model(&model.StockBasic{}).Count(&before)
+	runPythonStream("full_sync.py")
+	phaseRes := PhaseResult{Phase: "full_sync", Skipped: int(before)}
+	var after int64
+	db.PG.Model(&model.StockBasic{}).Count(&after)
+	phaseRes.Total = int(after)
+	phaseRes.New = int(after - before)
+	phaseRes.DurationMs = time.Since(t0).Milliseconds()
+	sseSend(SSELine{Type: "result", Phase: "full_sync", Result: &phaseRes, Level: "success", Message: fmt.Sprintf("列表同步: %d 只", after)})
+	return phaseRes
+}
+
+func runKLinePhase() PhaseResult {
+	setPhase("kline", "采集日K线数据...")
+	sseSend(SSELine{Type: "phase", Phase: "kline", Message: "开始采集日K线数据...", Level: "info"})
+	t0 := time.Now()
+	var totalStocks int64
+	db.PG.Model(&model.StockBasic{}).Count(&totalStocks)
+	var stocksWithK int64
+	db.PG.Raw("SELECT COUNT(DISTINCT code) FROM stocks_daily_k").Scan(&stocksWithK)
+	needK := int(totalStocks - stocksWithK)
+	if needK <= 0 {
+		pr := PhaseResult{Phase: "kline", Total: int(stocksWithK), Skipped: int(stocksWithK), DurationMs: time.Since(t0).Milliseconds()}
+		sseSend(SSELine{Type: "result", Phase: "kline", Result: &pr, Level: "success", Message: fmt.Sprintf("K线已完整 (%d 只), 跳过", stocksWithK)})
+		return pr
+	}
+	sseSend(SSELine{Type: "log", Message: fmt.Sprintf("需采集K线: %d 只", needK), Level: "info"})
+	runPythonStream("batch_collect.py")
+	phaseRes := PhaseResult{Phase: "kline", Skipped: int(stocksWithK)}
+	var after int64
+	db.PG.Raw("SELECT COUNT(DISTINCT code) FROM stocks_daily_k").Scan(&after)
+	phaseRes.Total = int(after)
+	phaseRes.New = int(after - stocksWithK)
+	phaseRes.DurationMs = time.Since(t0).Milliseconds()
+	sseSend(SSELine{Type: "result", Phase: "kline", Result: &phaseRes, Level: "success", Message: fmt.Sprintf("K线: %d 只", after)})
+	return phaseRes
+}
+
+func runIndicatorPhase() PhaseResult {
+	setPhase("indicator", "采集PE/PB指标...")
+	sseSend(SSELine{Type: "phase", Phase: "indicator", Message: "开始采集PE/PB指标...", Level: "info"})
+	t0 := time.Now()
+	today := time.Now().Format("2006-01-02")
+	var totalStocks int64
+	db.PG.Model(&model.StockBasic{}).Count(&totalStocks)
+	var existing int64
+	db.PG.Model(&model.StockDailyIndicator{}).Where("trade_date = ? AND pe > 0", today).Count(&existing)
+	need := totalStocks - existing
+	if need <= 0 {
+		pr := PhaseResult{Phase: "indicator", Total: int(existing), Skipped: int(existing), DurationMs: time.Since(t0).Milliseconds()}
+		sseSend(SSELine{Type: "result", Phase: "indicator", Result: &pr, Level: "success", Message: fmt.Sprintf("PE/PB完整 (%d 只), 跳过", existing)})
+		return pr
+	}
+	sseSend(SSELine{Type: "log", Message: fmt.Sprintf("需采集指标: %d 只 (总计 %d, 已有 %d)", need, totalStocks, existing), Level: "info"})
+	runPythonStream("daily_indicator.py")
+	phaseRes := PhaseResult{Phase: "indicator", Skipped: int(existing)}
+	var after int64
+	db.PG.Model(&model.StockDailyIndicator{}).Where("trade_date = ? AND pe > 0", today).Count(&after)
+	phaseRes.Total = int(after)
+	phaseRes.New = int(after - existing)
+	phaseRes.DurationMs = time.Since(t0).Milliseconds()
+	sseSend(SSELine{Type: "result", Phase: "indicator", Result: &phaseRes, Level: "success", Message: fmt.Sprintf("PE/PB: %d 只", after)})
+	return phaseRes
+}
+
+func runIndustryPhase() PhaseResult {
+	setPhase("industry", "填充行业分类...")
+	sseSend(SSELine{Type: "phase", Phase: "industry", Message: "开始填充行业分类...", Level: "info"})
+	t0 := time.Now()
+	var totalStocks int64
+	db.PG.Model(&model.StockBasic{}).Count(&totalStocks)
+	var existing int64
+	db.PG.Model(&model.StockBasic{}).Where("industry IS NOT NULL AND industry != ''").Count(&existing)
+	need := totalStocks - existing
+	if need <= 0 {
+		pr := PhaseResult{Phase: "industry", Total: int(existing), Skipped: int(existing), DurationMs: time.Since(t0).Milliseconds()}
+		sseSend(SSELine{Type: "result", Phase: "industry", Result: &pr, Level: "success", Message: fmt.Sprintf("行业完整 (%d 只), 跳过", existing)})
+		return pr
+	}
+	sseSend(SSELine{Type: "log", Message: fmt.Sprintf("需填充行业: %d 只", need), Level: "info"})
+	runPythonStream("populate_industry.py")
+	phaseRes := PhaseResult{Phase: "industry", Skipped: int(existing)}
+	var after int64
+	db.PG.Model(&model.StockBasic{}).Where("industry IS NOT NULL AND industry != ''").Count(&after)
+	phaseRes.Total = int(after)
+	phaseRes.New = int(after - existing)
+	phaseRes.DurationMs = time.Since(t0).Milliseconds()
+	sseSend(SSELine{Type: "result", Phase: "industry", Result: &phaseRes, Level: "success", Message: fmt.Sprintf("行业: %d 只", after)})
+	return phaseRes
+}
+
+func runQuotePhase() PhaseResult {
+	setPhase("quote", "采集实时行情...")
+	sseSend(SSELine{Type: "phase", Phase: "quote", Message: "开始采集实时行情...", Level: "info"})
+	t0 := time.Now()
+	runPythonStream("quotes_sync.py")
+	phaseRes := PhaseResult{Phase: "quote"}
+	var total int64
+	db.PG.Model(&model.StockQuote{}).Count(&total)
+	phaseRes.Total = int(total)
+	phaseRes.New = int(total)
+	phaseRes.DurationMs = time.Since(t0).Milliseconds()
+	sseSend(SSELine{Type: "result", Phase: "quote", Result: &phaseRes, Level: "success"})
+	return phaseRes
+}
+
+func runShareholderPhase() PhaseResult {
+	setPhase("shareholder", "采集股东户数...")
+	sseSend(SSELine{Type: "phase", Phase: "shareholder", Message: "开始采集股东户数...", Level: "info"})
+	t0 := time.Now()
+	var totalStocks int64
+	db.PG.Model(&model.StockBasic{}).Count(&totalStocks)
+	var existing int64
+	db.PG.Model(&model.StockShareholder{}).Count(&existing)
+	need := totalStocks - existing
+	if need <= 0 {
+		pr := PhaseResult{Phase: "shareholder", Total: int(existing), Skipped: int(existing), DurationMs: time.Since(t0).Milliseconds()}
+		sseSend(SSELine{Type: "result", Phase: "shareholder", Result: &pr, Level: "success", Message: fmt.Sprintf("股东数据完整 (%d 只), 跳过", existing)})
+		return pr
+	}
+	sseSend(SSELine{Type: "log", Message: fmt.Sprintf("需采集股东: %d 只 (总计 %d, 已有 %d)", need, totalStocks, existing), Level: "info"})
+	runPythonStream("shareholder_collect.py")
+	phaseRes := PhaseResult{Phase: "shareholder", Skipped: int(existing)}
+	var after int64
+	db.PG.Model(&model.StockShareholder{}).Count(&after)
+	phaseRes.Total = int(after)
+	phaseRes.New = int(after - existing)
+	phaseRes.DurationMs = time.Since(t0).Milliseconds()
+	sseSend(SSELine{Type: "result", Phase: "shareholder", Result: &phaseRes, Level: "success", Message: fmt.Sprintf("股东: %d 只", after)})
+	return phaseRes
+}
+
+func runFinancialPhase() PhaseResult {
+	setPhase("financial", "采集财务数据...")
+	sseSend(SSELine{Type: "phase", Phase: "financial", Message: "开始采集财务数据...", Level: "info"})
+	t0 := time.Now()
+	var totalStocks int64
+	db.PG.Model(&model.StockBasic{}).Count(&totalStocks)
+	var existing int64
+	db.PG.Model(&model.StockFinancial{}).Select("COUNT(DISTINCT code)").Scan(&existing)
+	need := totalStocks - existing
+	if need <= 0 {
+		pr := PhaseResult{Phase: "financial", Total: int(existing), Skipped: int(existing), DurationMs: time.Since(t0).Milliseconds()}
+		sseSend(SSELine{Type: "result", Phase: "financial", Result: &pr, Level: "success", Message: fmt.Sprintf("财务数据完整 (%d 只), 跳过", existing)})
+		return pr
+	}
+	sseSend(SSELine{Type: "log", Message: fmt.Sprintf("需采集财务: %d 只 (总计 %d, 已有 %d)", need, totalStocks, existing), Level: "info"})
+	runPythonStream("financial_collect.py")
+	phaseRes := PhaseResult{Phase: "financial", Skipped: int(existing)}
+	var after int64
+	db.PG.Model(&model.StockFinancial{}).Select("COUNT(DISTINCT code)").Scan(&after)
+	phaseRes.Total = int(after)
+	phaseRes.New = int(after - existing)
+	phaseRes.DurationMs = time.Since(t0).Milliseconds()
+	sseSend(SSELine{Type: "result", Phase: "financial", Result: &phaseRes, Level: "success", Message: fmt.Sprintf("财务: %d 只", after)})
+	return phaseRes
+}
+
+func runNewsPhase() PhaseResult {
+	setPhase("news", "采集资讯数据...")
+	sseSend(SSELine{Type: "phase", Phase: "news", Message: "开始采集资讯数据...", Level: "info"})
+	t0 := time.Now()
+	var totalStocks int64
+	db.PG.Model(&model.StockBasic{}).Count(&totalStocks)
+	var existing int64
+	db.PG.Model(&model.StockNews{}).Select("COUNT(DISTINCT code)").Scan(&existing)
+	need := totalStocks - existing
+	if need <= 0 {
+		pr := PhaseResult{Phase: "news", Total: int(existing), Skipped: int(existing), DurationMs: time.Since(t0).Milliseconds()}
+		sseSend(SSELine{Type: "result", Phase: "news", Result: &pr, Level: "success", Message: fmt.Sprintf("资讯数据完整 (%d 只), 跳过", existing)})
+		return pr
+	}
+	sseSend(SSELine{Type: "log", Message: fmt.Sprintf("需采集资讯: %d 只 (总计 %d, 已有 %d)", need, totalStocks, existing), Level: "info"})
+	runPythonStream("news_collect.py")
+	phaseRes := PhaseResult{Phase: "news", Skipped: int(existing)}
+	var after int64
+	db.PG.Model(&model.StockNews{}).Select("COUNT(DISTINCT code)").Scan(&after)
+	phaseRes.Total = int(after)
+	phaseRes.New = int(after - existing)
+	phaseRes.DurationMs = time.Since(t0).Milliseconds()
+	sseSend(SSELine{Type: "result", Phase: "news", Result: &phaseRes, Level: "success", Message: fmt.Sprintf("资讯: %d 只", after)})
+	return phaseRes
+}
+
+// RunStockCollection runs a single phase for a single stock code
+func RunStockCollection(phase, code string) error {
+	log.Printf("[collector] stock collection phase=%s code=%s", phase, code)
+	switch phase {
+	case "shareholder":
+		return runPythonStreamWithArgs("shareholder_collect.py", code)
+	case "financial":
+		return runPythonStreamWithArgs("financial_collect.py", code)
+	case "news":
+		return runPythonStreamWithArgs("news_collect.py", code)
+	default:
+		return fmt.Errorf("unknown phase: %s", phase)
+	}
+}
+
+func setPhase(phase, msg string) {
+	progress.mu.Lock()
+	progress.Phase = phase
+	progress.Message = msg
+	progress.mu.Unlock()
+}
+
+func appendResult(r PhaseResult) {
+	progress.mu.Lock()
+	progress.Results = append(progress.Results, r)
+	progress.Current = len(progress.Results)
+	progress.mu.Unlock()
+}
+
+func addError(msg string) {
+	progress.mu.Lock()
+	progress.Errors = append(progress.Errors, msg)
+	progress.mu.Unlock()
+	log.Printf("[collector] ERROR: %s", msg)
+}
+
+func RegisterSSEWriter(w io.Writer) {
+	writerMu.Lock()
+	defer writerMu.Unlock()
+	if activeWriter == nil {
+		activeWriter = &sseWriter{level: "info"}
+	}
+	activeWriter.addWriter(w)
+}
+
+func UnregisterSSEWriter(w io.Writer) {
+	writerMu.Lock()
+	defer writerMu.Unlock()
+	if activeWriter == nil {
+		return
+	}
+	activeWriter.mu.Lock()
+	defer activeWriter.mu.Unlock()
+	var kept []io.Writer
+	for _, wr := range activeWriter.writers {
+		if wr != w {
+			kept = append(kept, wr)
+		}
+	}
+	activeWriter.writers = kept
+}
+
+func runReportsPhase() PhaseResult {
+	setPhase("reports", "采集研报数据...")
+	sseSend(SSELine{Type: "phase", Phase: "reports", Message: "开始采集研报数据...", Level: "info"})
+	t0 := time.Now()
+	var existing int64
+	db.PG.Model(&model.StockReport{}).Count(&existing)
+	sseSend(SSELine{Type: "log", Message: fmt.Sprintf("当前研报: %d 篇, 开始增量拉取...", existing), Level: "info"})
+
+	beginDate := "2024-01-01"
+	endDate := time.Now().Format("2006-01-02")
+	args := []string{beginDate, endDate}
+
+	err := runPythonStreamWithArgs("report_collect.py", args...)
+	if err != nil {
+		pr := PhaseResult{Phase: "reports", Skipped: int(existing), Errors: 1, DurationMs: time.Since(t0).Milliseconds()}
+		sseSend(SSELine{Type: "result", Phase: "reports", Result: &pr, Level: "error", Message: fmt.Sprintf("研报采集失败: %v", err)})
+		return pr
+	}
+
+	var after int64
+	db.PG.Model(&model.StockReport{}).Count(&after)
+	phaseRes := PhaseResult{
+		Phase:      "reports",
+		Total:      int(after),
+		New:        int(after - existing),
+		Skipped:    int(existing),
+		DurationMs: time.Since(t0).Milliseconds(),
+	}
+	sseSend(SSELine{Type: "result", Phase: "reports", Result: &phaseRes, Level: "success", Message: fmt.Sprintf("研报: %d 篇 (新增 %d)", after, phaseRes.New)})
+	return phaseRes
 }

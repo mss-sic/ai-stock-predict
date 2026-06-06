@@ -31,7 +31,7 @@ func New(cronExpr string) *Scheduler {
 		s.status = "running"
 		s.mu.Unlock()
 
-		collector.RunFullCollection()
+		collector.RunManualCollection(nil)
 
 		s.mu.Lock()
 		s.running = false
@@ -42,20 +42,13 @@ func New(cronExpr string) *Scheduler {
 	return s
 }
 
-func (s *Scheduler) Start() {
-	s.cron.Start()
-	log.Println("[scheduler] started")
-}
+func (s *Scheduler) Start() { s.cron.Start(); log.Println("[scheduler] started") }
+func (s *Scheduler) Stop()  { s.cron.Stop(); log.Println("[scheduler] stopped") }
 
-func (s *Scheduler) Stop() {
-	s.cron.Stop()
-	log.Println("[scheduler] stopped")
-}
-
-func (s *Scheduler) Trigger() {
+func (s *Scheduler) Trigger(phases []string) {
 	go func() {
-		log.Println("[scheduler] manual trigger")
-		collector.RunFullCollection()
+		log.Printf("[scheduler] manual trigger phases=%v", phases)
+		collector.RunManualCollection(phases)
 		s.mu.Lock()
 		s.lastRun = time.Now()
 		s.mu.Unlock()

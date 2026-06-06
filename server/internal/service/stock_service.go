@@ -37,3 +37,29 @@ func (s *StockService) GetIndicator(code string) (*model.StockDailyIndicator, er
 func (s *StockService) GetSignal(code string) (*model.StockSignal, error) {
 	return s.repo.GetSignal(code)
 }
+
+func (s *StockService) GetQuote(code string) (*model.StockQuote, error) {
+	qs := NewQuoteService()
+	return qs.GetQuote(code)
+}
+
+func (s *StockService) GetFinancials(code string) ([]model.StockFinancial, error) {
+	return s.repo.GetFinancials(code)
+}
+
+func (s *StockService) GetShareholders(code string) ([]model.StockShareholder, error) {
+	return s.repo.GetShareholders(code)
+}
+
+func (s *StockService) GetNews(code string, limit int) ([]model.StockNews, error) {
+	if limit <= 0 { limit = 20 }
+	return s.repo.GetNews(code, limit)
+}
+
+func (s *StockService) GetReports(code string, limit int) ([]model.StockReport, error) {
+	return s.repo.GetReports(code, limit)
+}
+
+func (s *StockService) GetIndustryReports(industry string, limit int) ([]model.StockReport, error) {
+	return s.repo.GetIndustryReports(industry, limit)
+}

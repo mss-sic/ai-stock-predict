@@ -31,14 +31,19 @@ func ParseAndImportExcel(file multipart.File, fileName string) (*ImportResult, e
 
 	result := &ImportResult{FileName: fileName}
 
-	// ── Parse sheet2: algorithm picks ──
-	if err := importSheet2(f, result); err != nil {
-		result.Errors = append(result.Errors, "sheet2(榜单): "+err.Error())
+	// ── Parse sheet1 first: build stock signal map for scoring ──
+	signalMap, err := parseSheet1Signals(f)
+	if err != nil {
+		result.Errors = append(result.Errors, "sheet1(信号): "+err.Error())
+	}
+	// Also import signals into DB
+	if err := importSheet1(f, result); err != nil {
+		result.Errors = append(result.Errors, "sheet1(导入): "+err.Error())
 	}
 
-	// ── Parse sheet1: stock signals ──
-	if err := importSheet1(f, result); err != nil {
-		result.Errors = append(result.Errors, "sheet1(信号): "+err.Error())
+	// ── Parse sheet2: algorithm picks with scores from sheet1 ──
+	if err := importSheet2(f, result, signalMap); err != nil {
+		result.Errors = append(result.Errors, "sheet2(榜单): "+err.Error())
 	}
 
 	// ── Log to MySQL ──
@@ -58,8 +63,34 @@ func ParseAndImportExcel(file multipart.File, fileName string) (*ImportResult, e
 	return result, nil
 }
 
+// ── parseSheet1Signals builds a map of code → signal value from sheet1 ──
+func parseSheet1Signals(f *excelize.File) (map[string]float64, error) {
+	rows, err := f.GetRows("sheet1")
+	if err != nil {
+		return nil, fmt.Errorf("找不到 sheet1: %w", err)
+	}
+	signalMap := make(map[string]float64)
+	for _, row := range rows {
+		if len(row) < 2 {
+			continue
+		}
+		code := strings.TrimSpace(row[0])
+		code = strings.TrimPrefix(code, "'")
+		if code == "" || len(code) < 6 {
+			continue
+		}
+		val, err := strconv.ParseFloat(strings.TrimSpace(row[1]), 64)
+		if err != nil {
+			continue
+		}
+		signalMap[code] = val
+	}
+	return signalMap, nil
+}
+
 // ── importSheet2 parses the algorithm picks (50 stocks × N trading days) ──
-func importSheet2(f *excelize.File, result *ImportResult) error {
+// ── importSheet2 parses the algorithm picks (50 stocks × N trading days) ──
+func importSheet2(f *excelize.File, result *ImportResult, signalMap map[string]float64) error {
 	rows, err := f.GetRows("sheet2")
 	if err != nil {
 		return fmt.Errorf("找不到 sheet2: %w", err)
@@ -160,12 +191,12 @@ func importSheet2(f *excelize.File, result *ImportResult) error {
 
 		// Upsert detail rows with correct rank
 		for _, p := range dg.picks {
+			score := signalMap[p.code] // from sheet1 algorithm output
 			detail := model.AlgorithmPickDetail{
 				PickDate:  p.date,
 				StockCode: p.code,
 				Rank:      p.rank,
-				Suggestion: "hold",
-				RiskLevel:  "medium",
+				Score:     score,
 			}
 			db.PG.Where("pick_date = ? AND stock_code = ?", p.date, p.code).
 				Assign(detail).FirstOrCreate(&detail)

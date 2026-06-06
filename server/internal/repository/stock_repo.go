@@ -66,3 +66,35 @@ func (r *StockRepo) GetSignal(code string) (*model.StockSignal, error) {
 	err := db.PG.Where("code = ?", code).First(&signal).Error
 	return &signal, err
 }
+
+// ── Financial / Shareholder / News ──
+
+func (r *StockRepo) GetFinancials(code string) ([]model.StockFinancial, error) {
+	var rows []model.StockFinancial
+	err := db.PG.Where("code = ?", code).Order("report_date DESC").Limit(12).Find(&rows).Error
+	return rows, err
+}
+
+func (r *StockRepo) GetShareholders(code string) ([]model.StockShareholder, error) {
+	var rows []model.StockShareholder
+	err := db.PG.Where("code = ?", code).Order("report_date DESC").Limit(12).Find(&rows).Error
+	return rows, err
+}
+
+func (r *StockRepo) GetNews(code string, limit int) ([]model.StockNews, error) {
+	var rows []model.StockNews
+	err := db.PG.Where("code = ?", code).Order("publish_date DESC").Limit(limit).Find(&rows).Error
+	return rows, err
+}
+
+func (r *StockRepo) GetReports(code string, limit int) ([]model.StockReport, error) {
+	var rows []model.StockReport
+	err := db.PG.Where("stock_code = ?", code).Order("publish_date DESC").Limit(limit).Find(&rows).Error
+	return rows, err
+}
+
+func (r *StockRepo) GetIndustryReports(industry string, limit int) ([]model.StockReport, error) {
+	var rows []model.StockReport
+	err := db.PG.Where("industry_name = ?", industry).Order("publish_date DESC").Limit(limit).Find(&rows).Error
+	return rows, err
+}

@@ -1,0 +1,98 @@
+{
+  "exported_at": "2026-06-06T06:38:31Z",
+  "total_tables": 15,
+  "total_rows": 505515,
+  "total_size": 15654839,
+  "files": [
+    {
+      "table": "stocks_basic",
+      "file": "stocks_basic.csv",
+      "rows": 6006,
+      "size": 450366
+    },
+    {
+      "table": "stocks_daily_k",
+      "file": "stocks_daily_k.csv.gz",
+      "rows": 472230,
+      "size": 10875318
+    },
+    {
+      "table": "stocks_daily_indicator",
+      "file": "stocks_daily_indicator.csv",
+      "rows": 9499,
+      "size": 471784
+    },
+    {
+      "table": "stock_quotes",
+      "file": "stock_quotes.csv",
+      "rows": 4810,
+      "size": 531965
+    },
+    {
+      "table": "stock_signals",
+      "file": "stock_signals.csv",
+      "rows": 5510,
+      "size": 377434
+    },
+    {
+      "table": "stock_financials",
+      "file": "stock_financials.csv",
+      "rows": 140,
+      "size": 24754
+    },
+    {
+      "table": "stock_shareholders",
+      "file": "stock_shareholders.csv",
+      "rows": 536,
+      "size": 737861
+    },
+    {
+      "table": "stock_news",
+      "file": "stock_news.csv",
+      "rows": 180,
+      "size": 64123
+    },
+    {
+      "table": "stock_reports",
+      "file": "stock_reports.csv",
+      "rows": 5202,
+      "size": 2036248
+    },
+    {
+      "table": "algorithm_picks",
+      "file": "algorithm_picks.csv",
+      "rows": 20,
+      "size": 1051
+    },
+    {
+      "table": "algorithm_pick_details",
+      "file": "algorithm_pick_details.csv",
+      "rows": 1000,
+      "size": 34257
+    },
+    {
+      "table": "predictions",
+      "file": "predictions.csv",
+      "rows": 360,
+      "size": 31103
+    },
+    {
+      "table": "ai_analyses",
+      "file": "ai_analyses.csv",
+      "rows": 8,
+      "size": 7140
+    },
+    {
+      "table": "ai_stock_scores",
+      "file": "ai_stock_scores.csv",
+      "rows": 8,
+      "size": 7619
+    },
+    {
+      "table": "ai_conversations",
+      "file": "ai_conversations.csv",
+      "rows": 6,
+      "size": 3816
+    }
+  ]
+}
