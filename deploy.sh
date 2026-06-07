@@ -73,7 +73,7 @@ echo ""
 echo "【4/6】启动 Docker 服务..."
 
 cd "$APP_ROOT/docker"
-docker compose up -d --build 2>&1 | tail -3
+docker compose build --no-cache --pull && docker compose up -d 2>&1 | tail -3
 echo "  ✓ Docker 服务已启动"
 
 # 等待服务就绪
