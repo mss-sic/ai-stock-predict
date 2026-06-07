@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
@@ -13,6 +14,9 @@ import (
 const scriptsDir = "scripts/collector"
 
 func scriptsRoot() string {
+	if root := os.Getenv("APP_ROOT"); root != "" {
+		return filepath.Join(root, scriptsDir)
+	}
 	_, f, _, _ := runtime.Caller(0)
 	base := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(f))))
 	return filepath.Join(base, scriptsDir)

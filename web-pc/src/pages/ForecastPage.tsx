@@ -13,7 +13,7 @@ export default function ForecastPage() {
 
   useEffect(() => {
     if (!code) return;
-    fetchForecast(code, horizon).then((res: any) => setData(res.data || []));
+    fetchForecast(code, horizon).then((res: any) => setData(res.data?.data || []));
   }, [code, horizon]);
 
   const option = {

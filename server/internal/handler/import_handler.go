@@ -6,6 +6,7 @@ import (
 	"github.com/ai-stock-predict/server/internal/collector"
 	"github.com/ai-stock-predict/server/internal/db"
 	"github.com/ai-stock-predict/server/internal/model"
+	"github.com/ai-stock-predict/server/pkg/response"
 	"github.com/gin-gonic/gin"
 )
 
@@ -16,19 +17,19 @@ func NewImportHandler() *ImportHandler { return &ImportHandler{} }
 func (h *ImportHandler) Upload(c *gin.Context) {
 	file, err := c.FormFile("file")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "请选择文件"})
+		response.BadRequest(c, "请选择文件")
 		return
 	}
 
 	name := file.Filename
 	if len(name) < 5 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "文件名无效"})
+		response.BadRequest(c, "文件名无效")
 		return
 	}
 
 	f, err := file.Open()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "无法读取文件"})
+		response.InternalError(c, "无法读取文件")
 		return
 	}
 	defer f.Close()
@@ -38,7 +39,7 @@ func (h *ImportHandler) Upload(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"data": result})
+	response.Success(c, result)
 }
 
 func (h *ImportHandler) History(c *gin.Context) {
@@ -46,5 +47,5 @@ func (h *ImportHandler) History(c *gin.Context) {
 	if db.MySQL != nil {
 		db.MySQL.Order("imported_at DESC").Limit(20).Find(&logs)
 	}
-	c.JSON(http.StatusOK, gin.H{"data": logs})
+	response.Success(c, logs)
 }

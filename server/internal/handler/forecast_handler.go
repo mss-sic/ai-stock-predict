@@ -3,10 +3,10 @@ package handler
 import (
 	"math"
 	"math/rand"
-	"net/http"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
+	"github.com/ai-stock-predict/server/pkg/response"
 )
 
 type ForecastHandler struct{}
@@ -38,5 +38,5 @@ func (h *ForecastHandler) Predict(c *gin.Context) {
 			"lower": math.Round(basePrice*(1-ci/100)*100) / 100,
 		}
 	}
-	c.JSON(http.StatusOK, gin.H{"data": predictions, "code": code, "horizon": horizon})
+	response.Success(c, gin.H{"predictions": predictions, "stockCode": code, "horizon": horizon})
 }

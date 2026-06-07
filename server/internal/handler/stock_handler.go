@@ -5,8 +5,10 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/ai-stock-predict/server/internal/repository"
 	"github.com/ai-stock-predict/server/internal/service"
 	"github.com/gin-gonic/gin"
+	"github.com/ai-stock-predict/server/pkg/response"
 )
 
 type StockHandler struct {
@@ -36,7 +38,7 @@ func (h *StockHandler) GetDetail(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "stock not found"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"data": stock})
+	response.Success(c, stock)
 }
 
 func (h *StockHandler) GetKLine(c *gin.Context) {
@@ -48,37 +50,37 @@ func (h *StockHandler) GetKLine(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"data": klines})
+	response.Success(c, klines)
 }
 
 func (h *StockHandler) GetIndicator(c *gin.Context) {
 	code := c.Param("code")
 	ind, err := h.svc.GetIndicator(code)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		response.Success(c, nil)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"data": ind})
+	response.Success(c, ind)
 }
 
 func (h *StockHandler) GetSignal(c *gin.Context) {
 	code := c.Param("code")
 	signal, err := h.svc.GetSignal(code)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "signal not found"})
+		response.Success(c, nil)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"data": signal})
+	response.Success(c, signal)
 }
 
 func (h *StockHandler) GetQuote(c *gin.Context) {
 	code := c.Param("code")
 	q, err := h.svc.GetQuote(code)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "quote not found"})
+		response.Success(c, nil)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"data": q})
+	response.Success(c, q)
 }
 
 func (h *StockHandler) GetFinancials(c *gin.Context) {
@@ -88,7 +90,7 @@ func (h *StockHandler) GetFinancials(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"data": []interface{}{}})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"data": data})
+	response.Success(c, data)
 }
 
 func (h *StockHandler) GetShareholders(c *gin.Context) {
@@ -100,7 +102,7 @@ func (h *StockHandler) GetShareholders(c *gin.Context) {
 		return
 	}
 	log.Printf("[Shareholders] got %d rows for %s", len(data), code)
-	c.JSON(http.StatusOK, gin.H{"data": data})
+	response.Success(c, data)
 }
 
 func (h *StockHandler) GetNews(c *gin.Context) {
@@ -116,7 +118,7 @@ func (h *StockHandler) GetNews(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"data": []interface{}{}})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"data": data})
+	response.Success(c, data)
 }
 
 func (h *StockHandler) GetReports(c *gin.Context) {
@@ -133,7 +135,7 @@ func (h *StockHandler) GetReports(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"data": []interface{}{}})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"data": data})
+	response.Success(c, data)
 }
 
 func (h *StockHandler) GetIndustryReports(c *gin.Context) {
@@ -154,5 +156,16 @@ func (h *StockHandler) GetIndustryReports(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"data": []interface{}{}})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"data": data})
+	response.Success(c, data)
+}
+
+func GetDataStats(c *gin.Context) {
+	stats := repository.GetDataStats()
+	response.Success(c, stats)
+}
+
+func GetDataDetail(c *gin.Context) {
+	typ := c.Param("type")
+	results := repository.GetDataDetail(typ)
+	response.Success(c, results)
 }

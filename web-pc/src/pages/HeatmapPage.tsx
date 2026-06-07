@@ -45,7 +45,7 @@ export default function HeatmapPage() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    fetchEnrichedHeatmap().then((res: any) => setRaw(res.data || []));
+    fetchEnrichedHeatmap().then((res: any) => setRaw(res.data?.data || []));
   }, []);
 
   /* ── derived data ── */

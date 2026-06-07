@@ -17,12 +17,13 @@ type AIService struct{}
 
 func NewAIService() *AIService { return &AIService{} }
 
-// GetConfig returns the active AI config or defaults
-func (s *AIService) GetConfig() (*model.AIConfig, error) {
+// GetConfig returns the AI config for a specific user
+func (s *AIService) GetConfig(userID uint) (*model.AIConfig, error) {
 	var cfg model.AIConfig
-	err := db.MySQL.First(&cfg).Error
+	err := db.MySQL.Where("user_id = ?", userID).First(&cfg).Error
 	if err != nil {
 		return &model.AIConfig{
+			UserID:    userID,
 			Provider:  "deepseek",
 			ModelName: "deepseek-chat",
 			BaseURL:   "https://api.deepseek.com",
@@ -59,9 +60,9 @@ func (s *AIService) TestConnection(provider, apiKey, modelName, baseURL string) 
 	return nil
 }
 
-// ChatCompletion sends a non-streaming chat completion request
-func (s *AIService) ChatCompletion(prompt string, history []map[string]string) (string, error) {
-	cfg, err := s.GetConfig()
+// ChatCompletion sends a non-streaming chat completion request (user-scoped)
+func (s *AIService) ChatCompletion(userID uint, prompt string, history []map[string]string) (string, error) {
+	cfg, err := s.GetConfig(userID)
 	if err != nil {
 		return "", err
 	}
@@ -112,9 +113,9 @@ func (s *AIService) ChatCompletion(prompt string, history []map[string]string) (
 	return result.Choices[0].Message.Content, nil
 }
 
-// ChatCompletionStream sends a streaming chat completion, calling onChunk for each piece
-func (s *AIService) ChatCompletionStream(prompt string, history []map[string]string, onChunk func(chunk string)) error {
-	cfg, err := s.GetConfig()
+// ChatCompletionStream sends a streaming chat completion (user-scoped)
+func (s *AIService) ChatCompletionStream(userID uint, prompt string, history []map[string]string, onChunk func(chunk string)) error {
+	cfg, err := s.GetConfig(userID)
 	if err != nil {
 		return err
 	}
@@ -178,7 +179,7 @@ func (s *AIService) ChatCompletionStream(prompt string, history []map[string]str
 }
 
 // AnalyzeStock builds a structured prompt and returns AI analysis
-func (s *AIService) AnalyzeStock(code, name, industry string, close float64, pe, pb float64, klineSummary string, predSummary string) (map[string]interface{}, error) {
+func (s *AIService) AnalyzeStock(userID uint, code, name, industry string, close float64, pe, pb float64, klineSummary string, predSummary string) (map[string]interface{}, error) {
 	prompt := fmt.Sprintf(`你是一位资深A股分析师。请分析以下股票并返回JSON结果。
 
 股票信息：
@@ -203,7 +204,7 @@ func (s *AIService) AnalyzeStock(code, name, industry string, close float64, pe,
   "signals": ["信号1", "信号2"]
 }`, code, name, industry, close, pe, pb, klineSummary, predSummary)
 
-	reply, err := s.ChatCompletion(prompt, nil)
+	reply, err := s.ChatCompletion(userID, prompt, nil)
 	if err != nil {
 		return nil, err
 	}

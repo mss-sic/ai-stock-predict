@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ai-stock-predict/server/pkg/response"
 	"github.com/gin-gonic/gin"
 )
 
@@ -55,7 +56,6 @@ func fetchFromSina() []IndexData {
 	n, _ := resp.Body.Read(buf)
 	body := string(buf[:n])
 
-	// sina format: var hq_str_s_sh000001="上证指数,4027.74,-30.04,-0.74,..."
 	configs := []struct {
 		prefix string
 		name   string
@@ -72,7 +72,6 @@ func fetchFromSina() []IndexData {
 		if idx < 0 {
 			continue
 		}
-		// Find the quoted value
 		start := strings.Index(body[idx:], `"`)
 		if start < 0 {
 			continue
@@ -108,17 +107,26 @@ func GetIndices(c *gin.Context) {
 	}
 
 	if len(idxCache) > 0 && age < maxAge {
-		c.JSON(http.StatusOK, gin.H{"data": idxCache, "cached": true, "trading": isTradingTime()})
+		response.Success(c, gin.H{
+			"indices": idxCache,
+			"cached":  true,
+			"trading": isTradingTime(),
+		})
 		return
 	}
 
 	indices := fetchFromSina()
 	if len(indices) == 0 {
 		if len(idxCache) > 0 {
-			c.JSON(http.StatusOK, gin.H{"data": idxCache, "cached": true, "stale": true, "trading": isTradingTime()})
+			response.Success(c, gin.H{
+				"indices": idxCache,
+				"cached":  true,
+				"stale":   true,
+				"trading": isTradingTime(),
+			})
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"data": []IndexData{}, "error": "fetch failed"})
+		response.InternalError(c, "获取大盘指数失败")
 		return
 	}
 
@@ -127,5 +135,9 @@ func GetIndices(c *gin.Context) {
 	idxCacheTime = time.Now()
 	idxCacheLock.Unlock()
 
-	c.JSON(http.StatusOK, gin.H{"data": indices, "cached": false, "trading": isTradingTime()})
+	response.Success(c, gin.H{
+		"indices": indices,
+		"cached":  false,
+		"trading": isTradingTime(),
+	})
 }

@@ -184,7 +184,7 @@ func RunManualCollection(phases []string) {
 	progress.Current = 0
 	totalPhases := len(phases)
 	if totalPhases == 0 {
-		totalPhases = 9
+		totalPhases = 12
 	}
 	progress.Total = totalPhases
 	progress.Results = nil
@@ -268,6 +268,17 @@ func RunManualCollection(phases []string) {
 
 	if shouldRun("reports") {
 		appendResult(runReportsPhase())
+
+	// === Backfill phases ===
+	if shouldRun("backfill_financial") {
+		appendResult(runBackfillFinancialPhase())
+	}
+	if shouldRun("backfill_shareholder") {
+		appendResult(runBackfillShareholderPhase())
+	}
+	if shouldRun("backfill_indicator") {
+		appendResult(runBackfillIndicatorPhase())
+	}
 	}
 }
 
@@ -551,5 +562,56 @@ func runReportsPhase() PhaseResult {
 		DurationMs: time.Since(t0).Milliseconds(),
 	}
 	sseSend(SSELine{Type: "result", Phase: "reports", Result: &phaseRes, Level: "success", Message: fmt.Sprintf("研报: %d 篇 (新增 %d)", after, phaseRes.New)})
+	return phaseRes
+}
+
+func runBackfillFinancialPhase() PhaseResult {
+	setPhase("backfill_financial", "财报数据全量回填...")
+	sseSend(SSELine{Type: "phase", Phase: "backfill_financial", Message: "开始全量回填财报数据（利润表+资产负债表）...", Level: "info"})
+	t0 := time.Now()
+	var before int64
+	db.PG.Model(&model.StockFinancial{}).Count(&before)
+	runPythonStream("backfill_financial.py")
+	phaseRes := PhaseResult{Phase: "backfill_financial", Skipped: int(before)}
+	var after int64
+	db.PG.Model(&model.StockFinancial{}).Count(&after)
+	phaseRes.Total = int(after)
+	phaseRes.New = int(after - before)
+	phaseRes.DurationMs = time.Since(t0).Milliseconds()
+	sseSend(SSELine{Type: "result", Phase: "backfill_financial", Result: &phaseRes, Level: "success", Message: fmt.Sprintf("财报回填: +%d 条", after-before)})
+	return phaseRes
+}
+
+func runBackfillShareholderPhase() PhaseResult {
+	setPhase("backfill_shareholder", "股东数据全量回填...")
+	sseSend(SSELine{Type: "phase", Phase: "backfill_shareholder", Message: "开始全量回填股东数据（股东户数+十大股东）...", Level: "info"})
+	t0 := time.Now()
+	var before int64
+	db.PG.Model(&model.StockShareholder{}).Count(&before)
+	runPythonStream("backfill_shareholder.py")
+	phaseRes := PhaseResult{Phase: "backfill_shareholder", Skipped: int(before)}
+	var after int64
+	db.PG.Model(&model.StockShareholder{}).Count(&after)
+	phaseRes.Total = int(after)
+	phaseRes.New = int(after - before)
+	phaseRes.DurationMs = time.Since(t0).Milliseconds()
+	sseSend(SSELine{Type: "result", Phase: "backfill_shareholder", Result: &phaseRes, Level: "success", Message: fmt.Sprintf("股东回填: +%d 条", after-before)})
+	return phaseRes
+}
+
+func runBackfillIndicatorPhase() PhaseResult {
+	setPhase("backfill_indicator", "PE/PB指标历史回填...")
+	sseSend(SSELine{Type: "phase", Phase: "backfill_indicator", Message: "开始计算历史PE/PB/PS指标（从K线×财报）...", Level: "info"})
+	t0 := time.Now()
+	var before int64
+	db.PG.Model(&model.StockDailyIndicator{}).Count(&before)
+	runPythonStreamWithArgs("backfill_indicator.py", "2024-01-01")
+	phaseRes := PhaseResult{Phase: "backfill_indicator", Skipped: int(before)}
+	var after int64
+	db.PG.Model(&model.StockDailyIndicator{}).Count(&after)
+	phaseRes.Total = int(after)
+	phaseRes.New = int(after - before)
+	phaseRes.DurationMs = time.Since(t0).Milliseconds()
+	sseSend(SSELine{Type: "result", Phase: "backfill_indicator", Result: &phaseRes, Level: "success", Message: fmt.Sprintf("指标回填: +%d 条", after-before)})
 	return phaseRes
 }

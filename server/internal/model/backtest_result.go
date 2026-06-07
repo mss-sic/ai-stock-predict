@@ -16,5 +16,6 @@ type BacktestResult struct {
 	TradeCount   int       `json:"tradeCount"`
 	Trades       JSONMap   `gorm:"type:json" json:"trades"`
 	EquityCurve  JSONMap   `gorm:"type:json" json:"equityCurve"`
+	Coverage     JSONMap   `gorm:"type:json" json:"coverage"`
 	CreatedAt    time.Time `json:"createdAt"`
 }

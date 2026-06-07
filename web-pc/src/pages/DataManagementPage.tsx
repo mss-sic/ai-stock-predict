@@ -1,83 +1,100 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Upload, Button, Table, Tag, Progress } from '@arco-design/web-react';
+import { Upload, Button, Table, Tag, Progress, Modal, Tooltip, Switch, Popconfirm, Message } from '@arco-design/web-react';
 import {
   Database, Upload as UploadIcon, RefreshCw, FileSpreadsheet,
-  CheckCircle, XCircle, Clock, Play, Terminal, Square, History, Activity, X
+  CheckCircle, XCircle, Clock, Play, Terminal, Square, History, Activity, X,
+  BarChart3, TrendingUp, Newspaper, FileText, PieChart, Users, Banknote,
+  Timer, Zap
 } from 'lucide-react';
 import {
   uploadExcel, triggerCollection, fetchCollectorProgress,
-  fetchImportHistory, fetchCollectorHistory
+  fetchImportHistory, fetchCollectorHistory, clearCollectorHistory, fetchDataStats, fetchDataDetail,
+  fetchScheduledTasks, runTaskNow, initDefaultTasks, fetchTaskLogs, resetTaskStatus, toggleTask
 } from '../services/api';
 
 const PHASE_LABELS: Record<string, string> = {
-  full_sync: '股票列表同步',
-  kline: '日K线数据',
-  indicator: 'PE/PB指标',
-  industry: '行业分类',
-  quote: '实时行情',
-  shareholder: '股东数据',
-  financial: '财务数据',
-  news: '资讯数据',
-  reports: '研报数据',
+  full_sync: '股票列表同步', kline: '日K线数据', indicator: 'PE/PB指标',
+  industry: '行业分类', quote: '实时行情', shareholder: '股东数据',
+  financial: '财务数据', news: '资讯数据', reports: '研报数据',
+  backfill_financial: '财报全量回填', backfill_shareholder: '股东全量回填',
+  backfill_indicator: 'PE/PB历史回填',
+};
+
+const PHASE_DESCRIPTIONS: Record<string, string> = {
+  full_sync: '同步全市场股票代码、名称、上市日期、所属行业等基础信息',
+  kline: '采集每日开/高/低/收价格、成交量、成交额等K线数据',
+  indicator: '采集市盈率(PE)、市净率(PB)、市销率(PS)、总市值、流通市值、换手率等指标',
+  industry: '同步申万行业分类标准，建立行业板块映射',
+  quote: '采集实时买卖盘价格、成交量、换手率等盘中行情快照',
+  shareholder: '采集股东总人数、人均持股、前十大股东、机构持股比例等筹码数据',
+  financial: '采集营收、净利润、ROE、EPS、毛利率、资产负债率等财务数据',
+  news: '采集个股公告、新闻资讯、行业动态等信息',
+  reports: '采集券商研报、评级调整、盈利预测、目标价等机构观点',
+  backfill_financial: '全量回溯历史财报数据，补齐所有报告期的财务指标',
+  backfill_shareholder: '全量回溯历史股东数据，补齐所有报告期的股东变化',
+  backfill_indicator: '全量回溯历史PE/PB指标，补齐所有交易日的估值数据',
 };
 
 const PHASE_COLORS: Record<string, string> = {
-  full_sync: '#165dff',
-  kline: '#ff7d00',
-  indicator: '#00b42a',
-  industry: '#722ed1',
-  quote: '#14c9c9',
-  shareholder: '#f53f3f',
-  financial: '#0fc6c2',
-  news: '#f77234',
-  reports: '#e865b7',
+  full_sync: '#165dff', kline: '#ff7d00', indicator: '#00b42a',
+  industry: '#722ed1', quote: '#14c9c9', shareholder: '#f53f3f',
+  financial: '#0fc6c2', news: '#f77234', reports: '#e865b7',
+  backfill_financial: '#4080ff', backfill_shareholder: '#ff4080', backfill_indicator: '#00c853',
 };
 
-interface SSELine {
-  type: string;
-  phase?: string;
-  message?: string;
-  level?: string;
-  result?: PhaseResult;
-}
+interface SSELine { type: string; phase?: string; message?: string; level?: string; result?: PhaseResult; }
+interface PhaseResult { phase: string; total: number; new: number; skipped: number; errors: number; durationMs: number; }
+interface DataStat { key: string; label: string; count: number; updatedAt?: string; }
 
-interface PhaseResult {
-  phase: string;
-  total: number;
-  new: number;
-  skipped: number;
-  errors: number;
-  durationMs: number;
-}
-
-// Custom inline notification
 function Toast({ type, msg, onClose }: { type: 'success' | 'error' | 'info'; msg: string; onClose: () => void }) {
   const colors = { success: '#f0fff4', error: '#ffece8', info: '#e8f3ff' };
   const borders = { success: '#00b42a', error: '#f53f3f', info: '#165dff' };
   const icons = { success: <CheckCircle size={14} color="#00b42a" />, error: <XCircle size={14} color="#f53f3f" />, info: <Activity size={14} color="#165dff" /> };
-
-  useEffect(() => {
-    const t = setTimeout(onClose, 3000);
-    return () => clearTimeout(t);
-  }, [onClose]);
-
+  useEffect(() => { const t = setTimeout(onClose, 3000); return () => clearTimeout(t); }, [onClose]);
   return (
-    <div style={{
-      position: 'fixed', top: 20, right: 20, zIndex: 9999,
-      padding: '10px 16px', borderRadius: 6, fontSize: 13,
-      background: colors[type], border: `1px solid ${borders[type]}`,
-      display: 'flex', alignItems: 'center', gap: 8, boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
-      maxWidth: 400,
-    }}>
-      {icons[type]}
-      <span style={{ flex: 1, color: '#1d2129' }}>{msg}</span>
+    <div style={{ position: 'fixed', top: 20, right: 20, zIndex: 9999, padding: '10px 16px', borderRadius: 6, fontSize: 13, background: colors[type], border: `1px solid ${borders[type]}`, display: 'flex', alignItems: 'center', gap: 8, boxShadow: '0 2px 8px rgba(0,0,0,0.1)', maxWidth: 400 }}>
+      {icons[type]}<span style={{ flex: 1, color: '#1d2129' }}>{msg}</span>
       <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: '#86909c' }}><X size={12} /></button>
     </div>
   );
 }
 
+function cronToText(expr: string): string {
+  if (!expr) return '';
+  const parts = expr.trim().split(/\s+/);
+  if (parts.length < 6) return expr;
+  const [sec, min, hour, day, month, weekday] = parts;
+  // Hourly at minute M: 0 M * * * *
+  if (sec === '0' && /^\d+$/.test(min) && hour === '*' && day === '*' && month === '*' && weekday === '*') {
+    return `每小时第 ${min} 分`;
+  }
+  // Every N minutes: 0 */N * * * *
+  if (sec === '0' && min.startsWith('*/') && hour === '*' && day === '*' && month === '*' && weekday === '*') {
+    const n = parseInt(min.slice(2)); if (n === 30) return '每半小时'; if (n === 60) return '每小时'; return `每 ${n} 分钟`;
+  }
+  // Every N seconds: */N * * * * *
+  if (sec.startsWith('*/') && min === '*' && hour === '*' && day === '*' && month === '*' && weekday === '*') {
+    const n = sec.slice(2); return `每 ${n} 秒`;
+  }
+  // Daily at HH:MM: 0 MM HH * * *
+  if (sec === '0' && /^\d+$/.test(min) && /^\d+$/.test(hour) && day === '*' && month === '*' && weekday === '*') {
+    return `每日 ${hour.padStart(2,'0')}:${min.padStart(2,'0')}`;
+  }
+  // Weekly: 0 MM HH * * D
+  if (sec === '0' && /^\d+$/.test(min) && /^\d+$/.test(hour) && day === '*' && month === '*' && /^\d+$/.test(weekday)) {
+    const wdMap = ['日', '一', '二', '三', '四', '五', '六'];
+    const wd = wdMap[parseInt(weekday)] || weekday;
+    return `每周${wd} ${hour.padStart(2,'0')}:${min.padStart(2,'0')}`;
+  }
+  // Monthly: 0 MM HH D * *
+  if (sec === '0' && /^\d+$/.test(min) && /^\d+$/.test(hour) && /^\d+$/.test(day) && month === '*' && weekday === '*') {
+    return `每月${day}日 ${hour.padStart(2,'0')}:${min.padStart(2,'0')}`;
+  }
+  return expr;
+}
+
 export default function DataManagementPage() {
-  const [tab, setTab] = useState<'collect' | 'import' | 'history'>('collect');
+  const [tab, setTab] = useState<'overview' | 'tasks' | 'import' | 'collect' | 'history'>('overview');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<any>(null);
   const [history, setHistory] = useState<any[]>([]);
@@ -88,538 +105,488 @@ export default function DataManagementPage() {
   const [phaseResults, setPhaseResults] = useState<PhaseResult[]>([]);
   const [totalDuration, setTotalDuration] = useState(0);
   const [toast, setToast] = useState<{ type: 'success' | 'error' | 'info'; msg: string } | null>(null);
+  const [dataStats, setDataStats] = useState<DataStat[]>([]);
+  const [statsLoading, setStatsLoading] = useState(false);
+  const [tasksLoading, setTasksLoading] = useState(false);
+  const [selectedStat, setSelectedStat] = useState<string | null>(null);
+  const [detailData, setDetailData] = useState<any[]>([]);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailSearch, setDetailSearch] = useState('');
+  const [scheduledTasks, setScheduledTasks] = useState<any[]>([]);
+  const [taskLogs, setTaskLogs] = useState<any[]>([]);
+  const [taskLogsLoading, setTaskLogsLoading] = useState(false);
+  const [logModalVisible, setLogModalVisible] = useState(false);
+  const [logModalTaskName, setLogModalTaskName] = useState('');
+  const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
+  const [selectedCollectPhase, setSelectedCollectPhase] = useState('kline');
   const pollRef = useRef<any>(null);
   const consoleRef = useRef<HTMLDivElement>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
   const startTimeRef = useRef<number>(0);
 
-  const showToast = useCallback((type: 'success' | 'error' | 'info', msg: string) => {
-    setToast({ type, msg });
-  }, []);
-
-  // Auto-reconnect SSE if collection is running
-  const autoReconnect = useCallback(async () => {
-    try {
-      const pr: any = await fetchCollectorProgress();
-      if (pr.data?.running) {
-        setCollecting(true);
-        setProgress(pr.data);
-        setPhaseResults(pr.data.results || []);
-        if (pr.data.started) {
-          startTimeRef.current = new Date(pr.data.started).getTime();
-        }
-        addConsoleLine('🔄 检测到正在运行的采集，自动重连...', 'system');
-        // Connect SSE
-        const es = new EventSource('http://127.0.0.1:8080/api/v1/collector/stream');
-        eventSourceRef.current = es;
-        es.onmessage = (event) => {
-          try {
-            const line: SSELine = JSON.parse(event.data);
-            if (line.type === 'connected') return;
-            if (line.type === 'log' && line.message) {
-              addConsoleLine(line.message, line.level || 'info');
-            } else if (line.type === 'phase' && line.message) {
-              addConsoleLine(`
-━━━ ${line.message} ━━━`, 'phase');
-            } else if (line.type === 'result' && line.result) {
-              setPhaseResults(prev => {
-                const filtered = prev.filter(p => p.phase !== line.result!.phase);
-                return [...filtered, line.result!];
-              });
-            } else if (line.type === 'done') {
-              addConsoleLine(`
-${line.message}`, 'success');
-              setCollecting(false);
-              setTotalDuration(Date.now() - startTimeRef.current);
-              es.close();
-              eventSourceRef.current = null;
-              loadProgress();
-              showToast('success', '采集完成');
-            }
-          } catch {}
-        };
-        // Fallback polling
-        pollRef.current = setInterval(async () => {
-          try {
-            const pr: any = await fetchCollectorProgress();
-            setProgress(pr.data);
-            if (!pr.data?.running) {
-              setCollecting(false);
-              setTotalDuration(Date.now() - startTimeRef.current);
-              clearInterval(pollRef.current);
-              pollRef.current = null;
-              eventSourceRef.current?.close();
-            }
-          } catch {}
-        }, 3000);
-      }
-    } catch {}
-  }, []);
-
-  useEffect(() => {
-    if (tab === 'history') {
-      loadHistory();
-      loadColHistory();
-    }
-    if (tab === 'collect') {
-      loadProgress();
-      autoReconnect();
-    }
-    return () => {
-      clearInterval(pollRef.current);
-      eventSourceRef.current?.close();
-    };
-  }, [tab, autoReconnect]);
-
-  const loadHistory = async () => {
-    try { const res: any = await fetchImportHistory(); setHistory(res.data || []); }
-    catch { setHistory([]); }
-  };
-
-  const loadColHistory = async () => {
-    try { const res: any = await fetchCollectorHistory(); setColHistory(res.data || []); }
-    catch { setColHistory([]); }
-  };
-
-  const loadProgress = async () => {
-    try { const res: any = await fetchCollectorProgress(); setProgress(res.data); }
-    catch {}
-  };
+  const showToast = useCallback((type: 'success' | 'error' | 'info', msg: string) => { setToast({ type, msg }); }, []);
 
   const addConsoleLine = useCallback((text: string, level: string = 'info') => {
     const time = new Date().toLocaleTimeString('zh-CN', { hour12: false });
     setConsoleLines(prev => [...prev.slice(-500), { text, level, time }]);
   }, []);
 
-  useEffect(() => {
-    if (consoleRef.current) {
-      consoleRef.current.scrollTop = consoleRef.current.scrollHeight;
-    }
-  }, [consoleLines]);
+  useEffect(() => { if (consoleRef.current) consoleRef.current.scrollTop = consoleRef.current.scrollHeight; }, [consoleLines]);
 
-  const handleTrigger = async (phases?: string[]) => {
-    setLoading(true);
-    setConsoleLines([]);
-    setPhaseResults([]);
-    setTotalDuration(0);
-    addConsoleLine('🚀 正在启动采集任务...', 'system');
-
+  // ── Load functions ──
+  const loadHistory = async () => { try { const res: any = await fetchImportHistory(); setHistory(res.data?.data || []); } catch { setHistory([]); } };
+  const loadColHistory = async () => { try { const res: any = await fetchCollectorHistory(); setColHistory(res.data?.data || []); } catch { setColHistory([]); } };
+  const handleClearStuck = async (type: string = 'stuck') => {
     try {
-      const res: any = await triggerCollection(phases);
-      const streamId = res.streamId;
-      setCollecting(true);
-      startTimeRef.current = Date.now();
-
-      const es = new EventSource(`http://127.0.0.1:8080/api/v1/collector/stream?id=${streamId}`);
-      eventSourceRef.current = es;
-
-      es.onmessage = (event) => {
-        try {
-          const line: SSELine = JSON.parse(event.data);
-          if (line.type === 'connected') return;
-
-          if (line.type === 'log' && line.message) {
-            addConsoleLine(line.message, line.level || 'info');
-          } else if (line.type === 'phase' && line.message) {
-            addConsoleLine(`\n━━━ ${line.message} ━━━`, 'phase');
-          } else if (line.type === 'result' && line.result) {
-            setPhaseResults(prev => [...prev, line.result!]);
-            const r = line.result;
-            const label = PHASE_LABELS[r.phase] || r.phase;
-            const emoji = r.errors > 0 ? '⚠️' : '✅';
-            addConsoleLine(
-              `${emoji} ${label}: 总计${r.total} | 新增${r.new} | 跳过${r.skipped} | 耗时${(r.durationMs / 1000).toFixed(1)}s`,
-              r.errors > 0 ? 'stderr' : 'success'
-            );
-          } else if (line.type === 'done') {
-            addConsoleLine(`\n${line.message}`, 'success');
-            setCollecting(false);
-            setTotalDuration(Date.now() - startTimeRef.current);
-            es.close();
-            eventSourceRef.current = null;
-            loadProgress();
-            showToast('success', '采集完成');
-          }
-        } catch {}
-      };
-
-      es.onerror = () => {
-        if (!collecting) {
-          es.close();
-          eventSourceRef.current = null;
-        }
-      };
-
-      pollRef.current = setInterval(async () => {
-        try {
-          const pr: any = await fetchCollectorProgress();
-          setProgress(pr.data);
-          if (!pr.data?.running && collecting) {
-            setCollecting(false);
-            setTotalDuration(Date.now() - startTimeRef.current);
-            clearInterval(pollRef.current);
-            pollRef.current = null;
-            eventSourceRef.current?.close();
-            loadProgress();
-          }
-        } catch {}
-      }, 3000);
-
-    } catch {
-      showToast('error', '触发采集失败');
-      setCollecting(false);
-    }
-    setLoading(false);
+      const res: any = await clearCollectorHistory(type);
+      showToast('success', res.data?.message || ('已清除 ' + (res.data?.deleted || 0) + ' 条记录'));
+      loadColHistory();
+    } catch {}
   };
+  const loadProgress = async () => { try { const res: any = await fetchCollectorProgress(); setProgress(res.data?.data); } catch {} };
+  const loadDataStats = async () => { setStatsLoading(true); try { const res: any = await fetchDataStats(); setDataStats(res.data?.data || []); } catch { setDataStats([]); } finally { setStatsLoading(false); } };
+  const loadTasks = async () => { setTasksLoading(true); try { const res: any = await fetchScheduledTasks(); setScheduledTasks(Array.isArray(res.data?.data) ? res.data.data : []); } catch {} finally { setTasksLoading(false); } };
+  const loadDetail = async (type: string) => { if (selectedStat === type) { setSelectedStat(null); setDetailData([]); return; } setSelectedStat(type); setDetailLoading(true); setDetailSearch(''); try { const res: any = await fetchDataDetail(type); setDetailData(res.data?.data || []); } catch { setDetailData([]); } finally { setDetailLoading(false); } };
 
-  const handleStop = () => {
-    eventSourceRef.current?.close();
-    clearInterval(pollRef.current);
-    setCollecting(false);
-    addConsoleLine('⏹ 用户停止了监控（采集进程仍在服务端运行）', 'system');
-  };
+  const loadTaskLogs = async (taskId?: number) => { setTaskLogsLoading(true); setSelectedTaskId(taskId || null); try { const res: any = await fetchTaskLogs(taskId || undefined, 30); setTaskLogs(Array.isArray(res.data?.data) ? res.data.data : []); } catch { setTaskLogs([]); } finally { setTaskLogsLoading(false); } };
 
-  const formatDuration = (ms: number) => {
-    if (ms < 1000) return `${ms}ms`;
-    if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
-    return `${Math.floor(ms / 60000)}m ${Math.round((ms % 60000) / 1000)}s`;
-  };
+  const openTaskLogs = async (taskId: number, taskName: string) => { setLogModalTaskName(taskName); setSelectedTaskId(taskId); setLogModalVisible(true); setTaskLogsLoading(true); try { const res: any = await fetchTaskLogs(taskId, 30); setTaskLogs(Array.isArray(res.data?.data) ? res.data.data : []); } catch { setTaskLogs([]); } finally { setTaskLogsLoading(false); } };
+
+  const handleRunTask = async (id: number) => { const task = scheduledTasks.find((t: any) => t.id === id); if (task?.lastStatus === 'running') { showToast('info', '该任务正在运行中，请等待完成后再执行'); return; } setScheduledTasks(prev => prev.map((t: any) => t.id === id ? { ...t, lastStatus: 'running', lastRun: new Date().toISOString() } : t)); try { await runTaskNow(id); setTimeout(async () => { await loadTasks(); loadTaskLogs(id); }, 2000); } catch (e: any) { showToast('error', '执行失败: ' + (e?.response?.data?.message || e?.message || '未知错误')); loadTasks(); } };
+  const handleResetTask = async (id: number) => { try { await resetTaskStatus(id); loadTasks(); } catch {} };
+  const handleInitDefaults = async () => { try { await initDefaultTasks(); loadTasks(); } catch {} };
+
+  // ── SSE ──
+  const connectStream = () => { setCollecting(true); const tok = localStorage.getItem('aip_access_token'); const es = new EventSource(`http://127.0.0.1:8080/api/v1/collector/stream?token=${tok || ''}`); eventSourceRef.current?.close(); eventSourceRef.current = es; es.onmessage = (event) => { try { const line: SSELine = JSON.parse(event.data); if (line.type === 'connected') return; if (line.type === 'log' && line.message) addConsoleLine(line.message, line.level || 'info'); else if (line.type === 'phase' && line.message) addConsoleLine(`\n━━━ ${line.message} ━━━`, 'phase'); else if (line.type === 'result' && line.result) { setPhaseResults(prev => [...prev, line.result!]); addConsoleLine(`${line.result.errors > 0 ? '⚠️' : '✅'} ${PHASE_LABELS[line.result.phase] || line.result.phase}: 总计${line.result.total} | 新增${line.result.new} | 耗时${(line.result.durationMs / 1000).toFixed(1)}s`, line.result.errors > 0 ? 'stderr' : 'success'); } else if (line.type === 'done') { addConsoleLine(`\n${line.message}`, 'success'); setCollecting(false); setTotalDuration(Date.now() - startTimeRef.current); es.close(); eventSourceRef.current = null; loadProgress(); showToast('success', '采集完成'); } } catch {} }; es.onerror = () => { if (!collecting) { es.close(); eventSourceRef.current = null; } }; };
+
+  const handleTrigger = async (phases: string[]) => { setLoading(true); setConsoleLines([]); setPhaseResults([]); setTotalDuration(0); addConsoleLine('🚀 正在启动采集任务...', 'system'); try { const res: any = await triggerCollection(phases); setCollecting(true); startTimeRef.current = Date.now(); const tok = localStorage.getItem('aip_access_token'); const es = new EventSource(`http://127.0.0.1:8080/api/v1/collector/stream?token=${tok || ''}&id=${res.streamId || ''}`); eventSourceRef.current = es; es.onmessage = (event) => { try { const line: SSELine = JSON.parse(event.data); if (line.type === 'connected') return; if (line.type === 'log' && line.message) addConsoleLine(line.message, line.level || 'info'); else if (line.type === 'phase' && line.message) addConsoleLine(`\n━━━ ${line.message} ━━━`, 'phase'); else if (line.type === 'result' && line.result) { setPhaseResults(prev => [...prev, line.result!]); addConsoleLine(`${line.result.errors > 0 ? '⚠️' : '✅'} ${PHASE_LABELS[line.result.phase] || line.result.phase}: 总计${line.result.total} | 新增${line.result.new} | 耗时${(line.result.durationMs / 1000).toFixed(1)}s`, line.result.errors > 0 ? 'stderr' : 'success'); } else if (line.type === 'done') { addConsoleLine(`\n${line.message}`, 'success'); setCollecting(false); setTotalDuration(Date.now() - startTimeRef.current); es.close(); eventSourceRef.current = null; loadProgress(); showToast('success', '采集完成'); } } catch {} }; es.onerror = () => { if (!collecting) { es.close(); eventSourceRef.current = null; } }; pollRef.current = setInterval(async () => { try { const pr: any = await fetchCollectorProgress(); setProgress(pr.data?.data); if (!pr.data?.data?.running && collecting) { setCollecting(false); setTotalDuration(Date.now() - startTimeRef.current); clearInterval(pollRef.current); pollRef.current = null; eventSourceRef.current?.close(); loadProgress(); } } catch {} }, 3000); } catch { showToast('error', '触发采集失败'); setCollecting(false); } setLoading(false); };
+
+  const handleStop = () => { eventSourceRef.current?.close(); clearInterval(pollRef.current); setCollecting(false); addConsoleLine('⏹ 用户停止了监控（采集进程仍在服务端运行）', 'system'); };
+
+  const formatDuration = (ms: number) => { if (ms < 1000) return `${ms}ms`; if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`; return `${Math.floor(ms / 60000)}m ${Math.round((ms % 60000) / 1000)}s`; };
 
   const renderConsoleLine = (line: { text: string; level: string; time: string }, i: number) => {
-    const colorMap: Record<string, string> = {
-      info: '#e5e6eb',
-      stderr: '#f76965',
-      success: '#00b42a',
-      phase: '#4080ff',
-      system: '#ffb400',
-    };
-    return (
-      <div key={i} style={{
-        fontFamily: '"JetBrains Mono", "Fira Code", "SF Mono", monospace',
-        fontSize: 12,
-        lineHeight: '18px',
-        color: colorMap[line.level] || '#e5e6eb',
-        whiteSpace: 'pre-wrap',
-        wordBreak: 'break-all',
-        padding: line.level === 'phase' ? '4px 0' : '0',
-        fontWeight: line.level === 'phase' ? 600 : 400,
-      }}>
-        <span style={{ color: '#666', marginRight: 8, userSelect: 'none' }}>{line.time}</span>
-        {line.text}
-      </div>
-    );
+    const cm: Record<string, string> = { info: '#e5e6eb', stderr: '#f76965', success: '#00b42a', phase: '#4080ff', system: '#ffb400' };
+    return <div key={i} style={{ fontFamily: '"JetBrains Mono","Fira Code","SF Mono",monospace', fontSize: 12, lineHeight: '18px', color: cm[line.level] || '#e5e6eb', whiteSpace: 'pre-wrap', wordBreak: 'break-all', padding: line.level === 'phase' ? '4px 0' : '0', fontWeight: line.level === 'phase' ? 600 : 400 }}><span style={{ color: '#666', marginRight: 8, userSelect: 'none' }}>{line.time}</span>{line.text}</div>;
   };
 
+  // ── Tab effects ──
+  useEffect(() => {
+    if (tab === 'history') { loadHistory(); loadColHistory(); }
+    if (tab === 'overview') { loadDataStats(); loadProgress(); }
+    if (tab === 'tasks') { loadTasks(); }
+    if (tab === 'import') { loadHistory(); }
+    if (tab === 'collect') { loadTasks(); loadProgress(); loadColHistory(); }
+    return () => { clearInterval(pollRef.current); eventSourceRef.current?.close(); };
+  }, [tab]);
+
+  // ── Auto-reconnect SSE ──
+  useEffect(() => {
+    (async () => { try { const pr: any = await fetchCollectorProgress(); if (pr.data?.data?.running) { setCollecting(true); setProgress(pr.data.data); setPhaseResults(pr.data.data.results || []); if (pr.data.data.started) startTimeRef.current = new Date(pr.data.data.started).getTime(); addConsoleLine('🔄 检测到正在运行的采集，自动重连...', 'system'); const tok = localStorage.getItem('aip_access_token'); const es = new EventSource('http://127.0.0.1:8080/api/v1/collector/stream?token=' + (tok || '')); eventSourceRef.current = es; es.onmessage = (event) => { try { const line: SSELine = JSON.parse(event.data); if (line.type === 'connected') return; if (line.type === 'log' && line.message) addConsoleLine(line.message, line.level || 'info'); else if (line.type === 'phase' && line.message) addConsoleLine(`\n━━━ ${line.message} ━━━`, 'phase'); else if (line.type === 'result' && line.result) { setPhaseResults(prev => [...prev, line.result!]); addConsoleLine(`${line.result.errors > 0 ? '⚠️' : '✅'} ${PHASE_LABELS[line.result.phase] || line.result.phase}: 总计${line.result.total} | 新增${line.result.new} | 耗时${(line.result.durationMs / 1000).toFixed(1)}s`, line.result.errors > 0 ? 'stderr' : 'success'); } else if (line.type === 'done') { addConsoleLine(`\n${line.message}`, 'success'); setCollecting(false); setTotalDuration(Date.now() - startTimeRef.current); es.close(); eventSourceRef.current = null; loadProgress(); showToast('success', '采集完成'); } } catch {} }; } } catch {} })();
+  }, []);
+
+  // ══════════════════════════════════════════
+  // RENDER
+  // ══════════════════════════════════════════
   return (
     <div>
+      <style>{`
+        @keyframes collectPulse {
+          0%, 100% { opacity: 1; transform: scale(1); }
+          50% { opacity: 0.5; transform: scale(1.3); }
+        }
+        @keyframes collectBgPulse {
+          0%, 100% { background-color: #fff3e0; }
+          50% { background-color: #ffe0b2; }
+        }
+      `}</style>
       {toast && <Toast type={toast.type} msg={toast.msg} onClose={() => setToast(null)} />}
-
       <div className="page-header">
         <h2><Database size={20} style={{ marginRight: 8 }} />数据管理</h2>
-        <span className="muted">手动采集 · Excel 导入 · 采集记录</span>
+        <span className="muted">数据概览 · 定时任务 · Excel 导入 · 采集控制台 · 采集记录</span>
       </div>
 
       {/* Tab bar */}
       <div style={{ display: 'flex', gap: 0, marginBottom: 16, background: '#fff', borderRadius: 6, border: '1px solid #e5e6eb', overflow: 'hidden' }}>
         {[
-          { key: 'collect', label: '手动采集', icon: <Terminal size={14} /> },
+          { key: 'overview', label: '数据概览', icon: <BarChart3 size={14} /> },
+          { key: 'tasks', label: '定时任务', icon: <Timer size={14} /> },
           { key: 'import', label: 'Excel 导入', icon: <UploadIcon size={14} /> },
+          { key: 'collect', label: '采集控制台', icon: <Terminal size={14} /> },
           { key: 'history', label: '采集记录', icon: <History size={14} /> },
         ].map(t => (
-          <button key={t.key} onClick={() => setTab(t.key as any)} style={{
-            padding: '10px 20px', border: 'none', cursor: 'pointer', fontSize: 13,
-            background: tab === t.key ? '#e8f3ff' : 'transparent',
-            color: tab === t.key ? '#165dff' : '#4e5969',
-            fontWeight: tab === t.key ? 500 : 400,
-            display: 'flex', alignItems: 'center', gap: 6,
-            borderRight: '1px solid #e5e6eb',
-          }}>{t.icon}{t.label}</button>
+          <button key={t.key} onClick={() => setTab(t.key as any)} style={{ padding: '10px 20px', border: 'none', cursor: 'pointer', fontSize: 13, background: tab === t.key ? '#e8f3ff' : 'transparent', color: tab === t.key ? '#165dff' : '#4e5969', fontWeight: tab === t.key ? 500 : 400, display: 'flex', alignItems: 'center', gap: 6, borderRight: '1px solid #e5e6eb' }}>{t.icon}{t.label}</button>
         ))}
       </div>
 
-      {/* === COLLECT TAB === */}
-      {tab === 'collect' && (
+      {/* ═══ OVERVIEW TAB ═══ */}
+      {tab === 'overview' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          {/* Control Bar */}
           <div className="card">
             <div className="card-header">
-              <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <Activity size={16} color="#165dff" />
-                <span style={{ fontSize: 15, fontWeight: 600 }}>采集控制台</span>
-              </span>
-              {collecting && (
-                <Tag color="blue" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#165dff', display: 'inline-block' }} />
-                  采集中...
-                </Tag>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Database size={16} color="#165dff" /><span style={{ fontSize: 15, fontWeight: 600 }}>核心数据统计</span></span>
+              <Button size="small" type="text" icon={<RefreshCw size={12} />} loading={statsLoading} onClick={loadDataStats}>刷新</Button>
+            </div>
+            <div className="card-body" style={{ padding: '16px 20px' }}>
+              {dataStats.length === 0 && !statsLoading ? (
+                <div style={{ padding: 40, textAlign: 'center', color: '#86909c', fontSize: 13 }}>暂无统计数据，请先采集数据</div>
+              ) : (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 12 }}>
+                  {dataStats.map((stat: DataStat) => {
+                    const iconDefs: Record<string, { icon: JSX.Element; color: string }> = {
+                      stocks: { icon: <TrendingUp size={18} />, color: '#165dff' }, kline: { icon: <BarChart3 size={18} />, color: '#ff7d00' },
+                      indicator: { icon: <PieChart size={18} />, color: '#00b42a' }, quote: { icon: <Activity size={18} />, color: '#14c9c9' },
+                      financial: { icon: <Banknote size={18} />, color: '#0fc6c2' }, shareholder: { icon: <Users size={18} />, color: '#f53f3f' },
+                      news: { icon: <Newspaper size={18} />, color: '#f77234' }, reports: { icon: <FileText size={18} />, color: '#e865b7' },
+                      board_picks: { icon: <FileSpreadsheet size={18} />, color: '#722ed1' }, board_details: { icon: <FileSpreadsheet size={18} />, color: '#722ed1' },
+                      signals: { icon: <Activity size={18} />, color: '#ffb400' },
+                    };
+                    const def = iconDefs[stat.key] || { icon: <Database size={18} />, color: '#86909c' };
+                    const isSelected = selectedStat === stat.key;
+                    return (
+                      <div key={stat.key} onClick={() => loadDetail(stat.key)} style={{ border: isSelected ? `2px solid ${def.color}` : '1px solid #e5e6eb', borderRadius: 8, padding: isSelected ? '13px 15px' : '14px 16px', background: isSelected ? `${def.color}08` : '#fff', cursor: 'pointer', transition: 'all 0.15s' }}
+                        onMouseEnter={e => { if (!isSelected) { (e.currentTarget as HTMLElement).style.borderColor = def.color; (e.currentTarget as HTMLElement).style.boxShadow = '0 2px 8px rgba(0,0,0,0.08)'; } }}
+                        onMouseLeave={e => { if (!isSelected) { (e.currentTarget as HTMLElement).style.borderColor = '#e5e6eb'; (e.currentTarget as HTMLElement).style.boxShadow = 'none'; } }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}><span style={{ fontSize: 13, color: '#4e5969', fontWeight: 500 }}>{stat.label}</span><span style={{ color: def.color }}>{def.icon}</span></div>
+                        <div style={{ fontSize: 28, fontWeight: 700, color: def.color, lineHeight: 1.2 }}>{stat.count.toLocaleString()}</div>
+                        {stat.updatedAt && <div style={{ fontSize: 11, color: '#86909c', marginTop: 8 }}>最近更新: {new Date(stat.updatedAt).toLocaleDateString('zh-CN')}</div>}
+                      </div>
+                    );
+                  })}
+                </div>
               )}
             </div>
-            <div className="card-body">
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: collecting ? 12 : 0 }}>
-                <Button
-                  type="primary"
-                  loading={loading}
-                  disabled={collecting}
-                  icon={<Play size={14} />}
-                  onClick={() => handleTrigger()}
-                >
-                  全量采集
-                </Button>
-                {['indicator', 'kline', 'quote', 'industry', 'full_sync', 'shareholder', 'financial', 'news', 'reports'].map(phase => (
-                  <Button
-                    key={phase}
-                    size="small"
-                    type="outline"
-                    disabled={collecting}
-                    onClick={() => handleTrigger([phase])}
-                    style={{ fontSize: 12 }}
-                  >
-                    {PHASE_LABELS[phase] || phase}
-                  </Button>
-                ))}
-                {collecting && (
-                  <Button
-                    type="outline"
-                    status="danger"
-                    icon={<Square size={14} />}
-                    onClick={handleStop}
-                  >
-                    停止监控
-                  </Button>
-                )}
-                <span className="muted" style={{ fontSize: 12 }}>
-                  点击「全量采集」或单独点击各阶段按钮。已有数据自动跳过，仅采集缺失部分。
+          </div>
+          {selectedStat && (
+            <div className="card">
+              <div className="card-header">
+                <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Database size={16} color="#165dff" /><span style={{ fontSize: 15, fontWeight: 600 }}>{dataStats.find(s => s.key === selectedStat)?.label || selectedStat} 明细</span>
+                  <span className="muted" style={{ marginLeft: 8 }}>{detailData.length.toLocaleString()} 条{detailData.filter((d: any) => d.count === 0).length > 0 && `（${detailData.filter((d: any) => d.count === 0).length} 条缺失）`}</span>
                 </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <input placeholder="搜索代码或名称..." value={detailSearch} onChange={e => setDetailSearch(e.target.value)} style={{ padding: '4px 10px', border: '1px solid #e5e6eb', borderRadius: 4, fontSize: 12, width: 160, outline: 'none' }} />
+                  <Button size="small" type="text" icon={<RefreshCw size={12} />} loading={detailLoading} onClick={() => loadDetail(selectedStat)}>刷新</Button>
+                  <Button size="small" type="text" icon={<X size={12} />} onClick={() => { setSelectedStat(null); setDetailData([]); }}>关闭</Button>
+                </div>
+              </div>
+              <div className="card-body" style={{ padding: 0, maxHeight: 500, overflow: 'auto' }}>
+                {detailLoading ? <div style={{ padding: 40, textAlign: 'center', color: '#86909c', fontSize: 13 }}>加载中...</div> : (
+                  <Table data={detailData.filter((d: any) => { if (!detailSearch) return true; const s = detailSearch.toLowerCase(); return (d.code || '').toLowerCase().includes(s) || (d.name || '').toLowerCase().includes(s); })} rowKey={(r: any) => r.code || r.name || Math.random().toString()} size="small" pagination={{ pageSize: 50, sizeCanChange: true }}
+                    columns={[
+                      { title: '代码', dataIndex: 'code', width: 90, render: (v: string) => <span style={{ fontFamily: 'monospace', fontSize: 12 }}>{v || '-'}</span> },
+                      { title: '名称', dataIndex: 'name', width: 120, ellipsis: true },
+                      { title: '记录数', dataIndex: 'count', width: 80, render: (v: number) => <span style={{ fontWeight: 600, color: v === 0 ? '#f53f3f' : v > 0 ? '#00b42a' : '#86909c' }}>{v.toLocaleString()}</span> },
+                      { title: '最早', dataIndex: 'firstDate', width: 100, render: (v: string) => v ? <span style={{ fontSize: 12, color: '#4e5969' }}>{new Date(v).toLocaleDateString('zh-CN')}</span> : <span style={{ color: '#c9cdd4' }}>-</span> },
+                      { title: '最晚', dataIndex: 'lastDate', width: 100, render: (v: string) => v ? <span style={{ fontSize: 12, color: '#4e5969' }}>{new Date(v).toLocaleDateString('zh-CN')}</span> : <span style={{ color: '#c9cdd4' }}>-</span> },
+                    ]} border={false} stripe />
+                )}
+              </div>
+            </div>
+          )}
+          <div className="card">
+            <div className="card-header">
+              <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Activity size={16} color={progress?.running ? '#f53f3f' : '#86909c'} /><span style={{ fontSize: 15, fontWeight: 600 }}>采集状态</span></span>
+              {progress?.running ? <Tag color="blue">采集中</Tag> : progress?.lastRun ? <Tag color="green">就绪</Tag> : <Tag>待采集</Tag>}
+            </div>
+            <div className="card-body" style={{ padding: '16px 20px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 32, flexWrap: 'wrap' }}>
+                <div><div style={{ fontSize: 12, color: '#86909c' }}>上次采集</div><div style={{ fontSize: 14, fontWeight: 500, color: '#1d2129' }}>{progress?.lastRun ? new Date(progress.lastRun).toLocaleString('zh-CN') : '尚未采集'}</div></div>
+                <div><div style={{ fontSize: 12, color: '#86909c' }}>当前状态</div><div style={{ fontSize: 14, fontWeight: 500, color: progress?.running ? '#f53f3f' : '#00b42a' }}>{progress?.running ? '正在运行' : '空闲'}</div></div>
+                <div><div style={{ fontSize: 12, color: '#86909c' }}>采集记录数</div><div style={{ fontSize: 14, fontWeight: 500, color: '#1d2129' }}>{colHistory.length} 条</div></div>
               </div>
             </div>
           </div>
-
-          {/* Phase Results Summary */}
-          {phaseResults.length > 0 && (
-            <div className="card">
-              <div className="card-header">
-                <span style={{ fontSize: 14, fontWeight: 600 }}>阶段结果</span>
-                {totalDuration > 0 && (
-                  <span className="muted" style={{ fontSize: 12 }}>总耗时: {formatDuration(totalDuration)}</span>
-                )}
-              </div>
-              <div className="card-body" style={{ padding: '12px 16px' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 10 }}>
-                  {phaseResults.map((r) => (
-                    <div key={r.phase} style={{
-                      border: `1px solid ${r.errors > 0 ? '#f53f3f' : '#e5e6eb'}`,
-                      borderRadius: 6,
-                      padding: '10px 12px',
-                      background: r.errors > 0 ? '#ffece8' : '#f7f8fa',
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-                        <div style={{ width: 8, height: 8, borderRadius: '50%', background: PHASE_COLORS[r.phase] || '#666' }} />
-                        <span style={{ fontSize: 13, fontWeight: 600 }}>{PHASE_LABELS[r.phase] || r.phase}</span>
-                      </div>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2px 16px', fontSize: 12, color: '#4e5969' }}>
-                        <span>总计</span><span style={{ textAlign: 'right', fontWeight: 600 }}>{r.total}</span>
-                        <span>新增</span><span style={{ textAlign: 'right', color: '#165dff', fontWeight: 600 }}>{r.new}</span>
-                        <span>跳过</span><span style={{ textAlign: 'right', color: '#86909c' }}>{r.skipped}</span>
-                        {r.errors > 0 && <><span>错误</span><span style={{ textAlign: 'right', color: '#f53f3f' }}>{r.errors}</span></>}
-                        <span>耗时</span><span style={{ textAlign: 'right' }}>{(r.durationMs / 1000).toFixed(1)}s</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Terminal Console */}
-          {consoleLines.length > 0 && (
-            <div className="card">
-              <div className="card-header" style={{ background: '#1a1a2e', color: '#e5e6eb', borderBottom: '1px solid #333' }}>
-                <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <Terminal size={14} color="#00b42a" />
-                  <span style={{ fontSize: 13, fontWeight: 600 }}>采集输出</span>
-                </span>
-                <span style={{ fontSize: 11, color: '#666' }}>{consoleLines.length} 行</span>
-              </div>
-              <div
-                ref={consoleRef}
-                style={{
-                  background: '#0d0d1a',
-                  color: '#e5e6eb',
-                  padding: '12px 16px',
-                  maxHeight: 400,
-                  overflow: 'auto',
-                  fontFamily: '"JetBrains Mono", "Fira Code", "SF Mono", monospace',
-                  fontSize: 12,
-                  lineHeight: '18px',
-                  borderBottomLeftRadius: 6,
-                  borderBottomRightRadius: 6,
-                }}
-              >
-                {consoleLines.map((line, i) => renderConsoleLine(line, i))}
-              </div>
-            </div>
-          )}
-
-          {/* Progress bar */}
-          {collecting && progress?.results && (
-            <div className="card">
-              <div className="card-header">
-                <span style={{ fontSize: 14, fontWeight: 600 }}>采集进度</span>
-              </div>
-              <div className="card-body">
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                  <Progress
-                    percent={Math.round((progress.current / Math.max(progress.total, 1)) * 100)}
-                    style={{ flex: 1 }}
-                    status={progress.running ? 'normal' : 'success'}
-                  />
-                  <span style={{ fontSize: 12, color: '#86909c' }}>{progress.current}/{progress.total}</span>
-                </div>
-                <div style={{ fontSize: 12, color: '#4e5969', marginTop: 8 }}>
-                  当前: {PHASE_LABELS[progress.phase] || progress.phase} — {progress.message}
-                </div>
-              </div>
-            </div>
-          )}
         </div>
       )}
 
-      {/* === IMPORT TAB === */}
-      {tab === 'import' && (
+      {/* ═══ TASKS TAB ═══ */}
+      {tab === 'tasks' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div className="card">
             <div className="card-header">
-              <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <FileSpreadsheet size={16} color="#165dff" />
-                <span style={{ fontSize: 15, fontWeight: 600 }}>上传 Excel 文件</span>
-              </span>
-              <span className="muted" style={{ fontSize: 12 }}>支持 .xlsx / .xlsm</span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Timer size={16} color="#165dff" /><span style={{ fontSize: 15, fontWeight: 600 }}>定时任务</span><span className="muted" style={{ marginLeft: 8 }}>{scheduledTasks.filter((t: any) => t.enabled).length}/{scheduledTasks.length} 已启用</span></span>
+              <div style={{ display: 'flex', gap: 6 }}><Button size="small" icon={<RefreshCw size={12} />} loading={tasksLoading} onClick={loadTasks}>刷新</Button><Button size="small" icon={<Zap size={12} />} onClick={handleInitDefaults}>初始化默认任务</Button></div>
             </div>
-            <div className="card-body">
-              <Upload drag accept=".xlsx,.xlsm" autoUpload={false} disabled={loading}
-                onChange={(_, file) => {
-                  setLoading(true); setResult(null);
-                  uploadExcel(file.originFile as File)
-                    .then((res: any) => { setResult(res.data); showToast('success', 'Excel 导入完成'); })
-                    .catch((err: any) => showToast('error', err?.response?.data?.error || '导入失败'))
-                    .finally(() => setLoading(false));
-                  return false;
-                }}
-                tip="拖拽或点击上传，参考文件: MSS20260603.xlsm" />
-              {loading && (
-                <div style={{ marginTop: 16, padding: '12px 16px', background: '#e8f3ff', borderRadius: 4, display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, color: '#165dff' }}>
-                  <RefreshCw size={14} className="spin" />正在解析并导入数据...
-                </div>
+            <div className="card-body" style={{ padding: 0 }}>
+              {scheduledTasks.length === 0 ? <div style={{ padding: 40, textAlign: 'center', color: '#86909c', fontSize: 13 }}>暂无定时任务，点击「初始化默认任务」创建</div> : (
+                <Table data={scheduledTasks} rowKey="id" size="small"
+                  columns={[
+                    { title: '启用', dataIndex: 'enabled', width: 55, render: (v: boolean, record: any) => (
+                    <Popconfirm
+                      title={v ? '确定停用该任务？' : '确定启用该任务？'}
+                      content={v ? '运行中的采集不受影响，但下次将不再自动执行。' : '任务将恢复定时调度。'}
+                      onOk={async () => {
+                        try { await toggleTask(record.id); await loadTasks(); Message.success(v ? '已停用' : '已启用'); }
+                        catch { Message.error('操作失败'); }
+                      }}
+                    >
+                      <Switch size="small" checked={v} />
+                    </Popconfirm>
+                  ) },
+                    { title: '任务名称', dataIndex: 'name', width: 130, ellipsis: true },
+                    { title: '类型', dataIndex: 'phase', width: 100, render: (v: string) => <span style={{ fontSize: 12, fontFamily: 'monospace', color: '#4e5969' }}>{v}</span> },
+                    { title: 'Cron', dataIndex: 'cronExpr', width: 140, render: (v: string) => <span style={{ fontSize: 12, fontFamily: 'monospace' }}>{v}</span> },
+                    { title: '上次状态', dataIndex: 'lastStatus', width: 75, render: (v: string, record: any) => {
+                      if (v === 'success') return <Tag color="green">成功</Tag>;
+                      if (v === 'failed') return <Tag color="red">失败</Tag>;
+                      if (v === 'running') {
+                        const isStuck = record.lastRun && (Date.now() - new Date(record.lastRun).getTime()) > 10 * 60 * 1000;
+                        return isStuck
+                          ? <Tag color="red" style={{ cursor: 'pointer' }} title="任务可能卡住，点击重置">超时</Tag>
+                          : <Tag color="blue">运行中</Tag>;
+                      }
+                      return <span style={{ color: '#c9cdd4', fontSize: 12 }}>-</span>;
+                    } },
+                    { title: '上次运行', dataIndex: 'lastRun', width: 125, render: (v: string) => <span style={{ fontSize: 12, color: '#4e5969' }}>{v ? new Date(v).toLocaleString('zh-CN') : '-'}</span> },
+                    { title: '下次运行', dataIndex: 'nextRun', width: 125, render: (v: string) => <span style={{ fontSize: 12, color: '#86909c' }}>{v ? new Date(v).toLocaleString('zh-CN') : '-'}</span> },
+                    { title: '操作', width: 160, render: (_: any, record: any) => {
+                      const isStuck = record.lastStatus === 'running' && record.lastRun && (Date.now() - new Date(record.lastRun).getTime()) > 10 * 60 * 1000;
+                      return (
+                        <div style={{ display: 'flex', gap: 4 }}>
+                          <Button size="mini" type="outline" icon={<Play size={10} />} onClick={() => handleRunTask(record.id)}>执行</Button>
+                          {isStuck ? (
+                            <Button size="mini" type="text" status="danger" icon={<X size={10} />} onClick={() => handleResetTask(record.id)}>重置</Button>
+                          ) : record.lastStatus === 'running' ? (
+                            <Button size="mini" type="primary" icon={<Activity size={10} />} onClick={() => { setSelectedCollectPhase(record.phase); setTab('collect'); setTimeout(() => connectStream(), 300); }}>查看</Button>
+                          ) : (
+                            <Button size="mini" type="text" icon={<Activity size={10} />} onClick={() => openTaskLogs(record.id, record.name)}>日志</Button>
+                          )}
+                        </div>
+                      );
+                    }},
+                  ]} pagination={false} border={false} stripe />
               )}
+            </div>
+          </div>
+          <Modal title={<span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Activity size={16} color="#165dff" />运行日志 — {logModalTaskName}</span>} visible={logModalVisible} onCancel={() => { setLogModalVisible(false); setTaskLogs([]); }} footer={null} style={{ width: 800 }} unmountOnExit>
+            <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><span className="muted">最近 30 条记录</span><Button size="small" type="text" icon={<RefreshCw size={12} />} loading={taskLogsLoading} onClick={() => selectedTaskId && openTaskLogs(selectedTaskId, logModalTaskName)}>刷新</Button></div>
+            {taskLogs.length === 0 && !taskLogsLoading ? <div style={{ padding: 40, textAlign: 'center', color: '#86909c', fontSize: 13 }}>暂无运行日志</div> : (
+              <Table data={taskLogs} rowKey="id" size="small"
+                columns={[
+                  { title: '状态', dataIndex: 'status', width: 70, render: (v: string) => v === 'success' ? <Tag color="green">成功</Tag> : v === 'failed' ? <Tag color="red">失败</Tag> : <Tag color="blue">运行中</Tag> },
+                  { title: '新增', dataIndex: 'totalNew', width: 55, render: (v: number) => <span style={{ fontWeight: 600, color: '#165dff' }}>{v}</span> },
+                  { title: '跳过', dataIndex: 'totalSkip', width: 55, render: (v: number) => <span style={{ color: '#86909c' }}>{v}</span> },
+                  { title: '错误', dataIndex: 'totalErr', width: 50, render: (v: number) => v > 0 ? <span style={{ color: '#f53f3f', fontWeight: 600 }}>{v}</span> : <span style={{ color: '#86909c' }}>0</span> },
+                  { title: '耗时', dataIndex: 'durationMs', width: 65, render: (v: number) => <span style={{ fontSize: 12, color: '#4e5969' }}>{v < 1000 ? v + 'ms' : (v / 1000).toFixed(1) + 's'}</span> },
+                  { title: '时间', dataIndex: 'startedAt', width: 135, render: (v: string) => <span style={{ fontSize: 11, color: '#86909c' }}>{v ? new Date(v).toLocaleString('zh-CN') : '-'}</span> },
+                  { title: '详情', dataIndex: 'errorMsg', ellipsis: true, render: (v: string) => v ? <span style={{ fontSize: 11, color: '#f53f3f' }}>{v}</span> : <span style={{ color: '#c9cdd4', fontSize: 11 }}>-</span> },
+                ]} pagination={{ pageSize: 15, sizeCanChange: true }} border={false} stripe />
+            )}
+          </Modal>
+        </div>
+      )}
+
+      {/* ═══ COLLECT TAB ═══ */}
+      {tab === 'collect' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div className="card">
+            <div className="card-header">
+              <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Activity size={16} color="#165dff" /><span style={{ fontSize: 15, fontWeight: 600 }}>采集控制台</span></span>
+              {collecting && <Tag color="blue" style={{ display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ width: 6, height: 6, borderRadius: '50%', background: '#165dff', display: 'inline-block' }} />采集中...</Tag>}
+            </div>
+            <div className="card-body" style={{ padding: '14px 20px' }}>
+              {/* Phase tabs */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>
+                {['indicator', 'kline', 'quote', 'industry', 'full_sync', 'shareholder', 'financial', 'news', 'reports'].map(phase => {
+                  const isActive = collecting && progress?.phase === phase;
+                  const isSelected = selectedCollectPhase === phase;
+                  return (
+                    <button key={phase} onClick={() => { setSelectedCollectPhase(phase); if (isActive) connectStream(); }}
+                      style={{
+                        padding: isActive ? '5px 13px' : '6px 14px',
+                        border: isActive ? '2px solid #ff7d00' : isSelected ? '2px solid #165dff' : '1px solid #d0d5dd',
+                        borderRadius: 20, cursor: 'pointer', fontSize: 12,
+                        fontWeight: isActive ? 600 : isSelected ? 600 : 400,
+                        background: isActive ? '#fff3e0' : isSelected ? '#e8f3ff' : '#fff',
+                        color: isActive ? '#e65100' : isSelected ? '#165dff' : '#4e5969',
+                        display: 'flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap',
+                        transition: 'all 0.15s',
+                        animation: isActive ? 'collectBgPulse 2s ease-in-out infinite' : 'none',
+                      }}>
+                      {isActive ? (
+                        <span style={{
+                          width: 8, height: 8, borderRadius: '50%', background: '#ff6d00',
+                          display: 'inline-block',
+                          animation: 'collectPulse 1.2s ease-in-out infinite',
+                        }} />
+                      ) : null}
+                      {PHASE_LABELS[phase]}
+                      {isActive && <span style={{ fontSize: 10, opacity: 0.8 }}>采集中</span>}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Selected phase detail panel */}
+              <div style={{ border: '1px solid #e5e6eb', borderRadius: 8, overflow: 'hidden', background: '#fafbfc' }}>
+                <div style={{ padding: '12px 16px', borderBottom: '1px solid #e5e6eb', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#fff' }}>
+                  <div>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: '#1d2129' }}>{PHASE_LABELS[selectedCollectPhase]}</div>
+                    <div style={{ fontSize: 12, color: '#86909c', marginTop: 2 }}>{PHASE_DESCRIPTIONS[selectedCollectPhase] || ''}</div>
+                    {(() => { const st = scheduledTasks.find((t: any) => t.phase === selectedCollectPhase && t.enabled); if (!st || collecting) return null; return (
+                      <div style={{ fontSize: 11, color: '#4e5969', marginTop: 4 }}>
+                        <span style={{ color: '#00b42a' }}>⏱ {cronToText(st.cronExpr)}</span>
+                        {st.nextRun && <span style={{ marginLeft: 8, color: '#86909c' }}>· 下次: {new Date(st.nextRun).toLocaleString('zh-CN')}</span>}
+                      </div>
+                    ); })()}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    {(() => { const st = scheduledTasks.find((t: any) => t.phase === selectedCollectPhase && t.enabled); if (!st) return null; return (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <Tag color="green" style={{ fontSize: 11 }}>{cronToText(st.cronExpr)}</Tag>
+                        {!collecting && st.nextRun && <span style={{ fontSize: 11, color: '#86909c' }}>下次 {new Date(st.nextRun).toLocaleString('zh-CN')}</span>}
+                      </div>
+                    ); })()}
+                    {collecting && progress?.phase === selectedCollectPhase ? (
+                      <Tag color="orange" style={{ display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ width: 6, height: 6, borderRadius: '50%', background: '#ff7d00', display: 'inline-block' }} />采集中</Tag>
+                    ) : (
+                      <Button size="small" type="primary" icon={<Play size={12} />} onClick={() => handleTrigger([selectedCollectPhase])} disabled={collecting}>采集</Button>
+                    )}
+                  </div>
+                </div>
+                <div style={{ padding: '12px 16px', minHeight: 120 }}>
+                  {collecting && progress?.phase === selectedCollectPhase ? (
+                    <div>
+                      {progress && (
+                        <div style={{ marginBottom: 12 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 6 }}>
+                            <Progress percent={Math.round((progress.current / Math.max(progress.total, 1)) * 100)} style={{ flex: 1 }} status="normal" />
+                            <span style={{ fontSize: 12, color: '#86909c', whiteSpace: 'nowrap' }}>{progress.current}/{progress.total}</span>
+                          </div>
+                          <div style={{ fontSize: 12, color: '#4e5969' }}>{progress.message || '正在采集...'}</div>
+                        </div>
+                      )}
+                      {phaseResults.filter((r: any) => r.phase === selectedCollectPhase).map((r: any) => (
+                        <div key={r.phase} style={{ border: `1px solid ${r.errors > 0 ? '#f53f3f' : '#e5e6eb'}`, borderRadius: 6, padding: '8px 12px', marginBottom: 8, background: r.errors > 0 ? '#ffece8' : '#f0fff4', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, fontSize: 12 }}>
+                          <div>总计 <b>{r.total}</b></div><div>新增 <b style={{ color: '#165dff' }}>{r.new}</b></div><div>跳过 <span style={{ color: '#86909c' }}>{r.skipped}</span></div><div>耗时 <span>{(r.durationMs / 1000).toFixed(1)}s</span></div>
+                        </div>
+                      ))}
+                      {consoleLines.length > 0 && (
+                        <div ref={consoleRef} style={{ background: '#1a1a2e', borderRadius: 6, padding: '10px 14px', maxHeight: 300, overflow: 'auto', fontFamily: '"JetBrains Mono","Fira Code","SF Mono",monospace', fontSize: 12, lineHeight: '18px' }}>
+                          {consoleLines.slice(-80).map((line, i) => renderConsoleLine(line, i))}
+                        </div>
+                      )}
+                      <Button size="small" type="outline" status="danger" icon={<Square size={12} />} onClick={handleStop} style={{ marginTop: 8 }}>断开监控</Button>
+                    </div>
+                  ) : (
+                    <div>
+                      {(() => { const lr = phaseResults.find((r: any) => r.phase === selectedCollectPhase); if (lr) return (
+                        <div>
+                          <div style={{ fontSize: 12, color: '#86909c', marginBottom: 8 }}>最近一次采集结果</div>
+                          <div style={{ border: '1px solid #e5e6eb', borderRadius: 6, padding: '8px 12px', background: '#fff', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, fontSize: 12 }}>
+                            <div>总计 <b>{lr.total}</b></div>
+                            <div>新增 <b style={{ color: '#165dff' }}>{lr.new}</b></div>
+                            <div>跳过 <span style={{ color: '#86909c' }}>{lr.skipped}</span></div>
+                            <div>耗时 <span>{(lr.durationMs / 1000).toFixed(1)}s</span></div>
+                          </div>
+                        </div>
+                      ); return <div style={{ padding: 32, textAlign: 'center', color: '#86909c', fontSize: 13 }}>点击右上角「采集」按钮开始采集</div>; })()}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+          {/* Collection history - always visible */}
+            <div className="card">
+              <div className="card-header">
+                <span style={{ fontSize: 14, fontWeight: 600 }}>{PHASE_LABELS[selectedCollectPhase] || selectedCollectPhase} · 最近采集记录</span>
+                {collecting && <Tag color="blue" style={{ fontSize: 11 }}>采集中</Tag>}
+                <Button size="small" type="text" icon={<RefreshCw size={12} />} onClick={loadColHistory}>刷新</Button>
+              </div>
+              <div className="card-body" style={{ padding: 0 }}>
+                {(() => {
+                  const phaseLogs = colHistory.filter((l: any) => {
+                    try { const phases = JSON.parse(l.phases || '[]'); return Array.isArray(phases) && phases.some((p: any) => (p.phase || p) === selectedCollectPhase); }
+                    catch { return false; }
+                  });
+                  if (phaseLogs.length === 0) return <div style={{ padding: 32, textAlign: 'center', color: '#86909c', fontSize: 13 }}>暂无该类型的采集记录</div>;
+                  return (
+                    <Table data={phaseLogs.slice(0, 10)} rowKey="id" size="small"
+                      columns={[
+                        { title: '状态', dataIndex: 'status', width: 70, render: (v: string) => v === 'success' ? <Tag color="green">成功</Tag> : v === 'partial' ? <Tag color="orange">部分</Tag> : v === 'running' ? <Tag color="blue">运行中</Tag> : <Tag color="red">失败</Tag> },
+                        { title: '新增', dataIndex: 'totalNew', width: 60, render: (v: number) => <span style={{ fontWeight: 600, color: '#165dff' }}>{v}</span> },
+                        { title: '跳过', dataIndex: 'totalSkipped', width: 60, render: (v: number) => <span style={{ color: '#86909c' }}>{v}</span> },
+                        { title: '错误', dataIndex: 'totalErrors', width: 55, render: (v: number) => v > 0 ? <span style={{ color: '#f53f3f', fontWeight: 600 }}>{v}</span> : <span style={{ color: '#86909c' }}>0</span> },
+                        { title: '耗时', dataIndex: 'durationMs', width: 70, render: (v: number) => <span style={{ color: '#4e5969', fontSize: 12 }}>{formatDuration(v)}</span> },
+                        { title: '时间', dataIndex: 'startedAt', width: 140, render: (v: string) => <span style={{ fontSize: 11, color: '#86909c' }}>{v ? new Date(v).toLocaleString('zh-CN') : '-'}</span> },
+                      ]} pagination={false} border={false} stripe />
+                  );
+                })()}
+              </div>
+            </div>
+        </div>
+      )}
+
+      {/* ═══ IMPORT TAB ═══ */}
+      {tab === 'import' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div className="card">
+            <div className="card-header"><span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><FileSpreadsheet size={16} color="#165dff" /><span style={{ fontSize: 15, fontWeight: 600 }}>上传 Excel 文件</span></span><span className="muted" style={{ fontSize: 12 }}>支持 .xlsx / .xlsm</span></div>
+            <div className="card-body">
+              <Upload drag accept=".xlsx,.xlsm" autoUpload={false} disabled={loading} onChange={(_, file) => { setLoading(true); setResult(null); uploadExcel(file.originFile as File).then((res: any) => { setResult(res.data); showToast('success', 'Excel 导入完成'); }).catch((err: any) => showToast('error', err?.response?.data?.error || '导入失败')).finally(() => setLoading(false)); return false; }} tip="拖拽或点击上传，参考文件: MSS20260603.xlsm" />
+              {loading && <div style={{ marginTop: 16, padding: '12px 16px', background: '#e8f3ff', borderRadius: 4, display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, color: '#165dff' }}><RefreshCw size={14} className="spin" />正在解析并导入数据...</div>}
             </div>
           </div>
           {result && (
             <div className="card">
-              <div className="card-header">
-                <span style={{ fontSize: 15, fontWeight: 600 }}>导入结果</span>
-                <span className="muted" style={{ fontSize: 12 }}>{result.fileName}</span>
-              </div>
+              <div className="card-header"><span style={{ fontSize: 15, fontWeight: 600 }}>导入结果</span><span className="muted" style={{ fontSize: 12 }}>{result.fileName}</span></div>
               <div className="card-body">
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 16 }}>
-                  {[
-                    { label: '交易日数', value: result.datesImported, color: '#165dff' },
-                    { label: '上榜记录', value: result.picksImported, color: '#f53f3f' },
-                    { label: '信号数据', value: result.signalsImported, color: '#00b42a' },
-                    { label: '新增个股', value: result.stocksCreated, color: '#ff7d00' },
-                  ].map(item => (
-                    <div key={item.label} style={{ textAlign: 'center', padding: '12px', background: '#f7f8fa', borderRadius: 6 }}>
-                      <div style={{ fontSize: 24, fontWeight: 700, color: item.color, fontFamily: 'var(--font-family-mono, monospace)' }}>{item.value}</div>
-                      <div style={{ fontSize: 12, color: '#86909c', marginTop: 4 }}>{item.label}</div>
-                    </div>
+                  {[{ label: '交易日数', value: result.datesImported, color: '#165dff' }, { label: '上榜记录', value: result.picksImported, color: '#f53f3f' }, { label: '信号数据', value: result.signalsImported, color: '#00b42a' }, { label: '新增个股', value: result.stocksCreated, color: '#ff7d00' }].map(item => (
+                    <div key={item.label} style={{ textAlign: 'center', padding: '12px', background: '#f7f8fa', borderRadius: 6 }}><div style={{ fontSize: 24, fontWeight: 700, color: item.color, fontFamily: 'var(--font-family-mono, monospace)' }}>{item.value}</div><div style={{ fontSize: 12, color: '#86909c', marginTop: 4 }}>{item.label}</div></div>
                   ))}
                 </div>
-                {result.previews?.map((p: string, i: number) => (
-                  <div key={i} style={{ padding: '8px 12px', background: '#f7f8fa', borderRadius: 4, fontSize: 13, color: '#4e5969', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <CheckCircle size={12} color="#00b42a" />{p}
-                  </div>
-                ))}
-                {result.errors?.map((e: string, i: number) => (
-                  <div key={i} style={{ padding: '8px 12px', background: '#ffece8', borderRadius: 4, fontSize: 12, color: '#cb272d', marginBottom: 4 }}>
-                    <XCircle size={12} style={{ marginRight: 6 }} />{e}
-                  </div>
-                ))}
+                {result.previews?.map((p: string, i: number) => <div key={i} style={{ padding: '8px 12px', background: '#f7f8fa', borderRadius: 4, fontSize: 13, color: '#4e5969', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}><CheckCircle size={12} color="#00b42a" />{p}</div>)}
+                {result.errors?.map((e: string, i: number) => <div key={i} style={{ padding: '8px 12px', background: '#ffece8', borderRadius: 4, fontSize: 12, color: '#cb272d', marginBottom: 4 }}><XCircle size={12} style={{ marginRight: 6 }} />{e}</div>)}
               </div>
             </div>
           )}
-        </div>
-      )}
-
-      {/* === HISTORY TAB === */}
-      {tab === 'history' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          {/* Collection History */}
-          <div className="card">
+          {/* Import history */}
+          <div className="card" style={{ marginTop: 16 }}>
             <div className="card-header">
-              <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <Activity size={16} color="#165dff" />
-                <span style={{ fontSize: 15, fontWeight: 600 }}>采集记录</span>
-              </span>
-              <Button size="small" type="text" icon={<RefreshCw size={12} />} onClick={loadColHistory}>刷新</Button>
-            </div>
-            <div className="card-body" style={{ padding: 0 }}>
-              {colHistory.length === 0 ? (
-                <div style={{ padding: 40, textAlign: 'center', color: '#86909c', fontSize: 13 }}>暂无采集记录</div>
-              ) : (
-                <Table
-                  data={colHistory}
-                  rowKey="id"
-                  size="small"
-                  columns={[
-                    {
-                      title: '状态',
-                      dataIndex: 'status',
-                      width: 80,
-                      render: (v: string) =>
-                        v === 'success' ? <Tag color="green">成功</Tag> :
-                        v === 'partial' ? <Tag color="orange">部分</Tag> :
-                        v === 'running' ? <Tag color="blue">运行中</Tag> :
-                        <Tag color="red">失败</Tag>
-                    },
-                    { title: '新增', dataIndex: 'totalNew', width: 70, render: (v: number) => <span style={{ fontWeight: 600, color: '#165dff' }}>{v}</span> },
-                    { title: '跳过', dataIndex: 'totalSkipped', width: 70, render: (v: number) => <span style={{ color: '#86909c' }}>{v}</span> },
-                    {
-                      title: '错误',
-                      dataIndex: 'totalErrors',
-                      width: 60,
-                      render: (v: number) => v > 0 ? <span style={{ color: '#f53f3f', fontWeight: 600 }}>{v}</span> : <span style={{ color: '#86909c' }}>0</span>
-                    },
-                    {
-                      title: '耗时',
-                      dataIndex: 'durationMs',
-                      width: 80,
-                      render: (v: number) => <span style={{ color: '#4e5969', fontSize: 12 }}>{formatDuration(v)}</span>
-                    },
-                    { title: '开始时间', dataIndex: 'startedAt', width: 160, render: (v: string) => <span style={{ fontSize: 12 }}>{v ? new Date(v).toLocaleString('zh-CN') : '-'}</span> },
-                  ]}
-                  pagination={false}
-                  border={false}
-                  stripe
-                />
-              )}
-            </div>
-          </div>
-
-          {/* Import History (Excel) */}
-          <div className="card">
-            <div className="card-header">
-              <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <FileSpreadsheet size={16} color="#165dff" />
-                <span style={{ fontSize: 15, fontWeight: 600 }}>Excel 导入记录</span>
-              </span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><FileSpreadsheet size={16} color="#165dff" /><span style={{ fontSize: 15, fontWeight: 600 }}>导入记录</span></span>
               <Button size="small" type="text" icon={<RefreshCw size={12} />} onClick={loadHistory}>刷新</Button>
             </div>
             <div className="card-body" style={{ padding: 0 }}>
-              {history.length === 0 ? (
-                <div style={{ padding: 40, textAlign: 'center', color: '#86909c', fontSize: 13 }}>暂无导入记录</div>
-              ) : (
+              {history.length === 0 ? <div style={{ padding: 40, textAlign: 'center', color: '#86909c', fontSize: 13 }}>暂无导入记录</div> : (
                 <Table data={history} rowKey="id" size="small" columns={[
-                  { title: '文件名', dataIndex: 'fileName', width: 200 },
-                  { title: '导入条数', dataIndex: 'rowsImported', width: 100, render: (v: number) => <span style={{ fontWeight: 600 }}>{v}</span> },
+                  { title: '文件名', dataIndex: 'fileName', width: 200 }, { title: '导入条数', dataIndex: 'rowsImported', width: 100, render: (v: number) => <span style={{ fontWeight: 600 }}>{v}</span> },
+                  { title: '状态', dataIndex: 'status', width: 100, render: (v: string) => v === 'success' ? <Tag color="green">成功</Tag> : v === 'partial' ? <Tag color="orange">部分</Tag> : <Tag color="red">失败</Tag> },
+                  { title: '时间', dataIndex: 'importedAt', width: 180, render: (v: string) => <span style={{ color: '#86909c', fontSize: 12 }}>{v ? new Date(v).toLocaleString('zh-CN') : '-'}</span> },
+                ]} pagination={false} border={false} stripe />
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══ HISTORY TAB ═══ */}
+      {tab === 'history' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div className="card">
+            <div className="card-header"><span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Activity size={16} color="#165dff" /><span style={{ fontSize: 15, fontWeight: 600 }}>采集记录</span></span><div style={{ display: 'flex', gap: 8 }}><Popconfirm title="清除超过30分钟仍处于运行中的异常记录？" onOk={() => handleClearStuck('stuck')}><Button size="small" type="text" status="warning" icon={<X size={12} />}>清除卡住</Button></Popconfirm><Popconfirm title="清除超过24小时的错误采集记录？" onOk={() => handleClearStuck('errors')}><Button size="small" type="text" status="danger" icon={<X size={12} />}>清除错误</Button></Popconfirm><Button size="small" type="text" icon={<RefreshCw size={12} />} onClick={loadColHistory}>刷新</Button></div></div>
+            <div className="card-body" style={{ padding: 0 }}>
+              {colHistory.length === 0 ? <div style={{ padding: 40, textAlign: 'center', color: '#86909c', fontSize: 13 }}>暂无采集记录</div> : (
+                <Table data={colHistory} rowKey="id" size="small"
+                  columns={[
+                    { title: '状态', dataIndex: 'status', width: 70, render: (v: string) => v === 'success' ? <Tag color="green">成功</Tag> : v === 'partial' ? <Tag color="orange">部分</Tag> : v === 'running' ? <Tag color="blue">运行中</Tag> : <Tag color="red">失败</Tag> },
+                    { title: '采集类型', dataIndex: 'phases', width: 170, render: (v: string) => { if (!v) return <span style={{ color: '#c9cdd4', fontSize: 12 }}>-</span>; try { const phases: any[] = JSON.parse(v); if (!Array.isArray(phases) || phases.length === 0) return <span style={{ fontSize: 12 }}>全量</span>; return (<div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>{phases.slice(0, 5).map((p: any, i: number) => <Tag key={i} color={p.errors > 0 ? 'red' : 'blue'} style={{ fontSize: 11, lineHeight: '18px', padding: '0 6px' }}>{PHASE_LABELS[p.phase] || p.phase}</Tag>)}{phases.length > 5 && <span style={{ fontSize: 11, color: '#86909c' }}>+{phases.length - 5}</span>}</div>); } catch { return <span style={{ fontSize: 12 }}>全量</span>; } } },
+                    { title: '新增', dataIndex: 'totalNew', width: 60, render: (v: number) => <span style={{ fontWeight: 600, color: '#165dff' }}>{v}</span> },
+                    { title: '跳过', dataIndex: 'totalSkipped', width: 60, render: (v: number) => <span style={{ color: '#86909c' }}>{v}</span> },
+                    { title: '错误', dataIndex: 'totalErrors', width: 55, render: (v: number) => v > 0 ? <span style={{ color: '#f53f3f', fontWeight: 600 }}>{v}</span> : <span style={{ color: '#86909c' }}>0</span> },
+                    { title: '耗时', dataIndex: 'durationMs', width: 70, render: (v: number) => <span style={{ color: '#4e5969', fontSize: 12 }}>{formatDuration(v)}</span> },
+                    { title: '时间', dataIndex: 'startedAt', width: 140, render: (v: string) => <span style={{ fontSize: 11 }}>{v ? new Date(v).toLocaleString('zh-CN') : '-'}</span> },
+                  ]} pagination={false} border={false} stripe />
+              )}
+            </div>
+          </div>
+          <div className="card">
+            <div className="card-header"><span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><FileSpreadsheet size={16} color="#165dff" /><span style={{ fontSize: 15, fontWeight: 600 }}>Excel 导入记录</span></span><Button size="small" type="text" icon={<RefreshCw size={12} />} onClick={loadHistory}>刷新</Button></div>
+            <div className="card-body" style={{ padding: 0 }}>
+              {history.length === 0 ? <div style={{ padding: 40, textAlign: 'center', color: '#86909c', fontSize: 13 }}>暂无导入记录</div> : (
+                <Table data={history} rowKey="id" size="small" columns={[
+                  { title: '文件名', dataIndex: 'fileName', width: 200 }, { title: '导入条数', dataIndex: 'rowsImported', width: 100, render: (v: number) => <span style={{ fontWeight: 600 }}>{v}</span> },
                   { title: '状态', dataIndex: 'status', width: 100, render: (v: string) => v === 'success' ? <Tag color="green">成功</Tag> : v === 'partial' ? <Tag color="orange">部分</Tag> : <Tag color="red">失败</Tag> },
                   { title: '时间', dataIndex: 'importedAt', width: 180, render: (v: string) => <span style={{ color: '#86909c', fontSize: 12 }}>{v ? new Date(v).toLocaleString('zh-CN') : '-'}</span> },
                 ]} pagination={false} border={false} stripe />

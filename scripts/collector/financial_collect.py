@@ -58,6 +58,7 @@ def extract_metrics(code, lrb_data, fzb_data):
             'totalAssets': 0, 'totalLiabilities': 0, 'netAssets': 0,
             'roe': 0, 'eps': 0, 'bps': 0,
             'grossMargin': 0, 'netMargin': 0, 'debtRatio': 0,
+            'revenueGrowth': 0, 'profitGrowth': 0,
         }
         
         # 利润表 items — use flexible matching
@@ -71,8 +72,8 @@ def extract_metrics(code, lrb_data, fzb_data):
                 m['netProfit'] = v
             elif key in ('基本每股收益', '稀释每股收益'):
                 if not m['eps']: m['eps'] = v
-            elif key in ('营业成本',):
-                if m['totalRevenue'] > 0:
+            elif key in ('营业成本', '营业总成本') or ('营业成本' in key):
+                if not m['grossMargin'] and m['totalRevenue'] > 0 and v > 0:
                     m['grossMargin'] = round((m['totalRevenue'] - v) / m['totalRevenue'] * 100, 2)
         
         # 资产负债表 items — use flexible matching
@@ -101,6 +102,17 @@ def extract_metrics(code, lrb_data, fzb_data):
         elif report_date.endswith('06-30'): m['reportType'] = '中报'
         elif report_date.endswith('09-30'): m['reportType'] = '三季报'
         else: m['reportType'] = '其他'
+        
+        # Compute YoY growth rates
+        # Find same-period-last-year (SPLY)
+        year, month, day = report_date.split('-')
+        sply_date = f"{int(year)-1}-{month}-{day}"
+        sply = metrics.get(sply_date)
+        if sply:
+            if sply.get('totalRevenue', 0) > 0 and m['totalRevenue'] > 0:
+                m['revenueGrowth'] = round((m['totalRevenue'] - sply['totalRevenue']) / sply['totalRevenue'] * 100, 2)
+            if sply.get('netProfit', 0) != 0 and m['netProfit'] != 0:
+                m['profitGrowth'] = round((m['netProfit'] - sply['netProfit']) / sply['netProfit'] * 100, 2)
         
         if m['totalRevenue'] > 0 or m['netProfit'] != 0:
             metrics[report_date] = m
@@ -147,19 +159,22 @@ def main():
                     try:
                         cur.execute("""
                             INSERT INTO stock_financials (code, report_date, report_type, total_revenue, net_profit,
-                                total_assets, total_liabilities, net_assets, roe, eps, bps, gross_margin, net_margin, debt_ratio)
-                            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                                total_assets, total_liabilities, net_assets, roe, eps, bps, gross_margin, net_margin, debt_ratio,
+                                revenue_growth, profit_growth)
+                            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                             ON CONFLICT (code, report_date) DO UPDATE SET
                                 total_revenue=EXCLUDED.total_revenue, net_profit=EXCLUDED.net_profit,
                                 total_assets=EXCLUDED.total_assets, total_liabilities=EXCLUDED.total_liabilities,
                                 net_assets=EXCLUDED.net_assets, roe=EXCLUDED.roe, eps=EXCLUDED.eps,
                                 bps=EXCLUDED.bps, gross_margin=EXCLUDED.gross_margin,
-                                net_margin=EXCLUDED.net_margin, debt_ratio=EXCLUDED.debt_ratio
+                                net_margin=EXCLUDED.net_margin, debt_ratio=EXCLUDED.debt_ratio,
+                                revenue_growth=EXCLUDED.revenue_growth, profit_growth=EXCLUDED.profit_growth
                         """, (code, m['reportDate'], m['reportType'],
                               m['totalRevenue'], m['netProfit'],
                               m['totalAssets'], m['totalLiabilities'], m['netAssets'],
                               m['roe'], m['eps'], m['bps'],
-                              m['grossMargin'], m['netMargin'], m['debtRatio']))
+                              m['grossMargin'], m['netMargin'], m['debtRatio'],
+                              m['revenueGrowth'], m['profitGrowth']))
                         total_periods += 1
                     except Exception as e:
                         pass

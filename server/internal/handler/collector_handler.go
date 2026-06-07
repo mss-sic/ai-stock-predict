@@ -14,6 +14,7 @@ import (
 	"github.com/ai-stock-predict/server/internal/model"
 	"github.com/ai-stock-predict/server/internal/scheduler"
 	"github.com/gin-gonic/gin"
+	"github.com/ai-stock-predict/server/pkg/response"
 )
 
 type CollectorHandler struct {
@@ -40,7 +41,7 @@ func (h *CollectorHandler) Trigger(c *gin.Context) {
 func (h *CollectorHandler) Status(c *gin.Context) {
 	prog := collector.GetProgress()
 	prog.LastRun = h.sched.Status()["lastRun"]
-	c.JSON(http.StatusOK, gin.H{"data": prog})
+	response.Success(c, prog)
 }
 
 func (h *CollectorHandler) UpdateSchedule(c *gin.Context) {
@@ -80,7 +81,43 @@ func (h *CollectorHandler) Stream(c *gin.Context) {
 func (h *CollectorHandler) History(c *gin.Context) {
 	var logs []model.CollectionLog
 	db.MySQL.Order("started_at DESC").Limit(50).Find(&logs)
-	c.JSON(http.StatusOK, gin.H{"data": logs})
+	response.Success(c, logs)
+}
+
+// ClearHistory deletes stuck or old collection logs (type=stuck|errors|all, default stuck)
+func (h *CollectorHandler) ClearHistory(c *gin.Context) {
+	clearType := c.DefaultQuery("type", "stuck")
+
+	var runningDeleted, errorDeleted int64
+
+	if clearType == "stuck" || clearType == "all" {
+		cutoff := time.Now().Add(-30 * time.Minute)
+		result := db.MySQL.Where("status = ? AND started_at < ?", "running", cutoff).Delete(&model.CollectionLog{})
+		runningDeleted = result.RowsAffected
+	}
+
+	if clearType == "errors" || clearType == "all" {
+		cutoff := time.Now().Add(-24 * time.Hour)
+		result := db.MySQL.Where("status IN ? AND started_at < ?", []string{"error", "failed"}, cutoff).Delete(&model.CollectionLog{})
+		errorDeleted = result.RowsAffected
+	}
+
+	totalDeleted := runningDeleted + errorDeleted
+	msg := fmt.Sprintf("已清除 %d 条记录", totalDeleted)
+	if runningDeleted > 0 && errorDeleted > 0 {
+		msg = fmt.Sprintf("已清除 %d 条卡住记录 + %d 条错误记录", runningDeleted, errorDeleted)
+	} else if runningDeleted > 0 {
+		msg = fmt.Sprintf("已清除 %d 条卡住的采集记录", runningDeleted)
+	} else if errorDeleted > 0 {
+		msg = fmt.Sprintf("已清除 %d 条错误采集记录", errorDeleted)
+	}
+
+	response.Success(c, map[string]interface{}{
+		"deleted":      totalDeleted,
+		"runningDeleted": runningDeleted,
+		"errorDeleted":  errorDeleted,
+		"message":      msg,
+	})
 }
 
 func (h *CollectorHandler) StockCollect(c *gin.Context) {
@@ -97,7 +134,7 @@ func (h *CollectorHandler) StockCollect(c *gin.Context) {
 			collector.RunStockCollection(phase, code)
 		}
 	}()
-	c.JSON(http.StatusOK, gin.H{"message": "单股采集已触发", "code": code, "phases": body.Phases})
+	response.Success(c, gin.H{"message": "单股采集已触发", "stockCode": code, "phases": body.Phases})
 }
 
 // CollectReports triggers per-stock report collection via Python script

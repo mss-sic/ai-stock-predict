@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Table, Tag } from '@arco-design/web-react';
 import { useNavigate } from 'react-router-dom';
 import { TrendingUp, TrendingDown, Minus, Star, Shield, AlertTriangle } from 'lucide-react';
-import { fetchTodayBoard } from '../services/api';
+import { fetchTodayBoard, fetchBoardHistory, authFetch } from '../services/api';
 const SUGGEST_COLORS: Record<string,string>={'强烈买入':'#F53F3F','买入':'#F77234','增持':'#FF7D00','持有':'#86909C','减持':'#3491FA','卖出':'#00B42A','强烈卖出':'#009A29'};
 const SUGGEST_BG: Record<string,string>={'强烈买入':'#FFECE8','买入':'#FFF3E8','增持':'#FFF7E8','持有':'#F2F3F5','减持':'#E8F3FF','卖出':'#E8FFEA','强烈卖出':'#DBF5DF'};
 const RISK_COLORS: Record<string,string>={'高风险':'#F53F3F','中高风险':'#F77234','中风险':'#FF7D00','中低风险':'#3491FA','低风险':'#00B42A'};
@@ -27,8 +27,8 @@ export default function BoardPage() {
       setLoading(true);
       try {
         const res: any = await fetchTodayBoard();
-        if (res.data?.length > 0) {
-          setData(res.data);
+        if (res.data?.data?.length > 0) {
+          setData(res.data.data);
           setBoardDate(res.date || '');
         } else {
           // Try recent dates
@@ -37,7 +37,7 @@ export default function BoardPage() {
             d.setDate(d.getDate() - 1);
             const ds = d.toISOString().slice(0, 10);
             try {
-              const r: any = await (await fetch(`http://127.0.0.1:8080/api/v1/board/history?date=${ds}`)).json();
+              const r: any = await (await authFetch(`http://127.0.0.1:8080/api/v1/board/history?date=${ds}`)).json();
               if (r.data?.length > 0) {
                 setData(r.data);
                 setBoardDate(ds);
@@ -192,7 +192,7 @@ export default function BoardPage() {
       <div className="card" style={{ overflow: 'hidden' }}>
         <Table
           columns={columns}
-          data={data}
+          data={data || []}
           loading={loading}
           rowKey="id"
           pagination={false}

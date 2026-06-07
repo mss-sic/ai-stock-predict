@@ -1,8 +1,8 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Input, Select, Table, Button, Tag, Pagination, Message } from '@arco-design/web-react';
+import { Input, Select, Table, Button, Tag, Pagination, Message, Modal } from '@arco-design/web-react';
 import { Star, Search, Eye, StarOff } from 'lucide-react';
-import { fetchStocks, addWatchlist, removeWatchlist, fetchWatchlist } from '../services/api';
+import { fetchStocks, addToWatchlist, removeFromWatchlist, fetchWatchlist, fetchWatchlistGroups, createWatchlistGroup } from '../services/api';
 
 export default function StockListPage() {
   const [stocks, setStocks] = useState<any[]>([]);
@@ -18,8 +18,8 @@ export default function StockListPage() {
     setLoading(true);
     try {
       const res: any = await fetchStocks({ page, pageSize: 20, keyword, industry });
-      setStocks(res.data || []);
-      setTotal(res.total || 0);
+      setStocks(res.data?.data || []);
+      setTotal(res.data?.total || 0);
     } catch { setStocks([]); }
     setLoading(false);
   }, [page, keyword, industry]);
@@ -27,24 +27,54 @@ export default function StockListPage() {
   const loadWatchlist = async () => {
     try {
       const res: any = await fetchWatchlist();
-      const codes = new Set((res.data || []).map((i: any) => i.stockCode));
+      const codes = new Set((res.data?.data || []).map((i: any) => i.stockCode));
       setWatched(codes);
     } catch {}
   };
 
   useEffect(() => { loadStocks(); loadWatchlist(); }, [loadStocks]);
 
+  const [addStockCode, setAddStockCode] = useState('');
+  const [addGroupId, setAddGroupId] = useState<number>(0);
+  const [groups, setGroups] = useState<any[]>([]);
+  const [newGroupInput, setNewGroupInput] = useState('');
+  const [showAddModal, setShowAddModal] = useState(false);
+
+  useEffect(() => {
+    fetchWatchlistGroups().then(({ data }) => setGroups(data.data || [])).catch(() => {});
+  }, [watched]);
+
   const toggleWatch = async (code: string) => {
     if (watched.has(code)) {
-      await removeWatchlist(code);
+      await removeFromWatchlist(code);
       watched.delete(code);
+      setWatched(new Set(watched));
       Message.success('已取消自选');
     } else {
-      await addWatchlist(code);
-      watched.add(code);
-      Message.success('已添加自选');
+      setAddStockCode(code);
+      setAddGroupId(0);
+      setShowAddModal(true);
     }
-    setWatched(new Set(watched));
+  };
+
+  const handleAddWithGroup = async () => {
+    if (!addStockCode) return;
+    try {
+      if (newGroupInput.trim()) {
+        const { data } = await createWatchlistGroup(newGroupInput.trim());
+        const gid = data.data?.id || 0;
+        await addToWatchlist(addStockCode, gid);
+        setNewGroupInput('');
+      } else {
+        await addToWatchlist(addStockCode, addGroupId);
+      }
+      watched.add(addStockCode);
+      setWatched(new Set(watched));
+      setShowAddModal(false);
+      Message.success('已添加自选');
+    } catch (err: any) {
+      Message.error(err.response?.data?.message || err.message || '添加失败');
+    }
   };
 
   const columns = [
@@ -113,7 +143,7 @@ export default function StockListPage() {
         </div>
         <div style={{ padding: 0 }}>
           <Table
-            data={stocks} columns={columns} rowKey="code"
+            data={stocks || []} columns={columns} rowKey="code"
             loading={loading} pagination={false} border={false} stripe
             size="small"
             onRow={(r) => ({

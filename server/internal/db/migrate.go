@@ -31,6 +31,7 @@ func AutoMigrate() {
 			&model.StockShareholder{},
 			&model.StockFinancial{},
 			&model.StockNews{},
+			&model.PredictionKDist{},
 		); err != nil {
 			log.Printf("PG migrate warning: %v", err)
 		}
@@ -40,13 +41,20 @@ func AutoMigrate() {
 		if err := MySQL.AutoMigrate(
 			&model.User{},
 			&model.Watchlist{},
+			&model.WatchlistGroup{},
 			&model.Strategy{},
-			&model.BacktestResult{},
+			&model.StrategyCondition{},
+			&model.BacktestResult{},model.BacktestResult{},
+			&model.BacktestResult{},model.BacktestTask{},
 			&model.Holding{},
 			&model.RiskAlert{},
 			&model.ImportLog{},
 			&model.CollectionLog{},
+			&model.ScheduledTask{},
+			&model.TaskLog{},
+			&model.LoginLog{},
 			&model.AIConfig{},
+			&model.Session{},
 		); err != nil {
 			log.Printf("MySQL migrate warning: %v", err)
 		}
@@ -152,5 +160,12 @@ func EnsureManualTables() {
 		PG.Exec(`CREATE INDEX IF NOT EXISTS idx_reports_code ON stock_reports(stock_code)`)
 		PG.Exec(`CREATE INDEX IF NOT EXISTS idx_reports_date ON stock_reports(publish_date)`)
 		PG.Exec(`CREATE INDEX IF NOT EXISTS idx_reports_industry ON stock_reports(industry_name)`)
+
+		PG.Exec(`CREATE TABLE IF NOT EXISTS prediction_kdist (
+			id SERIAL PRIMARY KEY,
+			code VARCHAR(10) UNIQUE,
+			kd_data JSONB,
+			updated_at TIMESTAMPTZ DEFAULT NOW()
+		)`)
 	}
 }

@@ -44,7 +44,7 @@ body{
   height:var(--topbar-h);background:var(--color-bg-1);border-bottom:1px solid var(--color-border-1);
   display:flex;align-items:center;padding:0 24px;gap:12px;flex:none
 }
-.app-topbar .title{font-size:14px;font-weight:600;color:var(--color-text-1)}
+.app-topbar .title{font-size:14px;font-weight:600;color:var(--color-text-1);display:flex;align-items:center}
 .page-content{flex:1;overflow:auto;padding:20px 24px 24px;min-width:0}
 
 /* ===== Sidebar ===== */
@@ -56,10 +56,11 @@ body{
   display:flex;align-items:center;gap:10px;padding:0 20px;height:var(--topbar-h);
   font-size:16px;font-weight:700;border-bottom:1px solid var(--color-border-1)
 }
-.sidebar-brand .brand-icon{font-size:20px}
+.sidebar-brand .brand-icon{display:flex;align-items:center;flex-shrink:0}
 .sidebar-brand .brand-text{
-  background:linear-gradient(135deg,var(--arcoblue-6),var(--purple-6));
-  -webkit-background-clip:text;background-clip:text;color:transparent
+  color: #93c5fd;
+  font-weight: 700;
+  font-size: 14px;
 }
 .sidebar-nav{flex:1;padding:8px 0;overflow-y:auto}
 .nav-item{
@@ -235,3 +236,9 @@ body{
 .chat-msg.user .avatar { background: var(--gray-3); color: var(--gray-8); }
 .chat-msg.ai   .avatar { background: linear-gradient(135deg, var(--arcoblue-6), var(--purple-6)); color: #fff; }
 .chat-msg .body { flex: 1; min-width: 0; font-size: 14px; line-height: 22px; color: var(--color-text-1); }
+
+/* Toast animation */
+@keyframes toastSlideIn {
+  from { opacity: 0; transform: translateY(-12px); }
+  to { opacity: 1; transform: translateY(0); }
+}

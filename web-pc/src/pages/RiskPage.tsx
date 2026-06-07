@@ -1,85 +1,159 @@
-import { useState, useMemo } from 'react';
-import { Table } from '@arco-design/web-react';
-import { ShieldAlert, AlertTriangle, Info, Filter } from 'lucide-react';
-
-const mockAlerts = [
-  { id: 1, code: '000017', level: 'high', type: '连榜过热', desc: '连续上榜 15 个交易日，短线情绪过热', date: '2026-06-03' },
-  { id: 2, code: '002456', level: 'medium', type: '技术破位', desc: '跌破 20 日均线支撑位', date: '2026-06-02' },
-  { id: 3, code: '300613', level: 'high', type: '质押偏高', desc: '控股股东质押比例超 60%', date: '2026-06-01' },
-  { id: 4, code: '688170', level: 'low', type: '流动性弱', desc: '日均成交额低于 5000 万', date: '2026-06-03' },
-  { id: 5, code: '600162', level: 'medium', type: '估值偏高', desc: '市盈率高于行业均值 2 倍标准差', date: '2026-05-31' },
-  { id: 6, code: '000725', level: 'high', type: '限售解禁', desc: '30 日内有限售股解禁，占总股本 8%', date: '2026-06-05' },
-];
+import { useState, useEffect, useMemo } from 'react';
+import { Table, Button, Tag } from '@arco-design/web-react';
+import { ShieldAlert, AlertTriangle, Info, RefreshCw, EyeOff } from 'lucide-react';
+import { fetchRiskAlerts, ignoreRiskAlert } from '../services/api';
 
 const iconMap: Record<string, any> = { high: AlertTriangle, medium: ShieldAlert, low: Info };
-const colorMap: Record<string, string> = { high: 'tag-red', medium: 'tag-orange', low: 'tag-green' };
+const colorMap: Record<string, string> = { high: 'red', medium: 'orange', low: 'green' };
 const labels: Record<string, string> = { high: '高风险', medium: '中风险', low: '低风险' };
 
 export default function RiskPage() {
+  const [alerts, setAlerts] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
   const [filterLevel, setFilterLevel] = useState<string>('all');
   const [filterType, setFilterType] = useState<string>('all');
 
+  const loadAlerts = async () => {
+    setLoading(true);
+    try { const res: any = await fetchRiskAlerts(); setAlerts(res.data?.data || []); }
+    catch { setAlerts([]); }
+    finally { setLoading(false); }
+  };
+
+  useEffect(() => { loadAlerts(); }, []);
+
+  const handleIgnore = async (id: number) => {
+    try {
+      await ignoreRiskAlert(id);
+      setAlerts(prev => prev.filter(a => a.id !== id));
+    } catch {}
+  };
+
   const filtered = useMemo(() => {
-    return mockAlerts.filter(a => {
+    return alerts.filter((a: any) => {
       if (filterLevel !== 'all' && a.level !== filterLevel) return false;
       if (filterType !== 'all' && a.type !== filterType) return false;
       return true;
     });
-  }, [filterLevel, filterType]);
+  }, [alerts, filterLevel, filterType]);
 
-  const counts = { high: mockAlerts.filter(a => a.level === 'high').length, medium: mockAlerts.filter(a => a.level === 'medium').length, low: mockAlerts.filter(a => a.level === 'low').length };
-  const types = [...new Set(mockAlerts.map(a => a.type))];
+  const counts = {
+    high: alerts.filter((a: any) => a.level === 'high').length,
+    medium: alerts.filter((a: any) => a.level === 'medium').length,
+    low: alerts.filter((a: any) => a.level === 'low').length,
+  };
+  const types = [...new Set(alerts.map((a: any) => a.type))];
 
   return (
     <div>
       <div className="page-header">
         <h2><ShieldAlert size={20} style={{ marginRight: 4 }} />风险预警</h2>
-        <span className="muted">实时监测 · 自动扫描 587 只股票</span>
-      </div>
-
-      <div className="stat-grid mb16">
-        <div className="stat-card" style={{ cursor: 'pointer', borderColor: filterLevel === 'high' ? 'var(--red-6)' : undefined }} onClick={() => setFilterLevel(filterLevel === 'high' ? 'all' : 'high')}>
-          <div className="stat-label">🔴 高风险</div>
-          <div className="stat-value" style={{ color: 'var(--red-6)' }}>{counts.high}</div>
-        </div>
-        <div className="stat-card" style={{ cursor: 'pointer', borderColor: filterLevel === 'medium' ? 'var(--orange-6)' : undefined }} onClick={() => setFilterLevel(filterLevel === 'medium' ? 'all' : 'medium')}>
-          <div className="stat-label">🟠 中风险</div>
-          <div className="stat-value" style={{ color: 'var(--orange-6)' }}>{counts.medium}</div>
-        </div>
-        <div className="stat-card" style={{ cursor: 'pointer', borderColor: filterLevel === 'low' ? 'var(--green-6)' : undefined }} onClick={() => setFilterLevel(filterLevel === 'low' ? 'all' : 'low')}>
-          <div className="stat-label">🟢 低风险</div>
-          <div className="stat-value" style={{ color: 'var(--green-6)' }}>{counts.low}</div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-label">总计预警</div>
-          <div className="stat-value">{mockAlerts.length}</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span className="muted">监测 {alerts.length > 0 ? [...new Set(alerts.map((a: any) => a.stockCode))].length : 0} 只持仓股票</span>
+          <Button size="small" icon={<RefreshCw size={12} />} loading={loading} onClick={loadAlerts}>刷新</Button>
         </div>
       </div>
 
-      <div className="card mb16">
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
+        <div
+          onClick={() => setFilterLevel(filterLevel === 'high' ? 'all' : 'high')}
+          style={{
+            background: '#fff', borderRadius: 8, border: filterLevel === 'high' ? '2px solid #f53f3f' : '1px solid #e5e6eb',
+            padding: '16px 20px', cursor: 'pointer', transition: 'all 0.15s',
+          }}
+        >
+          <div style={{ fontSize: 13, color: '#86909c', marginBottom: 6 }}>🔴 高风险</div>
+          <div style={{ fontSize: 28, fontWeight: 700, color: '#f53f3f' }}>{counts.high}</div>
+        </div>
+        <div
+          onClick={() => setFilterLevel(filterLevel === 'medium' ? 'all' : 'medium')}
+          style={{
+            background: '#fff', borderRadius: 8, border: filterLevel === 'medium' ? '2px solid #ff7d00' : '1px solid #e5e6eb',
+            padding: '16px 20px', cursor: 'pointer', transition: 'all 0.15s',
+          }}
+        >
+          <div style={{ fontSize: 13, color: '#86909c', marginBottom: 6 }}>🟠 中风险</div>
+          <div style={{ fontSize: 28, fontWeight: 700, color: '#ff7d00' }}>{counts.medium}</div>
+        </div>
+        <div
+          onClick={() => setFilterLevel(filterLevel === 'low' ? 'all' : 'low')}
+          style={{
+            background: '#fff', borderRadius: 8, border: filterLevel === 'low' ? '2px solid #00b42a' : '1px solid #e5e6eb',
+            padding: '16px 20px', cursor: 'pointer', transition: 'all 0.15s',
+          }}
+        >
+          <div style={{ fontSize: 13, color: '#86909c', marginBottom: 6 }}>🟢 低风险</div>
+          <div style={{ fontSize: 28, fontWeight: 700, color: '#00b42a' }}>{counts.low}</div>
+        </div>
+        <div style={{
+          background: '#fff', borderRadius: 8, border: '1px solid #e5e6eb', padding: '16px 20px',
+        }}>
+          <div style={{ fontSize: 13, color: '#86909c', marginBottom: 6 }}>总计预警</div>
+          <div style={{ fontSize: 28, fontWeight: 700, color: '#1d2129' }}>{alerts.length}</div>
+        </div>
+      </div>
+
+      <div className="card">
         <div className="card-header">
-          <span className="card-title">预警列表</span>
-          <div className="chips">
+          <span style={{ fontSize: 15, fontWeight: 600 }}>预警列表</span>
+          <div style={{ display: 'flex', gap: 6 }}>
             {types.map(t => (
-              <button key={t} className={`chip ${filterType === t ? 'active' : ''}`} onClick={() => setFilterType(filterType === t ? 'all' : t)}>
-                <Filter size={10} style={{ marginRight: 3 }} />{t}
-              </button>
+              <Button
+                key={t}
+                size="mini"
+                type={filterType === t ? 'primary' : 'outline'}
+                onClick={() => setFilterType(filterType === t ? 'all' : t)}
+              >
+                {t}
+              </Button>
             ))}
           </div>
         </div>
-        <Table
-          columns={[
-            { title: '代码', dataIndex: 'code', width: 100, render: (v: string) => <span className="num" style={{ fontWeight: 600 }}>{v}</span> },
-            { title: '等级', dataIndex: 'level', width: 90, render: (v: string) => { const I = iconMap[v]; return <span className={`tag ${colorMap[v]}`}><I size={11} />{labels[v]}</span>; } },
-            { title: '类型', dataIndex: 'type', width: 120 },
-            { title: '说明', dataIndex: 'desc' },
-            { title: '日期', dataIndex: 'date', width: 120, render: (v: string) => <span className="muted">{v}</span> },
-          ]}
-          data={filtered}
-          rowKey="id"
-          pagination={false}
-          empty={() => <div style={{ padding: 32, textAlign: 'center', color: 'var(--color-text-3)' }}>该筛选条件下暂无风险预警</div>}
-        />
+        <div className="card-body" style={{ padding: 0 }}>
+          {filtered.length === 0 ? (
+            <div style={{ padding: 48, textAlign: 'center', color: '#86909c', fontSize: 13 }}>
+              {alerts.length === 0 ? '暂无风险预警，持仓安全 🎉' : '该筛选条件下暂无风险预警'}
+            </div>
+          ) : (
+            <Table
+              data={filtered}
+              rowKey="id"
+              size="small"
+              columns={[
+                {
+                  title: '名称', dataIndex: 'stockName', width: 100, ellipsis: true,
+                  render: (v: string) => <span style={{ fontSize: 13 }}>{v || '-'}</span>
+                },
+                {
+                  title: '代码', dataIndex: 'stockCode', width: 85,
+                  render: (v: string) => <span style={{ fontFamily: 'monospace', fontWeight: 600, fontSize: 12, color: '#4e5969' }}>{v}</span>
+                },
+                {
+                  title: '等级', dataIndex: 'level', width: 100,
+                  render: (v: string) => {
+                    const I = iconMap[v];
+                    return <Tag color={colorMap[v]}><I size={11} style={{ marginRight: 2 }} />{labels[v]}</Tag>;
+                  }
+                },
+                { title: '类型', dataIndex: 'type', width: 110 },
+                { title: '说明', dataIndex: 'description', ellipsis: true },
+                {
+                  title: '触发时间', dataIndex: 'hitDate', width: 160,
+                  render: (v: string) => <span style={{ fontSize: 12, color: '#86909c' }}>{v ? new Date(v).toLocaleString('zh-CN') : '-'}</span>
+                },
+                {
+                  title: '操作', width: 70,
+                  render: (_: any, record: any) => (
+                    <Button size="mini" type="text" icon={<EyeOff size={12} />} onClick={() => handleIgnore(record.id)}>忽略</Button>
+                  )
+                },
+              ]}
+              pagination={false}
+              border={false}
+              stripe
+            />
+          )}
+        </div>
       </div>
     </div>
   );

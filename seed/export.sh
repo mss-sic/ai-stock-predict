@@ -1,110 +1,78 @@
 #!/bin/bash
-# ============================================================
-# 智策投研 - 种子数据导出脚本
-# 导出当前 PostgreSQL 关键数据为部署初始化数据
-# 用法: bash seed/export.sh
-# ============================================================
-set -e
+# 智策投研 — 种子数据导出
+# 通过 Docker 容器导出 PostgreSQL + MySQL 为 SQL 文件
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 SEED_DIR="$SCRIPT_DIR/data"
-DB_HOST="${PG_HOST:-localhost}"
-DB_NAME="${PG_DB:-stock_predict}"
-DB_USER="${PG_USER:-stock}"
-DB_PASS="${PG_PASS:-stock123}"
+mkdir -p "$SEED_DIR"
 
-export PGPASSWORD="$DB_PASS"
+# 容器名称
+PG_CONTAINER="${PG_CONTAINER:-docker-postgres-1}"
+MYSQL_CONTAINER="${MYSQL_CONTAINER:-docker-mysql-1}"
+
+# 数据库连接
+PG_USER="${PG_USER:-stock}"
+PG_DB="${PG_DB:-stock_predict}"
+
+MYSQL_USER="${MYSQL_USER:-stock}"
+MYSQL_PASS="${MYSQL_PASS:-stock123}"
+MYSQL_DB="${MYSQL_DB:-stock_predict}"
+
+TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+PG_OUT="$SEED_DIR/pg_dump_${TIMESTAMP}.sql"
+MYSQL_OUT="$SEED_DIR/mysql_dump_${TIMESTAMP}.sql"
 
 echo "============================================"
 echo "智策投研 — 种子数据导出"
-echo "数据库: $DB_HOST/$DB_NAME"
-echo "目标:   $SEED_DIR"
+echo "时间: $(date '+%Y-%m-%d %H:%M:%S')"
 echo "============================================"
+echo ""
 
-mkdir -p "$SEED_DIR"
+# ── PostgreSQL 导出 ──
+echo "【PostgreSQL】导出中..."
+docker exec "$PG_CONTAINER" pg_dump \
+  -U "$PG_USER" -d "$PG_DB" \
+  --no-owner --no-acl \
+  --inserts --rows-per-insert=100 \
+  --data-only \
+  > "$PG_OUT" 2>/dev/null
 
-# 导出函数: 使用 COPY 命令 (更快)
-export_table() {
-    local table="$1"
-    local file="$SEED_DIR/${table}.csv"
-    echo "→ 导出 $table ..."
-    psql -h "$DB_HOST" -U "$DB_USER" -d "$DB_NAME" \
-        -c "\\COPY $table TO '$file' WITH CSV HEADER" 2>&1 | grep -v "^COPY"
-    local rows=$(wc -l < "$file" | tr -d ' ')
-    echo "   $rows 行 → ${table}.csv"
+PG_SIZE=$(du -h "$PG_OUT" | cut -f1)
+echo "  ✓ PostgreSQL → $PG_OUT ($PG_SIZE)"
+
+# ── MySQL 导出 ──
+echo "【MySQL】导出中..."
+docker exec "$MYSQL_CONTAINER" mysqldump \
+  -u "$MYSQL_USER" -p"$MYSQL_PASS" \
+  --no-tablespaces --no-create-info --complete-insert \
+  --skip-triggers --skip-add-locks --skip-lock-tables \
+  "$MYSQL_DB" \
+  > "$MYSQL_OUT" 2>/dev/null
+
+MYSQL_SIZE=$(du -h "$MYSQL_OUT" | cut -f1)
+echo "  ✓ MySQL    → $MYSQL_OUT ($MYSQL_SIZE)"
+
+# ── 删除旧的导出文件（保留最近 5 个） ──
+echo ""
+echo "清理旧导出..."
+ls -t "$SEED_DIR"/pg_dump_*.sql 2>/dev/null | tail -n +6 | xargs rm -f 2>/dev/null || true
+ls -t "$SEED_DIR"/mysql_dump_*.sql 2>/dev/null | tail -n +6 | xargs rm -f 2>/dev/null || true
+
+# ── 创建 manifest ──
+cat > "$SEED_DIR/manifest.json" << MANIFEST
+{
+  "exported_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+  "pg_dump": "$(basename "$PG_OUT")",
+  "pg_size": "$PG_SIZE",
+  "mysql_dump": "$(basename "$MYSQL_OUT")",
+  "mysql_size": "$MYSQL_SIZE"
 }
-
-# ============ PostgreSQL 核心数据 ============
-echo ""
-echo "【PostgreSQL 数据表】"
-
-# 基础数据
-export_table "stocks_basic"
-
-# K线数据 (较大, 压缩)
-echo "→ 导出 stocks_daily_k (较大, 请等待) ..."
-psql -h "$DB_HOST" -U "$DB_USER" -d "$DB_NAME" \
-    -c "\\COPY stocks_daily_k TO '$SEED_DIR/stocks_daily_k.csv' WITH CSV HEADER" 2>&1 | grep -v "^COPY"
-rows=$(wc -l < "$SEED_DIR/stocks_daily_k.csv" | tr -d ' ')
-echo "   $rows 行 → stocks_daily_k.csv"
-
-# 日指标
-export_table "stocks_daily_indicator"
-
-# 行情快照
-export_table "stock_quotes"
-
-# 信号
-export_table "stock_signals"
-
-# 财务
-export_table "stock_financials"
-
-# 股东
-export_table "stock_shareholders"
-
-# 资讯
-export_table "stock_news"
-
-# 研报
-export_table "stock_reports"
-
-# 算法榜单
-export_table "algorithm_picks"
-export_table "algorithm_pick_details"
-
-# 预测
-export_table "predictions"
-
-# AI 分析
-export_table "ai_analyses"
-export_table "ai_stock_scores"
-export_table "ai_conversations"
-
-# ============ 压缩大文件 ============
-echo ""
-echo "【压缩】"
-gzip -f "$SEED_DIR/stocks_daily_k.csv"
-echo "   stocks_daily_k.csv.gz ($(du -h "$SEED_DIR/stocks_daily_k.csv.gz" | cut -f1))"
-
-# ============ 生成清单 ============
-echo ""
-echo "【生成清单】"
-MANIFEST="$SEED_DIR/manifest.json"
-python3 -c "
-import json, os, glob
-files = []
-for f in sorted(glob.glob('$SEED_DIR/*.csv') + glob.glob('$SEED_DIR/*.gz')):
-    name = os.path.basename(f)
-    size = os.path.getsize(f)
-    files.append({'file': name, 'size': size})
-total = sum(f['size'] for f in files)
-print(json.dumps({'exported_at': '$(date -u +%Y-%m-%dT%H:%M:%SZ)', 'total_size': total, 'files': files}, indent=2, ensure_ascii=False))
-" > "$MANIFEST"
-cat "$MANIFEST"
+MANIFEST
 
 echo ""
 echo "============================================"
-echo "导出完成！数据文件在: $SEED_DIR"
+echo "导出完成!"
+echo "  PostgreSQL: $PG_OUT ($PG_SIZE)"
+echo "  MySQL:      $MYSQL_OUT ($MYSQL_SIZE)"
 echo "============================================"

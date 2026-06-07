@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"log"
 	"net/http"
 	"os/exec"
@@ -15,6 +16,7 @@ import (
 	"github.com/ai-stock-predict/server/internal/db"
 	"github.com/ai-stock-predict/server/internal/model"
 	"github.com/gin-gonic/gin"
+	"github.com/ai-stock-predict/server/pkg/response"
 )
 
 type PredictionHandler struct{}
@@ -81,7 +83,7 @@ func (h *PredictionHandler) RunAll(c *gin.Context) {
 	}
 	wg.Wait()
 
-	c.JSON(http.StatusOK, gin.H{"data": results, "code": code})
+	response.Success(c, gin.H{"predictions": results, "stockCode": code})
 }
 
 // Batch runs predictions for all stocks in today's board
@@ -130,11 +132,89 @@ func (h *PredictionHandler) Batch(c *gin.Context) {
 }
 
 // GetResult returns stored predictions for a stock
+// HitRate calculates real hit rates by comparing historical predictions vs actual prices
+func (h *PredictionHandler) HitRate(c *gin.Context) {
+	code := c.Param("code")
+	type ModelHitRate struct {
+		ModelName string  `json:"modelName"`
+		HitRate   float64 `json:"hitRate"`
+		Total     int     `json:"total"`
+		Hits      int     `json:"hits"`
+	}
+	var results []ModelHitRate
+	models := []string{"model1", "model2", "model3", "model4", "model5", "model6", "model7"}
+	for _, model := range models {
+		var total, hits int
+		rows, err := db.PG.Raw(`SELECT p.predict_date, p.predicted_price, k.close AS actual_close, k.trade_date
+			FROM predictions p
+			LEFT JOIN LATERAL (
+				SELECT close, trade_date FROM stocks_daily_k
+				WHERE code = p.code AND trade_date = p.predict_date
+				LIMIT 1
+			) k ON true
+			WHERE p.code = ? AND p.model_name = ? AND p.predict_date <= CURRENT_DATE
+			ORDER BY p.predict_date`, code, model).Rows()
+		if err != nil {
+			continue
+		}
+		var prevPrice, prevPred, prevClose float64
+		for rows.Next() {
+			var predictDate, tradeDate time.Time
+			var predPrice, actualClose float64
+			rows.Scan(&predictDate, &predPrice, &actualClose, &tradeDate)
+			if actualClose == 0 {
+				continue
+			}
+			// Compare direction: predicted direction vs actual direction from previous day
+			if !tradeDate.IsZero() {
+				prevClose = actualClose
+			}
+			// Direction: prediction says up if predicted > last known close
+			// We use the previous row close as reference
+			if prevPrice > 0 {
+				total++
+				predUp := predPrice > prevPrice
+				actualUp := actualClose > prevClose
+				if predUp == actualUp || (predPrice == prevPrice && actualClose == prevClose) {
+					hits++
+				}
+			}
+			prevPrice = actualClose
+			if prevPred == 0 {
+				prevPred = predPrice
+			}
+			_ = prevPred
+		}
+		rows.Close()
+		hitRate := 0.0
+		if total > 0 {
+			hitRate = float64(hits) / float64(total)
+		}
+		results = append(results, ModelHitRate{
+			ModelName: model,
+			HitRate:   math.Round(hitRate*10000) / 10000,
+			Total:     total,
+			Hits:      hits,
+		})
+	}
+	response.Success(c, gin.H{"hitRates": results, "stockCode": code})
+}
+
+
 func (h *PredictionHandler) GetResult(c *gin.Context) {
 	code := c.Param("code")
 	var predictions []model.Prediction
 	db.PG.Where("code = ?", code).Order("predict_date ASC").Find(&predictions)
-	c.JSON(http.StatusOK, gin.H{"data": predictions, "code": code})
+
+	// Include kdistributed_data for chart overlay
+	var kdist model.PredictionKDist
+	db.PG.Where("code = ?", code).First(&kdist)
+
+	response.Success(c, gin.H{
+		"predictions": predictions,
+		"stockCode":   code,
+		"kdData":      kdist.KDData,
+	})
 }
 
 func savePredictions(code, modelName string, pred []map[string]float64) {

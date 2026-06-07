@@ -1,12 +1,13 @@
 import { useEffect, useState, useMemo, useRef } from 'react';
 import { useParams } from 'react-router-dom';
-import { Button, Tag, Input, Tooltip } from '@arco-design/web-react';
+import { Button, Tag, Input, Tooltip, Modal, Select } from '@arco-design/web-react';
 import {
   TrendingUp, TrendingDown, BarChart3, Repeat,
   Sparkles, Brain, Target, Activity, Table2,
-  Send, Trash2, Loader2, Check, X, Layers, FileText, Users, Newspaper,
+  Send, Trash2, Loader2, Check, X, Layers, FileText, Users, Newspaper, Star, StarOff,
 } from 'lucide-react';
-import { fetchStockDetail, fetchKLine, fetchIndicator, fetchQuote, fetchPredictionResult, runPrediction, fetchStockHeatmap, fetchSignal, fetchFinancials, fetchShareholders, fetchStockNews, fetchReports } from '../services/api';
+import { showToast } from '../components/Toast';
+import { authFetch, checkAPIError, fetchStockDetail, fetchKLine, fetchIndicator, fetchQuote, fetchPredictionResult, fetchPredictionHitRate, fetchStockHeatmap, fetchSignal, fetchFinancials, fetchShareholders, fetchStockNews, fetchReports, addToWatchlist, removeFromWatchlist, fetchWatchlist, fetchWatchlistGroups, createWatchlistGroup } from '../services/api';
 import KLineChart from '../components/KLineChart';
 
 type TabKey = 'forecast' | 'analysis' | 'strategy' | 'technical' | 'trading' | 'financial' | 'shareholder' | 'reports' | 'news';
@@ -66,7 +67,7 @@ function getBiasInfo(up: boolean, strength: number): { label: string; strength: 
 
 
 // Model config
-const MODEL_NAMES = ['GRU', 'LSTM', 'XGBoost', 'ARIMA', 'Transformer', 'Prophet'];
+const MODEL_NAMES = ['model1','model2','model3','model4','model5','model6','model7'];
 const MODEL_COLORS = ['#165DFF', '#F53F3F', '#722ED1', '#FF7D00', '#00B42A', '#3491FA'];
 
 // ─── Financial metric card helper ───
@@ -293,10 +294,11 @@ export default function StockDetailPage() {
   const { code } = useParams<{ code: string }>();
   const [stock, setStock] = useState<any>(null);
   const [klines, setKlines] = useState<any[]>([]);
+  const safeKlines = useMemo(() => klines.filter((k: any) => k != null), [klines]);
   const [indicator, setIndicator] = useState<any>(null);
   const [quote, setQuote] = useState<any>(null);
   const [predictions, setPredictions] = useState<any[]>([]);
-  const [predicting, setPredicting] = useState(false);
+  const [realHitRates, setRealHitRates] = useState<any>(null);
   const [boardDates, setBoardDates] = useState<string[]>([]);
   const [tab, setTab] = useState<TabKey>('forecast');
   const [horizon, setHorizon] = useState(10);
@@ -306,6 +308,12 @@ export default function StockDetailPage() {
   const [chatInput, setChatInput] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
   const chatBottomRef = useRef<HTMLDivElement>(null);
+  // Interval stats state
+  const [intervalMode, setIntervalMode] = useState(true);
+  const [intervalRange, setIntervalRange] = useState<[number, number] | null>(null);
+  const handleRangeChange = (startIdx: number, endIdx: number) => {
+    setIntervalRange([startIdx, endIdx]);
+  };
   // AI scoring state
   const [aiScore, setAiScore] = useState<any>(null);
   const [scoreLoading, setScoreLoading] = useState(false);
@@ -315,34 +323,51 @@ export default function StockDetailPage() {
   const [shareholders, setShareholders] = useState<any[]>([]);
   const [stockNews, setStockNews] = useState<any[]>([]);
   const [reports, setReports] = useState<any[]>([]);
+  const [isWatched, setIsWatched] = useState(false);
+  const [showWLModal, setShowWLModal] = useState(false);
+  const [wlGroupId, setWlGroupId] = useState<number>(0);
+  const [wlGroups, setWlGroups] = useState<any[]>([]);
+  const [wlNewGroup, setWlNewGroup] = useState('');
 
   useEffect(() => {
     if (!code) return;
-    fetchStockDetail(code).then((r: any) => setStock(r.data));
-    fetchKLine(code).then((r: any) => setKlines(r.data || []));
-    fetchIndicator(code).then((r: any) => setIndicator(r.data)).catch(() => {});
-    fetchQuote(code).then((r: any) => setQuote(r.data)).catch(() => {});
-    fetchFinancials(code).then((r: any) => setFinancials(r.data || [])).catch(() => {});
-    fetchShareholders(code).then((r: any) => setShareholders(r.data || [])).catch(() => {});
-    fetchStockNews(code, 20).then((r: any) => setStockNews(r.data || [])).catch(() => {});
-    fetchReports(code, 20).then((r: any) => setReports(r.data || [])).catch(() => {});
-    fetchPredictionResult(code).then((r: any) => setPredictions(r.data || [])).catch(() => {});
+    fetchStockDetail(code).then((r: any) => setStock(r.data?.data ?? r.data));
+    fetchKLine(code).then((r: any) => setKlines(r.data?.data || []));
+    fetchIndicator(code).then((r: any) => setIndicator(r.data?.data ?? r.data)).catch(() => {});
+    fetchQuote(code).then((r: any) => setQuote(r.data?.data ?? r.data)).catch(() => {});
+    fetchFinancials(code).then((r: any) => setFinancials(r.data?.data || [])).catch(() => {});
+    fetchShareholders(code).then((r: any) => setShareholders(r.data?.data || [])).catch(() => {});
+    fetchStockNews(code, 20).then((r: any) => setStockNews(r.data?.data || [])).catch(() => {});
+    fetchReports(code, 20).then((r: any) => setReports(r.data?.data || [])).catch(() => {});
+fetchPredictionResult(code).then((r: any) => {
+      const preds = r.data?.data?.predictions || r.data?.data || [];
+      setPredictions(Array.isArray(preds) ? preds : []);
+    }).catch(() => {});
+    fetchPredictionHitRate(code).then((r: any) => {
+      const rates = r.data?.data?.hitRates || [];
+      if (rates.length > 0) setRealHitRates(rates);
+    }).catch(() => {});
+    fetchWatchlist().then((r: any) => {
+      const list: any[] = r.data?.data || [];
+      setIsWatched(list.some((w: any) => w.stockCode === code));
+    }).catch(() => {});
+    fetchWatchlistGroups().then((r: any) => setWlGroups(r.data?.data || [])).catch(() => {});
     fetchStockHeatmap(code).then((r: any) => {
       setBoardDates([...new Set((r.data || []).map((d: any) => (d.pickDate || '').slice(0, 10)))] as string[]);
     }).catch(() => {});
-    fetchSignal(code).then((r: any) => setSignal(r.data?.signalValue ?? null)).catch(() => {});
+    fetchSignal(code).then((r: any) => setSignal(r.data?.data?.signalValue ?? r.data?.signalValue ?? null)).catch(() => {});
 
     (async () => {
       try {
-        const res = await fetch(`http://127.0.0.1:8080/api/v1/ai/history/${code}`);
+        const res = await authFetch(`http://127.0.0.1:8080/api/v1/ai/history/${code}`);
         const json = await res.json();
         setMsgs((json.data || []).map((m: any) => ({ role: m.role, text: m.content })));
       } catch (_) {}
     })();
     (async () => {
       try {
-        const res = await fetch(`http://127.0.0.1:8080/api/v1/ai/score/${code}`);
-        const json = await res.json();
+        const res = await authFetch(`http://127.0.0.1:8080/api/v1/ai/score/${code}`);
+        const json = await checkAPIError(await res.json());
         if (json.data) setAiScore(json.data);
       } catch (_) {}
     })();
@@ -352,36 +377,27 @@ export default function StockDetailPage() {
 
   // ─── Model ensemble with hit-rate weighting ───
   const ensemble = useMemo(() => {
-    if (!klines.length) return null;
-    const closes = klines.map((k: any) => k.close);
+    if (!safeKlines.length) return null;
+    const closes = safeKlines.map((k: any) => k.close);
     // Calculate hit rate for each model based on recent 60-day predictions vs actual
     const backtestWindow = Math.min(60, closes.length - 11);
     if (backtestWindow < 5) return null;
 
-    const modelRows = MODEL_NAMES.map((name, mi) => {
-      // Simulate backtest: predict direction for each of last N days
-      let hits = 0, total = 0;
-      const backtestPreds: number[] = [];
-      // Use deterministic seed per model
-      const seed = (code || '000001').split('').reduce((a, c) => a + c.charCodeAt(0), 0) + mi * 1000;
-      // Simple backtest: predict direction using seeded random (mock — real would use model predictions)
-      for (let t = closes.length - backtestWindow; t < closes.length - 1; t++) {
-        total++;
-        // Mock prediction direction based on seeded random + recent trend
-        const recentTrend = closes[t] - closes[Math.max(0, t - 5)];
-        const mockPred = (Math.sin(seed + t * 0.3 + mi * 1.7) * 0.02 + (recentTrend > 0 ? 0.01 : -0.01));
-        const actualChg = (closes[t + 1] - closes[t]) / closes[t];
-        if ((mockPred > 0 && actualChg > 0) || (mockPred < 0 && actualChg < 0)) hits++;
-        backtestPreds.push(closes[t] * (1 + mockPred));
-      }
-      const hitRate = total > 0 ? hits / total : 0.5;
+    // Use real hit rates from backend if available, otherwise default to 0.5
+    const hitRateMap: Record<string, { hitRate: number; total: number; hits: number }> = {};
+    if (realHitRates) {
+      realHitRates.forEach((r: any) => {
+        hitRateMap[r.modelName] = { hitRate: r.total > 0 ? r.hitRate : 0.5, total: r.total, hits: r.hits };
+      });
+    }
 
-      // Get fresh predictions for this model
-      const modelPreds = predictions.filter((p: any) => p.modelName?.toUpperCase() === name.toUpperCase());
+    const modelRows = MODEL_NAMES.map((name) => {
+      const hr = hitRateMap[name] || { hitRate: 0.5, total: 0, hits: 0 };
+      const modelPreds = (predictions || []).filter((p: any) => p.modelName === name);
       const lastPred = modelPreds.length > 0 ? modelPreds[modelPreds.length - 1]?.predictedPrice : null;
       const predChg = lastPred && closes[closes.length - 1] ? ((lastPred - closes[closes.length - 1]) / closes[closes.length - 1]) * 100 : null;
 
-      return { name, hitRate, predictions: modelPreds, lastPred, predChg, total };
+      return { name, hitRate: hr.hitRate, predictions: modelPreds, lastPred, predChg, total: hr.total, hits: hr.hits };
     });
 
     // Calculate weights: multiply hit rate by recency bonus
@@ -414,63 +430,82 @@ export default function StockDetailPage() {
     }));
 
     return { rows: weighted, ensemblePrice, ensembleChg, avgHitRate, sharpe, maxdd, modelCount: MODEL_NAMES.length };
-  }, [klines, predictions, code]);
+  }, [safeKlines, predictions, code]);
 
   // Board check on latest K-line date
   useEffect(() => {
-    if (!code || !klines || klines.length === 0) return;
-    const latestKDate = (klines[klines.length - 1]?.tradeDate || klines[klines.length - 1]?.date || '').slice(0, 10);
+    if (!code || !safeKlines || safeKlines.length === 0) return;
+    const latestKDate = (safeKlines[safeKlines.length - 1]?.tradeDate || safeKlines[safeKlines.length - 1]?.date || '').slice(0, 10);
     if (!latestKDate) return;
-    fetch(`http://127.0.0.1:8080/api/v1/board/history?date=${latestKDate}`)
+    authFetch(`http://127.0.0.1:8080/api/v1/board/history?date=${latestKDate}`)
       .then(r => r.json())
       .then(json => {
         const picks: any[] = json.data || [];
         const match = picks.find((p: any) => p.stockCode === code);
         setTodayBoardRank(match ? match.rank : null);
       }).catch(() => {});
-  }, [code, klines]);
+  }, [code, safeKlines]);
 
   // Board markers
   const markers = useMemo((): Marker[] => {
-    if (!boardDates.length || !klines.length) return [];
+    if (!boardDates.length || !safeKlines.length) return [];
     const dateSet = new Set(boardDates);
     const result: Marker[] = [];
-    klines.forEach((k: any, i: number) => {
+    safeKlines.forEach((k: any, i: number) => {
       if (dateSet.has((k.tradeDate || k.date || '').slice(0, 10))) result.push({ i, type: 'board', label: '上榜' });
     });
     return result;
-  }, [boardDates, klines]);
+  }, [boardDates, safeKlines]);
 
   // Prediction overlay
   const predOverlay = useMemo(() => {
-    if (!predictions.length || !klines.length) return { lines: [], splitIdx: undefined };
-    const lastIdx = klines.length - 1;
-    const lastClose = klines[lastIdx]?.close || 10;
-    const models = [...new Set(predictions.map((p: any) => p.modelName))] as string[];
-    const lines = models.map((model, mi) => {
-      const preds = predictions.filter((p: any) => p.modelName === model);
-      preds.sort((a: any, b: any) => (a.predictDate || '').localeCompare(b.predictDate || ''));
-      const lineData: (number | null)[] = Array(lastIdx + 1 + preds.length).fill(null);
+    if (!safeKlines.length || !(predictions || []).length) return { lines: [], splitIdx: undefined, markers: [] };
+    const lastIdx = safeKlines.length - 1;
+    const lastClose = safeKlines[lastIdx]?.close || 10;
+
+    const kdColors = ['#F53F3F', '#F77234', '#FF7D00', '#FFB400', '#22C55E', '#14B8A6', '#3B82F6'];
+    const predMarkers: Array<{ i: number; type: 'predHi' | 'predLo'; label?: string; color?: string }> = [];
+
+    const lines = MODEL_NAMES.map((modelName, mi) => {
+      const modelPreds = (predictions || [])
+        .filter((p: any) => p.modelName === modelName)
+        .sort((a: any, b: any) => (a.predictDate || '').localeCompare(b.predictDate || ''))
+        .slice(0, horizon); // Only show horizon days
+
+      const lineData: (number | null)[] = Array(lastIdx + 1 + modelPreds.length).fill(null);
       lineData[lastIdx] = lastClose;
-      preds.forEach((p: any, pi: number) => { lineData[lastIdx + 1 + pi] = p.predictedPrice; });
-      return { color: MODEL_COLORS[mi % MODEL_COLORS.length], data: lineData, dashed: true, name: model };
+      modelPreds.forEach((p: any, pi: number) => { lineData[lastIdx + 1 + pi] = p.predictedPrice; });
+
+      // Find highest and lowest prediction points
+      let maxVal = -Infinity, maxI = -1, minVal = Infinity, minI = -1;
+      modelPreds.forEach((p: any, pi: number) => {
+        if (p.predictedPrice > maxVal) { maxVal = p.predictedPrice; maxI = lastIdx + 1 + pi; }
+        if (p.predictedPrice < minVal) { minVal = p.predictedPrice; minI = lastIdx + 1 + pi; }
+      });
+      if (maxI >= 0) predMarkers.push({ i: maxI, type: 'predHi', label: maxVal.toFixed(2), color: kdColors[mi], price: maxVal });
+      if (minI >= 0) predMarkers.push({ i: minI, type: 'predLo', label: minVal.toFixed(2), color: kdColors[mi], price: minVal });
+
+      return { color: kdColors[mi], data: lineData, dashed: true, name: modelName };
     });
-    return { lines, splitIdx: lastIdx + 1 };
-  }, [predictions, klines]);
+
+    return { lines, splitIdx: lastIdx + 1, markers: predMarkers };
+  }, [predictions, safeKlines, horizon]);
 
   const priceStats = useMemo(() => {
-    if (!klines.length) return null;
-    const latest = klines[klines.length - 1], prev = klines.length > 1 ? klines[klines.length - 2] : latest;
-    const chg = latest.close - prev.close, chgPct = prev.close ? (chg / prev.close) * 100 : 0;
-    const high = Math.max(...klines.slice(-20).map((k: any) => k.high)), low = Math.min(...klines.slice(-20).map((k: any) => k.low));
-    const vol = latest.volume ?? 0, amount = (latest.amount ?? 0) * 1e4; const turnover = quote?.turnover ?? latest.turnoverRate ?? 0; const bidVol = quote?.bidVol ?? 0; const askVol = quote?.askVol ?? 0; // DB stores in 万元, convert to 元
-    const amplitude = latest.open > 0 ? ((latest.high - latest.low) / latest.open) * 100 : 0;
-    return { price: latest.close, chg, chgPct, high, low, prevClose: prev.close, open: latest.open, vol, amount, amplitude, turnover, bidVol, askVol };
-  }, [klines]);
+    if (!safeKlines.length) return null;
+    const latest = safeKlines[safeKlines.length - 1];
+    if (!latest) return null;
+    const prev = safeKlines.length > 1 ? safeKlines[safeKlines.length - 2] : latest;
+    const chg = (latest?.close ?? 0) - (prev?.close ?? 0), chgPct = (prev?.close ?? 0) > 0 ? (chg / (prev?.close ?? 1)) * 100 : 0;
+    const high = Math.max(...safeKlines.slice(-20).map((k: any) => k.high)), low = Math.min(...safeKlines.slice(-20).map((k: any) => k.low));
+    const vol = latest.volume ?? 0, amount = (latest.amount ?? 0) * 1e4; const turnover = quote?.turnover ?? latest.turnoverRate ?? 0; const bidVol = quote?.bidVol ?? 0; const askVol = quote?.askVol ?? 0;
+    const amplitude = (latest?.open ?? 0) > 0 ? (((latest?.high ?? 0) - (latest?.low ?? 0)) / (latest?.open ?? 1)) * 100 : 0;
+    return { price: latest?.close ?? 0, chg, chgPct, high, low, prevClose: prev?.close ?? 0, open: latest?.open ?? 0, vol, amount, amplitude, turnover, bidVol, askVol };
+  }, [safeKlines, quote]);
 
   const indicators = useMemo(() => {
-    if (klines.length < 20) return null;
-    const closes = klines.map((k: any) => k.close), highs = klines.map((k: any) => k.high), lows = klines.map((k: any) => k.low);
+    if (safeKlines.length < 20) return null;
+    const closes = safeKlines.map((k: any) => k.close), highs = safeKlines.map((k: any) => k.high), lows = safeKlines.map((k: any) => k.low);
     const last = closes.length - 1;
     const macd = calcMACD(closes), kdj = calcKDJ(highs, lows, closes), rsi = calcRSI(closes), boll = calcBOLL(closes);
     return {
@@ -481,12 +516,48 @@ export default function StockDetailPage() {
     };
   }, [klines]);
 
-  const handleRunPrediction = async () => {
-    if (!code || predicting) return;
-    setPredicting(true);
-    try { await runPrediction(code); const r: any = await fetchPredictionResult(code); setPredictions(r.data || []); } catch (_) {}
-    setPredicting(false);
-  };
+  // Interval statistics
+  const intervalStats = useMemo(() => {
+    if (!intervalMode || safeKlines.length === 0) return null;
+    const total = safeKlines.length;
+    let start: number, end: number;
+    if (intervalRange) {
+      [start, end] = intervalRange;
+    } else {
+      start = Math.max(0, total - 20);
+      end = total - 1;
+    }
+    if (start >= end || start < 0 || end >= total) return null;
+    const slice = safeKlines.slice(start, end + 1);
+    if (slice.length < 2) return null;
+    const first = slice[0], last = slice[slice.length - 1];
+    const changePct = first.close > 0 ? ((last.close - first.close) / first.close) * 100 : 0;
+    const high = Math.max(...slice.map((k: any) => k.high));
+    const low = Math.min(...slice.map((k: any) => k.low));
+    const amplitude = first.close > 0 ? ((high - low) / first.close) * 100 : 0;
+    let peak = slice[0].close, maxDD = 0;
+    for (const k of slice) {
+      if (k.close > peak) peak = k.close;
+      const dd = (peak - k.close) / peak * 100;
+      if (dd > maxDD) maxDD = dd;
+    }
+    const upDays = slice.filter((k: any, i: number) => i > 0 && k.close > slice[i-1].close).length;
+    return {
+      startDate: first.tradeDate || first.date, endDate: last.tradeDate || last.date,
+      startPrice: first.close, endPrice: last.close, bars: slice.length,
+      changePct, high, low, amplitude, maxDrawdown: maxDD,
+      upDays, downDays: slice.length - 1 - upDays,
+    };
+  }, [intervalMode, intervalRange, safeKlines]);
+
+  // Auto-select default interval range (last 20 bars)
+  useEffect(() => {
+    if (intervalMode && !intervalRange && safeKlines.length >= 2) {
+      const total = safeKlines.length;
+      const start = Math.max(0, total - 20);
+      setIntervalRange([start, total - 1]);
+    }
+  }, [intervalMode, safeKlines.length]);
 
   const handleChatSend = async (text?: string) => {
     const msg = text || chatInput;
@@ -496,7 +567,7 @@ export default function StockDetailPage() {
     setChatLoading(true);
     setMsgs(p => [...p, { role: 'ai', text: '' }]);
     try {
-      const res = await fetch('http://127.0.0.1:8080/api/v1/ai/analyze/stream', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code, question: msg }) });
+      const res = await authFetch('http://127.0.0.1:8080/api/v1/ai/analyze/stream', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code, question: msg }) });
       const reader = res.body?.getReader(); if (!reader) throw new Error('no reader');
       const decoder = new TextDecoder(); let buffer = '';
       while (true) { const { done, value } = await reader.read(); if (done) break; buffer += decoder.decode(value, { stream: true }); const lines = buffer.split('\n'); buffer = lines.pop() || ''; for (const line of lines) { if (!line.startsWith('data: ')) continue; const data = line.slice(6); if (data === '[DONE]') continue; try { const p = JSON.parse(data); if (p.chunk) setMsgs(prev => { const cp = [...prev]; cp[cp.length - 1] = { ...cp[cp.length - 1], text: cp[cp.length - 1].text + p.chunk }; return cp; }); if (p.error) setMsgs(prev => { const cp = [...prev]; cp[cp.length - 1] = { ...cp[cp.length - 1], text: '错误: ' + p.error }; return cp; }); } catch (_) {} } }
@@ -504,8 +575,30 @@ export default function StockDetailPage() {
     } catch { setMsgs(prev => { const cp = [...prev]; cp[cp.length - 1] = { ...cp[cp.length - 1], text: '服务暂不可用' }; return cp; }); }
     setChatLoading(false);
   };
-  const handleClearChat = async () => { if (!code) return; try { await fetch(`http://127.0.0.1:8080/api/v1/ai/history/${code}`, { method: 'DELETE' }); setMsgs([]); } catch (_) {} };
-  const handleRunScore = async () => { if (!code || scoreLoading) return; setScoreLoading(true); try { const res = await fetch(`http://127.0.0.1:8080/api/v1/ai/score/${code}`, { method: 'POST' }); const json = await res.json(); if (json.data) setAiScore(json.data); } catch (_) {} finally { setScoreLoading(false); } };
+  const toggleWL = () => {
+    if (isWatched) {
+      removeFromWatchlist(code!).then(() => { setIsWatched(false); showToast('success', '已取消自选'); }).catch(() => {});
+    } else {
+      fetchWatchlistGroups().then((r: any) => setWlGroups(r.data?.data || [])).catch(() => {});
+      setWlGroupId(0); setWlNewGroup(''); setShowWLModal(true);
+    }
+  };
+  const handleWLConfirm = async () => {
+    if (!code) return;
+    try {
+      let gid = wlGroupId;
+      if (wlNewGroup.trim()) {
+        const { data: rd } = await createWatchlistGroup(wlNewGroup.trim());
+        gid = rd.data?.id || 0;
+        fetchWatchlistGroups().then((r: any) => setWlGroups(r.data?.data || [])).catch(() => {});
+      }
+      const latestPrice = safeKlines.length > 0 ? safeKlines[safeKlines.length - 1]?.close : 0;
+      await addToWatchlist(code, gid, latestPrice);
+      setIsWatched(true); setShowWLModal(false); showToast('success', '已添加自选');
+    } catch (err: any) { showToast('error', err.response?.data?.message || err.message || '添加失败'); }
+  };
+  const handleClearChat = async () => { if (!code) return; try { await authFetch(`http://127.0.0.1:8080/api/v1/ai/history/${code}`, { method: 'DELETE' }); setMsgs([]); } catch (_) {} };
+  const handleRunScore = async () => { if (!code || scoreLoading) return; setScoreLoading(true); try { const res = await authFetch(`http://127.0.0.1:8080/api/v1/ai/score/${code}`, { method: 'POST' }); const json = await checkAPIError(await res.json()); setAiScore(json.data); showToast('success', 'AI评分完成'); } catch (e: any) { if (e.message !== 'canceled') showToast('error', e.message || 'AI评分失败'); } finally { setScoreLoading(false); } };
 
   const [refreshingPhase, setRefreshingPhase] = useState('');
   const [refreshLogs, setRefreshLogs] = useState<string[]>([]);
@@ -516,14 +609,14 @@ export default function StockDetailPage() {
     if (phase === 'reports') {
       setRefreshingPhase('reports');
       setRefreshLogs(['正在连接采集服务...']);
-      const es = new EventSource(`http://127.0.0.1:8080/api/v1/collector/reports/${code}`);
+      const es = new EventSource(`http://127.0.0.1:8080/api/v1/collector/reports/${code}?token=${localStorage.getItem("aip_access_token")||""}`);
       es.onmessage = (e) => {
         try {
           const d = JSON.parse(e.data);
           setRefreshLogs(prev => [...prev.slice(-50), d.message || '']);
           if (d.type === 'complete' || d.type === 'error') {
             es.close();
-            fetchReports(code, 20).then((r: any) => setReports(r.data || []));
+            fetchReports(code, 20).then((r: any) => setReports(r.data?.data || []));
             setRefreshingPhase('');
           }
         } catch {}
@@ -531,7 +624,7 @@ export default function StockDetailPage() {
       es.onerror = () => {
         setRefreshLogs(prev => [...prev.slice(-50), '⚠ 连接中断，正在刷新...']);
         es.close();
-        fetchReports(code, 20).then((r: any) => setReports(r.data || []));
+        fetchReports(code, 20).then((r: any) => setReports(r.data?.data || []));
         setRefreshingPhase('');
       };
       return;
@@ -540,15 +633,15 @@ export default function StockDetailPage() {
     // Other phases use the POST collector endpoint
     setRefreshingPhase(phase);
     try {
-      await fetch(`http://127.0.0.1:8080/api/v1/collector/stock/${code}`, {
+      await authFetch(`http://127.0.0.1:8080/api/v1/collector/stock/${code}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ phases: [phase] }),
       });
       await new Promise(r => setTimeout(r, 2000));
-      if (phase === 'financial') await fetchFinancials(code).then((r: any) => setFinancials(r.data || []));
-      if (phase === 'shareholder') await fetchShareholders(code).then((r: any) => setShareholders(r.data || []));
-      if (phase === 'news') await fetchStockNews(code, 20).then((r: any) => setStockNews(r.data || []));
+      if (phase === 'financial') await fetchFinancials(code).then((r: any) => setFinancials(r.data?.data || []));
+      if (phase === 'shareholder') await fetchShareholders(code).then((r: any) => setShareholders(r.data?.data || []));
+      if (phase === 'news') await fetchStockNews(code, 20).then((r: any) => setStockNews(r.data?.data || []));
     } catch {}
     setRefreshingPhase('');
   };
@@ -573,7 +666,7 @@ export default function StockDetailPage() {
     { key: 'news', label: '资讯', icon: Newspaper },
   ];
 
-  const horizons = [5, 10, 20, 60];
+  const horizons = [5, 10, 20];
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -585,6 +678,7 @@ export default function StockDetailPage() {
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
                 <h2 style={{ fontSize: 22, fontWeight: 600, margin: 0 }}>{stock.name}</h2>
                 <span style={{ fontSize: 13, color: '#86909c', fontFamily: 'monospace' }}>{stock.code}</span>
+                <button onClick={toggleWL} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 10px', borderRadius: 4, border: 'none', cursor: 'pointer', fontSize: 12, background: isWatched ? '#fff7e6' : '#f2f3f5', color: isWatched ? '#f7ba1e' : '#86909c' }}>{isWatched ? <><StarOff size={13} /> 已自选</> : <><Star size={13} /> 加自选</>}</button>
                 {stock.industry && <Tag color="blue" style={{ fontSize: 11 }}>{stock.industry}</Tag>}
                 {sug && <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 4, background: SUGGEST_BG[sug] || '#f2f3f5', color: SUGGEST_COLORS[sug] || '#86909c', border: '1px solid ' + (SUGGEST_COLORS[sug] || '#e5e6eb') }}>{sug}</span>}
                 {risk && <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 4, background: RISK_BG[risk] || '#f2f3f5', color: RISK_COLORS[risk] || '#86909c', border: '1px solid ' + (RISK_COLORS[risk] || '#e5e6eb') }}>{risk}</span>}
@@ -613,7 +707,6 @@ export default function StockDetailPage() {
               )}
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, flexShrink: 0 }}>
-              <Button icon={<Sparkles size={14} />} onClick={handleRunPrediction} loading={predicting}>量化预测</Button>
             </div>
           </div>
         </div>
@@ -666,7 +759,7 @@ export default function StockDetailPage() {
                 )}
               </div>
               <div style={{ padding: 8 }}>
-                <KLineChart data={klines} height={360} markers={markers} splitIdx={predOverlay.splitIdx} predictionLines={predOverlay.lines} />
+                <KLineChart data={klines} height={360} markers={markers} splitIdx={predOverlay.splitIdx} predictionLines={predOverlay.lines} predMarkers={predOverlay.markers} />
               </div>
             </div>
           </div>
@@ -698,7 +791,7 @@ export default function StockDetailPage() {
                             <span style={{ fontWeight: 500 }}>{r.name}</span>
                           </td>
                           <td style={{ padding: '7px 8px', textAlign: 'right', fontWeight: 600, color: r.hitRate >= 0.55 ? '#00b42a' : r.hitRate >= 0.45 ? '#ff7d00' : '#f53f3f' }}>
-                            {(r.hitRate * 100).toFixed(1)}%
+                            {(r.hitRate * 100).toFixed(1)}% <span style={{ fontSize: 10, color: "#86909c", fontWeight: 400 }}>{r.total > 0 ? `(${r.hits||0}/${r.total})` : "(无回测数据)"}</span>
                           </td>
                           <td style={{ padding: '7px 8px', textAlign: 'right', color: '#4e5969' }}>
                             {(r.weight * 100).toFixed(1)}%
@@ -729,7 +822,7 @@ export default function StockDetailPage() {
                     </tfoot>
                   </table>
                 ) : (
-                  <div className="muted" style={{ padding: 24, textAlign: 'center', fontSize: 12 }}>数据不足，请先运行量化预测</div>
+                  <div className="muted" style={{ padding: 24, textAlign: 'center', fontSize: 12 }}>暂无预测数据，请先同步算法团队预测数据</div>
                 )}
               </div>
             </div>
@@ -1238,7 +1331,132 @@ export default function StockDetailPage() {
                     );
                   })}
                 </div>
-                <KLineChart data={klines} height={280} markers={markers} />
+                {/* Interval controls */}
+                <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <Button size="mini" type={intervalMode ? 'primary' : 'outline'} onClick={() => { setIntervalMode(!intervalMode); if (!intervalMode) setIntervalRange(null); }}>
+                    📐 区间统计 {intervalMode ? '开' : '关'}
+                  </Button>
+                  {intervalMode && intervalRange && (
+                    <Button size="mini" type="text" onClick={() => setIntervalRange(null)} style={{ fontSize: 11 }}>重置默认</Button>
+                  )}
+                  {intervalMode && <span className="muted" style={{ fontSize: 11 }}>拖拽图表手柄调整区间 · 左右拖动边缘调整范围 · 中间拖动整体移动</span>}
+                </div>
+                {/* Chart + Stats side-by-side layout when interval mode is active */}
+                {intervalMode && intervalRange ? (
+                  <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
+                    {/* Chart on the left */}
+                    <div style={{ flex: '1 1 60%', minWidth: 0 }}>
+                      <KLineChart data={klines} height={300} markers={markers}
+                        enableRangeSelect={intervalMode}
+                        selectedRange={intervalRange}
+                        onRangeChange={handleRangeChange}
+                      />
+                    </div>
+                    {/* Stats panel on the right */}
+                    {intervalStats && (
+                      <div style={{
+                        flex: '0 0 300px',
+                        background: '#fff',
+                        borderRadius: 10,
+                        border: '1px solid #e5e6eb',
+                        boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
+                        overflow: 'hidden',
+                      }}>
+                        {/* Header */}
+                        <div style={{
+                          padding: '12px 16px',
+                          background: 'linear-gradient(135deg, #165DFF 0%, #4080FF 100%)',
+                          color: '#fff',
+                        }}>
+                          <div style={{ fontSize: 14, fontWeight: 600 }}>📐 区间统计</div>
+                          <div style={{ fontSize: 11, opacity: 0.85, marginTop: 2 }}>
+                            {intervalStats.startDate?.slice(0,10) || ''} → {intervalStats.endDate?.slice(0,10) || ''} · {intervalStats.bars}根K线
+                          </div>
+                        </div>
+                        {/* Key metrics */}
+                        <div style={{ padding: '14px 16px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px 16px' }}>
+                          {/* 涨跌幅 */}
+                          <div style={{
+                            background: intervalStats.changePct >= 0 ? '#FFF7F5' : '#F2FFF5',
+                            borderRadius: 8, padding: '10px 12px',
+                            border: `1px solid ${intervalStats.changePct >= 0 ? '#FFDBD4' : '#D4FFE0'}`,
+                          }}>
+                            <div style={{ fontSize: 10, color: '#86909c', marginBottom: 2 }}>涨跌幅</div>
+                            <div style={{
+                              fontSize: 20, fontWeight: 700,
+                              color: intervalStats.changePct >= 0 ? '#F53F3F' : '#00B42A',
+                              fontFamily: 'monospace',
+                            }}>
+                              {intervalStats.changePct >= 0 ? '+' : ''}{intervalStats.changePct.toFixed(2)}%
+                            </div>
+                            <div style={{ fontSize: 10, color: '#86909c', marginTop: 2 }}>
+                              {intervalStats.startPrice?.toFixed(2)} → {intervalStats.endPrice?.toFixed(2)}
+                            </div>
+                          </div>
+                          {/* 振幅 */}
+                          <div style={{
+                            background: '#F7F8FA', borderRadius: 8, padding: '10px 12px',
+                          }}>
+                            <div style={{ fontSize: 10, color: '#86909c', marginBottom: 2 }}>振幅</div>
+                            <div style={{ fontSize: 20, fontWeight: 700, color: '#1D2129', fontFamily: 'monospace' }}>
+                              {intervalStats.amplitude.toFixed(2)}%
+                            </div>
+                            <div style={{ fontSize: 10, color: '#86909c', marginTop: 2 }}>
+                              {intervalStats.high?.toFixed(2)} / {intervalStats.low?.toFixed(2)}
+                            </div>
+                          </div>
+                          {/* 最大回撤 */}
+                          <div style={{
+                            background: '#FFFAF5', borderRadius: 8, padding: '10px 12px',
+                            border: '1px solid #FFE8D4',
+                          }}>
+                            <div style={{ fontSize: 10, color: '#86909c', marginBottom: 2 }}>最大回撤</div>
+                            <div style={{ fontSize: 20, fontWeight: 700, color: '#F77234', fontFamily: 'monospace' }}>
+                              -{intervalStats.maxDrawdown.toFixed(2)}%
+                            </div>
+                            <div style={{ fontSize: 10, color: '#86909c', marginTop: 2 }}>区间内峰值回落</div>
+                          </div>
+                          {/* 涨跌天数比 */}
+                          <div style={{
+                            background: '#F7F8FA', borderRadius: 8, padding: '10px 12px',
+                          }}>
+                            <div style={{ fontSize: 10, color: '#86909c', marginBottom: 2 }}>涨跌比</div>
+                            <div style={{ fontSize: 20, fontWeight: 700, color: '#1D2129', fontFamily: 'monospace' }}>
+                              <span style={{ color: '#F53F3F' }}>{intervalStats.upDays}</span>
+                              <span style={{ color: '#C9CDD4', margin: '0 4px' }}>/</span>
+                              <span style={{ color: '#00B42A' }}>{intervalStats.downDays}</span>
+                            </div>
+                            <div style={{ fontSize: 10, color: '#86909c', marginTop: 2 }}>
+                              阳{intervalStats.upDays}天 · 阴{intervalStats.downDays}天
+                            </div>
+                          </div>
+                        </div>
+                        {/* Divider + additional info */}
+                        <div style={{
+                          borderTop: '1px solid #F2F3F5', padding: '10px 16px',
+                          display: 'flex', justifyContent: 'space-between',
+                          background: '#FAFBFC', fontSize: 11, color: '#86909C',
+                        }}>
+                          <span>最高 <b style={{ color: '#F53F3F', fontSize: 12 }}>{intervalStats.high?.toFixed(2)}</b></span>
+                          <span>最低 <b style={{ color: '#00B42A', fontSize: 12 }}>{intervalStats.low?.toFixed(2)}</b></span>
+                          <span>收 <b style={{ color: '#1D2129', fontSize: 12 }}>{intervalStats.endPrice?.toFixed(2)}</b></span>
+                        </div>
+                        <div style={{
+                          padding: '8px 16px', fontSize: 10, color: '#C9CDD4',
+                          background: '#FAFBFC', borderTop: '1px solid #F2F3F5',
+                        }}>
+                          提示：拖拽图表左右手柄调整区间 · 中间拖动整体平移
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <KLineChart data={klines} height={300} markers={markers}
+                    enableRangeSelect={intervalMode}
+                    selectedRange={intervalRange}
+                    onRangeChange={handleRangeChange}
+                  />
+                )}
               </>
             ) : (<div className="muted" style={{ textAlign: 'center', padding: 40 }}>K线数据不足</div>)}
           </div>
@@ -1250,7 +1468,7 @@ export default function StockDetailPage() {
         <div className="card">
           <div className="card-header"><span style={{ fontWeight: 600, fontSize: 14 }}><Table2 size={14} /> 近10日交易数据</span></div>
           <div className="card-body" style={{ padding: 0, overflow: 'auto' }}>
-            {klines.length >= 10 ? (
+            {safeKlines.length >= 10 ? (
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 700 }}>
                 <thead>
                   <tr style={{ borderBottom: '1px solid #e5e6eb', background: '#f7f8fa' }}>
@@ -1260,8 +1478,8 @@ export default function StockDetailPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {klines.slice(-10).reverse().map((k: any, i: number) => {
-                    const prev = klines[klines.length - 11 + i];
+                  {safeKlines.slice(-10).reverse().map((k: any, i: number) => {
+                    const prev = safeKlines[safeKlines.length - 11 + i];
                     const chg = prev?.close ? ((k.close - prev.close) / prev.close) * 100 : 0;
                     return (
                       <tr key={i} style={{ borderBottom: '1px solid #f5f5f5' }}>
@@ -1792,6 +2010,17 @@ export default function StockDetailPage() {
           </div>
         </div>
       )}
+      {/* Watchlist group selector */}
+      <Modal visible={showWLModal} title="添加到自选股" onCancel={() => { setShowWLModal(false); setWlNewGroup(''); }} onOk={handleWLConfirm} okText="确认添加">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div><div style={{ fontSize: 12, color: '#86909c', marginBottom: 4 }}>选择分组</div>
+            <Select value={wlGroupId || undefined} onChange={(v: number) => setWlGroupId(v || 0)} placeholder="默认分组" style={{ width: '100%' }} allowClear options={[{ label: '默认分组', value: 0 }, ...wlGroups.map((g: any) => ({ label: g.name, value: g.id }))]} />
+          </div>
+          <div><div style={{ fontSize: 12, color: '#86909c', marginBottom: 4 }}>或新建分组</div>
+            <Input placeholder="输入新分组名称" value={wlNewGroup} onChange={setWlNewGroup} maxLength={20} />
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

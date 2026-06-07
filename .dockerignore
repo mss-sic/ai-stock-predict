@@ -1,0 +1,35 @@
+# Node
+web-pc/node_modules
+web-pc/dist
+web-pc/.vite
+
+# Go
+server/server
+server/bin
+
+# Seed data (large SQL files)
+seed/data/*.sql
+
+# Git
+.git
+.gitignore
+
+# IDE
+.idea
+.vscode
+
+# OS
+.DS_Store
+
+# Docker
+docker/data
+
+# Python
+__pycache__
+*.pyc
+.venv
+venv
+
+# Docs / exports
+docs
+exports

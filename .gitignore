@@ -33,3 +33,6 @@ __pycache__/
 *.pyo
 .venv/
 venv/
+# Seed data exports (SQL dumps are large, exclude from git)
+seed/data/*.sql
+seed/data/manifest.json

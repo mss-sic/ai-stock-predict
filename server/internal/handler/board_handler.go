@@ -9,6 +9,7 @@ import (
 	"github.com/ai-stock-predict/server/internal/model"
 	"github.com/ai-stock-predict/server/internal/repository"
 	"github.com/gin-gonic/gin"
+	"github.com/ai-stock-predict/server/pkg/response"
 )
 
 type BoardHandler struct {
@@ -312,7 +313,7 @@ func (h *BoardHandler) Heatmap(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"data": []model.AlgorithmPickDetail{}})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"data": data})
+	response.Success(c, data)
 }
 
 func (h *BoardHandler) HeatmapEnriched(c *gin.Context) {
@@ -330,7 +331,7 @@ func (h *BoardHandler) HeatmapEnriched(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"data": []model.HeatmapEnriched{}})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"data": rows})
+	response.Success(c, rows)
 }
 
 func (h *BoardHandler) StockHeatmap(c *gin.Context) {
@@ -340,12 +341,12 @@ func (h *BoardHandler) StockHeatmap(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"data": []model.AlgorithmPickDetail{}})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"data": data})
+	response.Success(c, data)
 }
 
 func (h *BoardHandler) Dates(c *gin.Context) {
 	var dates []string
 	db.PG.Raw("SELECT DISTINCT pick_date::date FROM algorithm_pick_details ORDER BY pick_date DESC LIMIT 30").
 		Scan(&dates)
-	c.JSON(http.StatusOK, gin.H{"data": dates})
+	response.Success(c, dates)
 }

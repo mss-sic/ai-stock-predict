@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/ai-stock-predict/server/internal/collector"
+	"github.com/ai-stock-predict/server/internal/service"
 	"github.com/robfig/cron/v3"
 )
 
@@ -38,6 +39,16 @@ func New(cronExpr string) *Scheduler {
 		s.lastRun = time.Now()
 		s.status = "idle"
 		s.mu.Unlock()
+	})
+
+	// Risk scan: every hour at minute 5
+	s.cron.AddFunc("0 5 * * * *", func() {
+		count, err := service.ScanUserHoldings()
+		if err != nil {
+			log.Printf("[scheduler] risk scan error: %v", err)
+		} else {
+			log.Printf("[scheduler] risk scan: %d alerts", count)
+		}
 	})
 	return s
 }

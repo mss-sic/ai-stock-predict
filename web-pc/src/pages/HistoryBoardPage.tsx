@@ -6,6 +6,7 @@ import {
   Star, Shield, AlertTriangle,
   ArrowUpRight, ArrowDownRight, Zap,
 } from 'lucide-react';
+import { authFetch } from '../services/api';
 
 interface BoardItem {
   id: number; pickDate: string; stockCode: string; stockName: string;
@@ -42,7 +43,7 @@ export default function HistoryBoardPage() {
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch('http://127.0.0.1:8080/api/v1/board/dates');
+        const res = await authFetch('http://127.0.0.1:8080/api/v1/board/dates');
         const json = await res.json();
         const rawDates: string[] = (json.data || []).map((d: string) => d.slice(0, 10));
         const recentDates = rawDates.slice(0, 20);
@@ -59,7 +60,7 @@ export default function HistoryBoardPage() {
   const fetchBoardData = useCallback(async (d: string, allDates: string[]) => {
     setLoading(true);
     try {
-      const res = await fetch(`http://127.0.0.1:8080/api/v1/board/history?date=${d}`);
+      const res = await authFetch(`http://127.0.0.1:8080/api/v1/board/history?date=${d}`);
       const json = await res.json();
       const items: BoardItem[] = json.data || [];
       setData(items);
@@ -70,7 +71,7 @@ export default function HistoryBoardPage() {
       if (idx >= 0 && idx + 1 < allDates.length) {
         prev = allDates[idx + 1];
         try {
-          const pr = await fetch(`http://127.0.0.1:8080/api/v1/board/history?date=${prev}`);
+          const pr = await authFetch(`http://127.0.0.1:8080/api/v1/board/history?date=${prev}`);
           const pj = await pr.json();
           fetchedPrev = pj.data || [];
         } catch (_) {}
@@ -366,7 +367,7 @@ export default function HistoryBoardPage() {
                   {prevDate && <span className="muted" style={{ fontSize: 12 }}>对比 {prevDate}</span>}
                 </div>
                 <Table
-                  columns={columns} data={data} rowKey="id" pagination={false}
+                  columns={columns} data={data || []} rowKey="id" pagination={false}
                   scroll={{ x: 850 }} stripe size="small"
                   onRow={r => ({ onClick: () => navigate(`/stock/${r.stockCode}`), style: { cursor: 'pointer' } })}
                 />

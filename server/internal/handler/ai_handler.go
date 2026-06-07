@@ -10,6 +10,7 @@ import (
 	"github.com/ai-stock-predict/server/internal/db"
 	"github.com/ai-stock-predict/server/internal/model"
 	"github.com/ai-stock-predict/server/internal/service"
+	"github.com/ai-stock-predict/server/pkg/response"
 	"github.com/gin-gonic/gin"
 )
 
@@ -26,14 +27,14 @@ func (h *AIHandler) GetHistory(c *gin.Context) {
 	code := c.Param("code")
 	msgs := make([]model.AIConversation, 0)
 	db.PG.Where("code = ?", code).Order("created_at ASC").Find(&msgs)
-	c.JSON(http.StatusOK, gin.H{"data": msgs, "code": code})
+	response.Success(c, gin.H{"messages": msgs, "code": code})
 }
 
 // ClearHistory deletes all conversation history for a stock
 func (h *AIHandler) ClearHistory(c *gin.Context) {
 	code := c.Param("code")
 	db.PG.Where("code = ?", code).Delete(&model.AIConversation{})
-	c.JSON(http.StatusOK, gin.H{"data": "ok"})
+	response.SuccessMsg(c, "ok")
 }
 
 func (h *AIHandler) Analyze(c *gin.Context) {
@@ -42,7 +43,12 @@ func (h *AIHandler) Analyze(c *gin.Context) {
 		Question string `json:"question"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid body"})
+		response.BadRequest(c, "请求参数错误")
+		return
+	}
+
+	if body.Question == "" {
+		response.BadRequest(c, "问题不能为空")
 		return
 	}
 
@@ -55,7 +61,6 @@ func (h *AIHandler) Analyze(c *gin.Context) {
 	// Build history context from recent messages (last 20)
 	var history []model.AIConversation
 	db.PG.Where("code = ?", body.Code).Order("created_at DESC").Limit(20).Find(&history)
-	// Reverse to chronological order
 	var chronHistory []model.AIConversation
 	for i := len(history) - 1; i >= 0; i-- {
 		chronHistory = append(chronHistory, history[i])
@@ -68,16 +73,17 @@ func (h *AIHandler) Analyze(c *gin.Context) {
 		messages = append(messages, map[string]string{"role": h.Role, "content": h.Content})
 	}
 
-	reply, err := h.svc.ChatCompletion(body.Question, messages)
+	uid, _ := c.Get("userId")
+	reply, err := h.svc.ChatCompletion(uid.(uint), body.Question, messages)
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"data": gin.H{"reply": "AI服务暂不可用: " + err.Error(), "code": body.Code}})
+		handleAIError(c, err)
 		return
 	}
 
 	// Save AI reply
 	db.PG.Create(&model.AIConversation{Code: body.Code, Role: "ai", Content: reply})
 
-	c.JSON(http.StatusOK, gin.H{"data": gin.H{"reply": reply, "code": body.Code}})
+	response.Success(c, gin.H{"reply": reply, "code": body.Code})
 }
 
 func (h *AIHandler) AnalyzeStream(c *gin.Context) {
@@ -86,7 +92,12 @@ func (h *AIHandler) AnalyzeStream(c *gin.Context) {
 		Question string `json:"question"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid body"})
+		response.BadRequest(c, "请求参数错误")
+		return
+	}
+
+	if body.Question == "" {
+		response.BadRequest(c, "问题不能为空")
 		return
 	}
 
@@ -101,7 +112,8 @@ func (h *AIHandler) AnalyzeStream(c *gin.Context) {
 	sysMsg := h.buildStockContext(body.Code)
 
 	var fullReply string
-	err := h.svc.ChatCompletionStream(body.Question, []map[string]string{
+	uid, _ := c.Get("userId")
+	err := h.svc.ChatCompletionStream(uid.(uint), body.Question, []map[string]string{
 		{"role": "system", "content": sysMsg},
 	}, func(chunk string) {
 		fullReply += chunk
@@ -110,11 +122,10 @@ func (h *AIHandler) AnalyzeStream(c *gin.Context) {
 		c.Writer.Flush()
 	})
 	if err != nil {
-		data, _ := json.Marshal(gin.H{"error": err.Error()})
-		fmt.Fprintf(c.Writer, "data: %s\n\n", string(data))
+		errData, _ := json.Marshal(gin.H{"error": true, "message": err.Error(), "code": response.CodeAIConfigMissing})
+		fmt.Fprintf(c.Writer, "data: %s\n\n", string(errData))
 		c.Writer.Flush()
 	} else {
-		// Save AI reply
 		db.PG.Create(&model.AIConversation{Code: body.Code, Role: "ai", Content: fullReply})
 		fmt.Fprintf(c.Writer, "data: [DONE]\n\n")
 		c.Writer.Flush()
@@ -127,17 +138,16 @@ func (h *AIHandler) GetScore(c *gin.Context) {
 	var score model.AIStockScore
 	err := db.PG.Where("code = ?", code).Order("analyzed_at DESC").First(&score).Error
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"data": nil, "code": code})
+		response.Success(c, nil)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"data": score, "code": code})
+	response.Success(c, score)
 }
 
 // RunScore triggers a comprehensive AI scoring analysis
 func (h *AIHandler) RunScore(c *gin.Context) {
 	code := c.Param("code")
 
-	// Gather stock data
 	stockCtx, _ := h.buildScoringContext(code)
 
 	sysPrompt := fmt.Sprintf(`你是一位资深A股分析师。请全面分析以下股票，从六个维度打分（1-10分），并返回严格JSON格式（不要markdown代码块）：
@@ -154,34 +164,21 @@ func (h *AIHandler) RunScore(c *gin.Context) {
 综合评分compositeScore为六维加权平均（基本面20%%/成长性20%%/估值20%%/资金面15%%/技术面15%%/行业景气10%%）
 
 额外要求：
-- riskWarnings: 列出3-5条具体风险提示（如：估值偏高，PE位于历史XX%%分位；限售股解禁；行业受政策影响敏感等）
+- riskWarnings: 列出3-5条风险提示，如估值偏高、解禁压力、政策风险等
 - riskLevel: 高风险/中高风险/中风险/中低风险/低风险
 - suggestion: 强烈买入/买入/增持/持有/减持/卖出/强烈卖出
-- summary: 200字以内综合分析
+- summary: 50字以内综合总结
 
-返回JSON格式：
-{
-  "compositeScore": 7.5,
-  "fundamentalScore": 8,
-  "growthScore": 7,
-  "valuationScore": 6,
-  "capitalScore": 7,
-  "technicalScore": 8,
-  "industryScore": 7,
-  "riskLevel": "中风险",
-  "suggestion": "增持",
-  "riskWarnings": ["风险1", "风险2"],
-  "summary": "综合分析..."
-}`, stockCtx)
+返回格式（严格JSON，不要代码块标记）：
+{"compositeScore":7.2,"fundamentalScore":7.5,"growthScore":6.8,"valuationScore":7.0,"capitalScore":6.5,"technicalScore":7.8,"industryScore":8.0,"riskLevel":"中风险","suggestion":"增持","summary":"...","riskWarnings":["...","..."]}`, stockCtx)
 
-	messages := []map[string]string{
+	uid, _ := c.Get("userId")
+	reply, err := h.svc.ChatCompletion(uid.(uint), "", []map[string]string{
 		{"role": "system", "content": sysPrompt},
-		{"role": "user", "content": fmt.Sprintf("请对%s进行全面六维分析打分", code)},
-	}
-
-	reply, err := h.svc.ChatCompletion("", messages)
+		{"role": "user", "content": "请输出JSON格式的六维评分结果。"},
+	})
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"error": err.Error()})
+		handleAIError(c, err)
 		return
 	}
 
@@ -194,7 +191,7 @@ func (h *AIHandler) RunScore(c *gin.Context) {
 
 	var result map[string]interface{}
 	if err := json.Unmarshal([]byte(reply), &result); err != nil {
-		c.JSON(http.StatusOK, gin.H{"error": "AI返回格式异常，请重试", "raw": reply})
+		response.Error(c, http.StatusOK, response.CodeAIModelError, "AI返回格式异常，请重试")
 		return
 	}
 
@@ -261,7 +258,19 @@ func (h *AIHandler) RunScore(c *gin.Context) {
 	}
 	db.PG.Create(&analysis)
 
-	c.JSON(http.StatusOK, gin.H{"data": score})
+	response.Success(c, score)
+}
+
+// handleAIError maps AI service errors to appropriate response codes
+func handleAIError(c *gin.Context, err error) {
+	msg := err.Error()
+	if strings.Contains(msg, "AI配置") || strings.Contains(msg, "AI 配置") || strings.Contains(msg, "未配置") {
+		response.Error(c, http.StatusOK, response.CodeAIConfigMissing, msg)
+	} else if strings.Contains(msg, "model") || strings.Contains(msg, "api") || strings.Contains(msg, "API") {
+		response.Error(c, http.StatusOK, response.CodeAIModelError, msg)
+	} else {
+		response.InternalError(c, msg)
+	}
 }
 
 // buildScoringContext gathers richer stock data for scoring analysis
@@ -290,7 +299,6 @@ func (h *AIHandler) buildScoringContext(code string) (string, map[string]interfa
 	var ind IndicatorInfo
 	db.PG.Raw("SELECT pe, pb FROM stocks_daily_indicator WHERE code = ? ORDER BY trade_date DESC LIMIT 1", code).Scan(&ind)
 
-	// Get recent K-line summary (last 20 days)
 	var klines []struct {
 		TradeDate string
 		Open      float64

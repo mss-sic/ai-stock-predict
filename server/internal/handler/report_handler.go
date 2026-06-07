@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/ai-stock-predict/server/pkg/response"
 )
 
 const pdfCacheDir = "data/reports/pdf"
@@ -23,7 +24,7 @@ func init() {
 func ServeReportProxy(c *gin.Context) {
 	infoCode := c.Query("infoCode")
 	if infoCode == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "missing infoCode"})
+		response.BadRequest(c, "missing infoCode")
 		return
 	}
 	// PDF URL format: https://pdf.dfcfw.com/pdf/H3_{infoCode}_1.pdf
@@ -88,7 +89,7 @@ func ServeReportPDF(c *gin.Context) {
 		infoCode = c.Query("url") // backward compat
 	}
 	if infoCode == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "missing infoCode"})
+		response.BadRequest(c, "missing infoCode")
 		return
 	}
 

@@ -10,6 +10,7 @@ import (
 	"github.com/ai-stock-predict/server/internal/db"
 	"github.com/ai-stock-predict/server/internal/handler"
 	"github.com/ai-stock-predict/server/internal/scheduler"
+	"github.com/ai-stock-predict/server/internal/service"
 	"github.com/gin-gonic/gin"
 )
 
@@ -21,16 +22,71 @@ func main() {
 	db.InitMySQL(cfg.MySQLDSN)
 	db.AutoMigrate()
 	db.EnsureManualTables()
+	handler.EnsureAdminUser()
 
 	sched := scheduler.New(cfg.CronExpr)
 	sched.Start()
 	defer sched.Stop()
 
+	// Initialize task manager with default scheduled tasks
+	service.InitTaskManager()
+	service.InitializeDefaultTasks()
+
 	r := gin.Default()
 	r.Use(corsMiddleware())
 
+	// ── Public routes (no auth) ──
+	authH := handler.NewAuthHandler()
+	// Internal API for algo team sync (no auth, internal only)
+	internalH := handler.NewInternalHandler()
+	r.POST("/api/v1/internal/predictions/sync", internalH.SyncPredictions)
+
+
+	r.POST("/api/v1/auth/login", authH.Login)
+	r.POST("/api/v1/auth/refresh", authH.Refresh)
+	r.GET("/api/v1/indices", handler.GetIndices) // public index data
+
+	// ── Protected routes ──
 	api := r.Group("/api/v1")
+	api.Use(handler.AuthMiddleware())
 	{
+		// Auth self-service
+		api.POST("/auth/logout", authH.Logout)
+		api.GET("/auth/me", authH.Me)
+		api.POST("/auth/change-password", authH.ChangePassword)
+		api.PUT("/auth/profile", authH.UpdateProfile)
+		api.POST("/auth/heartbeat", authH.Heartbeat)
+		api.GET("/auth/sessions", authH.GetSessions)
+		api.DELETE("/auth/sessions/:id", authH.RevokeSession)
+
+		// Admin: user management
+		admin := api.Group("/admin")
+		admin.Use(handler.AdminMiddleware())
+		{
+			admin.GET("/users", authH.ListUsers)
+			admin.POST("/users", authH.CreateUser)
+			admin.POST("/users/reset-password", authH.ResetPassword)
+			admin.POST("/users/toggle", authH.ToggleUser)
+			admin.POST("/users/kick", authH.KickUser)
+			admin.GET("/login-logs", authH.ListLoginLogs)
+			admin.GET("/data-stats", handler.GetDataStats)
+			admin.GET("/data-stats/:type/detail", handler.GetDataDetail)
+			admin.POST("/risks/scan", handler.NewRiskHandler().Scan)
+
+		// Scheduled Tasks
+		taskH := handler.NewTaskHandler()
+			admin.GET("/scheduled-tasks", taskH.ListTasks)
+			admin.POST("/scheduled-tasks", taskH.CreateTask)
+			admin.PUT("/scheduled-tasks/:id", taskH.UpdateTask)
+			admin.DELETE("/scheduled-tasks/:id", taskH.DeleteTask)
+			admin.POST("/scheduled-tasks/:id/run", taskH.RunTaskNow)
+			admin.POST("/scheduled-tasks/:id/reset", taskH.ResetTask)
+			admin.POST("/scheduled-tasks/:id/toggle", taskH.ToggleTask)
+			admin.POST("/scheduled-tasks/init-defaults", taskH.InitDefaults)
+			admin.GET("/task-logs", taskH.ListLogs)
+		}
+
+		// Stocks
 		stockH := handler.NewStockHandler()
 		api.GET("/stocks", stockH.List)
 		api.GET("/stocks/:code", stockH.GetDetail)
@@ -43,9 +99,9 @@ func main() {
 		api.GET("/stocks/:code/news", stockH.GetNews)
 		api.GET("/stocks/:code/reports", stockH.GetReports)
 		api.GET("/reports/industry", stockH.GetIndustryReports)
-		api.GET("/indices", handler.GetIndices)
 		api.GET("/reports/pdf", handler.ServeReportPDF)
 
+		// Board
 		boardH := handler.NewBoardHandler()
 		api.GET("/board/today", boardH.Today)
 		api.GET("/board/dates", boardH.Dates)
@@ -54,28 +110,75 @@ func main() {
 		api.GET("/board/heatmap-enriched", boardH.HeatmapEnriched)
 		api.GET("/board/heatmap/:code", boardH.StockHeatmap)
 
+		// Import
 		importH := handler.NewImportHandler()
 		api.POST("/import/excel", importH.Upload)
 		api.GET("/import/history", importH.History)
 
+		// Watchlist
 		watchH := handler.NewWatchlistHandler()
-		api.GET("/watchlist", watchH.List)
+		api.GET("/watchlist/groups", watchH.ListGroups)
+		api.POST("/watchlist/groups", watchH.CreateGroup)
+		api.PUT("/watchlist/groups/:id", watchH.RenameGroup)
+		api.DELETE("/watchlist/groups/:id", watchH.DeleteGroup)
+		api.PUT("/watchlist/groups/reorder", watchH.ReorderGroups)
+		api.GET("/watchlist", watchH.ListStocks)
 		api.POST("/watchlist", watchH.Add)
 		api.DELETE("/watchlist/:code", watchH.Remove)
+		api.DELETE("/watchlist", watchH.Clear)
+		api.PUT("/watchlist/:code/move", watchH.MoveStock)
 
+		// Holdings
+		holdingH := handler.NewHoldingHandler()
+		api.GET("/holdings", holdingH.List)
+		api.POST("/holdings", holdingH.Create)
+		api.PUT("/holdings/:id", holdingH.Update)
+		api.DELETE("/holdings/:id", holdingH.Delete)
+
+		// Risk alerts
+		riskH := handler.NewRiskHandler()
+		api.GET("/risks", riskH.List)
+		api.PUT("/risks/:id/ignore", riskH.Ignore)
+
+		// Strategy
+		strategyH := handler.NewStrategyHandler()
+		api.GET("/strategies", strategyH.List)
+		api.POST("/strategies", strategyH.Create)
+		api.PUT("/strategies/:id", strategyH.Update)
+		api.DELETE("/strategies/:id", strategyH.Delete)
+		api.PUT("/strategies/reorder", strategyH.Reorder)
+		api.GET("/strategies/:id/conditions", strategyH.ListConditions)
+		api.PUT("/strategies/:id/conditions", strategyH.SaveConditions)
+		api.POST("/strategies/ai-generate", strategyH.AIGenerate)
+		api.POST("/strategies/optimize-prompt", strategyH.OptimizePrompt)
+		api.GET("/strategies/indicators", strategyH.Indicators)
+		api.POST("/strategies/test-indicator", strategyH.TestIndicator)
+		api.POST("/strategies/:id/backtest", strategyH.RunBacktest)
+		api.POST("/strategies/:id/backtest/start", strategyH.StartBacktest)
+		api.GET("/strategies/:id/backtest/status/:taskId", strategyH.BacktestStatus)
+		api.GET("/strategies/:id/backtest/stream/:taskId", strategyH.BacktestStream)
+		api.POST("/strategies/:id/backtest/cancel/:taskId", strategyH.CancelBacktest)
+		api.GET("/strategies/:id/backtest/tasks", strategyH.BacktestTasks)
+		api.GET("/strategies/backtest-history", strategyH.BacktestHistory)
+		api.DELETE("/strategies/backtest-history/:id", strategyH.DeleteBacktestResult)
+		api.GET("/strategies/stock-pool", strategyH.StockPool)
+
+		// Collector
 		collectorH := handler.NewCollectorHandler(sched)
 		api.GET("/collector/stream", collectorH.Stream)
 		api.GET("/collector/history", collectorH.History)
+		api.DELETE("/collector/history/clear", collectorH.ClearHistory)
 		api.POST("/collector/trigger", collectorH.Trigger)
 		api.GET("/collector/status", collectorH.Status)
 		api.PUT("/collector/schedule", collectorH.UpdateSchedule)
 		api.POST("/collector/stock/:code", collectorH.StockCollect)
 		api.GET("/collector/reports/:code", collectorH.CollectReports)
 
+		// Forecast
 		forecastH := handler.NewForecastHandler()
 		api.GET("/forecast/:code", forecastH.Predict)
 
-		// AI — fixed routes first, then parameterized
+		// AI
 		aiH := handler.NewAIHandler()
 		api.POST("/ai/analyze", aiH.Analyze)
 		api.POST("/ai/analyze/stream", aiH.AnalyzeStream)
@@ -84,15 +187,18 @@ func main() {
 		api.GET("/ai/score/:code", aiH.GetScore)
 		api.POST("/ai/score/:code", aiH.RunScore)
 
+		// Settings (per-user)
 		settingsH := handler.NewSettingsHandler()
 		api.GET("/settings/ai", settingsH.GetAIConfig)
 		api.PUT("/settings/ai", settingsH.SaveAIConfig)
 		api.POST("/settings/ai/test", settingsH.TestAIConnection)
 		api.POST("/settings/ai/models", settingsH.ListModels)
 
+		// Predictions
 		predH := handler.NewPredictionHandler()
 		api.POST("/prediction/:code", predH.RunAll)
 		api.POST("/prediction/batch", predH.Batch)
+		api.GET("/prediction/:code/hitrate", predH.HitRate)
 		api.GET("/prediction/:code", predH.GetResult)
 	}
 

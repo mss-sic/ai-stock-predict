@@ -29,5 +29,14 @@ type Prediction struct {
 	CreatedAt      time.Time `json:"createdAt"`
 }
 
-func (Prediction) TableName() string { return "predictions"
+func (Prediction) TableName() string { return "predictions" }
+
+// PredictionKDist stores algorithm team K-distribution data for chart overlay
+type PredictionKDist struct {
+	ID        uint      `gorm:"primaryKey" json:"id"`
+	Code      string    `gorm:"uniqueIndex;size:10" json:"code"`
+	KDData    string    `gorm:"type:jsonb" json:"kdData"` // JSON: [[float*20]*7]
+	UpdatedAt time.Time `json:"updatedAt"`
 }
+
+func (PredictionKDist) TableName() string { return "prediction_kdist" }
