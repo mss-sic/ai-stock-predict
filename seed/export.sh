@@ -36,7 +36,7 @@ docker exec "$PG_CONTAINER" pg_dump \
   --no-owner --no-acl \
   --inserts --rows-per-insert=100 \
   --data-only \
-  > "$PG_OUT" 2>/dev/null
+  | sed "/^\\\estrict /d" > "$PG_OUT" 2>/dev/null
 
 PG_SIZE=$(du -h "$PG_OUT" | cut -f1)
 echo "  ✓ PostgreSQL → $PG_OUT ($PG_SIZE)"
