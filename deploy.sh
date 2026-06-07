@@ -91,7 +91,7 @@ done
 echo ""
 echo "【5/6】检查种子数据..."
 
-if [ -f "$APP_ROOT/seed/data/pg_dump_"*.sql ] 2>/dev/null; then
+if ls "$APP_ROOT"/seed/data/pg_dump_*.sql >/dev/null 2>&1; then
   echo "  发现种子数据文件"
   read -r -p "  是否恢复种子数据? [y/N]: " REPLY
   if [ "${REPLY,,}" = "y" ]; then
