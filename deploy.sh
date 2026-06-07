@@ -73,7 +73,29 @@ echo ""
 echo "【4/6】启动 Docker 服务..."
 
 cd "$APP_ROOT/docker"
-docker compose build --no-cache --pull && docker compose up -d 2>&1 | tail -3
+
+# 判断是否需要重新构建镜像（仅 server/ 或 scripts/ 变更时）
+NEED_BUILD=false
+if [ ! -f "$APP_ROOT/.docker_hash" ]; then
+  NEED_BUILD=true
+else
+  NEW_HASH=$(find "$APP_ROOT/server" "$APP_ROOT/scripts" "$APP_ROOT/Dockerfile" -type f -exec md5sum {} \; | sort -k2 | md5sum | cut -d' ' -f1)
+  OLD_HASH=$(cat "$APP_ROOT/.docker_hash")
+  if [ "$NEW_HASH" != "$OLD_HASH" ]; then
+    NEED_BUILD=true
+    echo "$NEW_HASH" > "$APP_ROOT/.docker_hash"
+  fi
+fi
+
+if [ "$NEED_BUILD" = true ]; then
+  echo "  重新构建镜像..."
+  docker compose build --no-cache --pull 2>&1 | tail -3
+  find "$APP_ROOT/server" "$APP_ROOT/scripts" "$APP_ROOT/Dockerfile" -type f -exec md5sum {} \; | sort -k2 | md5sum | cut -d' ' -f1 > "$APP_ROOT/.docker_hash"
+else
+  echo "  代码未变更，跳过构建"
+fi
+
+docker compose up -d 2>&1 | tail -3
 echo "  ✓ Docker 服务已启动"
 
 # 等待服务就绪
