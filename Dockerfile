@@ -6,6 +6,9 @@ FROM golang:1.25-alpine AS builder
 
 RUN apk add --no-cache git
 
+# 国内镜像加速
+ENV GOPROXY=https://goproxy.cn,direct
+
 WORKDIR /build
 COPY server/go.mod server/go.sum ./
 RUN go mod download
@@ -25,9 +28,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 ENV TZ=Asia/Shanghai
 RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
-# 安装 Python 采集依赖
+# 安装 Python 采集依赖（国内 pip 镜像）
 COPY scripts/collector/requirements.txt /app/scripts/collector/
-RUN pip install --no-cache-dir -r /app/scripts/collector/requirements.txt
+RUN pip install --no-cache-dir \
+    -i https://pypi.tuna.tsinghua.edu.cn/simple \
+    -r /app/scripts/collector/requirements.txt
 
 # 复制 Go 二进制
 COPY --from=builder /app/server /app/server
