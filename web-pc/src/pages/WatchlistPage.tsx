@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button, Input, Modal, Message, Popconfirm } from '@arco-design/web-react';
-import { Star, Plus, Trash2, Edit3, TrendingUp, TrendingDown } from 'lucide-react';
+import { Star, Plus, Trash2, TrendingUp, TrendingDown } from 'lucide-react';
 import {
   fetchWatchlist, fetchWatchlistGroups, createWatchlistGroup,
   renameWatchlistGroup, deleteWatchlistGroup, removeFromWatchlist,
