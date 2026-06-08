@@ -117,12 +117,26 @@ var (
 
 func GetProgress() *CollectionProgress {
 	progress.mu.RLock()
-	defer progress.mu.RUnlock()
+	// Auto-reset if stuck for > 10 minutes
+	if progress.Running && time.Since(progress.Started) > 10*time.Minute {
+		progress.mu.RUnlock()
+		progress.mu.Lock()
+		if progress.Running && time.Since(progress.Started) > 10*time.Minute {
+			progress.Running = false
+			progress.Phase = "done"
+			now := time.Now()
+			progress.Finished = &now
+			log.Println("[collector] auto-reset stuck collection")
+		}
+		progress.mu.Unlock()
+		progress.mu.RLock()
+	}
 	cp := *progress
 	cp.Results = make([]PhaseResult, len(progress.Results))
 	copy(cp.Results, progress.Results)
 	cp.Errors = make([]string, len(progress.Errors))
 	copy(cp.Errors, progress.Errors)
+	progress.mu.RUnlock()
 	return &cp
 }
 
