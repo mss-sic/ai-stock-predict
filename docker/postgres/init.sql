@@ -64,3 +64,30 @@ CREATE TABLE IF NOT EXISTS algorithm_pick_details (
 );
 CREATE INDEX idx_pick_details_date ON algorithm_pick_details (pick_date);
 CREATE INDEX idx_pick_details_code ON algorithm_pick_details (stock_code);
+
+-- 实时行情
+CREATE TABLE IF NOT EXISTS stock_quotes (
+    id SERIAL PRIMARY KEY,
+    code VARCHAR(10) UNIQUE,
+    name VARCHAR(50),
+    price NUMERIC(12,4),
+    change_pct NUMERIC(10,4),
+    volume BIGINT,
+    amount NUMERIC(20,2),
+    turnover NUMERIC(10,4),
+    high NUMERIC(12,4),
+    low NUMERIC(12,4),
+    open NUMERIC(12,4),
+    pre_close NUMERIC(12,4),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_quotes_code ON stock_quotes(code);
+
+-- 信号数据
+CREATE TABLE IF NOT EXISTS stock_signals (
+    id SERIAL PRIMARY KEY,
+    code VARCHAR(10) UNIQUE,
+    signal_value NUMERIC(12,6),
+    source VARCHAR(50) DEFAULT 'excel_import',
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
