@@ -1,7 +1,8 @@
 {
-  "exported_at": "2026-06-07T18:27:53Z",
-  "pg_dump": "pg_dump_20260608_022749.sql",
-  "pg_size": " 57M",
-  "mysql_dump": "mysql_dump_20260608_022749.sql",
-  "mysql_size": "208K"
+  "exported_at": "2026-06-08T09:13:06Z",
+  "pg_dump": "pg_dump_20260608_171304.sql",
+  "pg_size": " 16M",
+  "mysql_dump": "mysql_dump_20260608_171304.sql",
+  "mysql_size": "264K",
+  "note": "K线和指标数据未导出，部署后请在采集控制台拉取"
 }
