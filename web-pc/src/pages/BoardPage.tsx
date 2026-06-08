@@ -37,7 +37,7 @@ export default function BoardPage() {
             d.setDate(d.getDate() - 1);
             const ds = d.toISOString().slice(0, 10);
             try {
-              const r: any = await (await authFetch(`http://127.0.0.1:8080/api/v1/board/history?date=${ds}`)).json();
+              const r: any = await (await authFetch(`/api/v1/board/history?date=${ds}`)).json();
               if (r.data?.length > 0) {
                 setData(r.data);
                 setBoardDate(ds);

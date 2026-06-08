@@ -26,7 +26,7 @@ export default function AIAnalysisPage() {
     if (!code) return;
     (async () => {
       try {
-        const res = await authFetch(`http://127.0.0.1:8080/api/v1/ai/history/${code}`);
+        const res = await authFetch(`/api/v1/ai/history/${code}`);
         const json = await res.json();
         const history: Message[] = (json.data || []).map((m: any) => ({
           role: m.role,
@@ -57,7 +57,7 @@ export default function AIAnalysisPage() {
     setMsgs(p => [...p, { role: 'ai', text: '' }]);
 
     try {
-      const res = await authFetch('http://127.0.0.1:8080/api/v1/ai/analyze/stream', {
+      const res = await authFetch('/api/v1/ai/analyze/stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ code, question: msg }),
@@ -123,7 +123,7 @@ export default function AIAnalysisPage() {
     if (!code) return;
     setClearing(true);
     try {
-      await authFetch(`http://127.0.0.1:8080/api/v1/ai/history/${code}`, { method: 'DELETE' });
+      await authFetch(`/api/v1/ai/history/${code}`, { method: 'DELETE' });
       setMsgs([]);
     } catch (_) {}
     setClearing(false);

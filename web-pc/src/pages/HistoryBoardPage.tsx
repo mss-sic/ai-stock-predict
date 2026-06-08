@@ -43,7 +43,7 @@ export default function HistoryBoardPage() {
   useEffect(() => {
     (async () => {
       try {
-        const res = await authFetch('http://127.0.0.1:8080/api/v1/board/dates');
+        const res = await authFetch('/api/v1/board/dates');
         const json = await res.json();
         const rawDates: string[] = (json.data || []).map((d: string) => d.slice(0, 10));
         const recentDates = rawDates.slice(0, 20);
@@ -60,7 +60,7 @@ export default function HistoryBoardPage() {
   const fetchBoardData = useCallback(async (d: string, allDates: string[]) => {
     setLoading(true);
     try {
-      const res = await authFetch(`http://127.0.0.1:8080/api/v1/board/history?date=${d}`);
+      const res = await authFetch(`/api/v1/board/history?date=${d}`);
       const json = await res.json();
       const items: BoardItem[] = json.data || [];
       setData(items);
@@ -71,7 +71,7 @@ export default function HistoryBoardPage() {
       if (idx >= 0 && idx + 1 < allDates.length) {
         prev = allDates[idx + 1];
         try {
-          const pr = await authFetch(`http://127.0.0.1:8080/api/v1/board/history?date=${prev}`);
+          const pr = await authFetch(`/api/v1/board/history?date=${prev}`);
           const pj = await pr.json();
           fetchedPrev = pj.data || [];
         } catch (_) {}

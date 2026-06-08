@@ -175,7 +175,7 @@ export default function StrategyPage() {
     setBtPhase('正在初始化...'); setBtProgress('');
     const token = localStorage.getItem('aip_access_token') || '';
     try {
-      const res = await fetch(`http://127.0.0.1:8080/api/v1/strategies/${activeId}/backtest`, {
+      const res = await fetch(`/api/v1/strategies/${activeId}/backtest`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({ startDate: btStart, endDate: btEnd, stockCodes: [], stockPool: btStockPool }),
@@ -299,7 +299,7 @@ export default function StrategyPage() {
     setBtRunning(true); setBtOfflineMode(true); setBtTaskId(taskId); setBtPhase('正在重新连接...');
     const token = localStorage.getItem('aip_access_token') || '';
     try {
-      const res = await fetch(`http://127.0.0.1:8080/api/v1/strategies/${activeId}/backtest/stream/${taskId}`, { headers: { 'Authorization': `Bearer ${token}` } });
+      const res = await fetch(`/api/v1/strategies/${activeId}/backtest/stream/${taskId}`, { headers: { 'Authorization': `Bearer ${token}` } });
       const reader = res.body?.getReader();
       if (!reader) { pollTaskStatus(taskId); return; }
       const decoder = new TextDecoder(); let buffer = '';

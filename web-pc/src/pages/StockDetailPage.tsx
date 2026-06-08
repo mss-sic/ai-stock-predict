@@ -359,14 +359,14 @@ fetchPredictionResult(code).then((r: any) => {
 
     (async () => {
       try {
-        const res = await authFetch(`http://127.0.0.1:8080/api/v1/ai/history/${code}`);
+        const res = await authFetch(`/api/v1/ai/history/${code}`);
         const json = await res.json();
         setMsgs((json.data || []).map((m: any) => ({ role: m.role, text: m.content })));
       } catch (_) {}
     })();
     (async () => {
       try {
-        const res = await authFetch(`http://127.0.0.1:8080/api/v1/ai/score/${code}`);
+        const res = await authFetch(`/api/v1/ai/score/${code}`);
         const json = await checkAPIError(await res.json());
         if (json.data) setAiScore(json.data);
       } catch (_) {}
@@ -437,7 +437,7 @@ fetchPredictionResult(code).then((r: any) => {
     if (!code || !safeKlines || safeKlines.length === 0) return;
     const latestKDate = (safeKlines[safeKlines.length - 1]?.tradeDate || safeKlines[safeKlines.length - 1]?.date || '').slice(0, 10);
     if (!latestKDate) return;
-    authFetch(`http://127.0.0.1:8080/api/v1/board/history?date=${latestKDate}`)
+    authFetch(`/api/v1/board/history?date=${latestKDate}`)
       .then(r => r.json())
       .then(json => {
         const picks: any[] = json.data || [];
@@ -567,7 +567,7 @@ fetchPredictionResult(code).then((r: any) => {
     setChatLoading(true);
     setMsgs(p => [...p, { role: 'ai', text: '' }]);
     try {
-      const res = await authFetch('http://127.0.0.1:8080/api/v1/ai/analyze/stream', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code, question: msg }) });
+      const res = await authFetch('/api/v1/ai/analyze/stream', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code, question: msg }) });
       const reader = res.body?.getReader(); if (!reader) throw new Error('no reader');
       const decoder = new TextDecoder(); let buffer = '';
       while (true) { const { done, value } = await reader.read(); if (done) break; buffer += decoder.decode(value, { stream: true }); const lines = buffer.split('\n'); buffer = lines.pop() || ''; for (const line of lines) { if (!line.startsWith('data: ')) continue; const data = line.slice(6); if (data === '[DONE]') continue; try { const p = JSON.parse(data); if (p.chunk) setMsgs(prev => { const cp = [...prev]; cp[cp.length - 1] = { ...cp[cp.length - 1], text: cp[cp.length - 1].text + p.chunk }; return cp; }); if (p.error) setMsgs(prev => { const cp = [...prev]; cp[cp.length - 1] = { ...cp[cp.length - 1], text: '错误: ' + p.error }; return cp; }); } catch (_) {} } }
@@ -597,8 +597,8 @@ fetchPredictionResult(code).then((r: any) => {
       setIsWatched(true); setShowWLModal(false); showToast('success', '已添加自选');
     } catch (err: any) { showToast('error', err.response?.data?.message || err.message || '添加失败'); }
   };
-  const handleClearChat = async () => { if (!code) return; try { await authFetch(`http://127.0.0.1:8080/api/v1/ai/history/${code}`, { method: 'DELETE' }); setMsgs([]); } catch (_) {} };
-  const handleRunScore = async () => { if (!code || scoreLoading) return; setScoreLoading(true); try { const res = await authFetch(`http://127.0.0.1:8080/api/v1/ai/score/${code}`, { method: 'POST' }); const json = await checkAPIError(await res.json()); setAiScore(json.data); showToast('success', 'AI评分完成'); } catch (e: any) { if (e.message !== 'canceled') showToast('error', e.message || 'AI评分失败'); } finally { setScoreLoading(false); } };
+  const handleClearChat = async () => { if (!code) return; try { await authFetch(`/api/v1/ai/history/${code}`, { method: 'DELETE' }); setMsgs([]); } catch (_) {} };
+  const handleRunScore = async () => { if (!code || scoreLoading) return; setScoreLoading(true); try { const res = await authFetch(`/api/v1/ai/score/${code}`, { method: 'POST' }); const json = await checkAPIError(await res.json()); setAiScore(json.data); showToast('success', 'AI评分完成'); } catch (e: any) { if (e.message !== 'canceled') showToast('error', e.message || 'AI评分失败'); } finally { setScoreLoading(false); } };
 
   const [refreshingPhase, setRefreshingPhase] = useState('');
   const [refreshLogs, setRefreshLogs] = useState<string[]>([]);
@@ -609,7 +609,7 @@ fetchPredictionResult(code).then((r: any) => {
     if (phase === 'reports') {
       setRefreshingPhase('reports');
       setRefreshLogs(['正在连接采集服务...']);
-      const es = new EventSource(`http://127.0.0.1:8080/api/v1/collector/reports/${code}?token=${localStorage.getItem("aip_access_token")||""}`);
+      const es = new EventSource(`/api/v1/collector/reports/${code}?token=${localStorage.getItem("aip_access_token")||""}`);
       es.onmessage = (e) => {
         try {
           const d = JSON.parse(e.data);
@@ -633,7 +633,7 @@ fetchPredictionResult(code).then((r: any) => {
     // Other phases use the POST collector endpoint
     setRefreshingPhase(phase);
     try {
-      await authFetch(`http://127.0.0.1:8080/api/v1/collector/stock/${code}`, {
+      await authFetch(`/api/v1/collector/stock/${code}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ phases: [phase] }),
