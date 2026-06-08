@@ -307,11 +307,20 @@ func runKLinePhase() PhaseResult {
 	db.PG.Model(&model.StockBasic{}).Count(&totalStocks)
 	var stocksWithK int64
 	db.PG.Raw("SELECT COUNT(DISTINCT code) FROM stocks_daily_k").Scan(&stocksWithK)
+
+	// 检查数据新鲜度：最近交易日距今超过 3 天则重新采集
 	needK := int(totalStocks - stocksWithK)
-	if needK <= 0 {
+	var latestDate time.Time
+	db.PG.Raw("SELECT MAX(trade_date) FROM stocks_daily_k").Scan(&latestDate)
+	stale := time.Since(latestDate) > 72*time.Hour
+
+	if needK <= 0 && !stale {
 		pr := PhaseResult{Phase: "kline", Total: int(stocksWithK), Skipped: int(stocksWithK), DurationMs: time.Since(t0).Milliseconds()}
 		sseSend(SSELine{Type: "result", Phase: "kline", Result: &pr, Level: "success", Message: fmt.Sprintf("K线已完整 (%d 只), 跳过", stocksWithK)})
 		return pr
+	}
+	if stale && needK <= 0 {
+		sseSend(SSELine{Type: "log", Message: fmt.Sprintf("K线数据过期 (最新: %s), 重新采集", latestDate.Format("2006-01-02")), Level: "info"})
 	}
 	sseSend(SSELine{Type: "log", Message: fmt.Sprintf("需采集K线: %d 只", needK), Level: "info"})
 	runPythonStream("batch_collect.py")
