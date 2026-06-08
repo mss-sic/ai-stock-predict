@@ -620,7 +620,7 @@ func (h *AuthHandler) ListLoginLogs(c *gin.Context) {
 
 func EnsureAdminUser() {
 	var count int64
-	db.MySQL.Model(&model.User{}).Count(&count)
+	db.MySQL.Model(&model.User{}).Where("username = ?", "admin").Count(&count)
 	if count > 0 {
 		return
 	}
