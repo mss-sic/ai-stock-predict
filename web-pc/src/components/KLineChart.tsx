@@ -12,6 +12,7 @@ interface Marker {
   i: number;
   type: 'board' | 'buy' | 'sell';
   label?: string;
+  rank?: number;
 }
 
 interface PredictionLine {
@@ -66,11 +67,8 @@ export default function KLineChart({
   const isDragging = dragStart !== null;
 
   // ─── Chart pan & zoom ───
-  const [candlesPerScreen, setCandlesPerScreen] = useState(120);
+  const [candlesPerScreen, setCandlesPerScreen] = useState(60);
   const [panOffset, setPanOffset] = useState(0); // px offset from right edge
-  const [isPanning, setIsPanning] = useState(false);
-  const panStartRef = useRef(0);
-  const panOffsetRef = useRef(0);
 
   // Effective selected range (considering drag in progress)
   const effectiveRange = useMemo((): [number, number] | null => {
@@ -84,8 +82,16 @@ export default function KLineChart({
   const isEmpty = !data || data.length === 0;
   const safeData: KLineItem[] = isEmpty ? [] : data.filter((d: any) => d != null);
 
-  // Visible window
-  const visCount = Math.min(candlesPerScreen, safeData.length);
+  // Prediction extension
+  const maxPredExtra = predictionLines.reduce((max, l) => {
+    const extra = l.data.length - safeData.length;
+    return extra > max ? extra : max;
+  }, 0);
+  const totalN = safeData.length + Math.max(0, maxPredExtra);
+  const predExtra = Math.max(0, maxPredExtra);
+
+  // Visible window (includes prediction slots when present)
+  const visCount = Math.min(candlesPerScreen + predExtra, totalN);
 
   // Theme colors
   const chartBg = isDark ? '#1a1a2e' : '#fff';
@@ -94,28 +100,23 @@ export default function KLineChart({
   const axisColor = isDark ? '#b0b3b8' : '#4E5969';
   const crosshairColor = isDark ? '#b0b3b8' : '#C9CDD4';
   const predBg = isDark ? '#16213e' : '#F7F8FA';
-
   // ═══ All hooks must be called unconditionally ═══
   const W = 960;
   const H = height;
   const padL = 54, padR = 60, padT = 14, padB = 30;
   const volH = 50;
-  const macdH = 80;
+  const macdH = 100;
   const priceH = H - padT - padB - volH - macdH - 14;
   const innerW = W - padL - padR;
 
-  const maxPredExtra = predictionLines.reduce((max, l) => {
-    const extra = l.data.length - safeData.length;
-    return extra > max ? extra : max;
-  }, 0);
-  const totalN = safeData.length + Math.max(0, maxPredExtra);
   const step = innerW / (visCount || 1);
-  const startIdx = Math.max(0, Math.min(safeData.length - visCount, safeData.length - visCount + Math.round(panOffset / Math.max(step, 0.01))));
-  const maxPanRight = Math.max(0, (safeData.length - visCount)) * step;
-  const bw = Math.max(2, Math.min(10, step * 0.72));
+  const startIdx = Math.max(0, Math.min(totalN - visCount, totalN - visCount + Math.round(panOffset / Math.max(step, 0.01))));
+  const bw = Math.max(2, Math.min(22, step * 0.78));
+  const useLineMode = (visCount - predExtra) > 60;
 
-  const hi = safeData.length === 0 ? 0 : Math.max(...safeData.map(d => d.high));
-  const lo = safeData.length === 0 ? 0 : Math.min(...safeData.map(d => d.low));
+  const visibleSlice = safeData.slice(startIdx, Math.min(startIdx + visCount, safeData.length));
+  const hi = visibleSlice.length === 0 ? 0 : Math.max(...visibleSlice.map(d => d.high));
+  const lo = visibleSlice.length === 0 ? 0 : Math.min(...visibleSlice.map(d => d.low));
   let extHi = hi, extLo = lo;
   if (safeData.length > 0 && splitIdx != null) {
     for (const line of predictionLines) {
@@ -126,12 +127,12 @@ export default function KLineChart({
     }
   }
   const range = extHi - extLo || 1;
-  const padding = range * 0.05;
+  const padding = range * 0.03;
   const plotLo = extLo - padding;
   const plotRange = extHi - extLo + padding * 2;
   const py = (v: number) => padT + priceH - ((v - plotLo) / plotRange) * priceH;
 
-  const volMax = safeData.length === 0 ? 1 : Math.max(...safeData.map(d => d.volume || 0)) || 1;
+  const volMax = visibleSlice.length === 0 ? 1 : Math.max(...visibleSlice.map(d => d.volume || 0)) || 1;
   const volBaseY = padT + priceH + 8 + volH;
   const vy = (v: number) => volBaseY - (v / volMax) * volH;
 
@@ -150,9 +151,10 @@ export default function KLineChart({
   const deaArr = calcEMA(difArr, 9);
   const macdArr = difArr.map((v, i) => (v - (deaArr[i] ?? 0)) * 2);
 
+  const macdVisible = macdArr.slice(startIdx, Math.min(startIdx + visCount, macdArr.length));
   const macdAbsMax = Math.max(
-    Math.abs(Math.max(...macdArr.filter(v => !isNaN(v)), 0)),
-    Math.abs(Math.min(...macdArr.filter(v => !isNaN(v)), 0)),
+    Math.abs(Math.max(...macdVisible.filter(v => !isNaN(v)), 0)),
+    Math.abs(Math.min(...macdVisible.filter(v => !isNaN(v)), 0)),
     1
   );
   const macdBaseY = volBaseY + 6 + macdH;
@@ -179,17 +181,26 @@ export default function KLineChart({
   });
 
   const xLabels = useMemo(() => {
-    const total = safeData.length;
+    const end = Math.min(startIdx + visCount, safeData.length);
+    const count = end - startIdx;
     const labels: number[] = [];
-    if (total <= 8) { for (let i = 0; i < total; i++) labels.push(i); }
-    else {
-      const s = Math.floor(total / 7);
-      for (let i = 0; i < total; i += s) labels.push(i);
-      if (labels[labels.length - 1] !== total - 1) labels.push(total - 1);
+    if (count <= 0) return labels;
+    // Show ~6 evenly-spaced labels within visible window
+    const step_labels = Math.max(1, Math.floor(count / 6));
+    for (let i = startIdx; i < end; i += step_labels) {
+      labels.push(i);
+    }
+    // Ensure last visible index is labeled
+    if (labels.length > 0 && labels[labels.length - 1] !== end - 1) {
+      labels.push(end - 1);
+    }
+    // Also keep the first label if not already there
+    if (labels.length > 0 && labels[0] !== startIdx) {
+      labels.unshift(startIdx);
     }
     if (maxPredExtra > 0) labels.push(totalN - 1);
     return labels;
-  }, [safeData.length, totalN, maxPredExtra]);
+  }, [safeData.length, startIdx, visCount, totalN, maxPredExtra]);
 
   const calcMA = (period: number) =>
     safeData.map((_, i) => {
@@ -214,7 +225,7 @@ export default function KLineChart({
   const dateLabel = (i: number) => {
     if (i < safeData.length) {
       const ds = (safeData[i]?.tradeDate || safeData[i]?.date || '');
-      return ds.length >= 10 ? ds.slice(5, 10) : `T-${safeData.length - i}`;
+      return ds.length >= 10 ? ds.slice(0, 10).replace(/-/g, '') : `T-${safeData.length - i}`;
     }
     return `+${i - safeData.length + 1}`;
   };
@@ -224,24 +235,24 @@ export default function KLineChart({
     const rect = svg.getBoundingClientRect();
     const scaleX = W / rect.width;
     const mx = (e.clientX - rect.left) * scaleX;
-    return Math.round((mx - padL - step / 2) / step);
-  }, [W, padL, step]);
+    return startIdx + Math.round((mx - padL - step / 2) / step);
+  }, [W, padL, step, startIdx]);
 
   // ═══ Wheel zoom ═══
-  const handleWheel = useCallback((e: React.WheelEvent<SVGSVGElement>) => {
-    e.preventDefault();
-    setCandlesPerScreen(prev => Math.max(15, Math.min(safeData.length, prev + Math.round(e.deltaY / 25))));
-  }, [safeData.length]);
+  // Shared zoom helper for buttons (keep center stable)
+  const handleZoom = useCallback((delta: number) => {
+    const newCandles = Math.max(15, Math.min(safeData.length, candlesPerScreen + delta));
+    if (newCandles === candlesPerScreen) return;
+    const centerIdx = startIdx + visCount / 2;
+    const newStartIdx = Math.max(0, Math.min(safeData.length - newCandles, Math.round(centerIdx - newCandles / 2)));
+    const newStep = innerW / newCandles;
+    const newPanOffset = (newStartIdx - (safeData.length - newCandles)) * newStep;
+    setCandlesPerScreen(newCandles);
+    setPanOffset(newPanOffset);
+  }, [candlesPerScreen, startIdx, visCount, safeData.length, innerW]);
 
 
   const handleMouseMove = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
-    // Pan mode
-    if (isPanningRef.current) {
-      const dx = e.clientX - panStartRef.current;
-      const newOffset = panOffsetRef.current + dx;
-      setPanOffset(Math.max(-maxPanRight, Math.min(5, newOffset)));
-      return;
-    }
     if (isEmpty) return;
     const idx = getIdxFromEvent(e);
     const maxIdx = totalN - 1;
@@ -288,13 +299,6 @@ export default function KLineChart({
   const handleMouseLeave = () => { setHoverIdx(null); setTooltipPos(null); };
 
   const handleMouseDown = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
-    if (!enableRangeSelect && e.button === 0) {
-      // Pan mode
-      isPanningRef.current = true;
-      panStartRef.current = e.clientX;
-      panOffsetRef.current = panOffset;
-      return;
-    }
     if (!enableRangeSelect || e.button !== 0) return;
     const idx = getIdxFromEvent(e);
     if (idx < 0 || idx >= safeData.length) return;
@@ -340,7 +344,6 @@ export default function KLineChart({
   }, [enableRangeSelect, getIdxFromEvent, safeData.length, selectedRange]);
 
   const handleMouseUp = useCallback(() => {
-    isPanningRef.current = false;
     if (isDragging && dragStart !== null && dragEnd !== null && onRangeChange) {
       const s = Math.min(dragStart, dragEnd);
       const e = Math.max(dragStart, dragEnd);
@@ -398,12 +401,11 @@ export default function KLineChart({
         ref={svgRef}
         viewBox={`0 0 ${W} ${H}`}
         preserveAspectRatio="xMidYMid meet"
-        style={{ width: '100%', height, background: '#1A1D23', borderRadius: 10, cursor: chartCursor }}
+        style={{ width: '100%', height, background: chartBg, borderRadius: 10, cursor: chartCursor }}
         onMouseMove={handleMouseMove}
         onMouseLeave={handleMouseLeave}
         onMouseDown={handleMouseDown}
         onMouseUp={handleMouseUp}
-        onWheel={handleWheel}
       >
         {/* Prediction bg */}
         {splitIdx != null && splitIdx <= safeData.length && (
@@ -516,8 +518,8 @@ export default function KLineChart({
           );
         })}
 
-        {/* Candles */}
-        {safeData.map((d, i) => {
+      {/* Candles (short-term) or Line (long-term) */}
+        {!useLineMode && safeData.map((d, i) => {
           const x = fx(i), isUp = d.close >= d.open, c = isUp ? UP : DOWN;
           const yOpen = py(d.open), yClose = py(d.close), yHi = py(d.high), yLo = py(d.low);
           const top = Math.min(yOpen, yClose), bh = Math.max(1, Math.abs(yClose - yOpen));
@@ -528,6 +530,23 @@ export default function KLineChart({
             </g>
           );
         })}
+
+        {/* Line mode: close price line for long-term view */}
+        {useLineMode && (
+          <>
+            <polyline
+              points={safeData.map((d, i) => `${fx(i).toFixed(1)},${py(d.close).toFixed(1)}`).join(' ')}
+              stroke={isDark ? '#e06060' : '#F53F3F'} strokeWidth="1.5" fill="none" opacity="0.8"
+            />
+            {safeData.length > 1 && (() => {
+              const pts = safeData.map((d, i) => `${fx(i).toFixed(1)},${py(d.close).toFixed(1)}`);
+              const firstX = fx(0), lastX = fx(safeData.length - 1);
+              const base = py(plotLo);
+              const fillPts = pts.join(' ') + ` ${lastX.toFixed(1)},${base.toFixed(1)} ${firstX.toFixed(1)},${base.toFixed(1)}`;
+              return <polygon points={fillPts} fill={UP} opacity="0.06" />;
+            })()}
+          </>
+        )}
 
         {/* MAs */}
         {maPath(ma5, '#F77234')}
@@ -542,8 +561,16 @@ export default function KLineChart({
             const yTop = py(safeData[m.i].high) - 16;
             return <g key={`mk${k}`}><polygon points={`${x},${yTop + 10} ${x - 6},${yTop} ${x + 6},${yTop}`} fill="#165DFF" /><text x={x} y={yTop - 4} fontSize="9" fill="#165DFF" textAnchor="middle" fontWeight="700">{m.label || 'B'}</text></g>;
           }
-          const yBot = py(safeData[m.i].low) + 15;
-          return <g key={`mk${k}`}><circle cx={x} cy={yBot} r="4" fill={UP} stroke={chartBg} strokeWidth="1.2" /><text x={x} y={yBot + 12} fontSize="8" fill={UP} textAnchor="middle">{m.label || '上榜'}</text></g>;
+          const BOARD_PURPLE = '#9333ea';
+          const yHi = py(safeData[m.i].high);
+          const yTop = yHi - 10;
+          return (
+            <g key={`mk${k}`}>
+              <line x1={x} y1={yTop + 2} x2={x} y2={yHi} stroke={BOARD_PURPLE} strokeWidth="1" strokeDasharray="2 3" opacity="0.8" />
+              <circle cx={x} cy={yTop - 8} r="10" fill={BOARD_PURPLE} stroke={chartBg} strokeWidth="1.5" opacity="0.92" />
+              <text x={x} y={yTop - 4} fontSize="10" fill="#fff" textAnchor="middle" fontWeight="700">榜</text>
+            </g>
+          );
         })}
 
         {/* Prediction hi/lo markers */}
@@ -657,13 +684,13 @@ export default function KLineChart({
           {predictionLines.length > 0 && <text x="170" y="0" fill={predictionLines[0].color}>--- 预测</text>}
         </g>
       {/* Scrollbar */}
-        {safeData.length > visCount && (
+        {totalN > visCount && (
           <g transform={`translate(${padL}, ${H - 8})`}>
             <rect x={0} y={0} width={innerW} height={4} rx={2} fill={gridColor} opacity="0.5" />
             <rect
-              x={Math.max(0, (startIdx / Math.max(safeData.length - 1, 1)) * innerW)}
+              x={Math.max(0, (startIdx / Math.max(totalN - 1, 1)) * innerW)}
               y={0}
-              width={Math.max(20, (visCount / safeData.length) * innerW)}
+              width={Math.max(20, (visCount / totalN) * innerW)}
               height={4} rx={2}
               fill={isDark ? '#4a4a6a' : '#c9cdd4'}
               style={{ cursor: 'pointer' }}
@@ -674,28 +701,83 @@ export default function KLineChart({
         {/* Pan/Zoom hint */}
         {safeData.length > 0 && (
           <text x={W - padR} y={H - 2} fontSize="9" fill={textColor} textAnchor="end" opacity="0.6">
-            拖拽平移 · 滚轮缩放 · {startIdx + 1}-{Math.min(startIdx + visCount, safeData.length)}/{safeData.length}
+            底部按钮操作 · {startIdx + 1}-{Math.min(startIdx + visCount, totalN)}/{totalN}
           </text>
         )}
       </svg>
+
+      {/* Zoom/Pan button bar */}
+      <style>{`
+        .kl-btn { background: none; border: 1px solid transparent; cursor: pointer; font-size: 13px; color: inherit; padding: 5px 10px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; transition: all 0.15s; font-weight: 500; line-height: 20px; user-select: none; }
+        .kl-btn:hover { background: ${isDark ? "rgba(22,93,255,0.15)" : "#e8f0fe"}; border-color: ${isDark ? "#165DFF" : "#165DFF40"}; }
+        .kl-btn:active { transform: scale(0.96); }
+        .kl-btn.active { background: ${isDark ? "rgba(22,93,255,0.2)" : "rgba(22,93,255,0.1)"}; border-color: #165DFF; color: #165DFF; font-weight: 700; }
+        .kl-btn:disabled { opacity: .35; cursor: not-allowed; }
+        .kl-btn:disabled:hover { background: none; border-color: transparent; transform: none; }
+      `}</style>
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+        padding: '8px 10px', borderTop: `1px solid ${gridColor}`,
+        background: chartBg, color: textColor, flexWrap: 'wrap', userSelect: 'none'
+      }}>
+        <button onClick={() => setPanOffset(p => p - step * 30)} disabled={startIdx <= 0}
+          className="kl-btn" title="左移30根">◀◀</button>
+        <button onClick={() => setPanOffset(p => p - step * 5)} disabled={startIdx <= 0}
+          className="kl-btn" title="左移5根">◀</button>
+
+        <button onClick={() => handleZoom(-10)}
+          className="kl-btn" title="放大（减少K线数）">🔍−</button>
+
+        <span style={{ fontSize: 12, color: axisColor, minWidth: 100, textAlign: 'center', fontWeight: 500 }}>
+          {useLineMode ? '📈' : '🕯️'} {startIdx + 1}-{Math.min(startIdx + visCount, totalN)} / {totalN}
+        </span>
+
+        <button onClick={() => handleZoom(10)}
+          className="kl-btn" title="缩小（增加K线数）">🔍+</button>
+
+        <button onClick={() => setPanOffset(p => p + step * 5)} disabled={startIdx + visCount >= totalN}
+          className="kl-btn" title="右移5根">▶</button>
+        <button onClick={() => setPanOffset(p => p + step * 30)} disabled={startIdx + visCount >= totalN}
+          className="kl-btn" title="右移30根">▶▶</button>
+
+        <span style={{ width: 1, height: 18, background: '#3d3d54', margin: '0 6px' }} />
+
+        {[
+          { label: '1月', days: 22 },
+          { label: '3月', days: 66 },
+          { label: '半年', days: 132 },
+          { label: '1年', days: 264 },
+          { label: '全部', days: safeData.length },
+        ].map(p => {
+          const isActive = (visCount - predExtra) === p.days || (p.label === '全部' && (visCount - predExtra) >= safeData.length);
+          return (
+            <button key={p.label} onClick={() => { setCandlesPerScreen(p.days); setPanOffset(0); }}
+              className={`kl-btn${isActive ? ' active' : ''}`}
+            >{p.label}</button>
+          );
+        })}
+      </div>
 
       {/* Tooltip */}
       {((hoverData && hoverIdx != null) || isHoverPredict) && tooltipPos && (
         <div style={{
           position: 'absolute', left: tooltipPos.x + 16, top: Math.min(tooltipPos.y - 80, height - 160),
-          background: isDark ? 'rgba(0,0,0,0.92)' : 'rgba(29, 33, 41, 0.92)', color: '#fff', padding: '10px 14px',
-          borderRadius: 6, fontSize: 12, lineHeight: '20px', pointerEvents: 'none', zIndex: 100,
-          fontFamily: 'monospace', whiteSpace: 'nowrap', boxShadow: '0 2px 12px rgba(0,0,0,0.15)',
+          background: isDark ? 'rgba(0,0,0,0.94)' : 'rgba(255,255,255,0.96)',
+          color: isDark ? '#e5e6eb' : '#1d2129',
+          padding: '10px 14px', borderRadius: 8, fontSize: 12, lineHeight: '20px',
+          pointerEvents: 'none', zIndex: 100, fontFamily: 'monospace', whiteSpace: 'nowrap',
+          boxShadow: isDark ? '0 2px 12px rgba(0,0,0,0.3)' : '0 2px 12px rgba(0,0,0,0.12)',
+          border: isDark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.06)',
         }}>
-          <div style={{ fontWeight: 600, marginBottom: 4, color: '#C9CDD4' }}>{dateLabel(hoverIdx!)}</div>
+          <div style={{ fontWeight: 600, marginBottom: 4, color: isDark ? '#a0a4a8' : '#4e5969' }}>{dateLabel(hoverIdx!)}</div>
           {hoverData ? (
             <>
-              <div>开 <span style={{ color: '#fff', fontWeight: 500 }}>{hoverData?.open?.toFixed(2) ?? '-'}</span></div>
+              <div>开 <span style={{ color: isDark ? '#e5e6eb' : '#1d2129', fontWeight: 500 }}>{hoverData?.open?.toFixed(2) ?? '-'}</span></div>
               <div>高 <span style={{ color: UP, fontWeight: 500 }}>{hoverData?.high?.toFixed(2) ?? '-'}</span></div>
               <div>低 <span style={{ color: DOWN, fontWeight: 500 }}>{hoverData?.low?.toFixed(2) ?? '-'}</span></div>
               <div>收 <span style={{ color: (hoverData?.close ?? 0) >= (hoverData?.open ?? 0) ? UP : DOWN, fontWeight: 600, fontSize: 13 }}>{hoverData?.close?.toFixed(2) ?? '-'}</span></div>
-              <div style={{ marginTop: 4, color: '#C9CDD4' }}>量 {(hoverData?.volume || 0) >= 1e8 ? ((hoverData?.volume || 0) / 1e8).toFixed(2) + '亿' : ((hoverData?.volume || 0) / 1e4).toFixed(0) + '万手'}</div>
-              <div style={{ color: '#C9CDD4' }}>换手 {(hoverData?.turnoverRate || 0) > 0 ? (hoverData?.turnoverRate || 0).toFixed(2) + '%' : '-'}</div>
+              <div style={{ marginTop: 4, color: isDark ? '#a0a4a8' : '#86909c' }}>量 {(hoverData?.volume || 0) >= 1e8 ? ((hoverData?.volume || 0) / 1e8).toFixed(2) + '亿' : ((hoverData?.volume || 0) / 1e4).toFixed(0) + '万手'}</div>
+              <div style={{ color: isDark ? '#a0a4a8' : '#86909c' }}>换手 {(hoverData?.turnoverRate || 0) > 0 ? (hoverData?.turnoverRate || 0).toFixed(2) + '%' : '-'}</div>
             </>
           ) : (
             <>
@@ -703,7 +785,7 @@ export default function KLineChart({
               {hoverPreds.map((p, i) => (
                 <div key={i}>
                   <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: 3, background: p.color, marginRight: 6 }} />
-                  {p.name} <span style={{ color: '#fff', fontWeight: 600 }}>{p.price!.toFixed(2)}</span>
+                  {p.name} <span style={{ color: isDark ? '#fff' : '#1d2129', fontWeight: 600 }}>{p.price!.toFixed(2)}</span>
                 </div>
               ))}
             </>
@@ -714,6 +796,7 @@ export default function KLineChart({
               {' '}({(safeData[hoverIdx - 1]?.close ?? 0) > 0 ? (((hoverData.close - (safeData[hoverIdx - 1]?.close ?? 0)) / (safeData[hoverIdx - 1]?.close ?? 1)) * 100).toFixed(2) : '0.00'}%)
             </div>
           )}
+          {hoverIdx != null && (() => { const bm = markers.find(m => m.type === 'board' && m.i === hoverIdx); return bm?.rank != null ? (<div style={{ color: '#9333ea', fontWeight: 600, marginTop: 2 }}>🏆 榜单第 {bm.rank} 名</div>) : null; })()}
         </div>
       )}
     </div>

@@ -61,6 +61,7 @@ export default function BoardPage() {
   const columns = [
     {
       title: '#', dataIndex: 'rank', width: 48, align: 'center' as const,
+      sorter: (a: BoardItem, b: BoardItem) => a.rank - b.rank,
       render: (v: number) => {
         if (v === 1) return <span style={{ color: '#f53f3f', fontWeight: 700, fontSize: 16 }}>🥇</span>;
         if (v === 2) return <span style={{ color: '#ff7d00', fontWeight: 700, fontSize: 16 }}>🥈</span>;
@@ -83,10 +84,12 @@ export default function BoardPage() {
     },
     {
       title: '收盘', dataIndex: 'close', width: 80, align: 'right' as const,
+      sorter: (a: BoardItem, b: BoardItem) => (a.close || 0) - (b.close || 0),
       render: (v: number) => v > 0 ? <span style={{ fontWeight: 600, fontSize: 14 }}>{v.toFixed(2)}</span> : <span className="muted">-</span>,
     },
     {
       title: '涨跌', dataIndex: 'chgPct', width: 85, align: 'right' as const,
+      sorter: (a: BoardItem, b: BoardItem) => (a.chgPct || 0) - (b.chgPct || 0),
       render: (v: number) => {
         if (v === undefined || v === null) return <span className="muted">-</span>;
         const color = v > 0 ? '#f53f3f' : v < 0 ? '#00b42a' : '#86909c';
@@ -100,6 +103,7 @@ export default function BoardPage() {
     },
     {
       title: '评分', dataIndex: 'score', width: 65, align: 'right' as const,
+      sorter: (a: BoardItem, b: BoardItem) => (a.score || 0) - (b.score || 0),
       render: (v: number) => {
         if (v === undefined || v === null) return <span className="muted">-</span>;
         const color = v > 5 ? '#F53F3F' : v > 0 ? '#FF7D00' : v > -5 ? '#86909C' : '#00B42A';
@@ -108,10 +112,12 @@ export default function BoardPage() {
     },
     {
       title: 'PE', dataIndex: 'pe', width: 70, align: 'right' as const,
+      sorter: (a: BoardItem, b: BoardItem) => (a.pe || 0) - (b.pe || 0),
       render: (v: number) => v > 0 ? <span style={{ fontWeight: 500, fontSize: 13 }}>{v.toFixed(1)}</span> : <span className="muted">-</span>,
     },
     {
       title: 'PB', dataIndex: 'pb', width: 70, align: 'right' as const,
+      sorter: (a: BoardItem, b: BoardItem) => (a.pb || 0) - (b.pb || 0),
       render: (v: number) => v > 0 ? <span style={{ fontWeight: 500, fontSize: 13 }}>{v.toFixed(2)}</span> : <span className="muted">-</span>,
     },
     {

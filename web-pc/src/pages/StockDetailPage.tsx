@@ -4,7 +4,7 @@ import { Button, Tag, Input, Tooltip, Modal, Select } from '@arco-design/web-rea
 import {
   TrendingUp, TrendingDown, BarChart3, Repeat,
   Sparkles, Brain, Target, Activity, Table2,
-  Send, Trash2, Loader2, Check, X, Layers, FileText, Users, Newspaper, Star, StarOff, ChevronLeft, ChevronRight,
+  Send, Trash2, Loader2, Check, X, Layers, FileText, Users, Newspaper, Star, StarOff, ChevronLeft, ChevronRight, ExternalLink,
 } from 'lucide-react';
 import { showToast } from '../components/Toast';
 import { authFetch, checkAPIError, fetchStockDetail, fetchKLine, fetchIndicator, fetchPredictionResult, fetchPredictionHitRate, fetchStockHeatmap, fetchSignal, fetchFinancials, fetchShareholders, fetchStockNews, fetchReports, addToWatchlist, removeFromWatchlist, fetchWatchlist, fetchWatchlistGroups, createWatchlistGroup } from '../services/api';
@@ -298,7 +298,7 @@ export default function StockDetailPage() {
   const [indicator, setIndicator] = useState<any>(null);
   const [predictions, setPredictions] = useState<any[]>([]);
   const [realHitRates, setRealHitRates] = useState<any>(null);
-  const [boardDates, setBoardDates] = useState<string[]>([]);
+  const [boardRanks, setBoardRanks] = useState<Record<string, number>>({});
   const [tab, setTab] = useState<TabKey>('forecast');
 
   const [horizon, setHorizon] = useState(10);
@@ -352,7 +352,13 @@ fetchPredictionResult(code).then((r: any) => {
     }).catch(() => {});
     fetchWatchlistGroups().then((r: any) => setWlGroups(r.data?.data || [])).catch(() => {});
     fetchStockHeatmap(code).then((r: any) => {
-      setBoardDates([...new Set((r.data || []).map((d: any) => (d.pickDate || '').slice(0, 10)))] as string[]);
+      const items: any[] = r.data?.data || [];
+      const map: Record<string, number> = {};
+      items.forEach((d: any) => {
+        const dateKey = (d.pickDate || '').slice(0, 10);
+        if (dateKey && d.rank != null) map[dateKey] = d.rank;
+      });
+      setBoardRanks(map);
     }).catch(() => {});
     fetchSignal(code).then((r: any) => setSignal(r.data?.data?.signalValue ?? r.data?.signalValue ?? null)).catch(() => {});
 
@@ -447,14 +453,17 @@ fetchPredictionResult(code).then((r: any) => {
 
   // Board markers
   const markers = useMemo((): Marker[] => {
-    if (!boardDates.length || !safeKlines.length) return [];
-    const dateSet = new Set(boardDates);
+    const rankKeys = Object.keys(boardRanks);
+    if (!rankKeys.length || !safeKlines.length) return [];
     const result: Marker[] = [];
     safeKlines.forEach((k: any, i: number) => {
-      if (dateSet.has((k.tradeDate || k.date || '').slice(0, 10))) result.push({ i, type: 'board', label: '上榜' });
+      const dateKey = (k.tradeDate || k.date || '').slice(0, 10);
+      if (dateKey && boardRanks[dateKey] != null) {
+        result.push({ i, type: 'board', label: '榜', rank: boardRanks[dateKey] });
+      }
     });
     return result;
-  }, [boardDates, safeKlines]);
+  }, [boardRanks, safeKlines]);
 
   // Prediction overlay
   const predOverlay = useMemo(() => {
@@ -704,7 +713,34 @@ fetchPredictionResult(code).then((r: any) => {
                 </>
               )}
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, flexShrink: 0 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flexShrink: 0 }}>
+              <span style={{ fontSize: 11, color: '#86909c', marginBottom: 2, display: 'flex', alignItems: 'center', gap: 4 }}>
+                <ExternalLink size={12} /> 外部行情
+              </span>
+              {(() => {
+                const code = stock.code || '';
+                const mkt = code.startsWith('6') ? 'sh' : 'sz';
+                const MKT = mkt.toUpperCase();
+                const links = [
+                  { name: '新浪', url: `https://finance.sina.com.cn/realstock/company/${mkt}${code}/nc.shtml`, color: '#F53F3F' },
+                  { name: '东财', url: `https://quote.eastmoney.com/${MKT}${code}.html`, color: '#165DFF' },
+                  { name: '同花顺', url: `https://www.10jqka.com.cn/${code}/`, color: '#F77234' },
+                ];
+                return links.map(l => (
+                  <a key={l.name} href={l.url} target="_blank" rel="noopener noreferrer"
+                    style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 4,
+                      padding: '5px 12px', borderRadius: 6, fontSize: 12,
+                      border: `1px solid ${l.color}20`, color: l.color, textDecoration: 'none',
+                      fontWeight: 500, transition: 'all 0.15s',
+                    }}
+                    onMouseEnter={e => { e.currentTarget.style.background = `${l.color}10`; }}
+                    onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+                  >
+                    {l.name}
+                  </a>
+                ));
+              })()}
             </div>
           </div>
         </div>

@@ -116,6 +116,7 @@ export default function HistoryBoardPage() {
   const columns = [
     {
       title: '#', dataIndex: 'rank', width: 48, align: 'center' as const,
+      sorter: (a: BoardItem, b: BoardItem) => a.rank - b.rank,
       render: (v: number) => {
         if (v <= 3) return <span style={{ fontSize: 18 }}>{['🥇', '🥈', '🥉'][v - 1]}</span>;
         return <span style={{ color: '#86909c', fontWeight: 500 }}>{v}</span>;
@@ -132,10 +133,12 @@ export default function HistoryBoardPage() {
     },
     {
       title: '收盘', dataIndex: 'close', width: 68, align: 'right' as const,
+      sorter: (a: BoardItem, b: BoardItem) => (a.close || 0) - (b.close || 0),
       render: (v: number) => v > 0 ? <span style={{ fontWeight: 600, fontSize: 13 }}>{v.toFixed(2)}</span> : <span className="muted">-</span>,
     },
     {
       title: '当日涨跌', dataIndex: 'chgPct', width: 88, align: 'right' as const,
+      sorter: (a: BoardItem, b: BoardItem) => (a.chgPct || 0) - (b.chgPct || 0),
       render: (v: number) => {
         if (v === undefined || v === null) return <span className="muted">-</span>;
         const color = v > 0 ? '#f53f3f' : v < 0 ? '#00b42a' : '#86909c';
@@ -149,6 +152,7 @@ export default function HistoryBoardPage() {
     },
     {
       title: '次日表现', dataIndex: 'nextChgPct', width: 100, align: 'right' as const,
+      sorter: (a: BoardItem, b: BoardItem) => (a.nextChgPct || 0) - (b.nextChgPct || 0),
       render: (v: number, r: BoardItem) => {
         if (!r.nextDate) return <span className="muted" style={{ fontSize: 12 }}>-</span>;
         const color = v > 0 ? '#f53f3f' : v < 0 ? '#00b42a' : '#86909c';
@@ -164,6 +168,7 @@ export default function HistoryBoardPage() {
     },
     {
       title: '至今涨幅', dataIndex: 'cumuChgPct', width: 100, align: 'right' as const,
+      sorter: (a: BoardItem, b: BoardItem) => (a.cumuChgPct || 0) - (b.cumuChgPct || 0),
       render: (v: number) => {
         if (v === undefined || v === null) return <span className="muted" style={{ fontSize: 12 }}>-</span>;
         const color = v > 0 ? '#f53f3f' : v < 0 ? '#00b42a' : '#86909c';
@@ -179,10 +184,12 @@ export default function HistoryBoardPage() {
     },
     {
       title: 'PE', dataIndex: 'pe', width: 58, align: 'right' as const,
+      sorter: (a: BoardItem, b: BoardItem) => (a.pe || 0) - (b.pe || 0),
       render: (v: number) => v > 0 ? <span style={{ fontWeight: 500, fontSize: 12 }}>{v.toFixed(1)}</span> : <span className="muted">-</span>,
     },
     {
       title: 'PB', dataIndex: 'pb', width: 58, align: 'right' as const,
+      sorter: (a: BoardItem, b: BoardItem) => (a.pb || 0) - (b.pb || 0),
       render: (v: number) => v > 0 ? <span style={{ fontWeight: 500, fontSize: 12 }}>{v.toFixed(2)}</span> : <span className="muted">-</span>,
     },
     {
