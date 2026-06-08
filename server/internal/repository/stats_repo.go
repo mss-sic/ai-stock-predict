@@ -35,13 +35,6 @@ func GetDataStats() []DataStat {
 	db.PG.Table("stocks_daily_indicator").Select("MAX(trade_date)").Scan(&indLast)
 	stats = append(stats, DataStat{Key: "indicator", Label: "PE/PB 指标数据", Count: indCount, UpdatedAt: &indLast})
 
-	// quote count
-	var quoteCount int64
-	var quoteLast time.Time
-	db.PG.Table("stock_quotes").Count(&quoteCount)
-	db.PG.Table("stock_quotes").Select("MAX(updated_at)").Scan(&quoteLast)
-	stats = append(stats, DataStat{Key: "quote", Label: "实时行情", Count: quoteCount, UpdatedAt: &quoteLast})
-
 	// financial count
 	var finCount int64
 	var finLast time.Time
@@ -133,16 +126,6 @@ func GetDataDetail(typ string) []StockDataCoverage {
 				FROM stocks_daily_indicator GROUP BY code
 			) i ON i.code = sb.code
 			ORDER BY COALESCE(i.cnt, 0) DESC
-		`).Scan(&results)
-
-	case "quote":
-		db.PG.Raw(`
-			SELECT sb.code, sb.name,
-				CASE WHEN q.code IS NOT NULL THEN 1 ELSE 0 END as count,
-				NULL::timestamp as first_date, q.updated_at as last_date
-			FROM stocks_basic sb
-			LEFT JOIN stock_quotes q ON q.code = sb.code
-			ORDER BY count DESC, sb.code
 		`).Scan(&results)
 
 	case "financial":

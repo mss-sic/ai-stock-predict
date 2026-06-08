@@ -4,10 +4,10 @@ import { Button, Tag, Input, Tooltip, Modal, Select } from '@arco-design/web-rea
 import {
   TrendingUp, TrendingDown, BarChart3, Repeat,
   Sparkles, Brain, Target, Activity, Table2,
-  Send, Trash2, Loader2, Check, X, Layers, FileText, Users, Newspaper, Star, StarOff,
+  Send, Trash2, Loader2, Check, X, Layers, FileText, Users, Newspaper, Star, StarOff, ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import { showToast } from '../components/Toast';
-import { authFetch, checkAPIError, fetchStockDetail, fetchKLine, fetchIndicator, fetchQuote, fetchPredictionResult, fetchPredictionHitRate, fetchStockHeatmap, fetchSignal, fetchFinancials, fetchShareholders, fetchStockNews, fetchReports, addToWatchlist, removeFromWatchlist, fetchWatchlist, fetchWatchlistGroups, createWatchlistGroup } from '../services/api';
+import { authFetch, checkAPIError, fetchStockDetail, fetchKLine, fetchIndicator, fetchPredictionResult, fetchPredictionHitRate, fetchStockHeatmap, fetchSignal, fetchFinancials, fetchShareholders, fetchStockNews, fetchReports, addToWatchlist, removeFromWatchlist, fetchWatchlist, fetchWatchlistGroups, createWatchlistGroup } from '../services/api';
 import KLineChart from '../components/KLineChart';
 
 type TabKey = 'forecast' | 'analysis' | 'strategy' | 'technical' | 'trading' | 'financial' | 'shareholder' | 'reports' | 'news';
@@ -296,11 +296,11 @@ export default function StockDetailPage() {
   const [klines, setKlines] = useState<any[]>([]);
   const safeKlines = useMemo(() => klines.filter((k: any) => k != null), [klines]);
   const [indicator, setIndicator] = useState<any>(null);
-  const [quote, setQuote] = useState<any>(null);
   const [predictions, setPredictions] = useState<any[]>([]);
   const [realHitRates, setRealHitRates] = useState<any>(null);
   const [boardDates, setBoardDates] = useState<string[]>([]);
   const [tab, setTab] = useState<TabKey>('forecast');
+
   const [horizon, setHorizon] = useState(10);
 
   // AI chat state
@@ -308,7 +308,7 @@ export default function StockDetailPage() {
   const [chatInput, setChatInput] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
   const chatBottomRef = useRef<HTMLDivElement>(null);
-  // Interval stats state
+
   const [intervalMode, setIntervalMode] = useState(true);
   const [intervalRange, setIntervalRange] = useState<[number, number] | null>(null);
   const handleRangeChange = (startIdx: number, endIdx: number) => {
@@ -334,7 +334,6 @@ export default function StockDetailPage() {
     fetchStockDetail(code).then((r: any) => setStock(r.data?.data ?? r.data));
     fetchKLine(code).then((r: any) => setKlines(r.data?.data || []));
     fetchIndicator(code).then((r: any) => setIndicator(r.data?.data ?? r.data)).catch(() => {});
-    fetchQuote(code).then((r: any) => setQuote(r.data?.data ?? r.data)).catch(() => {});
     fetchFinancials(code).then((r: any) => setFinancials(r.data?.data || [])).catch(() => {});
     fetchShareholders(code).then((r: any) => setShareholders(r.data?.data || [])).catch(() => {});
     fetchStockNews(code, 20).then((r: any) => setStockNews(r.data?.data || [])).catch(() => {});
@@ -498,10 +497,10 @@ fetchPredictionResult(code).then((r: any) => {
     const prev = safeKlines.length > 1 ? safeKlines[safeKlines.length - 2] : latest;
     const chg = (latest?.close ?? 0) - (prev?.close ?? 0), chgPct = (prev?.close ?? 0) > 0 ? (chg / (prev?.close ?? 1)) * 100 : 0;
     const high = Math.max(...safeKlines.slice(-20).map((k: any) => k.high)), low = Math.min(...safeKlines.slice(-20).map((k: any) => k.low));
-    const vol = latest.volume ?? 0, amount = (latest.amount ?? 0) * 1e4; const turnover = quote?.turnover ?? latest.turnoverRate ?? 0; const bidVol = quote?.bidVol ?? 0; const askVol = quote?.askVol ?? 0;
+    const vol = latest.volume ?? 0, amount = (latest.amount ?? 0) * 1e4; const turnover = latest.turnoverRate ?? 0;
     const amplitude = (latest?.open ?? 0) > 0 ? (((latest?.high ?? 0) - (latest?.low ?? 0)) / (latest?.open ?? 1)) * 100 : 0;
-    return { price: latest?.close ?? 0, chg, chgPct, high, low, prevClose: prev?.close ?? 0, open: latest?.open ?? 0, vol, amount, amplitude, turnover, bidVol, askVol };
-  }, [safeKlines, quote]);
+    return { price: latest?.close ?? 0, chg, chgPct, high, low, prevClose: prev?.close ?? 0, open: latest?.open ?? 0, vol, amount, amplitude, turnover };
+  }, [safeKlines]);
 
   const indicators = useMemo(() => {
     if (safeKlines.length < 20) return null;
@@ -700,8 +699,7 @@ fetchPredictionResult(code).then((r: any) => {
                     <span>振幅 <b style={{ color: '#1d2129', fontWeight: 500 }}>{priceStats.amplitude.toFixed(2)}%</b></span>
                     <span>换手 <b style={{ color: '#1d2129', fontWeight: 500 }}>{priceStats.turnover > 0 ? priceStats.turnover.toFixed(2) + '%' : '-'}</b></span>
                     {indicator && <><span>市盈率 <b style={{ color: '#1d2129', fontWeight: 500 }}>{indicator.pe > 0 ? indicator.pe.toFixed(2) : '-'}</b></span><span>市值 <b style={{ color: '#1d2129', fontWeight: 500 }}>{indicator.totalMarketCap > 0 ? fmtMoney(indicator.totalMarketCap) : '-'}</b></span></>}
-                    <span>外盘 <b className="up">{priceStats.bidVol > 0 ? fmtVol(priceStats.bidVol) : '-'}</b></span>
-                    <span>内盘 <b className="down">{priceStats.askVol > 0 ? fmtVol(priceStats.askVol) : '-'}</b></span>
+
                   </div>
                 </>
               )}
@@ -759,7 +757,7 @@ fetchPredictionResult(code).then((r: any) => {
                 )}
               </div>
               <div style={{ padding: 8 }}>
-                <KLineChart data={klines} height={360} markers={markers} splitIdx={predOverlay.splitIdx} predictionLines={predOverlay.lines} predMarkers={predOverlay.markers} />
+                <KLineChart data={klines} height={460} markers={markers} splitIdx={predOverlay.splitIdx} predictionLines={predOverlay.lines} predMarkers={predOverlay.markers} />
               </div>
             </div>
           </div>
@@ -1331,7 +1329,7 @@ fetchPredictionResult(code).then((r: any) => {
                     );
                   })}
                 </div>
-                {/* Interval controls */}
+              {/* Interval controls */}
                 <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                   <Button size="mini" type={intervalMode ? 'primary' : 'outline'} onClick={() => { setIntervalMode(!intervalMode); if (!intervalMode) setIntervalRange(null); }}>
                     📐 区间统计 {intervalMode ? '开' : '关'}

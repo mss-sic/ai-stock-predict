@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { Button, Input, Modal, Message, Popconfirm } from '@arco-design/web-react';
 import { Star, Plus, Trash2, TrendingUp, TrendingDown } from 'lucide-react';
 import {
@@ -183,7 +183,7 @@ export default function WatchlistPage() {
           <tbody>
             {stocks.length === 0 && !loading && (
               <tr><td colSpan={6} style={{ ...td, textAlign: 'center', color: '#c9cdd4', padding: 40 }}>
-                暂无自选股，前往 <a href="#/stocks" style={{ color: '#165dff' }}>股票列表</a> 添加
+                暂无自选股，前往 <Link to="/stocks" style={{ color: 'var(--arcoblue-6)' }}>股票列表</Link> 添加
               </td></tr>
             )}
             {stocks.map(s => (

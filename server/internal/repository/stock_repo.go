@@ -49,7 +49,7 @@ func (r *StockRepo) GetKLine(code string, from, to time.Time) ([]model.StockDail
 
 func (r *StockRepo) GetIndicator(code string, date time.Time) (*model.StockDailyIndicator, error) {
 	var ind model.StockDailyIndicator
-	err := db.PG.Where("code = ?", code).Order("trade_date DESC").First(&ind).Error
+	err := db.PG.Where("code = ?", code).Order("CASE WHEN pe > 0 THEN 0 ELSE 1 END, trade_date DESC").First(&ind).Error
 	return &ind, err
 }
 

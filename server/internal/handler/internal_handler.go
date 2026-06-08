@@ -52,9 +52,10 @@ func (h *InternalHandler) SyncPredictions(c *gin.Context) {
 
 	today := time.Now().Truncate(24 * time.Hour)
 
-	// Clear ALL old prediction data
+	// Clear ALL old prediction data (ignore errors if tables are empty)
 	db.PG.Exec("DELETE FROM predictions")
 	db.PG.Exec("DELETE FROM prediction_kdist")
+	db.PG.Exec("DELETE FROM stock_signals WHERE source = 'algo_team'")
 
 	imported := 0
 	skipped := 0
@@ -66,7 +67,7 @@ func (h *InternalHandler) SyncPredictions(c *gin.Context) {
 			continue
 		}
 
-		// Get latest close price to convert KD% → absolute price
+		// Get latest close price
 		var lastClose float64
 		db.PG.Raw("SELECT COALESCE(close, 0) FROM stocks_daily_k WHERE code = ? ORDER BY trade_date DESC LIMIT 1", code).Scan(&lastClose)
 		if lastClose <= 0 {
@@ -95,6 +96,7 @@ func (h *InternalHandler) SyncPredictions(c *gin.Context) {
 					LowerBound:     predPrice * 0.98,
 				}
 
+				// Use Assign + FirstOrCreate for proper upsert
 				db.PG.Where("code = ? AND model_name = ? AND predict_date = ?",
 					code, modelName, predictDate.Format("2006-01-02")).
 					Assign(rec).FirstOrCreate(&rec)
@@ -102,14 +104,14 @@ func (h *InternalHandler) SyncPredictions(c *gin.Context) {
 			}
 		}
 
-		// Store kdistributed_data as JSON for frontend chart overlay
+		// Store kdistributed_data as JSON
 		kdJSON, _ := json.Marshal(unit.KdistributedData)
 		db.PG.Exec(`INSERT INTO prediction_kdist (code, kd_data, updated_at)
 			VALUES (?, ?, NOW())
 			ON CONFLICT (code) DO UPDATE SET kd_data = ?, updated_at = NOW()`,
 			code, string(kdJSON), string(kdJSON))
 
-		// Store confidence and today indicators as a signal
+		// Store signal
 		conf, _ := unit.Confidence.Float64()
 		tw, _ := unit.TodayWave.Float64()
 		tm, _ := unit.TodayTradeMoney.Float64()
@@ -119,6 +121,29 @@ func (h *InternalHandler) SyncPredictions(c *gin.Context) {
 			VALUES (?, ?, 'algo_team', NOW())
 			ON CONFLICT (code) DO UPDATE SET signal_value = ?, source = 'algo_team', updated_at = NOW()`,
 			code, conf+tw+tm+tr, conf+tw+tm+tr)
+	}
+
+	// Write import log
+	fileName := c.Query("filename")
+	if fileName == "" {
+		fileName = "prediction_import"
+	}
+	status := "success"
+	if skipped > 0 && imported == 0 {
+		status = "failed"
+	} else if skipped > 0 {
+		status = "partial"
+	}
+	log := model.ImportLog{
+		FileName:     fileName,
+		RowsImported: imported,
+		Status:       status,
+		ImportedAt:   time.Now(),
+	}
+	if db.MySQL != nil {
+		db.MySQL.Create(&log)
+	} else {
+		db.PG.Create(&log)
 	}
 
 	c.JSON(200, gin.H{

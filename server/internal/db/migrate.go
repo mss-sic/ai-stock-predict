@@ -23,7 +23,6 @@ func AutoMigrate() {
 			&model.AlgorithmPick{},
 			&model.AlgorithmPickDetail{},
 			&model.StockSignal{},
-			&model.StockQuote{},
 			&model.AIAnalysis{},
 			&model.Prediction{},
 			&model.AIConversation{},

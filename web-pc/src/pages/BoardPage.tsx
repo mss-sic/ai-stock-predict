@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Table, Tag } from '@arco-design/web-react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { TrendingUp, TrendingDown, Minus, Star, Shield, AlertTriangle } from 'lucide-react';
 import { fetchTodayBoard, fetchBoardHistory, authFetch } from '../services/api';
 const SUGGEST_COLORS: Record<string,string>={'强烈买入':'#F53F3F','买入':'#F77234','增持':'#FF7D00','持有':'#86909C','减持':'#3491FA','卖出':'#00B42A','强烈卖出':'#009A29'};
@@ -184,7 +184,7 @@ export default function BoardPage() {
           {missingStats.pe > 0 && <span>· <b>{missingStats.pe}</b> 只缺 PE/PB（需运行指标采集）</span>}
           {missingStats.industry > 0 && <span>· <b>{missingStats.industry}</b> 只缺行业（需运行行业采集）</span>}
           <span style={{ marginLeft: 'auto', color: '#86909c', fontSize: 12 }}>
-            去 <a href="#/data" style={{ color: '#165dff' }}>数据管理</a> 执行采集补全
+            去 <Link to="/data" style={{ color: 'var(--arcoblue-6)' }}>数据管理</Link> 执行采集补全
           </span>
         </div>
       )}
@@ -207,7 +207,7 @@ export default function BoardPage() {
               <div style={{ fontSize: 40, marginBottom: 12 }}>📊</div>
               <div style={{ fontSize: 15, fontWeight: 600, color: '#1d2129', marginBottom: 6 }}>暂无榜单数据</div>
               <div style={{ fontSize: 13, color: '#86909c', lineHeight: 1.8 }}>
-                请先通过 <a href="#/data" style={{ color: '#165dff' }}>数据管理</a> 导入 Excel 文件<br/>
+                请先通过 <Link to="/data" style={{ color: 'var(--arcoblue-6)' }}>数据管理</Link> 导入 Excel 文件<br/>
                 或触发数据采集后生成算法榜单
               </div>
             </div>

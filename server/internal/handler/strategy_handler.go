@@ -4,8 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
+	"log"
 	"math"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -29,6 +30,7 @@ func (h *StrategyHandler) List(c *gin.Context) {
 	uid := getUID(c)
 	var strategies []model.Strategy
 	db.MySQL.Where("user_id = ?", uid).Order("sort_order ASC, id ASC").Find(&strategies)
+	log.Printf("[strategy] list uid=%d count=%d", uid, len(strategies))
 	response.Success(c, strategies)
 }
 
@@ -55,7 +57,12 @@ func (h *StrategyHandler) Create(c *gin.Context) {
 	if count == 0 {
 		s.IsDefault = true
 	}
-	db.MySQL.Create(&s)
+	if err := db.MySQL.Create(&s).Error; err != nil {
+		log.Printf("[strategy] create error: %v", err)
+		response.InternalError(c, "创建失败")
+		return
+	}
+	log.Printf("[strategy] created id=%d name=%s uid=%d", s.ID, s.Name, uid)
 	response.Created(c, s)
 }
 

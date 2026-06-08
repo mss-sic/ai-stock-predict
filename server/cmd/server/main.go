@@ -93,7 +93,6 @@ func main() {
 		api.GET("/stocks/:code/kline", stockH.GetKLine)
 		api.GET("/stocks/:code/indicator", stockH.GetIndicator)
 		api.GET("/stocks/:code/signal", stockH.GetSignal)
-		api.GET("/stocks/:code/quote", stockH.GetQuote)
 		api.GET("/stocks/:code/financials", stockH.GetFinancials)
 		api.GET("/stocks/:code/shareholders", stockH.GetShareholders)
 		api.GET("/stocks/:code/news", stockH.GetNews)

@@ -40,13 +40,18 @@ func (s *WatchlistService) List(userID uint) ([]WatchlistItem, error) {
 			wi.Industry = basic.Industry
 		}
 
-		// Get quote
-		var quote model.StockQuote
-		if err := db.PG.Where("code = ?", item.StockCode).First(&quote).Error; err == nil {
-			wi.Price = quote.Price
-			// Calculate chg% from open
-			if quote.Open > 0 {
-				wi.ChgPct = (quote.Price - quote.Open) / quote.Open * 100
+		// Get latest K-line for price & chg%
+		var kline struct {
+			Close float64
+			Open  float64
+		}
+		if err := db.PG.Table("stocks_daily_k").
+			Select("close, open").
+			Where("code = ?", item.StockCode).
+			Order("trade_date DESC").Limit(1).Scan(&kline).Error; err == nil && kline.Close > 0 {
+			wi.Price = kline.Close
+			if kline.Open > 0 {
+				wi.ChgPct = (kline.Close - kline.Open) / kline.Open * 100
 			}
 		}
 

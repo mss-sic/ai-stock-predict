@@ -1,13 +1,13 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Upload, Button, Table, Tag, Progress, Modal, Tooltip, Switch, Popconfirm, Message } from '@arco-design/web-react';
 import {
-  Database, Upload as UploadIcon, RefreshCw, FileSpreadsheet,
+  Database, Upload as UploadIcon, RefreshCw, FileSpreadsheet, FileJson,
   CheckCircle, XCircle, Clock, Play, Terminal, Square, History, Activity, X,
   BarChart3, TrendingUp, Newspaper, FileText, PieChart, Users, Banknote,
   Timer, Zap
 } from 'lucide-react';
 import {
-  uploadExcel, triggerCollection, fetchCollectorProgress,
+  uploadExcel, uploadPrediction, triggerCollection, fetchCollectorProgress,
   fetchImportHistory, fetchCollectorHistory, clearCollectorHistory, fetchDataStats, fetchDataDetail,
   fetchScheduledTasks, runTaskNow, initDefaultTasks, fetchTaskLogs, resetTaskStatus, toggleTask
 } from '../services/api';
@@ -96,6 +96,7 @@ function cronToText(expr: string): string {
 export default function DataManagementPage() {
   const [tab, setTab] = useState<'overview' | 'tasks' | 'import' | 'collect' | 'history'>('overview');
   const [loading, setLoading] = useState(false);
+  const [predLoading, setPredLoading] = useState(false);
   const [result, setResult] = useState<any>(null);
   const [history, setHistory] = useState<any[]>([]);
   const [colHistory, setColHistory] = useState<any[]>([]);
@@ -203,7 +204,7 @@ export default function DataManagementPage() {
       {toast && <Toast type={toast.type} msg={toast.msg} onClose={() => setToast(null)} />}
       <div className="page-header">
         <h2><Database size={20} style={{ marginRight: 8 }} />数据管理</h2>
-        <span className="muted">数据概览 · 定时任务 · Excel 导入 · 采集控制台 · 采集记录</span>
+        <span className="muted">数据概览 · 定时任务 · 文件导入 · 采集控制台 · 采集记录</span>
       </div>
 
       {/* Tab bar */}
@@ -211,7 +212,7 @@ export default function DataManagementPage() {
         {[
           { key: 'overview', label: '数据概览', icon: <BarChart3 size={14} /> },
           { key: 'tasks', label: '定时任务', icon: <Timer size={14} /> },
-          { key: 'import', label: 'Excel 导入', icon: <UploadIcon size={14} /> },
+          { key: 'import', label: '文件导入', icon: <UploadIcon size={14} /> },
           { key: 'collect', label: '采集控制台', icon: <Terminal size={14} /> },
           { key: 'history', label: '采集记录', icon: <History size={14} /> },
         ].map(t => (
@@ -522,18 +523,26 @@ export default function DataManagementPage() {
       {tab === 'import' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div className="card">
-            <div className="card-header"><span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><FileSpreadsheet size={16} color="#165dff" /><span style={{ fontSize: 15, fontWeight: 600 }}>上传 Excel 文件</span></span><span className="muted" style={{ fontSize: 12 }}>支持 .xlsx / .xlsm</span></div>
+            <div className="card-header"><span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><FileSpreadsheet size={16} color="#165dff" /><span style={{ fontSize: 15, fontWeight: 600 }}>上传 Excel 数据文件</span></span><span className="muted" style={{ fontSize: 12 }}>支持 .xlsx / .xlsm</span></div>
             <div className="card-body">
               <Upload drag accept=".xlsx,.xlsm" autoUpload={false} disabled={loading} onChange={(_, file) => { setLoading(true); setResult(null); uploadExcel(file.originFile as File).then((res: any) => { setResult(res.data); showToast('success', 'Excel 导入完成'); }).catch((err: any) => showToast('error', err?.response?.data?.error || '导入失败')).finally(() => setLoading(false)); return false; }} tip="拖拽或点击上传，参考文件: MSS20260603.xlsm" />
               {loading && <div style={{ marginTop: 16, padding: '12px 16px', background: '#e8f3ff', borderRadius: 4, display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, color: '#165dff' }}><RefreshCw size={14} className="spin" />正在解析并导入数据...</div>}
             </div>
           </div>
+
+          <div className="card">
+            <div className="card-header"><span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><FileJson size={16} color="#722ed1" /><span style={{ fontSize: 15, fontWeight: 600 }}>导入预测数据 JSON</span></span><span className="muted" style={{ fontSize: 12 }}>算法预测结果文件 .json</span></div>
+            <div className="card-body">
+              <Upload drag accept=".json" autoUpload={false} disabled={predLoading || loading} onChange={(_, file) => { setPredLoading(true); setResult(null); uploadPrediction(file.originFile as File).then((res: any) => { setResult({ ...res.data, fileName: file.name, type: 'prediction' }); showToast('success', '预测数据导入完成'); }).catch((err: any) => showToast('error', typeof err === 'string' ? err : (err?.response?.data?.error || '导入失败'))).finally(() => setPredLoading(false)); return false; }} tip="拖拽或点击上传，JSON 格式: 算法团队预测数据" />
+              {predLoading && <div style={{ marginTop: 16, padding: '12px 16px', background: '#f3e8ff', borderRadius: 4, display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, color: '#722ed1' }}><RefreshCw size={14} className="spin" />正在解析并导入预测数据...</div>}
+            </div>
+          </div>
           {result && (
             <div className="card">
-              <div className="card-header"><span style={{ fontSize: 15, fontWeight: 600 }}>导入结果</span><span className="muted" style={{ fontSize: 12 }}>{result.fileName}</span></div>
+              <div className="card-header"><span style={{ fontSize: 15, fontWeight: 600 }}>导入结果</span><span className="muted" style={{ fontSize: 12 }}>{result.fileName}{result.type === 'prediction' ? ' (预测)' : ''}</span></div>
               <div className="card-body">
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 16 }}>
-                  {[{ label: '交易日数', value: result.datesImported, color: '#165dff' }, { label: '上榜记录', value: result.picksImported, color: '#f53f3f' }, { label: '信号数据', value: result.signalsImported, color: '#00b42a' }, { label: '新增个股', value: result.stocksCreated, color: '#ff7d00' }].map(item => (
+                <div style={{ display: 'grid', gridTemplateColumns: result.type === 'prediction' ? 'repeat(3, 1fr)' : 'repeat(4, 1fr)', gap: 16, marginBottom: 16 }}>
+                  {(result.type === 'prediction' ? [{ label: '预测记录', value: result.imported || 0, color: '#722ed1' }, { label: '跳过', value: result.skipped || 0, color: '#86909c' }, { label: '股票数', value: result.total || 0, color: '#165dff' }] : [{ label: '交易日数', value: result.datesImported, color: '#165dff' }, { label: '上榜记录', value: result.picksImported, color: '#f53f3f' }, { label: '信号数据', value: result.signalsImported, color: '#00b42a' }, { label: '新增个股', value: result.stocksCreated, color: '#ff7d00' }]).map(item => (
                     <div key={item.label} style={{ textAlign: 'center', padding: '12px', background: '#f7f8fa', borderRadius: 6 }}><div style={{ fontSize: 24, fontWeight: 700, color: item.color, fontFamily: 'var(--font-family-mono, monospace)' }}>{item.value}</div><div style={{ fontSize: 12, color: '#86909c', marginTop: 4 }}>{item.label}</div></div>
                   ))}
                 </div>

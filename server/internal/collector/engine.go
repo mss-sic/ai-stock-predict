@@ -107,6 +107,7 @@ type CollectionProgress struct {
 	Finished *time.Time    `json:"finished"`
 	LastRun  interface{}   `json:"lastRun"`
 	Errors   []string      `json:"errors"`
+	LastOutput time.Time   `json:"-"`
 }
 
 var (
@@ -117,16 +118,16 @@ var (
 
 func GetProgress() *CollectionProgress {
 	progress.mu.RLock()
-	// Auto-reset if stuck for > 10 minutes
-	if progress.Running && time.Since(progress.Started) > 10*time.Minute {
+	// Auto-reset only if truly stuck: no log output for 15+ minutes
+	if progress.Running && !progress.LastOutput.IsZero() && time.Since(progress.LastOutput) > 15*time.Minute {
 		progress.mu.RUnlock()
 		progress.mu.Lock()
-		if progress.Running && time.Since(progress.Started) > 10*time.Minute {
+		if progress.Running && !progress.LastOutput.IsZero() && time.Since(progress.LastOutput) > 15*time.Minute {
 			progress.Running = false
 			progress.Phase = "done"
 			now := time.Now()
 			progress.Finished = &now
-			log.Println("[collector] auto-reset stuck collection")
+			log.Println("[collector] auto-reset stuck collection (no output for 15+ min)")
 		}
 		progress.mu.Unlock()
 		progress.mu.RLock()
@@ -141,6 +142,9 @@ func GetProgress() *CollectionProgress {
 }
 
 func sseSend(line SSELine) {
+	progress.mu.Lock()
+	progress.LastOutput = time.Now()
+	progress.mu.Unlock()
 	writerMu.Lock()
 	w := activeWriter
 	writerMu.Unlock()
@@ -194,6 +198,7 @@ func RunManualCollection(phases []string) {
 		return
 	}
 	progress.Running = true
+	progress.LastOutput = time.Now()
 	progress.Phase = "starting"
 	progress.Current = 0
 	totalPhases := len(phases)
@@ -266,9 +271,6 @@ func RunManualCollection(phases []string) {
 	}
 	if shouldRun("industry") {
 		appendResult(runIndustryPhase())
-	}
-	if shouldRun("quote") {
-		appendResult(runQuotePhase())
 	}
 	if shouldRun("shareholder") {
 		appendResult(runShareholderPhase())
@@ -382,20 +384,7 @@ func runIndustryPhase() PhaseResult {
 	return phaseRes
 }
 
-func runQuotePhase() PhaseResult {
-	setPhase("quote", "采集实时行情...")
-	sseSend(SSELine{Type: "phase", Phase: "quote", Message: "开始采集实时行情...", Level: "info"})
-	t0 := time.Now()
-	runPythonStream("quotes_sync.py")
-	phaseRes := PhaseResult{Phase: "quote"}
-	var total int64
-	db.PG.Model(&model.StockQuote{}).Count(&total)
-	phaseRes.Total = int(total)
-	phaseRes.New = int(total)
-	phaseRes.DurationMs = time.Since(t0).Milliseconds()
-	sseSend(SSELine{Type: "result", Phase: "quote", Result: &phaseRes, Level: "success"})
-	return phaseRes
-}
+
 
 func runShareholderPhase() PhaseResult {
 	setPhase("shareholder", "采集股东户数...")

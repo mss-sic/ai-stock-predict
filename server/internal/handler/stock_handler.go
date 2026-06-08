@@ -73,15 +73,7 @@ func (h *StockHandler) GetSignal(c *gin.Context) {
 	response.Success(c, signal)
 }
 
-func (h *StockHandler) GetQuote(c *gin.Context) {
-	code := c.Param("code")
-	q, err := h.svc.GetQuote(code)
-	if err != nil {
-		response.Success(c, nil)
-		return
-	}
-	response.Success(c, q)
-}
+
 
 func (h *StockHandler) GetFinancials(c *gin.Context) {
 	code := c.Param("code")

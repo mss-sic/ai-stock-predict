@@ -26,7 +26,7 @@ func (s *StockService) GetKLine(code string, from, to string) ([]model.StockDail
 	var f, t time.Time
 	if from != "" { f, _ = time.Parse("2006-01-02", from) }
 	if to != "" { t, _ = time.Parse("2006-01-02", to) }
-	if f.IsZero() { f = time.Now().AddDate(0, 0, -90) }
+	if f.IsZero() { f = time.Now().AddDate(-10, 0, 0) }
 	return s.repo.GetKLine(code, f, t)
 }
 
@@ -38,10 +38,7 @@ func (s *StockService) GetSignal(code string) (*model.StockSignal, error) {
 	return s.repo.GetSignal(code)
 }
 
-func (s *StockService) GetQuote(code string) (*model.StockQuote, error) {
-	qs := NewQuoteService()
-	return qs.GetQuote(code)
-}
+
 
 func (s *StockService) GetFinancials(code string) ([]model.StockFinancial, error) {
 	return s.repo.GetFinancials(code)

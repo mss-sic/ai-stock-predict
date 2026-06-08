@@ -18,7 +18,7 @@ func (j *JSONMap) Scan(value interface{}) error {
 
 // Strategy represents a user's trading strategy
 type Strategy struct {
-	ID           uint      `gorm:"primaryKey" json:"id"`
+	ID           uint      `gorm:"primaryKey;autoIncrement" json:"id"`
 	UserID       uint      `gorm:"index" json:"userId"`
 	Name         string    `gorm:"size:100" json:"name"`
 	Description  string    `gorm:"size:500" json:"description"`
@@ -48,7 +48,7 @@ type Strategy struct {
 
 // StrategyCondition defines a single factor condition in a strategy
 type StrategyCondition struct {
-	ID         uint   `gorm:"primaryKey" json:"id"`
+	ID         uint   `gorm:"primaryKey;autoIncrement" json:"id"`
 	StrategyID uint   `gorm:"index" json:"strategyId"`
 	CondType   string `gorm:"size:10" json:"condType"`    // buy / add / sell / reduce
 	Indicator  string `gorm:"size:30" json:"indicator"`    // streak_count / algo_score / ai_score / ma_cross etc

@@ -147,7 +147,6 @@ export const fetchStockDetail = (code: string) => api.get(`/stocks/${code}`);
 export const fetchKLine = (code: string) => api.get(`/stocks/${code}/kline`);
 export const fetchIndicator = (code: string) => api.get(`/stocks/${code}/indicator`);
 export const fetchSignal = (code: string) => api.get(`/stocks/${code}/signal`);
-export const fetchStockQuote = (code: string) => api.get(`/stocks/${code}/quote`);
 export const fetchFinancials = (code: string) => api.get(`/stocks/${code}/financials`);
 export const fetchShareholders = (code: string) => api.get(`/stocks/${code}/shareholders`);
 export const fetchStockNews = (code: string) => api.get(`/stocks/${code}/news`);
@@ -168,6 +167,21 @@ export const uploadExcel = (file: File) => {
   const fd = new FormData();
   fd.append('file', file);
   return api.post('/import/excel', fd, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 60000 });
+};
+
+export const uploadPrediction = (file: File) => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const json = JSON.parse(reader.result as string);
+        api.post('/internal/predictions/sync', json, { params: { filename: file.name }, timeout: 120000 })
+          .then(resolve).catch(reject);
+      } catch (e) { reject(new Error('JSON 解析失败: ' + (e as Error).message)); }
+    };
+    reader.onerror = () => reject(new Error('文件读取失败'));
+    reader.readAsText(file);
+  });
 };
 export const fetchImportHistory = () => api.get('/import/history');
 
@@ -274,7 +288,6 @@ export const fetchEnrichedHeatmap = () => fetchHeatmapEnriched();
 export const fetchForecast = (code: string, horizon?: number) => api.get(`/forecast/${code}`, { params: horizon ? { horizon } : {} });
 
 
-export const fetchQuote = (code: string) => fetchStockQuote(code);
 export const fetchReports = (code: string) => fetchStockReports(code);
 
 // ── Auth-aware fetch wrapper (for SSE and raw fetch calls) ──

@@ -1,7 +1,7 @@
 package handler
 
 import (
-	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -41,15 +41,16 @@ func isTradingHour() bool {
 }
 
 func fetchFromTencent() []IndexData {
-	url := "https://web.ifzq.gtimg.cn/appstock/app/indexlist/get?market=hs&type=index"
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return nil
+	// 使用腾讯 qt 行情接口拉取大盘指数
+	// 格式: v_sh000001="1~上证指数~000001~现价~昨收~今开~..."
+	indexKeys := []string{"sh000001", "sz399001", "sz399006"}
+	indexNames := map[string]string{
+		"sh000001": "上证指数", "sz399001": "深证成指", "sz399006": "创业板指",
 	}
-	req.Header.Set("User-Agent", "Mozilla/5.0")
 
+	url := "http://qt.gtimg.cn/q=" + strings.Join(indexKeys, ",")
 	client := &http.Client{Timeout: 8 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := client.Get(url)
 	if err != nil {
 		log.Printf("[indices] fetch error: %v", err)
 		return nil
@@ -62,35 +63,41 @@ func fetchFromTencent() []IndexData {
 		return nil
 	}
 
-	var result struct {
-		Code int `json:"code"`
-		Data map[string]struct {
-			Name   string  `json:"name"`
-			Last   float64 `json:"last"`
-			Chg    float64 `json:"chg"`
-			ChgPct string  `json:"chgPct"`
-		} `json:"data"`
-	}
-	if err := json.Unmarshal(bodyBytes, &result); err != nil {
-		log.Printf("[indices] json error: %v, body=%s", err, string(bodyBytes[:min(len(bodyBytes), 300)]))
-		return nil
-	}
-
-	indexMap := map[string]IndexData{
-		"sh000001": {Name: "上证指数", Code: "000001"},
-		"sz399001": {Name: "深证成指", Code: "399001"},
-		"sz399006": {Name: "创业板指", Code: "399006"},
-	}
-
 	var indices []IndexData
-	for key, idx := range indexMap {
-		if data, ok := result.Data[key]; ok {
-			chgPct, _ := strconv.ParseFloat(strings.TrimSuffix(data.ChgPct, "%"), 64)
-			indices = append(indices, IndexData{
-				Name: idx.Name, Code: idx.Code,
-				Val: data.Last, Chg: data.Chg, ChgPct: chgPct,
-			})
+	for _, key := range indexKeys {
+		prefix := "v_" + key + "=\""
+		idx := strings.Index(string(bodyBytes), prefix)
+		if idx < 0 {
+			continue
 		}
+		start := idx + len(prefix)
+		end := strings.Index(string(bodyBytes[start:]), "\"")
+		if end < 0 {
+			continue
+		}
+		raw := string(bodyBytes[start : start+end])
+		parts := strings.Split(raw, "~")
+		if len(parts) < 5 {
+			continue
+		}
+		// parts[1]=名称, parts[3]=现价, parts[4]=昨收
+		val, _ := strconv.ParseFloat(parts[3], 64)
+		prevClose, _ := strconv.ParseFloat(parts[4], 64)
+		chg := val - prevClose
+		chgPct := 0.0
+		if prevClose != 0 {
+			chgPct = (chg / prevClose) * 100
+		}
+		// 保留两位小数
+		val, _ = strconv.ParseFloat(fmt.Sprintf("%.2f", val), 64)
+		chg, _ = strconv.ParseFloat(fmt.Sprintf("%.2f", chg), 64)
+		chgPct, _ = strconv.ParseFloat(fmt.Sprintf("%.2f", chgPct), 64)
+		code := strings.TrimPrefix(key, "sh")
+		code = strings.TrimPrefix(code, "sz")
+		indices = append(indices, IndexData{
+			Name: indexNames[key], Code: code,
+			Val: val, Chg: chg, ChgPct: chgPct,
+		})
 	}
 	return indices
 }

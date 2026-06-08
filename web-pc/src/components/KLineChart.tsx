@@ -1,9 +1,11 @@
-import React, { useState, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
+import { useTheme } from '../services/ThemeContext';
 
 interface KLineItem {
   tradeDate?: string; date?: string;
   open: number; close: number; high: number; low: number;
   volume?: number;
+  turnoverRate?: number;
 }
 
 interface Marker {
@@ -39,9 +41,6 @@ interface Props {
   onRangeChange?: (startIdx: number, endIdx: number) => void;
 }
 
-const UP = '#F53F3F';
-const DOWN = '#00B42A';
-
 export default function KLineChart({
   data,
   height = 420,
@@ -53,6 +52,9 @@ export default function KLineChart({
   selectedRange = null,
   onRangeChange,
 }: Props) {
+  const { isDark } = useTheme();
+  const UP = isDark ? '#f87171' : '#F53F3F';
+  const DOWN = isDark ? '#4ade80' : '#00B42A';
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const [tooltipPos, setTooltipPos] = useState<{ x: number; y: number } | null>(null);
@@ -62,6 +64,13 @@ export default function KLineChart({
   const [dragOffset, setDragOffset] = useState(0);
   const [dragRangeWidth, setDragRangeWidth] = useState(0);
   const isDragging = dragStart !== null;
+
+  // ─── Chart pan & zoom ───
+  const [candlesPerScreen, setCandlesPerScreen] = useState(120);
+  const [panOffset, setPanOffset] = useState(0); // px offset from right edge
+  const [isPanning, setIsPanning] = useState(false);
+  const panStartRef = useRef(0);
+  const panOffsetRef = useRef(0);
 
   // Effective selected range (considering drag in progress)
   const effectiveRange = useMemo((): [number, number] | null => {
@@ -75,12 +84,24 @@ export default function KLineChart({
   const isEmpty = !data || data.length === 0;
   const safeData: KLineItem[] = isEmpty ? [] : data.filter((d: any) => d != null);
 
+  // Visible window
+  const visCount = Math.min(candlesPerScreen, safeData.length);
+
+  // Theme colors
+  const chartBg = isDark ? '#1a1a2e' : '#fff';
+  const gridColor = isDark ? '#2d2d44' : '#F2F3F5';
+  const textColor = isDark ? '#8a8d91' : '#86909c';
+  const axisColor = isDark ? '#b0b3b8' : '#4E5969';
+  const crosshairColor = isDark ? '#b0b3b8' : '#C9CDD4';
+  const predBg = isDark ? '#16213e' : '#F7F8FA';
+
   // ═══ All hooks must be called unconditionally ═══
   const W = 960;
   const H = height;
   const padL = 54, padR = 60, padT = 14, padB = 30;
-  const volH = 70;
-  const priceH = H - padT - padB - volH - 8;
+  const volH = 50;
+  const macdH = 80;
+  const priceH = H - padT - padB - volH - macdH - 14;
   const innerW = W - padL - padR;
 
   const maxPredExtra = predictionLines.reduce((max, l) => {
@@ -88,7 +109,9 @@ export default function KLineChart({
     return extra > max ? extra : max;
   }, 0);
   const totalN = safeData.length + Math.max(0, maxPredExtra);
-  const step = innerW / (totalN || 1);
+  const step = innerW / (visCount || 1);
+  const startIdx = Math.max(0, Math.min(safeData.length - visCount, safeData.length - visCount + Math.round(panOffset / Math.max(step, 0.01))));
+  const maxPanRight = Math.max(0, (safeData.length - visCount)) * step;
   const bw = Math.max(2, Math.min(10, step * 0.72));
 
   const hi = safeData.length === 0 ? 0 : Math.max(...safeData.map(d => d.high));
@@ -111,7 +134,43 @@ export default function KLineChart({
   const volMax = safeData.length === 0 ? 1 : Math.max(...safeData.map(d => d.volume || 0)) || 1;
   const volBaseY = padT + priceH + 8 + volH;
   const vy = (v: number) => volBaseY - (v / volMax) * volH;
-  const fx = (i: number) => padL + i * step + step / 2;
+
+  // ═══ MACD calculation ═══
+  const calcEMA = (arr: number[], period: number) => {
+    if (arr.length === 0) return [];
+    const k = 2 / (period + 1);
+    const result = [arr[0]];
+    for (let i = 1; i < arr.length; i++) result.push(arr[i] * k + result[i - 1] * (1 - k));
+    return result;
+  };
+  const closes = safeData.map(d => d.close);
+  const ema12Arr = calcEMA(closes, 12);
+  const ema26Arr = calcEMA(closes, 26);
+  const difArr = ema12Arr.map((v, i) => v - (ema26Arr[i] ?? 0));
+  const deaArr = calcEMA(difArr, 9);
+  const macdArr = difArr.map((v, i) => (v - (deaArr[i] ?? 0)) * 2);
+
+  const macdAbsMax = Math.max(
+    Math.abs(Math.max(...macdArr.filter(v => !isNaN(v)), 0)),
+    Math.abs(Math.min(...macdArr.filter(v => !isNaN(v)), 0)),
+    1
+  );
+  const macdBaseY = volBaseY + 6 + macdH;
+  const my = (v: number) => macdBaseY - macdH / 2 - (v / macdAbsMax) * (macdH / 2);
+  const macdZeroY = macdBaseY - macdH / 2;
+
+  // Cross detection
+  type CrossSignal = { i: number; type: 'golden' | 'death' };
+  const crosses: CrossSignal[] = [];
+  for (let i = 1; i < difArr.length; i++) {
+    if (difArr[i - 1] <= (deaArr[i - 1] ?? 0) && difArr[i] > (deaArr[i] ?? 0))
+      crosses.push({ i, type: 'golden' });
+    else if (difArr[i - 1] >= (deaArr[i - 1] ?? 0) && difArr[i] < (deaArr[i] ?? 0))
+      crosses.push({ i, type: 'death' });
+  }
+  const fx = (i: number) => padL + (i - startIdx) * step + step / 2;
+  const visStartIdx = startIdx;
+  const visEndIdx = startIdx + visCount;
 
   const yTicks = 5;
   const grids = Array.from({ length: yTicks }, (_, i) => {
@@ -166,9 +225,23 @@ export default function KLineChart({
     const scaleX = W / rect.width;
     const mx = (e.clientX - rect.left) * scaleX;
     return Math.round((mx - padL - step / 2) / step);
-  }, [step]);
+  }, [W, padL, step]);
+
+  // ═══ Wheel zoom ═══
+  const handleWheel = useCallback((e: React.WheelEvent<SVGSVGElement>) => {
+    e.preventDefault();
+    setCandlesPerScreen(prev => Math.max(15, Math.min(safeData.length, prev + Math.round(e.deltaY / 25))));
+  }, [safeData.length]);
+
 
   const handleMouseMove = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
+    // Pan mode
+    if (isPanningRef.current) {
+      const dx = e.clientX - panStartRef.current;
+      const newOffset = panOffsetRef.current + dx;
+      setPanOffset(Math.max(-maxPanRight, Math.min(5, newOffset)));
+      return;
+    }
     if (isEmpty) return;
     const idx = getIdxFromEvent(e);
     const maxIdx = totalN - 1;
@@ -215,6 +288,13 @@ export default function KLineChart({
   const handleMouseLeave = () => { setHoverIdx(null); setTooltipPos(null); };
 
   const handleMouseDown = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
+    if (!enableRangeSelect && e.button === 0) {
+      // Pan mode
+      isPanningRef.current = true;
+      panStartRef.current = e.clientX;
+      panOffsetRef.current = panOffset;
+      return;
+    }
     if (!enableRangeSelect || e.button !== 0) return;
     const idx = getIdxFromEvent(e);
     if (idx < 0 || idx >= safeData.length) return;
@@ -260,6 +340,7 @@ export default function KLineChart({
   }, [enableRangeSelect, getIdxFromEvent, safeData.length, selectedRange]);
 
   const handleMouseUp = useCallback(() => {
+    isPanningRef.current = false;
     if (isDragging && dragStart !== null && dragEnd !== null && onRangeChange) {
       const s = Math.min(dragStart, dragEnd);
       const e = Math.max(dragStart, dragEnd);
@@ -322,24 +403,28 @@ export default function KLineChart({
         onMouseLeave={handleMouseLeave}
         onMouseDown={handleMouseDown}
         onMouseUp={handleMouseUp}
+        onWheel={handleWheel}
       >
         {/* Prediction bg */}
         {splitIdx != null && splitIdx <= safeData.length && (
           <>
-            <rect x={fx(splitIdx) - step / 2} y={padT} width={fx(totalN - 1) - fx(splitIdx) + step} height={priceH} fill="#F7F8FA" opacity="0.5" />
-            <rect x={fx(splitIdx) - step / 2} y={padT} width={2} height={priceH} fill="#C9CDD4" opacity="0.3" />
-            <line x1={fx(splitIdx) - step / 2} x2={fx(splitIdx) - step / 2} y1={padT} y2={padT + priceH} stroke="#C9CDD4" strokeDasharray="4 3" strokeWidth="1" />
-            <text x={fx(splitIdx) - step / 4} y={padT + 11} fontSize="9" fill="#86909C">←历史 预测→</text>
+            <rect x={fx(splitIdx) - step / 2} y={padT} width={fx(totalN - 1) - fx(splitIdx) + step} height={priceH} fill={predBg} opacity="0.5" />
+            <rect x={fx(splitIdx) - step / 2} y={padT} width={2} height={priceH} fill={crosshairColor} opacity="0.3" />
+            <line x1={fx(splitIdx) - step / 2} x2={fx(splitIdx) - step / 2} y1={padT} y2={padT + priceH} stroke={crosshairColor} strokeDasharray="4 3" strokeWidth="1" />
+            <text x={fx(splitIdx) - step / 4} y={padT + 11} fontSize="9" fill={textColor}>←历史 预测→</text>
           </>
         )}
 
         {/* Grid */}
         {grids.map((g, i) => (
           <g key={i}>
-            <line x1={padL} x2={W - padR} y1={g.y} y2={g.y} stroke="#F2F3F5" strokeWidth="0.8" />
-            <text x={W - padR + 6} y={g.y + 3} fontSize="10" fill="#86909C">{g.label}</text>
+            <line x1={padL} x2={W - padR} y1={g.y} y2={g.y} stroke={gridColor} strokeWidth="0.8" />
+            <text x={W - padR + 6} y={g.y + 3} fontSize="10" fill={textColor}>{g.label}</text>
           </g>
         ))}
+
+      {/* Volume label */}
+        <text x={padL} y={padT + priceH + 12} fontSize="10" fill={textColor} fontWeight={500}>▎成交量</text>
 
         {/* Volume bars */}
         {safeData.map((d, i) => {
@@ -348,6 +433,56 @@ export default function KLineChart({
           const x = fx(i);
           const vh = Math.max(1, volBaseY - vy(d.volume || 0));
           return <rect key={`v${i}`} x={x - bw / 2} y={volBaseY - vh} width={bw} height={Math.max(1, vh)} fill={c} opacity={isUp ? 0.3 : 0.25} />;
+        })}
+
+        {/* ═══ MACD ═══ */}
+        {/* MACD label */}
+        <text x={padL} y={volBaseY + 14} fontSize="10" fill={textColor} fontWeight={500}>▎MACD</text>
+        {/* Legend */}
+        <text x={padL + 48} y={volBaseY + 14} fontSize="9" fill="#F77234">DIF</text>
+        <text x={padL + 78} y={volBaseY + 14} fontSize="9" fill="#3491FA">DEA</text>
+
+        {/* Zero line */}
+        <line x1={padL} x2={W - padR} y1={macdZeroY} y2={macdZeroY} stroke={gridColor} strokeWidth="0.8" />
+
+        {/* MACD histogram */}
+        {safeData.map((d, i) => {
+          if (i >= macdArr.length) return null;
+          const v = macdArr[i];
+          if (isNaN(v)) return null;
+          const x = fx(i);
+          const h = Math.max(1, Math.abs(v) / macdAbsMax * (macdH / 2));
+          const isUp = v >= 0;
+          return <rect key={`macd-${i}`} x={x - bw / 2} y={isUp ? macdZeroY - h : macdZeroY} width={bw} height={h}
+            fill={isUp ? UP : DOWN} opacity={isUp ? 0.4 : 0.3} rx="1" />;
+        })}
+
+        {/* DIF line */}
+        <polyline
+          points={difArr.map((v, i) => v != null && !isNaN(v) ? `${fx(i).toFixed(1)},${my(v).toFixed(1)}` : '').filter(Boolean).join(' ')}
+          stroke="#F77234" strokeWidth="1.2" fill="none" />
+
+        {/* DEA line */}
+        <polyline
+          points={deaArr.map((v, i) => v != null && !isNaN(v) ? `${fx(i).toFixed(1)},${my(v).toFixed(1)}` : '').filter(Boolean).join(' ')}
+          stroke="#3491FA" strokeWidth="1.2" fill="none" />
+
+        {/* Cross signals */}
+        {crosses.map((c, k) => {
+          const x = fx(c.i);
+          const y = my(difArr[c.i]);
+          const isGolden = c.type === 'golden';
+          return (
+            <g key={`cross-${k}`}>
+              <circle cx={x} cy={y} r={4}
+                fill={isGolden ? '#F53F3F' : '#00B42A'} stroke="#fff" strokeWidth="1.2"
+                opacity="0.85" />
+              <text x={x} y={y - 8} fontSize="8"
+                fill={isGolden ? '#F53F3F' : '#00B42A'} textAnchor="middle" fontWeight={700}>
+                {isGolden ? '金叉' : '死叉'}
+              </text>
+            </g>
+          );
         })}
 
         {/* Prediction lines */}
@@ -408,7 +543,7 @@ export default function KLineChart({
             return <g key={`mk${k}`}><polygon points={`${x},${yTop + 10} ${x - 6},${yTop} ${x + 6},${yTop}`} fill="#165DFF" /><text x={x} y={yTop - 4} fontSize="9" fill="#165DFF" textAnchor="middle" fontWeight="700">{m.label || 'B'}</text></g>;
           }
           const yBot = py(safeData[m.i].low) + 15;
-          return <g key={`mk${k}`}><circle cx={x} cy={yBot} r="4" fill="#F53F3F" stroke="#fff" strokeWidth="1.2" /><text x={x} y={yBot + 12} fontSize="8" fill="#F53F3F" textAnchor="middle">{m.label || '上榜'}</text></g>;
+          return <g key={`mk${k}`}><circle cx={x} cy={yBot} r="4" fill={UP} stroke={chartBg} strokeWidth="1.2" /><text x={x} y={yBot + 12} fontSize="8" fill={UP} textAnchor="middle">{m.label || '上榜'}</text></g>;
         })}
 
         {/* Prediction hi/lo markers */}
@@ -422,7 +557,7 @@ export default function KLineChart({
             : `${x},${v - 8} ${x - 6},${v} ${x + 6},${v}`;
           return (
             <g key={`pm${k}`}>
-              <polygon points={tri} fill={m.color || '#FFB400'} stroke="#fff" strokeWidth="1" />
+              <polygon points={tri} fill={m.color || (isDark ? '#fbbf24' : '#FFB400')} stroke="#fff" strokeWidth="1" />
               <text x={x} y={m.type === 'predHi' ? v - 3 : v + 16} fontSize="9" fill={m.color || '#86909C'} textAnchor="middle" fontWeight="700">{m.label}</text>
             </g>
           );
@@ -512,22 +647,43 @@ export default function KLineChart({
         })()}
 
         {/* X labels */}
-        {xLabels.map((idx, k) => <text key={k} x={fx(idx)} y={H - 6} fontSize="10" fill="#86909C" textAnchor="middle">{dateLabel(idx)}</text>)}
+        {xLabels.map((idx, k) => <text key={k} x={fx(idx)} y={H - 6} fontSize="10" fill={textColor} textAnchor="middle">{dateLabel(idx)}</text>)}
 
         {/* Legend */}
         <g transform={`translate(${padL}, ${padT - 1})`} fontSize="10">
-          <text x="0" y="0" fill="#F77234">— MA5</text>
+          <text x="0" y="0" fill={isDark ? "#fb923c" : "#F77234"}>— MA5</text>
           <text x="50" y="0" fill="#722ED1">— MA10</text>
           <text x="108" y="0" fill="#3491FA">— MA20</text>
           {predictionLines.length > 0 && <text x="170" y="0" fill={predictionLines[0].color}>--- 预测</text>}
         </g>
+      {/* Scrollbar */}
+        {safeData.length > visCount && (
+          <g transform={`translate(${padL}, ${H - 8})`}>
+            <rect x={0} y={0} width={innerW} height={4} rx={2} fill={gridColor} opacity="0.5" />
+            <rect
+              x={Math.max(0, (startIdx / Math.max(safeData.length - 1, 1)) * innerW)}
+              y={0}
+              width={Math.max(20, (visCount / safeData.length) * innerW)}
+              height={4} rx={2}
+              fill={isDark ? '#4a4a6a' : '#c9cdd4'}
+              style={{ cursor: 'pointer' }}
+            />
+          </g>
+        )}
+
+        {/* Pan/Zoom hint */}
+        {safeData.length > 0 && (
+          <text x={W - padR} y={H - 2} fontSize="9" fill={textColor} textAnchor="end" opacity="0.6">
+            拖拽平移 · 滚轮缩放 · {startIdx + 1}-{Math.min(startIdx + visCount, safeData.length)}/{safeData.length}
+          </text>
+        )}
       </svg>
 
       {/* Tooltip */}
       {((hoverData && hoverIdx != null) || isHoverPredict) && tooltipPos && (
         <div style={{
           position: 'absolute', left: tooltipPos.x + 16, top: Math.min(tooltipPos.y - 80, height - 160),
-          background: 'rgba(29, 33, 41, 0.92)', color: '#fff', padding: '10px 14px',
+          background: isDark ? 'rgba(0,0,0,0.92)' : 'rgba(29, 33, 41, 0.92)', color: '#fff', padding: '10px 14px',
           borderRadius: 6, fontSize: 12, lineHeight: '20px', pointerEvents: 'none', zIndex: 100,
           fontFamily: 'monospace', whiteSpace: 'nowrap', boxShadow: '0 2px 12px rgba(0,0,0,0.15)',
         }}>
@@ -539,6 +695,7 @@ export default function KLineChart({
               <div>低 <span style={{ color: DOWN, fontWeight: 500 }}>{hoverData?.low?.toFixed(2) ?? '-'}</span></div>
               <div>收 <span style={{ color: (hoverData?.close ?? 0) >= (hoverData?.open ?? 0) ? UP : DOWN, fontWeight: 600, fontSize: 13 }}>{hoverData?.close?.toFixed(2) ?? '-'}</span></div>
               <div style={{ marginTop: 4, color: '#C9CDD4' }}>量 {(hoverData?.volume || 0) >= 1e8 ? ((hoverData?.volume || 0) / 1e8).toFixed(2) + '亿' : ((hoverData?.volume || 0) / 1e4).toFixed(0) + '万手'}</div>
+              <div style={{ color: '#C9CDD4' }}>换手 {(hoverData?.turnoverRate || 0) > 0 ? (hoverData?.turnoverRate || 0).toFixed(2) + '%' : '-'}</div>
             </>
           ) : (
             <>

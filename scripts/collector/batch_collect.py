@@ -21,17 +21,60 @@ def fetch_kline(code, days=365):
     except:
         return []
 
-def insert_kline(cur, code, row):
+
+def fetch_quote_batch(codes_batch):
+    """批量获取行情数据 - 腾讯实时行情 API
+    返回: {code: {turnover, pe, market_cap}}
+    """
+    results = {}
+    symbols = []
+    for code in codes_batch:
+        prefix = "sh" if code.startswith(("6", "9")) else "sz"
+        symbols.append(f"{prefix}{code}")
+    
+    url = f"http://qt.gtimg.cn/q={','.join(symbols)}"
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    ctx = ssl.create_default_context()
+    try:
+        with urllib.request.urlopen(req, timeout=10, context=ctx) as resp:
+            text = resp.read().decode('gbk', errors='replace')
+        for line in text.strip().split('\n'):
+            if '="' not in line:
+                continue
+            try:
+                code_part = line.split('_')[1].split('="')[0] if '_' in line else ''
+                code = code_part[2:] if len(code_part) > 2 else code_part
+                fields = line.split('="')[1].rstrip('";').split('~')
+                if len(fields) > 45:
+                    # 腾讯行情格式: 换手率[38], 市盈率[39], 总市值[44](亿), 流通市值[45](亿)
+                    turnover = float(fields[38]) if fields[38] else 0
+                    pe = float(fields[39]) if fields[39] else 0
+                    mcap = float(fields[44]) if fields[44] else 0  # 亿
+                    cmcap = float(fields[45]) if fields[45] else 0
+                    results[code] = {
+                        'turnover': turnover,
+                        'pe': pe,
+                        'market_cap': mcap,
+                        'circulating_market_cap': cmcap
+                    }
+            except:
+                pass
+    except:
+        pass
+    return results
+
+def insert_kline(cur, code, row, turnover=0):
     """Insert or update a single kline record"""
     amt = float(row[2]) * float(row[5]) / 100
     cur.execute("""
-        INSERT INTO stocks_daily_k (code, trade_date, open, high, low, close, volume, amount)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+        INSERT INTO stocks_daily_k (code, trade_date, open, high, low, close, volume, amount, turnover_rate)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
         ON CONFLICT (code, trade_date) DO UPDATE SET
             open = EXCLUDED.open, high = EXCLUDED.high, low = EXCLUDED.low,
-            close = EXCLUDED.close, volume = EXCLUDED.volume, amount = EXCLUDED.amount
+            close = EXCLUDED.close, volume = EXCLUDED.volume, amount = EXCLUDED.amount,
+            turnover_rate = EXCLUDED.turnover_rate
     """, (code, row[0], float(row[1]), float(row[3]), float(row[4]),
-          float(row[2]), int(float(row[5])), amt))
+          float(row[2]), int(float(row[5])), amt, turnover))
     return cur.rowcount
 
 def detect_adjustment(cur, code):
@@ -74,6 +117,7 @@ def main():
         ORDER BY latest NULLS FIRST
     """)
     stocks = [(r[0], r[1]) for r in cur.fetchall()]
+    codes_list = [s[0] for s in stocks]
 
     today = date.today()
     has_k = sum(1 for _, d in stocks if d is not None)
@@ -128,8 +172,47 @@ def main():
             print(f"  📈 进度 {i+1}/{len(stocks)} | 更新{total_new}只股票 | 入库{total_records}条K线 | 除权修复{total_adjusted}只 | 耗时{elapsed:.0f}s", flush=True)
 
     conn.commit()
+
+    # ─── 行情数据采集 (换手率/PE/市值) ───
+    print(f"\n📊 采集行情数据 (腾讯实时行情 - 换手率/PE/市值)...", flush=True)
+    t0 = time.time()
+    turnover_updated = 0
+    indicator_updated = 0
+    for i in range(0, len(codes_list), 80):
+        batch = codes_list[i:i+80]
+        quotes = fetch_quote_batch(batch)
+        for code, q in quotes.items():
+            # 更新换手率到 K线表（匹配最新交易日）
+            if q['turnover'] > 0:
+                cur.execute("""
+                    UPDATE stocks_daily_k SET turnover_rate = %s
+                    WHERE code = %s AND trade_date = (
+                        SELECT MAX(trade_date) FROM stocks_daily_k WHERE code = %s
+                    )
+                """, (q['turnover'], code, code))
+                if cur.rowcount > 0:
+                    turnover_updated += 1
+            
+            # 更新 PE/市值到 indicator 表（匹配最新交易日）
+            if q['pe'] > 0 or q['market_cap'] > 0:
+                cur.execute("""
+                    INSERT INTO stocks_daily_indicator (code, trade_date, pe, total_market_cap, circulating_market_cap)
+                    SELECT %s, MAX(trade_date), %s, %s, %s FROM stocks_daily_k WHERE code = %s
+                    ON CONFLICT (code, trade_date) DO UPDATE SET
+                        pe = EXCLUDED.pe,
+                        total_market_cap = EXCLUDED.total_market_cap,
+                        circulating_market_cap = EXCLUDED.circulating_market_cap
+                """, (code, q['pe'], q['market_cap'], q['circulating_market_cap'], code))
+                if cur.rowcount > 0:
+                    indicator_updated += 1
+        
+        if (i + 80) % 400 == 0:
+            print(f"  行情进度: {min(i+80, len(codes_list))}/{len(codes_list)} | 换手率 {turnover_updated} | PE/市值 {indicator_updated}", flush=True)
+    conn.commit()
+    print(f"  行情完成: 换手率 {turnover_updated} 只 | PE/市值 {indicator_updated} 只 | 耗时 {time.time()-t0:.0f}s", flush=True)
+
     elapsed = time.time() - start
-    print(f"\n✅ K线采集完成: {total_new}只股票更新 | 共入库 {total_records} 条新数据 | 除权修复 {total_adjusted} 只 | 总耗时 {elapsed:.0f}s\n", flush=True)
+    print(f"\n✅ K线采集完成: {total_new}只股票更新 | 共入库 {total_records} 条新数据 | 除权修复 {total_adjusted} 只 | 换手率 {turnover_updated} 只 | PE/市值 {indicator_updated} 只 | 总耗时 {elapsed:.0f}s\n", flush=True)
 
     cur.close()
     conn.close()

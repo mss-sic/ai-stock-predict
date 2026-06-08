@@ -4,7 +4,8 @@ import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from './services/AuthContext';
 import { fetchIndices, logout as logoutApi, getAccessToken, heartbeat } from './services/api';
 import Logo from './components/Logo';
-import { LayoutDashboard, History, Grid3X3, Star, Target, Briefcase, ShieldAlert, Database, Search, Settings, LogOut, UserCog, Shield } from 'lucide-react';
+import { LayoutDashboard, History, Grid3X3, Star, Target, Briefcase, ShieldAlert, Database, Search, Settings, LogOut, UserCog, Shield, Sun, Moon } from 'lucide-react';
+import { useTheme } from './services/ThemeContext';
 import '@arco-design/web-react/dist/css/arco.css';
 import './styles/app.css';
 
@@ -25,6 +26,7 @@ interface IndexData { name: string; code: string; val: number; chg: number; chgP
 
 export default function AppLayout() {
   const { user, logout } = useAuth();
+  const { theme, toggle, isDark } = useTheme();
   const navigate = useNavigate();
   const location = useLocation();
   const [indices, setIndices] = useState<IndexData[]>([]);
@@ -71,9 +73,24 @@ export default function AppLayout() {
       <ToastContainer />
       <div className="app-shell">
       <aside className="app-sidebar">
-        <div className="sidebar-brand">
+        <div className="sidebar-brand" style={{ borderColor: 'var(--color-border-1)' }}>
           <span className="brand-icon"><Logo size={24} /></span>
           <span className="brand-text">智策投研</span>
+          <button
+            onClick={toggle}
+            title={isDark ? '切换亮色主题' : '切换暗色主题'}
+            style={{
+              marginLeft: 'auto', background: 'var(--color-fill-2)', border: '1px solid var(--color-border-1)',
+              color: 'var(--color-text-2)', cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              width: 36, height: 36, padding: 0, borderRadius: 8,
+              fontSize: 18, transition: 'all 0.2s'
+            }}
+            onMouseEnter={e => { e.currentTarget.style.background = 'var(--color-border-1)'; e.currentTarget.style.color = 'var(--color-text-1)'; }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'var(--color-fill-2)'; e.currentTarget.style.color = 'var(--color-text-2)'; }}
+          >
+            {isDark ? <Sun size={18} /> : <Moon size={18} />}
+          </button>
         </div>
         <nav className="sidebar-nav">
           {navItems.map(({ key, label, icon: Icon }) => (
@@ -88,7 +105,7 @@ export default function AppLayout() {
           ))}
         </nav>
         {/* User area */}
-        <div style={{ marginTop: 'auto', borderTop: '1px solid #f2f3f5', position: 'relative' }}>
+        <div style={{ marginTop: 'auto', borderTop: '1px solid var(--color-border-1)', position: 'relative' }}>
           {user?.role === 'admin' && (
             <button
               className={`nav-item${location.pathname === '/admin' ? ' active' : ''}`}
@@ -108,21 +125,21 @@ export default function AppLayout() {
             <span style={{ flex: 1, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {user?.nickname || user?.username || '用户'}
             </span>
-            <span style={{ fontSize: 10, color: '#86909c' }}>▼</span>
+            <span style={{ fontSize: 10, color: 'var(--color-text-3)' }}>▼</span>
           </button>
           {showUserMenu && (
             <>
               <div style={{ position: 'fixed', inset: 0, zIndex: 99 }} onClick={() => setShowUserMenu(false)} />
               <div style={{
                 position: 'absolute', bottom: '100%', left: 8, right: 8,
-                background: '#fff', border: '1px solid #e5e6eb',
+                background: 'var(--color-bg-1)', border: '1px solid var(--color-border-1)',
                 borderRadius: 8, padding: 4, zIndex: 100,
                 boxShadow: '0 4px 16px rgba(0,0,0,0.1)',
               }}>
                 <button
                   onClick={() => { setShowUserMenu(false); navigate('/profile'); }}
                   style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '8px 12px', border: 'none', background: 'none', color: '#4e5969', fontSize: 13, cursor: 'pointer', borderRadius: 6 }}
-                  onMouseEnter={e => e.currentTarget.style.background = '#f2f3f5'}
+                  onMouseEnter={e => e.currentTarget.style.background = 'var(--color-fill-2)'}
                   onMouseLeave={e => e.currentTarget.style.background = 'none'}
                 >
                   <Settings size={14} /> 个人设置
@@ -130,7 +147,7 @@ export default function AppLayout() {
                 <button
                   onClick={() => { setShowUserMenu(false); handleLogout(); }}
                   style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '8px 12px', border: 'none', background: 'none', color: '#f53f3f', fontSize: 13, cursor: 'pointer', borderRadius: 6 }}
-                  onMouseEnter={e => e.currentTarget.style.background = '#fff2f0'}
+                  onMouseEnter={e => e.currentTarget.style.background = 'var(--red-1)'}
                   onMouseLeave={e => e.currentTarget.style.background = 'none'}
                 >
                   <LogOut size={14} /> 退出登录
@@ -143,15 +160,15 @@ export default function AppLayout() {
 
       <main className="app-main">
         {/* Market indices */}
-        <div style={{ display: 'flex', gap: 0, marginBottom: 16, background: '#fff', borderRadius: 10, padding: '10px 20px', border: '1px solid #e5e6eb' }}>
+        <div style={{ display: 'flex', gap: 0, marginBottom: 16, background: 'var(--color-bg-1)', borderRadius: 10, padding: '10px 20px', border: '1px solid var(--color-border-1)' }}>
           {indices.map((idx, i) => (
             <span key={idx.code} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
-              <span style={{ color: '#86909c', fontWeight: 500 }}>{idx.name}</span>
-              <span style={{ color: '#1d2129', fontWeight: 600, fontFamily: 'monospace' }}>{idx.val.toFixed(2)}</span>
+              <span style={{ color: 'var(--color-text-3)', fontWeight: 500 }}>{idx.name}</span>
+              <span style={{ color: 'var(--color-text-1)', fontWeight: 600, fontFamily: 'monospace' }}>{idx.val.toFixed(2)}</span>
               <span style={{ color: idx.chg >= 0 ? '#f53f3f' : '#00b42a', fontFamily: 'monospace', fontSize: 11 }}>
                 {idx.chg >= 0 ? '+' : ''}{idx.chg.toFixed(2)} ({idx.chg >= 0 ? '+' : ''}{idx.chgPct.toFixed(2)}%)
               </span>
-              {i < indices.length - 1 && <span style={{ margin: '0 12px', width: 1, height: 14, background: '#e5e6eb' }} />}
+              {i < indices.length - 1 && <span style={{ margin: '0 12px', width: 1, height: 14, background: 'var(--color-border-1)' }} />}
             </span>
           ))}
         </div>
