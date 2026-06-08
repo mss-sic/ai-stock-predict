@@ -78,6 +78,7 @@ def main():
     today = date.today()
     has_k = sum(1 for _, d in stocks if d is not None)
     need = len(stocks) - has_k
+    print(f"📊 数据源: 腾讯财经 (web.ifzq.gtimg.cn) | 前复权(qfq)", flush=True)
     print(f"总计 {len(stocks)} 只 | 有K线 {has_k} 只 | 缺失 {need} 只", flush=True)
 
     start = time.time()
@@ -123,11 +124,12 @@ def main():
         if (i + 1) % 200 == 0:
             elapsed = time.time() - start
             conn.commit()
-            print(f"  {i+1}/{len(stocks)} | 新增{total_new}只 | 总{total_records}条 | 修复{total_adjusted}只 | {elapsed:.0f}s", flush=True)
+            conn.commit()
+            print(f"  📈 进度 {i+1}/{len(stocks)} | 更新{total_new}只股票 | 入库{total_records}条K线 | 除权修复{total_adjusted}只 | 耗时{elapsed:.0f}s", flush=True)
 
     conn.commit()
     elapsed = time.time() - start
-    print(f"✅ K线完成: {total_new}只股票, {total_records}条记录 | 除权修复: {total_adjusted}只 | {elapsed:.0f}s", flush=True)
+    print(f"\n✅ K线采集完成: {total_new}只股票更新 | 共入库 {total_records} 条新数据 | 除权修复 {total_adjusted} 只 | 总耗时 {elapsed:.0f}s\n", flush=True)
 
     cur.close()
     conn.close()

@@ -445,43 +445,43 @@ export default function DataManagementPage() {
                   </div>
                 </div>
                 <div style={{ padding: '12px 16px', minHeight: 120 }}>
-                  {collecting && progress?.phase === selectedCollectPhase ? (
-                    <div>
-                      {progress && (
-                        <div style={{ marginBottom: 12 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 6 }}>
-                            <Progress percent={Math.round((progress.current / Math.max(progress.total, 1)) * 100)} style={{ flex: 1 }} status="normal" />
-                            <span style={{ fontSize: 12, color: '#86909c', whiteSpace: 'nowrap' }}>{progress.current}/{progress.total}</span>
-                          </div>
-                          <div style={{ fontSize: 12, color: '#4e5969' }}>{progress.message || '正在采集...'}</div>
-                        </div>
-                      )}
-                      {phaseResults.filter((r: any) => r.phase === selectedCollectPhase).map((r: any) => (
-                        <div key={r.phase} style={{ border: `1px solid ${r.errors > 0 ? '#f53f3f' : '#e5e6eb'}`, borderRadius: 6, padding: '8px 12px', marginBottom: 8, background: r.errors > 0 ? '#ffece8' : '#f0fff4', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, fontSize: 12 }}>
-                          <div>总计 <b>{r.total}</b></div><div>新增 <b style={{ color: '#165dff' }}>{r.new}</b></div><div>跳过 <span style={{ color: '#86909c' }}>{r.skipped}</span></div><div>耗时 <span>{(r.durationMs / 1000).toFixed(1)}s</span></div>
-                        </div>
-                      ))}
-                      {consoleLines.length > 0 && (
-                        <div ref={consoleRef} style={{ background: '#1a1a2e', borderRadius: 6, padding: '10px 14px', maxHeight: 300, overflow: 'auto', fontFamily: '"JetBrains Mono","Fira Code","SF Mono",monospace', fontSize: 12, lineHeight: '18px' }}>
-                          {consoleLines.slice(-80).map((line, i) => renderConsoleLine(line, i))}
-                        </div>
-                      )}
-                      <Button size="small" type="outline" status="danger" icon={<Square size={12} />} onClick={handleStop} style={{ marginTop: 8 }}>断开监控</Button>
+                  {/* 采集进度条 */}
+                  {collecting && progress && (
+                    <div style={{ marginBottom: 12 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 6 }}>
+                        <Progress percent={Math.round((progress.current / Math.max(progress.total, 1)) * 100)} style={{ flex: 1 }} status="normal" />
+                        <span style={{ fontSize: 12, color: '#86909c', whiteSpace: 'nowrap' }}>{progress.current}/{progress.total}</span>
+                      </div>
+                      <div style={{ fontSize: 12, color: '#4e5969' }}>{progress.message || '正在采集...'}</div>
                     </div>
-                  ) : (
-                    <div>
-                      {(() => { const lr = phaseResults.find((r: any) => r.phase === selectedCollectPhase); if (lr) return (
-                        <div>
-                          <div style={{ fontSize: 12, color: '#86909c', marginBottom: 8 }}>最近一次采集结果</div>
-                          <div style={{ border: '1px solid #e5e6eb', borderRadius: 6, padding: '8px 12px', background: '#fff', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, fontSize: 12 }}>
-                            <div>总计 <b>{lr.total}</b></div>
-                            <div>新增 <b style={{ color: '#165dff' }}>{lr.new}</b></div>
-                            <div>跳过 <span style={{ color: '#86909c' }}>{lr.skipped}</span></div>
-                            <div>耗时 <span>{(lr.durationMs / 1000).toFixed(1)}s</span></div>
-                          </div>
-                        </div>
-                      ); return <div style={{ padding: 32, textAlign: 'center', color: '#86909c', fontSize: 13 }}>点击右上角「采集」按钮开始采集</div>; })()}
+                  )}
+
+                  {/* 采集结果统计 */}
+                  {phaseResults.filter((r: any) => r.phase === selectedCollectPhase).map((r: any) => (
+                    <div key={r.phase} style={{ border: `1px solid ${r.errors > 0 ? '#f53f3f' : '#e5e6eb'}`, borderRadius: 6, padding: '8px 12px', marginBottom: 8, background: r.errors > 0 ? '#ffece8' : '#f0fff4', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, fontSize: 12 }}>
+                      <div>总计 <b>{r.total}</b></div><div>新增 <b style={{ color: '#165dff' }}>{r.new}</b></div><div>跳过 <span style={{ color: '#86909c' }}>{r.skipped}</span></div><div>耗时 <span>{(r.durationMs / 1000).toFixed(1)}s</span></div>
                     </div>
+                  ))}
+
+                  {/* 控制台日志 — 始终显示，采集完成后不自动关闭 */}
+                  {consoleLines.length > 0 && (
+                    <div>
+                      <div ref={consoleRef} style={{ background: '#1a1a2e', borderRadius: 6, padding: '10px 14px', maxHeight: 300, overflow: 'auto', fontFamily: '"JetBrains Mono","Fira Code","SF Mono",monospace', fontSize: 12, lineHeight: '18px' }}>
+                        {consoleLines.slice(-80).map((line, i) => renderConsoleLine(line, i))}
+                      </div>
+                      <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                        {collecting ? (
+                          <Button size="small" type="outline" status="danger" icon={<Square size={12} />} onClick={handleStop}>断开监控</Button>
+                        ) : (
+                          <Button size="small" type="outline" icon={<X size={12} />} onClick={() => { setConsoleLines([]); setPhaseResults([]); }}>关闭控制台</Button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 无日志时显示提示 */}
+                  {consoleLines.length === 0 && !collecting && (
+                    <div style={{ padding: 32, textAlign: 'center', color: '#86909c', fontSize: 13 }}>点击右上角「采集」按钮开始采集</div>
                   )}
                 </div>
               </div>
