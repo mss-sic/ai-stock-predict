@@ -48,11 +48,12 @@ services:
     restart: unless-stopped
 
   server:
-    build:
-      context: ..
-      dockerfile: Dockerfile
-    image: ai-stock-predict/server:latest
+    image: ghcr.io/mss-sic/ai-stock-predict/server:latest
     container_name: aip-server
+    # 开发时用 build 从本地构建，部署时拉取远程镜像
+    # build:
+    #   context: ..
+    #   dockerfile: Dockerfile
     ports:
       - "8080:8080"
     environment:
