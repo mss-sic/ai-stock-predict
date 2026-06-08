@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/json"
 	"io"
 	"log"
 	"net/http"
@@ -22,13 +23,14 @@ type IndexData struct {
 }
 
 var (
-	idxCache     []IndexData
-	idxCacheLock sync.RWMutex
-	idxCacheTime time.Time
+	idxCache      []IndexData
+	idxCacheLock  sync.RWMutex
+	idxCacheTime  time.Time
+	idxCacheTTL   = 30 * time.Second
 )
 
-func isTradingTime() bool {
-	now := time.Now().In(time.FixedZone("CST", 8*3600))
+func isTradingHour() bool {
+	now := time.Now()
 	if now.Weekday() == time.Saturday || now.Weekday() == time.Sunday {
 		return false
 	}
@@ -37,17 +39,16 @@ func isTradingTime() bool {
 	return now.After(t930) && now.Before(t1500)
 }
 
-func fetchFromSina() []IndexData {
-	req, err := http.NewRequest("GET", "https://hq.sinajs.cn/list=s_sh000001,s_sz399001,s_sz399006", nil)
+func fetchFromTencent() []IndexData {
+	url := "https://web.ifzq.gtimg.cn/appstock/app/indexlist/get?market=hs&type=index"
+	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil
 	}
-	req.Header.Set("Referer", "https://finance.sina.com.cn/")
 	req.Header.Set("User-Agent", "Mozilla/5.0")
 
 	client := &http.Client{Timeout: 8 * time.Second}
 	resp, err := client.Do(req)
-	log.Printf("[indices] HTTP status: %d", resp.StatusCode)
 	if err != nil {
 		log.Printf("[indices] fetch error: %v", err)
 		return nil
@@ -56,79 +57,67 @@ func fetchFromSina() []IndexData {
 
 	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil || len(bodyBytes) == 0 {
-		log.Printf("[indices] read body error: %v, len=%d", err, len(bodyBytes))
+		log.Printf("[indices] read error: %v, len=%d", err, len(bodyBytes))
 		return nil
 	}
-	body := string(bodyBytes)
-	log.Printf("[indices] body len=%d, first 200: %s", len(bodyBytes), body[:min(len(body), 200)])
 
-	configs := []struct {
-		prefix string
-		name   string
-		code   string
-	}{
-		{"s_sh000001", "上证指数", "000001"},
-		{"s_sz399001", "深证成指", "399001"},
-		{"s_sz399006", "创业板指", "399006"},
+	var result struct {
+		Code int `json:"code"`
+		Data map[string]struct {
+			Name   string  `json:"name"`
+			Last   float64 `json:"last"`
+			Chg    float64 `json:"chg"`
+			ChgPct string  `json:"chgPct"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(bodyBytes, &result); err != nil {
+		log.Printf("[indices] json error: %v, body=%s", err, string(bodyBytes[:min(len(bodyBytes), 300)]))
+		return nil
+	}
+
+	indexMap := map[string]IndexData{
+		"sh000001": {Name: "上证指数", Code: "000001"},
+		"sz399001": {Name: "深证成指", Code: "399001"},
+		"sz399006": {Name: "创业板指", Code: "399006"},
 	}
 
 	var indices []IndexData
-	for _, cfg := range configs {
-		idx := strings.Index(body, cfg.prefix)
-		if idx < 0 {
-			continue
+	for key, idx := range indexMap {
+		if data, ok := result.Data[key]; ok {
+			chgPct, _ := strconv.ParseFloat(strings.TrimSuffix(data.ChgPct, "%"), 64)
+			indices = append(indices, IndexData{
+				Name: idx.Name, Code: idx.Code,
+				Val: data.Last, Chg: data.Chg, ChgPct: chgPct,
+			})
 		}
-		start := strings.Index(body[idx:], `"`)
-		if start < 0 {
-			continue
-		}
-		end := strings.Index(body[idx+start+1:], `"`)
-		if end < 0 {
-			continue
-		}
-		val := body[idx+start+1 : idx+start+1+end]
-		parts := strings.Split(val, ",")
-		if len(parts) < 4 {
-			continue
-		}
-		v, _ := strconv.ParseFloat(parts[1], 64)
-		c, _ := strconv.ParseFloat(parts[2], 64)
-		p, _ := strconv.ParseFloat(parts[3], 64)
-		indices = append(indices, IndexData{
-			Name: cfg.name, Code: cfg.code,
-			Val: v, Chg: c, ChgPct: p,
-		})
 	}
 	return indices
 }
 
 func GetIndices(c *gin.Context) {
 	idxCacheLock.RLock()
-	age := time.Since(idxCacheTime)
-	idxCacheLock.RUnlock()
-
-	maxAge := 30 * time.Minute
-	if isTradingTime() {
-		maxAge = 3 * time.Second
-	}
-
-	if len(idxCache) > 0 && age < maxAge {
-		response.Success(c, gin.H{
-			"indices": idxCache,
+	if len(idxCache) > 0 && time.Since(idxCacheTime) < idxCacheTTL {
+		cached := idxCache
+		idxCacheLock.RUnlock()
+		response.Success(c, map[string]interface{}{
+			"indices": cached,
 			"cached":  true,
-			"trading": isTradingTime(),
+			"trading": isTradingHour(),
 		})
 		return
 	}
+	idxCacheLock.RUnlock()
 
-	indices := fetchFromSina()
+	indices := fetchFromTencent()
 	if len(indices) == 0 {
-		if len(idxCache) > 0 {
-			response.Success(c, gin.H{
-				"indices": idxCache,
+		idxCacheLock.RLock()
+		fallback := idxCache
+		idxCacheLock.RUnlock()
+		if len(fallback) > 0 {
+			response.Success(c, map[string]interface{}{
+				"indices": fallback,
 				"cached":  true,
-				"stale":   true,
-				"trading": isTradingTime(),
+				"trading": false,
 			})
 			return
 		}
@@ -141,9 +130,9 @@ func GetIndices(c *gin.Context) {
 	idxCacheTime = time.Now()
 	idxCacheLock.Unlock()
 
-	response.Success(c, gin.H{
+	response.Success(c, map[string]interface{}{
 		"indices": indices,
 		"cached":  false,
-		"trading": isTradingTime(),
+		"trading": isTradingHour(),
 	})
 }
