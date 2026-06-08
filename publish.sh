@@ -2,7 +2,7 @@
 # 本地构建镜像并推送到 GitHub Container Registry
 set -euo pipefail
 
-IMAGE="ghcr.io/mss-sic/ai-stock-predict/server:latest"
+IMAGE="crpi-t3tis8f2l2fb8jc9.cn-hangzhou.personal.cr.aliyuncs.com/lijiangbo/ai-stock-predict:latest"
 
 echo "============================================"
 echo "  构建 & 推送镜像"

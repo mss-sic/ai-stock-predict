@@ -48,7 +48,7 @@ services:
     restart: unless-stopped
 
   server:
-    image: ghcr.io/mss-sic/ai-stock-predict/server:latest
+    image: crpi-t3tis8f2l2fb8jc9.cn-hangzhou.personal.cr.aliyuncs.com/lijiangbo/ai-stock-predict:latest
     container_name: aip-server
     # 开发时用 build 从本地构建，部署时拉取远程镜像
     # build:
