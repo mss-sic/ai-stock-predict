@@ -47,6 +47,7 @@ func fetchFromSina() []IndexData {
 
 	client := &http.Client{Timeout: 8 * time.Second}
 	resp, err := client.Do(req)
+	log.Printf("[indices] HTTP status: %d", resp.StatusCode)
 	if err != nil {
 		log.Printf("[indices] fetch error: %v", err)
 		return nil
@@ -59,6 +60,7 @@ func fetchFromSina() []IndexData {
 		return nil
 	}
 	body := string(bodyBytes)
+	log.Printf("[indices] body len=%d, first 200: %s", len(bodyBytes), body[:min(len(body), 200)])
 
 	configs := []struct {
 		prefix string
