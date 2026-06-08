@@ -1,0 +1,9 @@
+# 开发/测试用：挂载代码目录，修改 Python 脚本无需重建镜像
+# 使用: docker compose -f docker-compose.yml -f docker-compose.override.yml up -d
+#
+# Go 代码变更仍需重建：docker compose up -d --build
+
+services:
+  server:
+    volumes:
+      - ../scripts:/app/scripts:ro
