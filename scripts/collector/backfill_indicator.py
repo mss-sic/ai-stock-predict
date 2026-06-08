@@ -11,7 +11,7 @@ from datetime import date, datetime
 
 os.environ['PYTHONUNBUFFERED'] = '1'
 
-PG_DSN = "host=localhost dbname=stock_predict user=stock password=stock123"
+PG_DSN = os.environ.get("PG_DSN", "host=localhost dbname=stock_predict user=stock password=stock123")
 
 def main():
     start_date = sys.argv[1] if len(sys.argv) > 1 else '2024-01-01'

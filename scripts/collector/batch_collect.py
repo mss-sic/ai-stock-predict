@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """增量采集日K线 — 腾讯前复权API，自动检测除权并修复历史数据"""
+import os
 import sys, time, os, json, psycopg2, urllib.request, ssl
 from datetime import date, timedelta
 
 os.environ['PYTHONUNBUFFERED'] = '1'
 
-PG_DSN = "host=localhost dbname=stock_predict user=stock password=stock123"
+PG_DSN = os.environ.get("PG_DSN", "host=localhost dbname=stock_predict user=stock password=stock123")
 
 def fetch_kline(code, days=365):
     prefix = "sh" if code.startswith(("6", "9")) else "sz"

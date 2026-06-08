@@ -12,7 +12,7 @@ logging.getLogger('mootdx').setLevel(logging.CRITICAL)
 
 from mootdx.quotes import Quotes
 
-PG_DSN = "host=localhost dbname=stock_predict user=stock password=stock123"
+PG_DSN = os.environ.get("PG_DSN", "host=localhost dbname=stock_predict user=stock password=stock123")
 
 def fetch_pe_pb_sina(codes):
     """Batch fetch PE/PB from新浪 for深圳 stocks"""

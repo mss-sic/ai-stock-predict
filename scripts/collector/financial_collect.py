@@ -3,7 +3,7 @@
 import os, sys, json, time, psycopg2, requests
 from datetime import date
 
-PG_DSN = "host=localhost dbname=stock_predict user=stock password=stock123"
+PG_DSN = os.environ.get("PG_DSN", "host=localhost dbname=stock_predict user=stock password=stock123")
 UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
 
 def sina_financial_report(code, report_type="lrb", num=8):

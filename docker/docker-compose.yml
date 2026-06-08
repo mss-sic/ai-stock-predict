@@ -60,6 +60,7 @@ services:
       PORT: "8080"
       POSTGRES_DSN: "host=postgres user=stock password=stock123 dbname=stock_predict port=5432 sslmode=disable TimeZone=Asia/Shanghai"
       MYSQL_DSN: "stock:stock123@tcp(mysql:3306)/stock_predict?charset=utf8mb4&parseTime=True&loc=Asia%2FShanghai"
+      PG_DSN: "host=postgres dbname=stock_predict user=stock password=stock123"
       APP_ROOT: "/app"
     depends_on:
       postgres:

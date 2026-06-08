@@ -6,7 +6,7 @@
 import os, psycopg2, json, requests, time
 os.environ['NO_PROXY'] = '*'
 
-PG_DSN = "host=localhost dbname=stock_predict user=stock password=stock123"
+PG_DSN = os.environ.get("PG_DSN", "host=localhost dbname=stock_predict user=stock password=stock123")
 
 # TDX 行业 → 申万一级行业 映射 (56 → 28)
 TDX_TO_SW = {

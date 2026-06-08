@@ -2,7 +2,7 @@
 """资讯数据采集 — 个股新闻+公告，来源: 东财+巨潮"""
 import os, sys, json, re, time, random, psycopg2, requests
 
-PG_DSN = "host=localhost dbname=stock_predict user=stock password=stock123"
+PG_DSN = os.environ.get("PG_DSN", "host=localhost dbname=stock_predict user=stock password=stock123")
 UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
 
 # ── 东财防封 ──
