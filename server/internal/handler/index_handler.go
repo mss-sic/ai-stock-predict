@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"io"
 	"log"
 	"net/http"
 	"strconv"
@@ -52,9 +53,12 @@ func fetchFromSina() []IndexData {
 	}
 	defer resp.Body.Close()
 
-	buf := make([]byte, 2048)
-	n, _ := resp.Body.Read(buf)
-	body := string(buf[:n])
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil || len(bodyBytes) == 0 {
+		log.Printf("[indices] read body error: %v, len=%d", err, len(bodyBytes))
+		return nil
+	}
+	body := string(bodyBytes)
 
 	configs := []struct {
 		prefix string
