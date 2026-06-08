@@ -26,7 +26,8 @@ var (
 	idxCache      []IndexData
 	idxCacheLock  sync.RWMutex
 	idxCacheTime  time.Time
-	idxCacheTTL   = 30 * time.Second
+	idxCacheShortTTL = 5 * time.Second    // 盘中 5 秒刷新
+	idxCacheLongTTL  = 5 * time.Minute   // 盘后 5 分钟
 )
 
 func isTradingHour() bool {
@@ -96,7 +97,11 @@ func fetchFromTencent() []IndexData {
 
 func GetIndices(c *gin.Context) {
 	idxCacheLock.RLock()
-	if len(idxCache) > 0 && time.Since(idxCacheTime) < idxCacheTTL {
+	ttl := idxCacheLongTTL
+	if isTradingHour() {
+		ttl = idxCacheShortTTL
+	}
+	if len(idxCache) > 0 && time.Since(idxCacheTime) < ttl {
 		cached := idxCache
 		idxCacheLock.RUnlock()
 		response.Success(c, map[string]interface{}{
