@@ -122,17 +122,34 @@ def main():
     if codes_arg:
         codes = [c.strip() for c in codes_arg.split(',') if c.strip()]
     else:
+        # 增量策略:
+        # 1. 优先拉取从未采集过资讯的股票 (LIMIT 50)
+        # 2. 再拉取最新资讯超过2天的股票 (LIMIT 50)
         cur.execute("""
             SELECT b.code FROM stocks_basic b
             LEFT JOIN stock_news n ON b.code = n.code
             WHERE n.code IS NULL
             ORDER BY b.code
-            LIMIT 100
+            LIMIT 50
         """)
-        codes = [r[0] for r in cur.fetchall()]
+        codes_new = [r[0] for r in cur.fetchall()]
+
+        cur.execute("""
+            SELECT b.code FROM stocks_basic b
+            INNER JOIN (
+                SELECT code, MAX(publish_date) as latest FROM stock_news GROUP BY code
+            ) n ON b.code = n.code
+            WHERE n.latest < CURRENT_DATE - INTERVAL '2 days'
+            ORDER BY n.latest ASC
+            LIMIT 50
+        """)
+        codes_stale = [r[0] for r in cur.fetchall()]
+
+        # Deduplicate and merge
+        codes = list(dict.fromkeys(codes_new + codes_stale))
     
     if not codes:
-        print("没有需要采集的股票", flush=True)
+        print("资讯数据已是最新", flush=True)
         return
     
     print(f"采集资讯数据: {len(codes)} 只", flush=True)

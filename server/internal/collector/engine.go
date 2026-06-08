@@ -338,26 +338,16 @@ func runIndicatorPhase() PhaseResult {
 	setPhase("indicator", "采集PE/PB指标...")
 	sseSend(SSELine{Type: "phase", Phase: "indicator", Message: "开始采集PE/PB指标...", Level: "info"})
 	t0 := time.Now()
-	today := time.Now().Format("2006-01-02")
-	var totalStocks int64
-	db.PG.Model(&model.StockBasic{}).Count(&totalStocks)
-	var existing int64
-	db.PG.Model(&model.StockDailyIndicator{}).Where("trade_date = ? AND pe > 0", today).Count(&existing)
-	need := totalStocks - existing
-	if need <= 0 {
-		pr := PhaseResult{Phase: "indicator", Total: int(existing), Skipped: int(existing), DurationMs: time.Since(t0).Milliseconds()}
-		sseSend(SSELine{Type: "result", Phase: "indicator", Result: &pr, Level: "success", Message: fmt.Sprintf("PE/PB完整 (%d 只), 跳过", existing)})
-		return pr
-	}
-	sseSend(SSELine{Type: "log", Message: fmt.Sprintf("需采集指标: %d 只 (总计 %d, 已有 %d)", need, totalStocks, existing), Level: "info"})
+	var before int64
+	db.PG.Model(&model.StockDailyIndicator{}).Count(&before)
 	runPythonStream("daily_indicator.py")
-	phaseRes := PhaseResult{Phase: "indicator", Skipped: int(existing)}
+	phaseRes := PhaseResult{Phase: "indicator", Skipped: int(before)}
 	var after int64
-	db.PG.Model(&model.StockDailyIndicator{}).Where("trade_date = ? AND pe > 0", today).Count(&after)
+	db.PG.Model(&model.StockDailyIndicator{}).Count(&after)
 	phaseRes.Total = int(after)
-	phaseRes.New = int(after - existing)
+	phaseRes.New = int(after - before)
 	phaseRes.DurationMs = time.Since(t0).Milliseconds()
-	sseSend(SSELine{Type: "result", Phase: "indicator", Result: &phaseRes, Level: "success", Message: fmt.Sprintf("PE/PB: %d 只", after)})
+	sseSend(SSELine{Type: "result", Phase: "indicator", Result: &phaseRes, Level: "success", Message: fmt.Sprintf("PE/PB: 新增 %d", after-before)})
 	return phaseRes
 }
 
@@ -365,25 +355,16 @@ func runIndustryPhase() PhaseResult {
 	setPhase("industry", "填充行业分类...")
 	sseSend(SSELine{Type: "phase", Phase: "industry", Message: "开始填充行业分类...", Level: "info"})
 	t0 := time.Now()
-	var totalStocks int64
-	db.PG.Model(&model.StockBasic{}).Count(&totalStocks)
-	var existing int64
-	db.PG.Model(&model.StockBasic{}).Where("industry IS NOT NULL AND industry != ''").Count(&existing)
-	need := totalStocks - existing
-	if need <= 0 {
-		pr := PhaseResult{Phase: "industry", Total: int(existing), Skipped: int(existing), DurationMs: time.Since(t0).Milliseconds()}
-		sseSend(SSELine{Type: "result", Phase: "industry", Result: &pr, Level: "success", Message: fmt.Sprintf("行业完整 (%d 只), 跳过", existing)})
-		return pr
-	}
-	sseSend(SSELine{Type: "log", Message: fmt.Sprintf("需填充行业: %d 只", need), Level: "info"})
+	var before int64
+	db.PG.Model(&model.StockBasic{}).Where("industry IS NOT NULL AND industry != ''").Count(&before)
 	runPythonStream("populate_industry.py")
-	phaseRes := PhaseResult{Phase: "industry", Skipped: int(existing)}
+	phaseRes := PhaseResult{Phase: "industry", Skipped: int(before)}
 	var after int64
 	db.PG.Model(&model.StockBasic{}).Where("industry IS NOT NULL AND industry != ''").Count(&after)
 	phaseRes.Total = int(after)
-	phaseRes.New = int(after - existing)
+	phaseRes.New = int(after - before)
 	phaseRes.DurationMs = time.Since(t0).Milliseconds()
-	sseSend(SSELine{Type: "result", Phase: "industry", Result: &phaseRes, Level: "success", Message: fmt.Sprintf("行业: %d 只", after)})
+	sseSend(SSELine{Type: "result", Phase: "industry", Result: &phaseRes, Level: "success", Message: fmt.Sprintf("行业: 新增 %d", after-before)})
 	return phaseRes
 }
 
@@ -406,25 +387,16 @@ func runShareholderPhase() PhaseResult {
 	setPhase("shareholder", "采集股东户数...")
 	sseSend(SSELine{Type: "phase", Phase: "shareholder", Message: "开始采集股东户数...", Level: "info"})
 	t0 := time.Now()
-	var totalStocks int64
-	db.PG.Model(&model.StockBasic{}).Count(&totalStocks)
-	var existing int64
-	db.PG.Model(&model.StockShareholder{}).Count(&existing)
-	need := totalStocks - existing
-	if need <= 0 {
-		pr := PhaseResult{Phase: "shareholder", Total: int(existing), Skipped: int(existing), DurationMs: time.Since(t0).Milliseconds()}
-		sseSend(SSELine{Type: "result", Phase: "shareholder", Result: &pr, Level: "success", Message: fmt.Sprintf("股东数据完整 (%d 只), 跳过", existing)})
-		return pr
-	}
-	sseSend(SSELine{Type: "log", Message: fmt.Sprintf("需采集股东: %d 只 (总计 %d, 已有 %d)", need, totalStocks, existing), Level: "info"})
+	var before int64
+	db.PG.Model(&model.StockShareholder{}).Count(&before)
 	runPythonStream("shareholder_collect.py")
-	phaseRes := PhaseResult{Phase: "shareholder", Skipped: int(existing)}
+	phaseRes := PhaseResult{Phase: "shareholder", Skipped: int(before)}
 	var after int64
 	db.PG.Model(&model.StockShareholder{}).Count(&after)
 	phaseRes.Total = int(after)
-	phaseRes.New = int(after - existing)
+	phaseRes.New = int(after - before)
 	phaseRes.DurationMs = time.Since(t0).Milliseconds()
-	sseSend(SSELine{Type: "result", Phase: "shareholder", Result: &phaseRes, Level: "success", Message: fmt.Sprintf("股东: %d 只", after)})
+	sseSend(SSELine{Type: "result", Phase: "shareholder", Result: &phaseRes, Level: "success", Message: fmt.Sprintf("股东: 新增 %d", after-before)})
 	return phaseRes
 }
 
