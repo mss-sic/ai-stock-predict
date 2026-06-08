@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const api = axios.create({ baseURL: 'http://127.0.0.1:8080/api/v1', timeout: 30000 });
+const api = axios.create({ baseURL: '/api/v1', timeout: 30000 });
 
 // ── Token management ──
 const TOKEN_KEY = 'aip_access_token';
@@ -81,7 +81,7 @@ api.interceptors.response.use(
       original._retry = true;
       isRefreshing = true;
       try {
-        const { data } = await axios.post('http://127.0.0.1:8080/api/v1/auth/refresh', { refreshToken });
+        const { data } = await axios.post('/api/v1/auth/refresh', { refreshToken });
         setTokens(data.data.accessToken, data.data.refreshToken);
         onRefreshed(data.data.accessToken);
         original.headers.Authorization = `Bearer ${data.data.accessToken}`;
@@ -153,7 +153,7 @@ export const fetchShareholders = (code: string) => api.get(`/stocks/${code}/shar
 export const fetchStockNews = (code: string) => api.get(`/stocks/${code}/news`);
 export const fetchStockReports = (code: string) => api.get(`/stocks/${code}/reports`);
 export const fetchIndustryReports = () => api.get('/reports/industry');
-export const getReportPdfUrl = (infoCode: string) => `http://127.0.0.1:8080/api/v1/reports/pdf?code=${infoCode}`;
+export const getReportPdfUrl = (infoCode: string) => `/api/v1/reports/pdf?code=${infoCode}`;
 
 // ── Board APIs ──
 export const fetchTodayBoard = () => api.get('/board/today');
@@ -248,7 +248,7 @@ export const collectSingleStock = (code: string, phases?: string[]) => api.post(
 
 // ── AI APIs ──
 export const aiAnalyze = (code: string, question: string) => api.post('/ai/analyze', { code, question });
-export const aiStreamUrl = () => 'http://127.0.0.1:8080/api/v1/ai/analyze/stream';
+export const aiStreamUrl = () => '/api/v1/ai/analyze/stream';
 export const fetchAIHistory = (code: string) => api.get(`/ai/history/${code}`);
 export const clearAIHistory = (code: string) => api.delete(`/ai/history/${code}`);
 export const fetchAIScore = (code: string) => api.get(`/ai/score/${code}`);
