@@ -12,14 +12,19 @@ type BacktestTask struct {
 	CurrentDay  int       `gorm:"default:0" json:"currentDay"`
 	TotalDays   int       `gorm:"default:0" json:"totalDays"`
 	ErrorMsg    string    `gorm:"size:500" json:"errorMsg"`
-	ProgressPct float64   `gorm:"default:0" json:"progressPct"`          // 0-100
+	ProgressPct float64   `gorm:"default:0" json:"progressPct"` // 0-100
+
+	// Capital tracking
+	InitialCapital float64 `gorm:"type:numeric(16,2);default:0" json:"initialCapital"` // 初始资金
+	FinalEquity    float64 `gorm:"type:numeric(16,2);default:0" json:"finalEquity"`     // 最终权益
+	TotalReturn    float64 `gorm:"type:numeric(10,4);default:0" json:"totalReturn"`     // 总收益率%
 
 	// Snapshot of latest position data (JSON)
 	CurrentPositions string `gorm:"type:text" json:"currentPositions"`
 
 	// Parameters stored as JSON for replay
-	Params     string    `gorm:"type:text" json:"params"` // {startDate, endDate, stockCodes}
-	ResultID   *uint     `json:"resultId"`                // FK to backtest_results.id when completed
+	Params   string `gorm:"type:text" json:"params"` // {startDate, endDate, stockCodes}
+	ResultID *uint  `json:"resultId"`                // FK to backtest_results.id when completed
 
 	StartedAt   *time.Time `json:"startedAt"`
 	CompletedAt *time.Time `json:"completedAt"`

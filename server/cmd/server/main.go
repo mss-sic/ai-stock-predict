@@ -24,6 +24,9 @@ func main() {
 	db.EnsureManualTables()
 	handler.EnsureAdminUser()
 
+	// Clean orphaned backtest tasks from previous server run
+	db.MySQL.Exec("UPDATE backtest_tasks SET status='cancelled', phase='服务器重启, 任务已中断', completed_at=NOW() WHERE status IN ('running','pending')")
+
 	sched := scheduler.New(cfg.CronExpr)
 	sched.Start()
 	defer sched.Stop()
@@ -158,6 +161,9 @@ func main() {
 		api.GET("/strategies/:id/backtest/stream/:taskId", strategyH.BacktestStream)
 		api.POST("/strategies/:id/backtest/cancel/:taskId", strategyH.CancelBacktest)
 		api.GET("/strategies/:id/backtest/tasks", strategyH.BacktestTasks)
+		api.DELETE("/strategies/:id/backtest/tasks/:taskId", strategyH.DeleteBacktestTask)
+		api.GET("/strategies/:id/backtest/tasks/:taskId/logs", strategyH.BacktestTaskLogs)
+		api.GET("/strategies/:id/backtest/tasks/:taskId/snapshots", strategyH.BacktestTaskSnapshots)
 		api.GET("/strategies/backtest-history", strategyH.BacktestHistory)
 		api.DELETE("/strategies/backtest-history/:id", strategyH.DeleteBacktestResult)
 		api.GET("/strategies/stock-pool", strategyH.StockPool)

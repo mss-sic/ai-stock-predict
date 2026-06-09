@@ -43,8 +43,15 @@ func AutoMigrate() {
 			&model.WatchlistGroup{},
 			&model.Strategy{},
 			&model.StrategyCondition{},
-			&model.BacktestResult{},model.BacktestResult{},
-			&model.BacktestResult{},model.BacktestTask{},
+			// Backtest system
+			&model.BacktestTask{},
+			&model.BacktestDailySnapshot{},
+			&model.BacktestExecutionLog{},
+			&model.BacktestResult{},
+			// Future features
+			&model.StrategyRun{},
+			&model.StrategyComparison{},
+			// Other
 			&model.Holding{},
 			&model.RiskAlert{},
 			&model.ImportLog{},
@@ -57,7 +64,13 @@ func AutoMigrate() {
 		); err != nil {
 			log.Printf("MySQL migrate warning: %v", err)
 		}
+
+		// Ensure stock_pool column uses the short enum key design
+		if err := MySQL.Exec("ALTER TABLE backtest_results MODIFY COLUMN stock_pool VARCHAR(30) NOT NULL DEFAULT ''").Error; err != nil {
+			log.Printf("WARN: fix backtest_results.stock_pool: %v", err)
+		}
 	}
+
 	// Clean dirty historical data: old English risk/suggestion -> empty
 	if PG != nil {
 		PG.Exec("UPDATE algorithm_pick_details SET risk_level='', suggestion='' WHERE risk_level IN ('high','medium','low') OR suggestion IN ('buy','hold','sell')")

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 	"strings"
 
 	"github.com/ai-stock-predict/server/internal/db"
@@ -48,7 +49,8 @@ func (s *AIService) TestConnection(provider, apiKey, modelName, baseURL string) 
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+apiKey)
-	resp, err := http.DefaultClient.Do(req)
+		client := &http.Client{Timeout: 60 * time.Second}
+	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("连接失败: %w", err)
 	}
@@ -87,7 +89,8 @@ func (s *AIService) ChatCompletion(userID uint, prompt string, history []map[str
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
-	resp, err := http.DefaultClient.Do(req)
+		client := &http.Client{Timeout: 60 * time.Second}
+	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("AI请求失败: %w", err)
 	}
@@ -110,7 +113,11 @@ func (s *AIService) ChatCompletion(userID uint, prompt string, history []map[str
 	if len(result.Choices) == 0 {
 		return "", fmt.Errorf("AI返回空结果")
 	}
-	return result.Choices[0].Message.Content, nil
+	content := result.Choices[0].Message.Content
+	if content == "" {
+		return "", fmt.Errorf("AI返回空内容，模型可能因提示词过长被截断")
+	}
+	return content, nil
 }
 
 // ChatCompletionStream sends a streaming chat completion (user-scoped)
@@ -141,7 +148,8 @@ func (s *AIService) ChatCompletionStream(userID uint, prompt string, history []m
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
-	resp, err := http.DefaultClient.Do(req)
+		client := &http.Client{Timeout: 60 * time.Second}
+	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("AI请求失败: %w", err)
 	}

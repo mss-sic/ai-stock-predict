@@ -1,12 +1,13 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { Button, Input, InputNumber, Modal, Table, Select, Popconfirm, Tooltip, Message, Tag } from '@arco-design/web-react';
-import { Target, Plus, Trash2, GripVertical, Play, Brain, BarChart4, TrendingUp, Shield, Settings, Sparkles, Beaker } from 'lucide-react';
+import { Button, Input, InputNumber, Modal, Table, Select, Popconfirm, Tooltip, Message, Tag, Tabs } from '@arco-design/web-react';
+import { Target, Plus, Trash2, GripVertical, Play, Brain, BarChart4, TrendingUp, Shield, Settings, Sparkles, Beaker, Clock, History, Activity, AlertCircle } from 'lucide-react';
 import {
   fetchStrategies, createStrategy, updateStrategy, deleteStrategy, reorderStrategies,
   fetchStrategyConditions, saveStrategyConditions, aiGenerateStrategy, optimizePrompt,
   fetchIndicators, runBacktest, fetchBacktestHistory, testIndicator,
   startBacktest, getBacktestStatus, cancelBacktest, fetchBacktestTasks,
-  deleteBacktestResult, fetchStockPool,
+  deleteBacktestResult, deleteBacktestTask, fetchStockPool,
+  fetchBacktestTaskLogs, fetchTaskSnapshots,
 } from '../services/api';
 
 type CondType = 'buy' | 'add' | 'sell' | 'reduce';
@@ -38,6 +39,8 @@ export default function StrategyPage() {
   const [btHistory, setBtHistory] = useState<any[]>([]);
   const [btPositions, setBtPositions] = useState<any>(null);
   const [btLogs, setBtLogs] = useState<any[]>([]);
+  const [btExecLogs, setBtExecLogs] = useState<any[]>([]);
+  const btLogCursorRef = useRef(0);
   const [btPhase, setBtPhase] = useState('');
   const [btProgress, setBtProgress] = useState('');
   const [btTaskId, setBtTaskId] = useState<number | null>(null);
@@ -48,6 +51,8 @@ export default function StrategyPage() {
   const [stockPools, setStockPools] = useState<any[]>([]);
   const [btDetailVisible, setBtDetailVisible] = useState(false);
   const [btDetailResult, setBtDetailResult] = useState<any>(null);
+  const [btDetailLogs, setBtDetailLogs] = useState<any[]>([]);
+  const [btDetailTab, setBtDetailTab] = useState('trades');
 
   // Indicator test state
   const [testModalVisible, setTestModalVisible] = useState(false);
@@ -107,7 +112,9 @@ export default function StrategyPage() {
 
   const handleUpdateStrategy = async (field: string, value: any) => {
     if (!activeId) return;
-    try { await updateStrategy(activeId, { [field]: value }); loadStrategies(); } catch {}
+    // Optimistic update: update local state immediately
+    setActiveStrategy((prev: any) => prev ? { ...prev, [field]: value } : prev);
+    try { await updateStrategy(activeId, { [field]: value }); } catch {}
   };
 
   const filteredConds = (t: CondType) => conditions.filter((c: any) => c.condType === t);
@@ -171,7 +178,7 @@ export default function StrategyPage() {
   // ── Backtest handlers ──
   const handleRunBacktest = async () => {
     if (!activeId || !btStart || !btEnd) return;
-    setBtRunning(true); setBtResult(null); setBtPositions(null); setBtLogs([]);
+    setBtRunning(true); setBtResult(null); setBtPositions(null); setBtExecLogs([]); btLogCursorRef.current = 0; setBtActiveTab('positions');
     setBtPhase('正在初始化...'); setBtProgress('');
     const token = localStorage.getItem('aip_access_token') || '';
     try {
@@ -223,7 +230,7 @@ export default function StrategyPage() {
 
   const handleStartBacktest = async () => {
     if (!activeId || !btStart || !btEnd) return;
-    setBtRunning(true); setBtResult(null); setBtPositions(null); setBtLogs([]);
+    setBtRunning(true); setBtResult(null); setBtPositions(null);
     setBtPhase('正在启动回测任务...'); setBtProgress(''); setBtOfflineMode(true);
     try {
       const { data: r } = await startBacktest(activeId, btStart, btEnd, [], btStockPool);
@@ -246,22 +253,42 @@ export default function StrategyPage() {
       if (t.currentPositions) {
         const pos = typeof t.currentPositions === 'string' ? JSON.parse(t.currentPositions) : t.currentPositions;
         setBtPositions({ ...pos, day: t.currentDay, totalDays: t.totalDays });
-        // Extract embedded trade events from position snapshot
-        if (pos.recentTrades && Array.isArray(pos.recentTrades)) {
-          setBtLogs(prev => {
-            const existing = new Set(prev.map((tr: any) => tr.date + '-' + tr.action + '-' + tr.code + '-' + tr.price + '-' + tr.quantity));
-            const newTrades = pos.recentTrades.filter((tr: any) => !existing.has(tr.date + '-' + tr.action + '-' + tr.code + '-' + tr.price + '-' + tr.quantity));
-            return [...prev, ...newTrades];
-          });
-        }
+        // Trade events are embedded in exec logs from the API
+        // Incremental execution log fetching
+        fetchBacktestTaskLogs(activeId, taskId).then(({ data: lr }: any) => {
+          if (lr.data?.logs?.length > 0) {
+            const newLogs = lr.data.logs.filter((l: any) => l.id > btLogCursorRef.current);
+            if (newLogs.length > 0) {
+              setBtExecLogs(prev => [...prev, ...newLogs]);
+              btLogCursorRef.current = Math.max(btLogCursorRef.current, ...newLogs.map((l: any) => l.id));
+            }
+          }
+        }).catch(() => {});
       }
       if (t.status === 'completed') {
-        setBtRunning(false); setBtOfflineMode(false); setBtTaskId(null); setBtPhase('回测完成');
+        setBtRunning(false); setBtOfflineMode(false); setBtPhase('回测完成');
         if (t.resultId) {
           const { data: rr } = await fetchBacktestHistory(activeId);
           setBtHistory(rr.data || []);
         }
         fetchBacktestTasks(activeId).then(({ data: rt }: any) => setBtTasks(rt.data || [])).catch(() => {});
+        // Fetch full logs and final snapshot
+        if (taskId) {
+          fetchBacktestTaskLogs(activeId, taskId).then(({ data: lr }: any) => {
+            if (lr.data?.logs) setBtExecLogs(lr.data.logs);
+          }).catch(() => {});
+          fetchTaskSnapshots(activeId, taskId, 1).then(({ data: sr }: any) => {
+            if (sr.data?.length > 0) {
+              const s = sr.data[0];
+              setBtPositions({
+                date: s.date, day: s.dayIndex, totalDays: t.totalDays,
+                cash: s.cash, totalEquity: s.totalEquity, totalReturn: s.cumulativeReturn,
+                positions: s.positionsData || [], positionCount: s.positionCount,
+                recentTrades: [],
+              });
+            }
+          }).catch(() => {});
+        }
         return;
       }
       if (t.status === 'failed') {
@@ -292,6 +319,15 @@ export default function StrategyPage() {
       toast('info', '回测已取消');
       fetchBacktestTasks(activeId).then(({ data: rt }: any) => setBtTasks(rt.data || [])).catch(() => {});
     } catch { toast('error', '取消失败'); }
+  };
+
+  const handleCancelTask = async (taskId: number) => {
+    if (!activeId) return;
+    try {
+      await cancelBacktest(activeId, taskId);
+      Message.success('已取消');
+      fetchBacktestTasks(activeId).then(({ data: rt }: any) => setBtTasks(rt.data || [])).catch(() => {});
+    } catch { Message.error('取消失败'); }
   };
 
   const handleReconnectTask = async (taskId: number) => {
@@ -345,6 +381,23 @@ export default function StrategyPage() {
   const handleViewBacktestDetail = (result: any) => {
     setBtDetailResult(result);
     setBtDetailVisible(true);
+    setBtDetailLogs([]);
+    setBtDetailTab('trades');
+    // Fetch execution logs for this result
+    if (result.taskId && activeId) {
+      fetchBacktestTaskLogs(activeId, result.taskId).then(({ data: r }: any) => {
+        setBtDetailLogs(r.data?.logs || []);
+      }).catch(() => {});
+    }
+  };
+
+  const handleDeleteTask = async (taskId: number) => {
+    if (!activeId) return;
+    try {
+      await deleteBacktestTask(activeId, taskId);
+      Message.success('已删除');
+      fetchBacktestTasks(activeId).then(({ data: rt }: any) => setBtTasks(rt.data || [])).catch(() => {});
+    } catch { Message.error('删除失败'); }
   };
 
   const handleDeleteBacktestResult = async (id: number) => {
@@ -605,73 +658,116 @@ export default function StrategyPage() {
                   </div>
                 )}
 
-                {/* Positions + Trade Log */}
-                {(btPositions || btLogs.length > 0) && (
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
-                    {btPositions && (
-                      <div style={{ background: '#fff', border: '1px solid #e5e6eb', borderRadius: 8, padding: 12 }}>
-                        <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, display: 'flex', justifyContent: 'space-between' }}>
-                          <span>📊 持仓快照 ({btPositions.date || btPositions.day})</span>
-                          <span style={{ fontSize: 11, color: '#86909c' }}>
-                            现金: ¥{btPositions.cash?.toLocaleString()} | 总权益: ¥{btPositions.totalEquity?.toLocaleString()}
-                          </span>
-                        </div>
-                        {btPositions.positions?.length > 0 ? (
-                          <div style={{ maxHeight: 240, overflow: 'auto' }}>
-                            <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
-                              <thead><tr style={{ borderBottom: '1px solid #f2f3f5', color: '#86909c' }}>
-                                <th style={{ textAlign: 'left', padding: '3px 4px' }}>代码</th>
-                                <th style={{ textAlign: 'left', padding: '3px 4px' }}>名称</th>
-                                <th style={{ textAlign: 'right', padding: '3px 4px' }}>持仓</th>
-                                <th style={{ textAlign: 'right', padding: '3px 4px' }}>现价</th>
-                                <th style={{ textAlign: 'right', padding: '3px 4px' }}>市值</th>
-                                <th style={{ textAlign: 'right', padding: '3px 4px' }}>盈亏%</th>
-                              </tr></thead>
-                              <tbody>
-                                {btPositions.positions.map((p: any, i: number) => (
-                                  <tr key={i} style={{ borderBottom: '1px solid #fafafa' }}>
-                                    <td style={{ padding: '3px 4px', fontFamily: 'monospace' }}>{p.code}</td>
-                                    <td style={{ padding: '3px 4px' }}>{p.name}</td>
-                                    <td style={{ textAlign: 'right', padding: '3px 4px' }}>{p.qty}股</td>
-                                    <td style={{ textAlign: 'right', padding: '3px 4px', fontFamily: 'monospace' }}>{p.price?.toFixed(2)}</td>
-                                    <td style={{ textAlign: 'right', padding: '3px 4px', fontFamily: 'monospace' }}>¥{p.marketVal?.toLocaleString()}</td>
-                                    <td style={{ textAlign: 'right', padding: '3px 4px', fontFamily: 'monospace', color: p.pnlPct >= 0 ? '#f53f3f' : '#00b42a', fontWeight: 600 }}>
-                                      {p.pnlPct >= 0 ? '+' : ''}{p.pnlPct}%
-                                    </td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
+                {/* ═══ Live Console + Positions ═══ */}
+                {(btPositions || btExecLogs.length > 0 || btLogs.length > 0) && (
+                  <div style={{ marginBottom: 16, display: 'flex', gap: 12 }}>
+                    {/* Left: Position snapshot (compact) */}
+                    <div style={{
+                      flex: 1, background: '#fff', border: '1px solid #e5e6eb',
+                      borderRadius: 10, padding: 14, maxHeight: 420, overflow: 'auto',
+                    }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: '#1d2129', marginBottom: 10 }}>📊 持仓</div>
+                      {btPositions ? (
+                        <>
+                          <div style={{
+                            display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 12px',
+                            fontSize: 12, marginBottom: 8, padding: '6px 8px',
+                            background: '#fafbfc', borderRadius: 6,
+                          }}>
+                            <div><span style={{ color: '#86909c' }}>日期</span> {(btPositions.date || '').slice(0, 10) || `第${btPositions.day}天`}</div>
+                            <div><span style={{ color: '#86909c' }}>持仓</span> {btPositions.positionCount || 0}只</div>
+                            <div><span style={{ color: '#86909c' }}>现金</span> ¥{(btPositions.cash || 0).toLocaleString()}</div>
+                            <div><span style={{ color: '#86909c' }}>总权益</span> <b style={{ color: (btPositions.totalReturn || 0) >= 0 ? '#f53f3f' : '#00b42a' }}>¥{(btPositions.totalEquity || 0).toLocaleString()}</b></div>
+                            <div style={{ gridColumn: '1 / -1' }}>
+                              <span style={{ color: '#86909c' }}>累计收益</span> <b style={{ color: (btPositions.totalReturn || 0) >= 0 ? '#f53f3f' : '#00b42a' }}>{(btPositions.totalReturn || 0) >= 0 ? '+' : ''}{btPositions.totalReturn}%</b>
+                            </div>
                           </div>
-                        ) : <div style={{ color: '#86909c', fontSize: 12, padding: 20, textAlign: 'center' }}>暂无持仓</div>}
+                          {btPositions.positions?.length > 0 ? btPositions.positions.map((p: any, i: number) => (
+                            <div key={i} style={{
+                              padding: '8px 0', borderBottom: '1px solid #f5f5f5', fontSize: 12,
+                            }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <span style={{ fontWeight: 600, fontSize: 12 }}>{p.name || p.code}</span>
+                                <span style={{
+                                  fontWeight: 600, fontSize: 11,
+                                  color: (p.pnlPct || 0) >= 0 ? '#f53f3f' : '#00b42a',
+                                }}>{(p.pnlPct || 0) >= 0 ? '+' : ''}{p.pnlPct?.toFixed(1)}%</span>
+                              </div>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 2, color: '#86909c', fontSize: 11 }}>
+                                <span>{p.qty}股 × ¥{p.price?.toFixed(2)}</span>
+                                <span>¥{(p.marketVal || 0).toLocaleString()}</span>
+                              </div>
+                              <div style={{ color: '#c9cdd4', fontSize: 10 }}>成本 ¥{p.costPrice?.toFixed(2)}</div>
+                            </div>
+                          )) : (
+                            <div style={{ color: '#86909c', fontSize: 12, padding: 16, textAlign: 'center', background: '#fafbfc', borderRadius: 6 }}>
+                              💰 空仓<br/><span style={{ fontSize: 10 }}>现金 ¥{(btPositions.cash || 0).toLocaleString()}</span>
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <div style={{ color: '#86909c', fontSize: 13, padding: 24, textAlign: 'center' }}>等待数据...</div>
+                      )}
+                    </div>
+
+                    {/* Right: Console-style execution log */}
+                    <div style={{
+                      flex: 1, minWidth: 0, background: '#1a1a2e', border: '1px solid #2a2a4a',
+                      borderRadius: 10, overflow: 'hidden', display: 'flex', flexDirection: 'column',
+                    }}>
+                      <div style={{
+                        padding: '8px 14px', background: '#16213e', borderBottom: '1px solid #2a2a4a',
+                        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                      }}>
+                        <span style={{ fontSize: 12, fontWeight: 600, color: '#7ec8e3' }}>💻 策略执行控制台</span>
+                        <span style={{ fontSize: 10, color: '#4a6a8a' }}>
+                          {btExecLogs.length} 条日志{btRunning ? ' · 实时更新中' : ''}
+                        </span>
                       </div>
-                    )}
-                    <div style={{ background: '#1d2129', border: '1px solid #333', borderRadius: 8, padding: 12, color: '#e5e6eb', fontFamily: 'monospace', fontSize: 11, maxHeight: 360, overflow: 'auto' }}>
-                      <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, color: '#fff' }}>📋 交易日志</div>
-                      {btLogs.length === 0 && <div style={{ color: '#86909c' }}>等待交易信号...</div>}
-                      {btLogs.map((t: any, i: number) => {
-                        const colors: Record<string, string> = { buy: '#f53f3f', add: '#ff7d00', sell: '#00b42a', reduce: '#165dff' };
-                        const labels: Record<string, string> = { buy: '买入', add: '加仓', sell: '卖出', reduce: '减仓' };
-                        return (
-                          <div key={i} style={{ marginBottom: 3, lineHeight: 1.5 }}>
-                            <span style={{ color: '#86909c' }}>{t.date}</span>{' '}
-                            <span style={{ color: colors[t.action] || '#fff', fontWeight: 600 }}>[{labels[t.action] || t.action}]</span>{' '}
-                            <span>{t.code} {t.name}</span>{' '}
-                            <span>¥{t.price?.toFixed(2)} × {t.quantity}股</span>{' '}
-                            {t.pnlPct !== undefined && t.pnlPct !== 0 && (
-                              <span style={{ color: t.pnlPct > 0 ? '#f53f3f' : '#00b42a' }}>{t.pnlPct > 0 ? '+' : ''}{t.pnlPct?.toFixed(2)}%</span>
-                            )}
-                            <div style={{ color: '#86909c', fontSize: 10 }}>  ↳ {t.reason}</div>
+                      <div style={{
+                        flex: 1, overflow: 'auto', padding: '8px 12px',
+                        fontFamily: "'SF Mono', 'Monaco', 'Menlo', monospace",
+                        fontSize: 11, lineHeight: '1.7', color: '#c9d1d9',
+                        maxHeight: 380, minHeight: 200,
+  }} ref={(el) => { if (el && btExecLogs.length > 0) { el.scrollTop = el.scrollHeight; } }}>
+                        {btExecLogs.length > 0 ? btExecLogs.map((l: any, i: number) => {
+                          const typeStyles: Record<string, { icon: string; color: string }> = {
+                            system: { icon: '⚙', color: '#58a6ff' },
+                            trade: { icon: '💹', color: '#7ee787' },
+                            condition_eval: { icon: '🔍', color: '#d2a8ff' },
+                            signal: { icon: '📶', color: '#f0883e' },
+                            error: { icon: '❌', color: '#f85149' },
+                          };
+                          const s = typeStyles[l.logType] || { icon: '·', color: '#8b949e' };
+                          const levelDim = l.level === 'debug' ? { opacity: 0.6 } : {};
+                          return (
+                            <div key={i} style={{
+                              padding: '1px 0', display: 'flex', gap: 6,
+                              borderBottom: l.logType === 'system' ? '1px solid #21262d' : 'none',
+                              paddingBottom: l.logType === 'system' ? 4 : 1,
+                              marginBottom: l.logType === 'system' ? 4 : 0,
+                              ...levelDim,
+                            }}>
+                              <span style={{ color: '#484f58', whiteSpace: 'nowrap', minWidth: 42 }}>{l.date?.slice(5) || ''}</span>
+                              <span style={{ color: s.color }}>{s.icon}</span>
+                              <span style={{ color: '#8b949e', fontSize: 10 }}>[{l.logType}]</span>
+                              {l.stockCode && <span style={{ color: '#f0883e', fontWeight: 600 }}>{l.stockCode}</span>}
+                              <span style={{ color: s.color, wordBreak: 'break-all' }}>{l.message}</span>
+                            </div>
+                          );
+                        }) : (
+                          <div style={{ color: '#484f58', padding: 32, textAlign: 'center' }}>
+                            {btRunning ? '⏳ 等待扫描开始...' : '暂无执行日志'}
                           </div>
-                        );
-                      })}
+                        )}
+                      </div>
                     </div>
                   </div>
                 )}
 
-                {/* Final metrics */}
+                {/* Final metrics — always show after backtest */}
                 {btResult && (
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 16 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
                     <div style={{ padding: '14px 16px', background: '#fff', borderRadius: 8, border: '1px solid #e5e6eb' }}>
                       <div style={{ fontSize: 11, color: '#86909c' }}>累计收益</div>
                       <div style={{ fontSize: 24, fontWeight: 700, color: btResult.totalReturn >= 0 ? '#f53f3f' : '#00b42a' }}>
@@ -679,13 +775,15 @@ export default function StrategyPage() {
                       </div>
                     </div>
                     <div style={{ padding: '14px 16px', background: '#fff', borderRadius: 8, border: '1px solid #e5e6eb' }}>
-                      <div style={{ fontSize: 11, color: '#86909c' }}>夏普比率 / 最大回撤</div>
-                      <div style={{ fontSize: 24, fontWeight: 700, color: '#1d2129' }}>{btResult.sharpeRatio}
-                        <span style={{ fontSize: 14, color: '#f53f3f', marginLeft: 8 }}>-{btResult.maxDrawdown}%</span>
-                      </div>
+                      <div style={{ fontSize: 11, color: '#86909c' }}>夏普比率</div>
+                      <div style={{ fontSize: 24, fontWeight: 700, color: '#1d2129' }}>{btResult.sharpeRatio}</div>
                     </div>
                     <div style={{ padding: '14px 16px', background: '#fff', borderRadius: 8, border: '1px solid #e5e6eb' }}>
-                      <div style={{ fontSize: 11, color: '#86909c' }}>胜率 / 交易次数</div>
+                      <div style={{ fontSize: 11, color: '#86909c' }}>最大回撤</div>
+                      <div style={{ fontSize: 24, fontWeight: 700, color: '#f53f3f' }}>-{btResult.maxDrawdown}%</div>
+                    </div>
+                    <div style={{ padding: '14px 16px', background: '#fff', borderRadius: 8, border: '1px solid #e5e6eb' }}>
+                      <div style={{ fontSize: 11, color: '#86909c' }}>胜率 / 交易</div>
                       <div style={{ fontSize: 24, fontWeight: 700, color: '#1d2129' }}>{btResult.winRate}%
                         <span style={{ fontSize: 14, color: '#86909c', marginLeft: 8 }}>/ {btResult.tradeCount}次</span>
                       </div>
@@ -693,25 +791,45 @@ export default function StrategyPage() {
                   </div>
                 )}
 
-                {/* History */}
-                {btHistory.length > 0 && (
-                  <div className="card">
-                    <div className="card-header"><span className="card-title" style={{ fontWeight: 600, fontSize: 14 }}>历史回测记录</span></div>
+                {/* History — always visible */}
+                <div style={{
+                  background: '#fff', borderRadius: 12, border: '1px solid #e5e6eb',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.04)', marginBottom: 16, overflow: 'hidden',
+                }}>
+                  <div style={{
+                    padding: '14px 20px', borderBottom: btHistory.length > 0 ? '1px solid #f0f1f3' : 'none',
+                    display: 'flex', alignItems: 'center', gap: 10,
+                  }}>
+                    <div style={{ width: 36, height: 36, borderRadius: 10, background: '#e8f3ff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <History size={18} color="#165DFF" />
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 15, fontWeight: 700, color: '#1d2129' }}>历史回测记录</div>
+                      {btHistory.length > 0 && <div style={{ fontSize: 12, color: '#86909c' }}>共 {btHistory.length} 条记录</div>}
+                    </div>
+                  </div>
+                  {btHistory.length > 0 ? (
                     <Table
                       columns={[
-                        { title: '时间', dataIndex: 'createdAt', render: (v: string) => v?.slice(0, 16) },
-                        { title: '股票', dataIndex: 'stockCode', render: (v: string) => v || '多只' },
-                        { title: '区间', dataIndex: 'startDate', render: (_: any, r: any) => `${r.startDate?.slice(0,10)} → ${r.endDate?.slice(0,10)}` },
-                        { title: '收益', dataIndex: 'totalReturn', render: (v: number) => <span style={{ color: v >= 0 ? '#f53f3f' : '#00b42a', fontWeight: 600 }}>{v >= 0 ? '+' : ''}{v}%</span> },
-                        { title: '夏普', dataIndex: 'sharpeRatio' },
-                        { title: '回撤', dataIndex: 'maxDrawdown', render: (v: number) => `-${v}%` },
-                        { title: '胜率', dataIndex: 'winRate', render: (v: number) => `${v}%` },
-                        { title: '交易', dataIndex: 'tradeCount' },
-                        { title: '操作', dataIndex: 'id', render: (id: number, record: any) => (
-                          <div style={{ display: 'flex', gap: 4 }}>
-                            <Button size="mini" type="text" onClick={() => handleViewBacktestDetail(record)}>详情</Button>
+                        { title: '时间', dataIndex: 'createdAt', width: 140, render: (v: string) => <span style={{ fontSize: 12, color: '#4e5969' }}>{v?.slice(0, 16)}</span> },
+                        { title: '股票池', dataIndex: 'stockCode', width: 150, render: (v: string) => <span style={{ fontSize: 12, color: '#4e5969' }}>{v || '多只'}</span> },
+                        { title: '区间', dataIndex: 'startDate', width: 180, render: (_: any, r: any) => <span style={{ fontSize: 12, color: '#86909c' }}>{r.startDate?.slice(0,10)} → {r.endDate?.slice(0,10)}</span> },
+                        { title: '收益', dataIndex: 'totalReturn', width: 100, render: (v: number) => (
+                          <span style={{
+                            fontWeight: 700, fontSize: 13, fontFamily: 'monospace',
+                            color: v >= 0 ? '#f53f3f' : '#00b42a'
+                          }}>{v >= 0 ? '+' : ''}{v}%</span>
+                        )},
+                        { title: '夏普', dataIndex: 'sharpeRatio', width: 70, render: (v: number) => <span style={{ fontFamily: 'monospace', fontSize: 12 }}>{v}</span> },
+                        { title: '回撤', dataIndex: 'maxDrawdown', width: 80, render: (v: number) => <span style={{ color: '#f53f3f', fontSize: 12 }}>-{v}%</span> },
+                        { title: '胜率', dataIndex: 'winRate', width: 70, render: (v: number) => <span style={{ fontSize: 12 }}>{v}%</span> },
+                        { title: '交易', dataIndex: 'tradeCount', width: 60 },
+                        { title: '操作', dataIndex: 'id', width: 120, render: (id: number, record: any) => (
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            <Button size="mini" type="outline" onClick={() => handleViewBacktestDetail(record)}
+                              style={{ borderColor: '#165DFF', color: '#165DFF', fontSize: 11 }}>详情</Button>
                             <Popconfirm title="确定删除？" onOk={() => handleDeleteBacktestResult(id)}>
-                              <Button size="mini" type="text" status="danger">删除</Button>
+                              <Button size="mini" type="text" status="danger" style={{ fontSize: 11 }}>删除</Button>
                             </Popconfirm>
                           </div>
                         )},
@@ -720,38 +838,97 @@ export default function StrategyPage() {
                       rowKey="id"
                       pagination={false}
                       size="small"
+                      stripe
                     />
-                  </div>
-                )}
+                  ) : (
+                    <div style={{ padding: '40px 20px', textAlign: 'center' }}>
+                      <div style={{ width: 56, height: 56, borderRadius: 16, background: '#f5f6f8', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginBottom: 12 }}>
+                        <BarChart4 size={26} color="#c9cdd4" />
+                      </div>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: '#4e5969', marginBottom: 4 }}>暂无回测记录</div>
+                      <div style={{ fontSize: 12, color: '#86909c' }}>设置参数后点击「开始回测」，完成后记录将显示在此处</div>
+                    </div>
+                  )}
+                </div>
 
-                {/* Task list */}
+                {/* Task list — always visible if any tasks */}
                 {btTasks.length > 0 && (
-                  <div className="card" style={{ marginTop: 12 }}>
-                    <div className="card-header"><span className="card-title" style={{ fontWeight: 600, fontSize: 14 }}>回测任务</span></div>
+                  <div style={{
+                    background: '#fff', borderRadius: 12, border: '1px solid #e5e6eb',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.04)', overflow: 'hidden',
+                  }}>
+                    <div style={{
+                      padding: '14px 20px', borderBottom: '1px solid #f0f1f3',
+                      display: 'flex', alignItems: 'center', gap: 10,
+                    }}>
+                      <div style={{ width: 36, height: 36, borderRadius: 10, background: '#fff7e8', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <Activity size={18} color="#F77234" />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 15, fontWeight: 700, color: '#1d2129' }}>回测任务</div>
+                        <div style={{ fontSize: 12, color: '#86909c' }}>
+                          {btTasks.filter((t: any) => t.status === 'running').length} 运行中 · {btTasks.filter((t: any) => t.status === 'pending').length} 排队
+                        </div>
+                      </div>
+                    </div>
                     <Table
                       columns={[
-                        { title: '创建时间', dataIndex: 'createdAt', render: (v: string) => v?.slice(0, 16) },
-                        { title: '状态', dataIndex: 'status', render: (v: string) => {
-                          const statusMap: Record<string, { color: string; label: string }> = {
-                            pending: { color: '#86909c', label: '排队中' }, running: { color: '#165dff', label: '运行中' },
-                            completed: { color: '#00b42a', label: '已完成' }, failed: { color: '#f53f3f', label: '失败' }, cancelled: { color: '#ff7d00', label: '已取消' },
+                        { title: '创建时间', dataIndex: 'createdAt', width: 140, render: (v: string) => <span style={{ fontSize: 12, color: '#4e5969' }}>{v?.slice(0, 16)}</span> },
+                        { title: '状态', dataIndex: 'status', width: 90, render: (v: string) => {
+                          const statusMap: Record<string, { bg: string; color: string; label: string; icon: any }> = {
+                            pending: { bg: '#f2f3f5', color: '#86909c', label: '排队中', icon: <Clock size={11} /> },
+                            running: { bg: '#e8f3ff', color: '#165DFF', label: '运行中', icon: <Activity size={11} /> },
+                            completed: { bg: '#e8ffea', color: '#00B42A', label: '已完成', icon: <Shield size={11} /> },
+                            failed: { bg: '#ffece8', color: '#F53F3F', label: '失败', icon: <AlertCircle size={11} /> },
+                            cancelled: { bg: '#fff7e8', color: '#FF7D00', label: '已取消', icon: <AlertCircle size={11} /> },
                           };
-                          const s = statusMap[v] || { color: '#86909c', label: v };
-                          return <span style={{ color: s.color }}>{s.label}</span>;
+                          const s = statusMap[v] || { bg: '#f2f3f5', color: '#86909c', label: v, icon: null };
+                          return (
+                            <span style={{
+                              display: 'inline-flex', alignItems: 'center', gap: 4,
+                              padding: '2px 10px', borderRadius: 12, fontSize: 11, fontWeight: 600,
+                              background: s.bg, color: s.color,
+                            }}>{s.icon}{s.label}</span>
+                          );
                         }},
-                        { title: '进度', dataIndex: 'progressPct', render: (v: number) => `${v?.toFixed(0) || 0}%` },
-                        { title: '阶段', dataIndex: 'phase' },
-                        { title: '操作', dataIndex: 'id', render: (id: number, record: any) => {
+                        { title: '进度', dataIndex: 'progressPct', width: 100, render: (v: number, record: any) => (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <div style={{ flex: 1, height: 4, background: '#f0f1f3', borderRadius: 2, overflow: 'hidden' }}>
+                              <div style={{
+                                height: '100%', borderRadius: 2,
+                                width: `${Math.min(100, v || 0)}%`,
+                                background: record.status === 'failed' ? '#f53f3f' : record.status === 'completed' ? '#00b42a' : '#165dff',
+                                transition: 'width 0.3s',
+                              }} />
+                            </div>
+                            <span style={{ fontSize: 11, color: '#86909c', minWidth: 32 }}>{(v || 0).toFixed(0)}%</span>
+                          </div>
+                        )},
+                        { title: '阶段', dataIndex: 'phase', width: 160, render: (v: string) => <span style={{ fontSize: 12, color: '#4e5969' }}>{v || '-'}</span> },
+                        { title: '操作', dataIndex: 'id', width: 80, render: (id: number, record: any) => {
                           if (record.status === 'running' || record.status === 'pending') {
-                            return <Button size="mini" type="text" onClick={() => handleReconnectTask(id)}>查看详情</Button>;
+                            return (
+                              <div style={{ display: 'flex', gap: 4 }}>
+                                <Button size="mini" type="outline" onClick={() => handleReconnectTask(id)}
+                                  style={{ borderColor: '#165DFF', color: '#165DFF', fontSize: 11 }}>查看</Button>
+                                <Popconfirm title="确定取消？" onOk={() => handleCancelTask(id)}>
+                                  <Button size="mini" type="text" status="warning" style={{ fontSize: 11 }}>取消</Button>
+                                </Popconfirm>
+                              </div>
+                            );
                           }
-                          return null;
+                          return (
+                            <Popconfirm title="确定删除？" onOk={() => handleDeleteTask(id)}>
+                              <Button size="mini" type="text" status="danger" style={{ fontSize: 11 }}>删除</Button>
+                            </Popconfirm>
+                          );
                         }},
                       ]}
                       data={btTasks}
                       rowKey="id"
                       pagination={false}
                       size="small"
+                      stripe
                     />
                   </div>
                 )}
@@ -933,40 +1110,111 @@ export default function StrategyPage() {
               })()}
             </div>
 
-            {/* Trade Records */}
+            {/* Trades & Logs */}
             <div style={{
-              background: '#fff', borderRadius: 12, padding: '20px 24px',
+              background: '#fff', borderRadius: 12, overflow: 'hidden',
               boxShadow: '0 1px 3px rgba(0,0,0,0.04)', border: '1px solid #f0f1f3',
             }}>
-              <div style={{ fontSize: 15, fontWeight: 700, color: '#1d2129', marginBottom: 14 }}>📋 操作记录</div>
-              {(() => {
-                const tradesArr = btDetailResult.trades?.data || btDetailResult.trades || [];
-                return Array.isArray(tradesArr) && tradesArr.length > 0 ? (
-                <Table
-                  columns={[
-                    { title: '日期', dataIndex: 'date', width: 110 },
-                    { title: '操作', dataIndex: 'action', width: 70, render: (v: string) => {
-                      const labels: Record<string, string> = { buy: '买入', add: '加仓', sell: '卖出', reduce: '减仓' };
-                      const colors: Record<string, string> = { buy: '#f53f3f', add: '#ff7d00', sell: '#00b42a', reduce: '#165dff' };
-                      return <span style={{ color: colors[v], fontWeight: 600, fontSize: 12 }}>{labels[v] || v}</span>;
-                    }},
-                    { title: '代码', dataIndex: 'code', width: 80 },
-                    { title: '名称', dataIndex: 'name', width: 90 },
-                    { title: '价格', dataIndex: 'price', width: 80, render: (v: number) => <span style={{ fontFamily: 'monospace', fontSize: 11 }}>{'¥' + (v?.toFixed(2) || '-')}</span> },
-                    { title: '数量', dataIndex: 'quantity', width: 70 },
-                    { title: '成交金额', dataIndex: 'quantity', width: 90, render: (v: number, record: any) => <span style={{ fontFamily: 'monospace', fontSize: 11 }}>{'¥' + ((record.price * v)?.toLocaleString('zh-CN', { maximumFractionDigits: 0 }) || '-')}</span> },
-                    { title: '盈亏', dataIndex: 'pnlPct', width: 80, render: (v: number) => v !== undefined && v !== 0 ? <span style={{ color: v > 0 ? '#f53f3f' : '#00b42a', fontWeight: 600 }}>{v > 0 ? '+' : ''}{v?.toFixed(2)}%</span> : <span style={{ color: '#c9cdd4' }}>-</span> },
-                    { title: '触发原因', dataIndex: 'reason', width: 140 },
-                  ]}
-                  data={tradesArr}
-                  rowKey={(_, i) => i}
-                  pagination={{ pageSize: 25, sizeCanChange: true, showTotal: true }}
-                  size="small"
-                  stripe
-                />
-              ) : (
-                <div style={{ padding: 40, textAlign: 'center', color: '#86909c' }}>暂无操作记录</div>
-              ); })()}
+              <Tabs
+                activeTab={btDetailTab}
+                onChange={setBtDetailTab}
+                style={{ padding: '16px 20px 0' }}
+                type="card-gutter"
+              >
+                <Tabs.TabPane key="trades" title={
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    📋 操作记录
+                    {(() => {
+                      const arr = btDetailResult.trades?.data || btDetailResult.trades || [];
+                      const c = Array.isArray(arr) ? arr.length : 0;
+                      return c > 0 ? <span style={{ background: '#e8f3ff', color: '#165DFF', fontSize: 11, fontWeight: 600, padding: '1px 8px', borderRadius: 10 }}>{c}</span> : null;
+                    })()}
+                  </span>
+                }>
+                  <div style={{ padding: '0 0 16px' }}>
+                    {(() => {
+                      const tradesArr = btDetailResult.trades?.data || btDetailResult.trades || [];
+                      if (!Array.isArray(tradesArr) || tradesArr.length === 0) {
+                        return <div style={{ padding: 48, textAlign: 'center', color: '#86909c', fontSize: 13 }}>📭 暂无交易记录</div>;
+                      }
+                      return (
+                        <Table
+                          columns={[
+                            { title: '日期', dataIndex: 'date', width: 100, render: (v: string) => <span style={{ fontSize: 11, fontFamily: 'monospace', color: '#4e5969' }}>{v}</span> },
+                            { title: '操作', dataIndex: 'action', width: 72, render: (v: string) => {
+                              const labels: Record<string, string> = { buy: '买入', add: '加仓', sell: '卖出', reduce: '减仓' };
+                              const colors: Record<string, string> = { buy: '#F53F3F', add: '#FF7D00', sell: '#00B42A', reduce: '#165DFF' };
+                              const bgs: Record<string, string> = { buy: '#ffece8', add: '#fff7e8', sell: '#e8ffea', reduce: '#e8f3ff' };
+                              return <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: 4, background: bgs[v] || '#f2f3f5', color: colors[v] || '#86909c', fontWeight: 700, fontSize: 11 }}>{labels[v] || v}</span>;
+                            }},
+                            { title: '股票', dataIndex: 'name', width: 100, render: (v: string, r: any) => (
+                              <div><div style={{ fontWeight: 600, fontSize: 12 }}>{v || r.code}</div><div style={{ fontSize: 10, color: '#86909c', fontFamily: 'monospace' }}>{r.code}</div></div>
+                            )},
+                            { title: '价格', dataIndex: 'price', width: 76, render: (v: number) => <span style={{ fontFamily: 'monospace', fontSize: 12 }}>¥{v?.toFixed(2)}</span> },
+                            { title: '数量', dataIndex: 'quantity', width: 64, render: (v: number) => <span style={{ fontFamily: 'monospace', fontSize: 12 }}>{v}股</span> },
+                            { title: '金额', dataIndex: 'quantity', width: 80, render: (v: number, r: any) => <span style={{ fontFamily: 'monospace', fontSize: 11, color: '#4e5969' }}>¥{((r.price * v) || 0).toLocaleString('zh-CN', { maximumFractionDigits: 0 })}</span> },
+                            { title: '盈亏', dataIndex: 'pnlPct', width: 72, render: (v: number) => v ? <span style={{ color: v > 0 ? '#F53F3F' : '#00B42A', fontWeight: 600, fontSize: 12, fontFamily: 'monospace' }}>{v > 0 ? '+' : ''}{v?.toFixed(1)}%</span> : <span style={{ color: '#c9cdd4' }}>—</span> },
+                            { title: '原因', dataIndex: 'reason', width: 120, render: (v: string) => <span style={{ fontSize: 11, color: '#86909c' }}>{v}</span> },
+                          ]}
+                          data={tradesArr}
+                          rowKey={(_, i) => i}
+                          pagination={{ pageSize: 20, sizeCanChange: true, showTotal: true }}
+                          size="small"
+                          stripe
+                        />
+                      );
+                    })()}
+                  </div>
+                </Tabs.TabPane>
+
+                <Tabs.TabPane key="logs" title={
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    🔍 执行日志
+                    {btDetailLogs.length > 0 && <span style={{ background: '#e8f3ff', color: '#165DFF', fontSize: 11, fontWeight: 600, padding: '1px 8px', borderRadius: 10 }}>{btDetailLogs.length}</span>}
+                  </span>
+                }>
+                  <div style={{ padding: '0 0 16px' }}>
+                    {btDetailLogs.length > 0 ? (
+                      <div style={{
+                        background: '#1a1a2e', borderRadius: 8, padding: '12px 16px',
+                        fontFamily: "'SF Mono', Monaco, Menlo, monospace",
+                        fontSize: 11, lineHeight: '1.8', color: '#c9d1d9',
+                        maxHeight: 500, overflow: 'auto',
+                      }}>
+                        {btDetailLogs.map((l: any, i: number) => {
+                          const ts: Record<string, { icon: string; color: string }> = {
+                            system: { icon: '⚙', color: '#58a6ff' },
+                            trade: { icon: '💹', color: '#7ee787' },
+                            condition_eval: { icon: '🔍', color: '#d2a8ff' },
+                            signal: { icon: '📶', color: '#f0883e' },
+                            error: { icon: '❌', color: '#f85149' },
+                          };
+                          const s = ts[l.logType] || { icon: '·', color: '#8b949e' };
+                          return (
+                            <div key={i} style={{
+                              padding: '1px 0', display: 'flex', gap: 6,
+                              borderBottom: l.logType === 'system' ? '1px solid #21262d' : 'none',
+                              paddingBottom: l.logType === 'system' ? 4 : 1,
+                              marginBottom: l.logType === 'system' ? 4 : 0,
+                              opacity: l.level === 'debug' ? 0.6 : 1,
+                            }}>
+                              <span style={{ color: '#484f58', whiteSpace: 'nowrap', minWidth: 42 }}>{(l.date || '').slice(5)}</span>
+                              <span style={{ color: s.color }}>{s.icon}</span>
+                              <span style={{ color: '#8b949e', fontSize: 10 }}>[{l.logType}]</span>
+                              {l.stockCode && <span style={{ color: '#f0883e', fontWeight: 600 }}>{l.stockCode}</span>}
+                              <span style={{ color: s.color, wordBreak: 'break-all' }}>{l.message}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div style={{ padding: 48, textAlign: 'center', color: '#86909c', fontSize: 13 }}>
+                        {btDetailResult.taskId ? '该回测无执行日志（可能是旧版本运行）' : '📭 暂无执行日志'}
+                      </div>
+                    )}
+                  </div>
+                </Tabs.TabPane>
+              </Tabs>
             </div>
           </div>
         </div>

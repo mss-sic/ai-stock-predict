@@ -7,6 +7,7 @@ import (
 	"log"
 	"math"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -66,42 +67,43 @@ func (h *StrategyHandler) Create(c *gin.Context) {
 	response.Created(c, s)
 }
 
+
+func toFloat64(v interface{}) (float64, bool) {
+	switch val := v.(type) {
+	case float64: return val, true
+	case float32: return float64(val), true
+	case int: return float64(val), true
+	case int64: return float64(val), true
+	case json.Number:
+		f, err := val.Float64()
+		return f, err == nil
+	}
+	return 0, false
+}
+
 func (h *StrategyHandler) Update(c *gin.Context) {
 	uid := getUID(c)
 	id, _ := strconv.Atoi(c.Param("id"))
-	var body struct {
-		Name              string  `json:"name"`
-		Description       string  `json:"description"`
-		StopProfit        float64 `json:"stopProfit"`
-		StopLoss          float64 `json:"stopLoss"`
-		MaxHoldings       int     `json:"maxHoldings"`
-		InitialCapital    float64 `json:"initialCapital"`
-		BuyPositionPct    float64 `json:"buyPositionPct"`
-		AddPositionPct    float64 `json:"addPositionPct"`
-		ReducePositionPct float64 `json:"reducePositionPct"`
-		InvestmentType    string  `json:"investmentType"`
-		RegularAmount     float64 `json:"regularAmount"`
-		RegularInterval   string  `json:"regularInterval"`
-		StockCodes        string  `json:"stockCodes"`
-	}
-	if err := c.ShouldBindJSON(&body); err != nil {
+	// Use raw map first to detect which fields were actually sent
+	raw := make(map[string]interface{})
+	if err := c.ShouldBindJSON(&raw); err != nil {
 		response.BadRequest(c, "参数错误")
 		return
 	}
 	updates := map[string]interface{}{}
-	if body.Name != "" { updates["name"] = body.Name }
-	updates["description"] = body.Description
-	updates["stop_profit"] = body.StopProfit
-	updates["stop_loss"] = body.StopLoss
-	if body.MaxHoldings > 0 { updates["max_holdings"] = body.MaxHoldings }
-	if body.InitialCapital > 0 { updates["initial_capital"] = body.InitialCapital }
-	if body.BuyPositionPct > 0 { updates["buy_position_pct"] = body.BuyPositionPct }
-	if body.AddPositionPct > 0 { updates["add_position_pct"] = body.AddPositionPct }
-	if body.ReducePositionPct > 0 { updates["reduce_position_pct"] = body.ReducePositionPct }
-	if body.InvestmentType != "" { updates["investment_type"] = body.InvestmentType }
-	if body.RegularAmount >= 0 { updates["regular_amount"] = body.RegularAmount }
-	if body.RegularInterval != "" { updates["regular_interval"] = body.RegularInterval }
-	updates["stock_codes"] = body.StockCodes
+	if v, ok := raw["name"]; ok && v != "" { updates["name"] = v }
+	if _, ok := raw["description"]; ok { updates["description"] = raw["description"] }
+	if _, ok := raw["stopProfit"]; ok { updates["stop_profit"] = raw["stopProfit"] }
+	if _, ok := raw["stopLoss"]; ok { updates["stop_loss"] = raw["stopLoss"] }
+	if v, ok := raw["maxHoldings"]; ok { if n, _ := toFloat64(v); n > 0 { updates["max_holdings"] = int(n) } }
+	if v, ok := raw["initialCapital"]; ok { if n, _ := toFloat64(v); n > 0 { updates["initial_capital"] = n } }
+	if v, ok := raw["buyPositionPct"]; ok { if n, _ := toFloat64(v); n > 0 { updates["buy_position_pct"] = n } }
+	if v, ok := raw["addPositionPct"]; ok { if n, _ := toFloat64(v); n > 0 { updates["add_position_pct"] = n } }
+	if v, ok := raw["reducePositionPct"]; ok { if n, _ := toFloat64(v); n > 0 { updates["reduce_position_pct"] = n } }
+	if v, ok := raw["investmentType"]; ok && v != "" { updates["investment_type"] = v }
+	if _, ok := raw["regularAmount"]; ok { updates["regular_amount"] = raw["regularAmount"] }
+	if v, ok := raw["regularInterval"]; ok && v != "" { updates["regular_interval"] = v }
+	if _, ok := raw["stockCodes"]; ok { updates["stock_codes"] = raw["stockCodes"] }
 	db.MySQL.Model(&model.Strategy{}).Where("id = ? AND user_id = ?", id, uid).Updates(updates)
 	response.SuccessMsg(c, "更新成功")
 }
@@ -195,53 +197,46 @@ func (h *StrategyHandler) AIGenerate(c *gin.Context) {
 		return
 	}
 
-	prompt := fmt.Sprintf(`你是一个量化交易策略专家。请根据以下要求生成一个A股交易策略的JSON配置。
+	// Compact indicator list for AI prompt
+	indicators := `榜单: algo_score(0-10), streak_count
+趋势: daily_change, momentum_5/20, ma_deviation, ma_cross(cross_up/down,val=5/20), macd, adx(>25), dmi_plus/minus
+超买超卖: rsi(>70/<30), kdj_k/d/j, boll_position(>80/<20), cci(>100/<-100), williams_r, mfi
+量价: volume_ratio, turnover_rate, atr/pct, volume_trend
+形态: drawdown_20, new_high_20, up_days_ratio, price_position_20/60, gap_pct, high_low_range, ma_convergence, trend_strength, index_relative
+估值: pe/pb/ps, pe_percentile(<30)
+基本面: roe, revenue_growth, profit_growth, gross_margin, debt_ratio
+资金: total_market_cap, shareholder_change
+(以上均需检查数据覆盖⚠️)`
 
-策略名称：%s
-策略描述：%s
-风险偏好：%s (aggressive=激进, moderate=稳健, conservative=保守)
+	prompt := fmt.Sprintf(`你是量化策略专家。根据用户描述生成A股策略JSON。
 
-可用的指标因子包括 (🟢=K线衍生完全可用回测, 🟡=需验证数据覆盖, 🚫=回测不可用)：
+%s
 
-榜单评分 🟢: streak_count(连榜次数), algo_score(算法评分0-10)
-AI评分 🚫: ai_score(综合), ai_fundamental(基本面), ai_technical(技术面), ai_valuation(估值), ai_growth(成长性), ai_industry(行业面), ai_capital(资金面)
+用户策略名: %s
+用户描述: %s
+风险偏好: %s
 
-趋势系统 🟢: daily_change(单日涨跌%), momentum_5(5日动量%), momentum_20(20日动量%), ma_deviation(偏离MA20%), ma_cross(MA交叉,cross_up/down,value=5/20), macd(MACD交叉), ema_cross(EMA交叉,value=12/26), adx(趋势强度>25有趋势), dmi_plus(多头方向), dmi_minus(空头方向)
-
-超买超卖 🟢: rsi(14,>70超买<30超卖), kdj_k/kdj_d/kdj_j(KDJ指标), boll_position(布林带位置>80上轨<20下轨), boll_width(布林带宽), cci(20,>100超买<-100超卖), williams_r(14,>-20超买<-80超卖), mfi(14,>80超买<20超卖)
-
-量价分析 🟢: volume_ratio(量比5日), volume_ma_ratio(量比20日), turnover_rate(换手率%), atr(14日波幅), atr_pct(标准化波动率%), volume_trend(量能趋势)
-
-形态强度 🟢: drawdown_20(20日最大回撤%), new_high_20(20日新高1/0), up_days_ratio(上涨天数占比), price_position_20/60(价格位置%), consecutive_days(连涨+连跌-), gap_pct(跳空%), high_low_range(振幅%), vwap_deviation(偏离VWAP%), ma_convergence(均线粘合度), trend_strength(收盘>MA20占比), index_relative(大盘相对强度), boll_squeeze(布林挤压<10变盘)
-
-估值 ⚠️: pe(市盈率), pb(市净率), ps(市销率), pe_percentile(PE历史分位<30低估), pb_percentile(PB分位)
-基本面 📊: roe, revenue_growth, profit_growth, gross_margin, net_margin, debt_ratio, eps
-资金面 📊: total_market_cap, shareholder_change(股东变化%负=集中), inst_hold_ratio
-预测 🚫: prediction_upside, prediction_consensus
-
-请返回严格JSON格式（不要markdown代码块）：
-{
-  "name": "策略名称",
-  "description": "策略描述",
-  "stopProfit": 止盈百分比(0表示不设),
-  "stopLoss": 止损百分比(负数,0表示不设),  
-  "maxHoldings": 最大同时持股数,
-  "conditions": [
-    {"condType": "buy", "indicator": "algo_score", "operator": "gte", "value": 7.5, "logicGroup": 1, "sortOrder": 0},
-    {"condType": "add", "indicator": "streak_count", "operator": "gte", "value": 3, "logicGroup": 1, "sortOrder": 0},
-    {"condType": "sell", "indicator": "daily_change", "operator": "gte", "value": 5, "logicGroup": 1, "sortOrder": 0},
-    {"condType": "reduce", "indicator": "algo_score", "operator": "lt", "value": 3, "logicGroup": 1, "sortOrder": 0}
-  ]
-}`, body.Name, body.Description, style)
+返回纯JSON（无markdown）:
+{"name":"..","description":"..","stopProfit":止盈%%,"stopLoss":止损%%(负数),"maxHoldings":最大持仓,
+"conditions":[{"condType":"buy|add|sell|reduce","indicator":"..","operator":"gte|lte|eq|cross_up|cross_down","value":数字,"logicGroup":1,"sortOrder":0}]}
+`, indicators, body.Name, body.Description, style)
 
 	reply, err := h.aiSvc.ChatCompletion(uid, prompt, nil)
 	if err != nil {
 		response.Error(c, 500, response.CodeAIModelError, "AI生成失败: "+err.Error())
 		return
 	}
+	if reply == "" {
+		response.Error(c, 500, response.CodeAIModelError, "AI返回空内容，请检查模型配置或稍后重试")
+		return
+	}
 
 	// Parse JSON response with flexible value types
 	reply = cleanJSON(reply)
+	if reply == "" {
+		response.Error(c, 500, response.CodeAIModelError, "AI返回内容无法解析，可能未按要求返回JSON格式")
+		return
+	}
 	var rawResult struct {
 		Name        string `json:"name"`
 		Description string `json:"description"`
@@ -387,6 +382,36 @@ func resolveStockPool(uid uint, poolKey string, fallbackCodes []string) []string
 		return codes
 	}
 	return fallbackCodes
+}
+
+// resolveStockPoolLabel converts a pool key to a human-readable display label.
+// Keys: "all", "watchlist_N", "portfolio", "codes"
+// Uses stockPoolParams JSON to derive the count.
+func resolveStockPoolLabel(poolKey, poolParamsJSON string) string {
+	count := 0
+	if poolParamsJSON != "" {
+		var codes []string
+		if json.Unmarshal([]byte(poolParamsJSON), &codes) == nil {
+			count = len(codes)
+		}
+	}
+	var label string
+	switch {
+	case poolKey == "all":
+		label = "全部股票"
+	case strings.HasPrefix(poolKey, "watchlist_"):
+		label = "自选组"
+	case poolKey == "portfolio":
+		label = "我的持仓"
+	case poolKey == "codes":
+		label = "自选代码"
+	default:
+		label = poolKey // fallback for legacy data
+	}
+	if count > 0 {
+		return fmt.Sprintf("%s (%d只)", label, count)
+	}
+	return label
 }
 
 func (h *StrategyHandler) StartBacktest(c *gin.Context) {
@@ -653,17 +678,21 @@ func (h *StrategyHandler) CancelBacktest(c *gin.Context) {
 		return
 	}
 
-	if task.Status != "running" && task.Status != "pending" {
-		response.BadRequest(c, "任务不在运行中")
-		return
+	// Only cancel active tasks; allow force-cancel for orphaned ones too
+	canForce := task.Status == "running" || task.Status == "pending"
+
+	// Try graceful cancel via context
+	cancelled := false
+	if task.Status == "running" || task.Status == "pending" {
+		rm := getRunningMap(uint(sid))
+		if cancel, ok := rm[uint(tid)]; ok {
+			cancel()
+			delete(rm, uint(tid))
+			cancelled = true
+		}
 	}
 
-	rm := getRunningMap(uint(sid))
-	if cancel, ok := rm[uint(tid)]; ok {
-		cancel()
-		delete(rm, uint(tid))
-	}
-
+	// Always update DB status (handles orphaned tasks after server restart)
 	db.MySQL.Model(&task).Updates(map[string]interface{}{
 		"status": "cancelled",
 		"phase":  "已取消",
@@ -671,7 +700,13 @@ func (h *StrategyHandler) CancelBacktest(c *gin.Context) {
 	now := time.Now()
 	db.MySQL.Model(&task).Update("completed_at", now)
 
-	response.SuccessMsg(c, "已取消")
+	if cancelled {
+		response.SuccessMsg(c, "已取消运行中的任务")
+	} else if canForce {
+		response.SuccessMsg(c, "已强制取消（任务可能已丢失上下文）")
+	} else {
+		response.SuccessMsg(c, "已取消")
+	}
 }
 
 // ── List backtest tasks ──
@@ -681,10 +716,565 @@ func (h *StrategyHandler) BacktestTasks(c *gin.Context) {
 	sid, _ := strconv.Atoi(c.Param("id"))
 
 	var tasks []model.BacktestTask
-	db.MySQL.Where("strategy_id = ? AND user_id = ?", sid, uid).
+	db.MySQL.Where("strategy_id = ? AND user_id = ? AND status != ?", sid, uid, "completed").
 		Order("created_at DESC").Limit(50).Find(&tasks)
 	response.Success(c, tasks)
 }
+
+// DeleteBacktestTask deletes a backtest task and all related child records.
+// Cascades: execution_logs, daily_snapshots, and the linked backtest_result.
+func (h *StrategyHandler) DeleteBacktestTask(c *gin.Context) {
+	uid := getUID(c)
+	sid, _ := strconv.Atoi(c.Param("id"))
+	tid, _ := strconv.Atoi(c.Param("taskId"))
+
+	var task model.BacktestTask
+	if db.MySQL.Where("id = ? AND strategy_id = ? AND user_id = ?", tid, sid, uid).First(&task).Error != nil {
+		response.NotFound(c, "任务不存在")
+		return
+	}
+
+	// Cancel if running
+	if task.Status == "running" {
+		rm := getRunningMap(uint(sid))
+		if cancel, ok := rm[uint(tid)]; ok {
+			cancel()
+			delete(rm, uint(tid))
+		}
+	}
+
+	// Cascade delete child tables
+	db.MySQL.Where("task_id = ?", tid).Delete(&model.BacktestExecutionLog{})
+	db.MySQL.Where("task_id = ?", tid).Delete(&model.BacktestDailySnapshot{})
+	db.MySQL.Where("task_id = ?", tid).Delete(&model.BacktestResult{})
+
+	// Delete the task itself
+	db.MySQL.Delete(&task)
+
+	log.Printf("[backtest] task %d deleted by user %d", tid, uid)
+	response.SuccessMsg(c, "已删除")
+}
+
+// BacktestTaskLogs returns execution logs for a task.
+// Supports incremental polling: ?afterSeq=N returns only logs with seq > N.
+func (h *StrategyHandler) BacktestTaskLogs(c *gin.Context) {
+	uid := getUID(c)
+	sid, _ := strconv.Atoi(c.Param("id"))
+	tid, _ := strconv.Atoi(c.Param("taskId"))
+
+	var task model.BacktestTask
+	if db.MySQL.Where("id = ? AND strategy_id = ? AND user_id = ?", tid, sid, uid).First(&task).Error != nil {
+		response.NotFound(c, "任务不存在")
+		return
+	}
+
+	afterSeq := c.Query("afterSeq")
+	q := db.MySQL.Where("task_id = ?", tid).Order("date ASC, seq ASC")
+	if afterSeq != "" {
+		q = q.Where("id > ?", afterSeq)
+	}
+
+	var logs []model.BacktestExecutionLog
+	q.Find(&logs)
+
+	// Return the max log id as cursor for next poll
+	maxID := uint(0)
+	if len(logs) > 0 {
+		maxID = logs[len(logs)-1].ID
+	}
+
+	response.Success(c, map[string]interface{}{
+		"logs":   logs,
+		"cursor": maxID,
+		"total":  len(logs),
+	})
+}
+
+// BacktestTaskSnapshots returns daily snapshots for a task.
+// Supports ?limit=N for latest N snapshots (default all).
+func (h *StrategyHandler) BacktestTaskSnapshots(c *gin.Context) {
+	uid := getUID(c)
+	sid, _ := strconv.Atoi(c.Param("id"))
+	tid, _ := strconv.Atoi(c.Param("taskId"))
+
+	var task model.BacktestTask
+	if db.MySQL.Where("id = ? AND strategy_id = ? AND user_id = ?", tid, sid, uid).First(&task).Error != nil {
+		response.NotFound(c, "任务不存在")
+		return
+	}
+
+	limitStr := c.DefaultQuery("limit", "0")
+	limit, _ := strconv.Atoi(limitStr)
+
+	q := db.MySQL.Where("task_id = ?", tid).Order("date ASC")
+	if limit > 0 {
+		q = q.Limit(limit)
+	}
+
+	var snapshots []model.BacktestDailySnapshot
+	q.Find(&snapshots)
+
+	// Parse positions JSON for each snapshot
+	type SnapshotOut struct {
+		model.BacktestDailySnapshot
+		PositionsData []map[string]interface{} `json:"positionsData"`
+	}
+
+	out := make([]SnapshotOut, len(snapshots))
+	for i, s := range snapshots {
+		out[i] = SnapshotOut{BacktestDailySnapshot: s}
+		if s.Positions != "" {
+			var pd []map[string]interface{}
+			if json.Unmarshal([]byte(s.Positions), &pd) == nil {
+				out[i].PositionsData = pd
+			}
+		}
+	}
+
+	response.Success(c, out)
+}
+
+// ═══════════════════════════════════════════════════════════════
+// K-line cache — preloads close prices to avoid N+1 DB queries
+// ═══════════════════════════════════════════════════════════════
+
+type KlineCache struct {
+	dates    []string
+	dateIdx  map[string]int
+	closeMap map[string][]float64 // code -> []close per date (forward-filled)
+}
+
+// preloadKline loads all close prices for the given stock codes within date range.
+// Forward-fills gaps (suspended stocks keep previous close).
+func preloadKline(codes []string, startDate, endDate string) *KlineCache {
+	kc := &KlineCache{
+		dateIdx:  make(map[string]int),
+		closeMap: make(map[string][]float64, len(codes)),
+	}
+
+	// 1. Get all trading days
+	db.PG.Raw(`SELECT DISTINCT trade_date::text FROM stocks_daily_k 
+		WHERE trade_date >= ? AND trade_date <= ? ORDER BY trade_date`,
+		startDate, endDate).Scan(&kc.dates)
+
+	for i, d := range kc.dates {
+		kc.dateIdx[d] = i
+	}
+
+	if len(kc.dates) == 0 {
+		return kc
+	}
+
+	// 2. Bulk load close prices in ONE query
+	type KCRow struct {
+		Code  string
+		Date  string
+		Close float64
+	}
+	var rows []KCRow
+	db.PG.Raw(`SELECT code, trade_date::text, close FROM stocks_daily_k 
+		WHERE code = ANY($1) AND trade_date >= $2 AND trade_date <= $3
+		ORDER BY code, trade_date`,
+		codes, startDate, endDate).Scan(&rows)
+
+	// 3. Initialize arrays with zeros
+	nDays := len(kc.dates)
+	for _, c := range codes {
+		kc.closeMap[c] = make([]float64, nDays)
+	}
+
+	// 4. Fill prices
+	for _, r := range rows {
+		if idx, ok := kc.dateIdx[r.Date]; ok {
+			kc.closeMap[r.Code][idx] = r.Close
+		}
+	}
+
+	// 5. Forward-fill: if a stock has 0 close on day i, use previous non-zero close
+	for _, c := range codes {
+		arr := kc.closeMap[c]
+		var last float64
+		for i := 0; i < nDays; i++ {
+			if arr[i] > 0 {
+				last = arr[i]
+			} else {
+				arr[i] = last
+			}
+		}
+	}
+
+	return kc
+}
+
+// GetClose returns the close price for a stock on a given date (O(1) lookup).
+func (kc *KlineCache) GetClose(code, date string) float64 {
+	arr, ok := kc.closeMap[code]
+	if !ok {
+		return 0
+	}
+	idx, ok := kc.dateIdx[date]
+	if !ok {
+		return 0
+	}
+	return arr[idx]
+}
+
+// checkOp evaluates a comparison between a float value and threshold.
+func checkOp(val float64, op string, threshold float64) bool {
+	switch op {
+	case "gte": return val >= threshold
+	case "lte": return val <= threshold
+	case "gt": return val > threshold
+	case "lt": return val < threshold
+	case "eq": return val == threshold
+	case "cross_up": return val > 0
+	case "cross_down": return val < 0
+	}
+	return false
+}
+
+// getPrevClose returns the close price one trading day before the given date.
+func getPrevClose(kc *KlineCache, code, date string) float64 {
+	idx, ok := kc.dateIdx[date]
+	if !ok || idx == 0 {
+		return 0
+	}
+	arr, ok := kc.closeMap[code]
+	if !ok {
+		return 0
+	}
+	return arr[idx-1]
+}
+
+// getCloseNDaysAgo returns the close price N trading days before the given date.
+func getCloseNDaysAgo(kc *KlineCache, code, date string, n int) float64 {
+	idx, ok := kc.dateIdx[date]
+	if !ok || idx < n {
+		return 0
+	}
+	arr, ok := kc.closeMap[code]
+	if !ok {
+		return 0
+	}
+	return arr[idx-n]
+}
+
+// ── Indicator batch preloader ──
+
+
+// IndicatorValue holds a preloaded indicator value for a stock on a date.
+type IndicatorValue struct {
+	Code  string
+	Date  string
+	Value float64
+}
+
+// IndicatorCache stores preloaded indicator values: map[indicatorName]map[code|date]value
+type IndicatorCache struct {
+	data map[string]map[string]float64 // key: indicator, inner key: "code|date"
+}
+
+func newIndicatorCache() *IndicatorCache {
+	return &IndicatorCache{data: make(map[string]map[string]float64)}
+}
+
+func (ic *IndicatorCache) set(indicator, code, date string, val float64) {
+	key := indicator
+	if _, ok := ic.data[key]; !ok {
+		ic.data[key] = make(map[string]float64)
+	}
+	ic.data[key][code+"|"+date] = val
+}
+
+func (ic *IndicatorCache) get(indicator, code, date string) (float64, bool) {
+	m, ok := ic.data[indicator]
+	if !ok {
+		return 0, false
+	}
+	v, ok := m[code+"|"+date]
+	return v, ok
+}
+
+// batchScan runs a query and populates the cache for a given indicator.
+func (ic *IndicatorCache) batchScan(indicator string, query string, args ...interface{}) {
+	var rows []IndicatorValue
+	if err := db.PG.Raw(query, args...).Scan(&rows).Error; err != nil {
+		log.Printf("[backtest] batch scan %s failed: %v", indicator, err)
+		return
+	}
+	for _, r := range rows {
+		ic.set(indicator, r.Code, r.Date, r.Value)
+	}
+}
+
+// preloadIndicators batch-loads all indicator values needed by the strategy for the given universe.
+func preloadIndicators(conds []model.StrategyCondition, codes []string, startDate, endDate string, kcache *KlineCache) *IndicatorCache {
+	cache := newIndicatorCache()
+
+	// Collect unique indicator names to preload
+	needPreload := make(map[string]bool)
+	for _, c := range conds {
+		ind := c.Indicator
+		// Skip indicators we can compute from close prices in Go
+		switch ind {
+		case "daily_change", "momentum_5", "momentum_20":
+			continue // computed from kcache.GetClose
+		}
+		// Skip indicators from other tables (they're fast enough with simple queries)
+		switch {
+		case strings.HasPrefix(ind, "ai_"):
+			continue
+		case ind == "streak_count", ind == "algo_score", ind == "signal_value":
+			continue
+		case ind == "pe", ind == "pb", ind == "ps", ind == "pe_percentile", ind == "pb_percentile", ind == "total_market_cap":
+			continue
+		case ind == "roe", ind == "revenue_growth", ind == "profit_growth", ind == "gross_margin", ind == "net_margin", ind == "debt_ratio", ind == "eps":
+			continue
+		case ind == "shareholder_change", ind == "inst_hold_ratio":
+			continue
+		}
+		needPreload[ind] = true
+	}
+
+	// Preload volume data for volume-related indicators
+	needVolume := false
+	for ind := range needPreload {
+		if strings.HasPrefix(ind, "volume") || ind == "turnover_rate" || ind == "mfi" {
+			needVolume = true
+			break
+		}
+	}
+	_ = needVolume // we'll handle volume inline
+
+	// Batch preload: DMI/ADX (most expensive, preload all three at once)
+	if needPreload["dmi_plus"] || needPreload["dmi_minus"] || needPreload["adx"] {
+		log.Printf("[backtest] batch preloading DMI/ADX for %d stocks...", len(codes))
+		cache.batchScan("dmi_plus",
+			`WITH klines AS (
+				SELECT code, trade_date::text as date, high, low, close,
+					LAG(close) OVER (PARTITION BY code ORDER BY trade_date) as prev_close
+				FROM stocks_daily_k
+				WHERE code = ANY($1) AND trade_date BETWEEN $2 AND $3
+			), tr_calc AS (
+				SELECT code, date,
+					GREATEST(high - LAG(high) OVER (PARTITION BY code ORDER BY date), 0) as up_move,
+					GREATEST(LAG(low) OVER (PARTITION BY code ORDER BY date) - low, 0) as down_move,
+					GREATEST(high-low,
+						ABS(high-prev_close),
+						ABS(low-prev_close)
+					) as tr
+				FROM klines
+			), dmi14 AS (
+				SELECT code, date,
+					AVG(up_move) OVER (PARTITION BY code ORDER BY date ROWS BETWEEN 13 PRECEDING AND CURRENT ROW) as avg_up,
+					AVG(down_move) OVER (PARTITION BY code ORDER BY date ROWS BETWEEN 13 PRECEDING AND CURRENT ROW) as avg_down,
+					AVG(tr) OVER (PARTITION BY code ORDER BY date ROWS BETWEEN 13 PRECEDING AND CURRENT ROW) as avg_tr
+				FROM tr_calc
+			), dmi AS (
+				SELECT code, date,
+					CASE WHEN avg_tr > 0 THEN avg_up/avg_tr*100 ELSE 0 END as pdi,
+					CASE WHEN avg_tr > 0 THEN avg_down/avg_tr*100 ELSE 0 END as mdi
+				FROM dmi14
+			), adx_calc AS (
+				SELECT code, date, pdi, mdi,
+					CASE WHEN pdi+mdi > 0 THEN ABS(pdi-mdi)/(pdi+mdi)*100 ELSE 0 END as dx
+				FROM dmi
+			)
+			SELECT code, date, 
+				AVG(dx) OVER (PARTITION BY code ORDER BY date ROWS BETWEEN 13 PRECEDING AND CURRENT ROW) as value
+			FROM adx_calc`,
+			codes, startDate, endDate)
+		delete(needPreload, "adx")
+
+		cache.batchScan("dmi_minus",
+			`WITH klines AS (
+				SELECT code, trade_date::text as date, high, low, close,
+					LAG(close) OVER (PARTITION BY code ORDER BY trade_date) as prev_close
+				FROM stocks_daily_k WHERE code = ANY($1) AND trade_date BETWEEN $2 AND $3
+			), tr_calc AS (
+				SELECT code, date,
+					GREATEST(high - LAG(high) OVER (PARTITION BY code ORDER BY date), 0) as up_move,
+					GREATEST(LAG(low) OVER (PARTITION BY code ORDER BY date) - low, 0) as down_move,
+					GREATEST(high-low, ABS(high-prev_close), ABS(low-prev_close)) as tr
+				FROM klines
+			), dmi14 AS (
+				SELECT code, date,
+					AVG(up_move) OVER (PARTITION BY code ORDER BY date ROWS BETWEEN 13 PRECEDING AND CURRENT ROW) as avg_up,
+					AVG(down_move) OVER (PARTITION BY code ORDER BY date ROWS BETWEEN 13 PRECEDING AND CURRENT ROW) as avg_down,
+					AVG(tr) OVER (PARTITION BY code ORDER BY date ROWS BETWEEN 13 PRECEDING AND CURRENT ROW) as avg_tr
+				FROM tr_calc
+			)
+			SELECT code, date,
+				CASE WHEN avg_tr > 0 THEN avg_down/avg_tr*100 ELSE 0 END as value
+			FROM dmi14`,
+			codes, startDate, endDate)
+		delete(needPreload, "dmi_minus")
+
+		cache.batchScan("dmi_plus",
+			`WITH klines AS (
+				SELECT code, trade_date::text as date, high, low, close,
+					LAG(close) OVER (PARTITION BY code ORDER BY trade_date) as prev_close
+				FROM stocks_daily_k WHERE code = ANY($1) AND trade_date BETWEEN $2 AND $3
+			), tr_calc AS (
+				SELECT code, date,
+					GREATEST(high - LAG(high) OVER (PARTITION BY code ORDER BY date), 0) as up_move,
+					GREATEST(LAG(low) OVER (PARTITION BY code ORDER BY date) - low, 0) as down_move,
+					GREATEST(high-low, ABS(high-prev_close), ABS(low-prev_close)) as tr
+				FROM klines
+			), dmi14 AS (
+				SELECT code, date,
+					AVG(up_move) OVER (PARTITION BY code ORDER BY date ROWS BETWEEN 13 PRECEDING AND CURRENT ROW) as avg_up,
+					AVG(down_move) OVER (PARTITION BY code ORDER BY date ROWS BETWEEN 13 PRECEDING AND CURRENT ROW) as avg_down,
+					AVG(tr) OVER (PARTITION BY code ORDER BY date ROWS BETWEEN 13 PRECEDING AND CURRENT ROW) as avg_tr
+				FROM tr_calc
+			)
+			SELECT code, date,
+				CASE WHEN avg_tr > 0 THEN avg_up/avg_tr*100 ELSE 0 END as value
+			FROM dmi14`,
+			codes, startDate, endDate)
+		delete(needPreload, "dmi_plus")
+	}
+
+	// Batch preload: RSI
+	if needPreload["rsi"] {
+		log.Printf("[backtest] batch preloading RSI for %d stocks...", len(codes))
+		cache.batchScan("rsi",
+			`WITH klines AS (
+				SELECT code, trade_date::text as date, close,
+					close - LAG(close) OVER (PARTITION BY code ORDER BY trade_date) as chg
+				FROM stocks_daily_k WHERE code = ANY($1) AND trade_date BETWEEN $2 AND $3
+			), gains AS (
+				SELECT code, date,
+					AVG(CASE WHEN chg > 0 THEN chg ELSE 0 END) OVER (PARTITION BY code ORDER BY date ROWS BETWEEN 13 PRECEDING AND CURRENT ROW) as avg_gain,
+					AVG(CASE WHEN chg < 0 THEN -chg ELSE 0 END) OVER (PARTITION BY code ORDER BY date ROWS BETWEEN 13 PRECEDING AND CURRENT ROW) as avg_loss
+				FROM klines
+			)
+			SELECT code, date,
+				CASE WHEN avg_loss > 0 THEN 100 - 100/(1 + avg_gain/NULLIF(avg_loss,0)) ELSE 100 END as value
+			FROM gains`,
+			codes, startDate, endDate)
+		delete(needPreload, "rsi")
+	}
+
+	// Batch preload: MACD
+	if needPreload["macd"] {
+		log.Printf("[backtest] batch preloading MACD for %d stocks...", len(codes))
+		cache.batchScan("macd",
+			`WITH klines AS (
+				SELECT code, trade_date::text as date, close FROM stocks_daily_k
+				WHERE code = ANY($1) AND trade_date BETWEEN $2 AND $3
+			), ema AS (
+				SELECT code, date,
+					AVG(close) OVER (PARTITION BY code ORDER BY date ROWS BETWEEN 11 PRECEDING AND CURRENT ROW) as ema12,
+					AVG(close) OVER (PARTITION BY code ORDER BY date ROWS BETWEEN 25 PRECEDING AND CURRENT ROW) as ema26
+				FROM klines
+			), macd_calc AS (
+				SELECT code, date,
+					ema12 - ema26 as dif,
+					AVG(ema12 - ema26) OVER (PARTITION BY code ORDER BY date ROWS BETWEEN 8 PRECEDING AND CURRENT ROW) as dea
+				FROM ema
+			)
+			SELECT code, date, dif - dea as value FROM macd_calc`,
+			codes, startDate, endDate)
+		delete(needPreload, "macd")
+	}
+
+	// Batch preload: KDJ (preload K, D, J separately)
+	if needPreload["kdj_k"] || needPreload["kdj_d"] || needPreload["kdj_j"] {
+		log.Printf("[backtest] batch preloading KDJ for %d stocks...", len(codes))
+		cache.batchScan("kdj_k",
+			`WITH klines AS (
+				SELECT code, trade_date::text as date, high, low, close FROM stocks_daily_k
+				WHERE code = ANY($1) AND trade_date BETWEEN $2 AND $3
+			), rsv AS (
+				SELECT code, date,
+					CASE WHEN MAX(high) OVER (PARTITION BY code ORDER BY date ROWS BETWEEN 8 PRECEDING AND CURRENT ROW) -
+						MIN(low) OVER (PARTITION BY code ORDER BY date ROWS BETWEEN 8 PRECEDING AND CURRENT ROW) > 0
+					THEN (close - MIN(low) OVER (PARTITION BY code ORDER BY date ROWS BETWEEN 8 PRECEDING AND CURRENT ROW)) /
+						(MAX(high) OVER (PARTITION BY code ORDER BY date ROWS BETWEEN 8 PRECEDING AND CURRENT ROW) -
+						MIN(low) OVER (PARTITION BY code ORDER BY date ROWS BETWEEN 8 PRECEDING AND CURRENT ROW)) * 100
+					ELSE 50 END as rsv_val
+				FROM klines
+			)
+			SELECT code, date,
+				(0.6667 * COALESCE(LAG(rsv_val) OVER (PARTITION BY code ORDER BY date), 50) + 0.3333 * rsv_val) + 
+				COALESCE(LAG((0.6667 * COALESCE(LAG(rsv_val) OVER (PARTITION BY code ORDER BY date), 50) + 0.3333 * rsv_val)) OVER (PARTITION BY code ORDER BY date), 50) * 0.3333
+				as value FROM rsv`,
+			codes, startDate, endDate)
+		// For simplicity, preload K only for now; D/J are similar
+		delete(needPreload, "kdj_k")
+		delete(needPreload, "kdj_d")
+		delete(needPreload, "kdj_j")
+	}
+
+	// Batch preload: simple volume-related from stocks_daily_k
+	if needPreload["volume_ratio"] || needPreload["volume_ma_ratio"] {
+		log.Printf("[backtest] batch preloading volume data for %d stocks...", len(codes))
+		cache.batchScan("volume_ratio",
+			`SELECT code, trade_date::text as date, 
+				COALESCE(volume / NULLIF(AVG(volume) OVER (PARTITION BY code ORDER BY trade_date ROWS BETWEEN 4 PRECEDING AND 1 PRECEDING), 0), 0) as value
+			FROM stocks_daily_k WHERE code = ANY($1) AND trade_date BETWEEN $2 AND $3`,
+			codes, startDate, endDate)
+		delete(needPreload, "volume_ratio")
+	}
+
+	// Batch preload: turnover_rate if available
+	if needPreload["turnover_rate"] {
+		log.Printf("[backtest] batch preloading turnover_rate for %d stocks...", len(codes))
+		cache.batchScan("turnover_rate",
+			`SELECT code, trade_date::text as date, COALESCE(turnover_rate, 0) as value
+			FROM stocks_daily_k WHERE code = ANY($1) AND trade_date BETWEEN $2 AND $3`,
+			codes, startDate, endDate)
+		delete(needPreload, "turnover_rate")
+	}
+
+	// Batch preload: ATR
+	if needPreload["atr"] || needPreload["atr_pct"] {
+		log.Printf("[backtest] batch preloading ATR for %d stocks...", len(codes))
+		cache.batchScan("atr",
+			`WITH klines AS (
+				SELECT code, trade_date::text as date, high, low, close,
+					LAG(close) OVER (PARTITION BY code ORDER BY trade_date) as prev_close
+				FROM stocks_daily_k WHERE code = ANY($1) AND trade_date BETWEEN $2 AND $3
+			)
+			SELECT code, date,
+				AVG(GREATEST(high-low, ABS(high-prev_close), ABS(low-prev_close)))
+					OVER (PARTITION BY code ORDER BY date ROWS BETWEEN 13 PRECEDING AND CURRENT ROW) as value
+			FROM klines`,
+			codes, startDate, endDate)
+		delete(needPreload, "atr")
+	}
+
+	// Batch preload: CCI
+	if needPreload["cci"] {
+		log.Printf("[backtest] batch preloading CCI for %d stocks...", len(codes))
+		cache.batchScan("cci",
+			`WITH klines AS (
+				SELECT code, trade_date::text as date, high, low, close FROM stocks_daily_k
+				WHERE code = ANY($1) AND trade_date BETWEEN $2 AND $3
+			), tp AS (
+				SELECT code, date, (high+low+close)/3 as typical FROM klines
+			)
+			SELECT code, date,
+				(typical - AVG(typical) OVER (PARTITION BY code ORDER BY date ROWS BETWEEN 19 PRECEDING AND CURRENT ROW)) /
+				NULLIF(0.015 * AVG(ABS(typical - AVG(typical) OVER (PARTITION BY code ORDER BY date ROWS BETWEEN 19 PRECEDING AND CURRENT ROW)))
+					OVER (PARTITION BY code ORDER BY date ROWS BETWEEN 19 PRECEDING AND CURRENT ROW), 0) as value
+			FROM tp`,
+			codes, startDate, endDate)
+		delete(needPreload, "cci")
+	}
+
+	if len(needPreload) > 0 {
+		keys := make([]string, 0, len(needPreload))
+		for k := range needPreload {
+			keys = append(keys, k)
+		}
+		log.Printf("[backtest] unbatched indicators (fallback to per-stock): %v", keys)
+	}
+
+	return cache
+}
+
 
 // ── The async backtest runner (runs in goroutine) ──
 
@@ -734,6 +1324,9 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 	if capital <= 0 { capital = 100000 }
 	remainingCash := capital
 	maxHold := s.MaxHoldings
+
+	// Record initial capital on task
+	db.MySQL.Model(task).Update("initial_capital", capital)
 	if maxHold <= 0 { maxHold = 20 }
 
 	updateProgress(0, task.TotalDays, fmt.Sprintf("初始资金: ¥%.0f | 最大持股: %d", capital, maxHold), "")
@@ -750,7 +1343,7 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 		db.PG.Raw(`SELECT DISTINCT k.code, COALESCE(s.name, k.code) as name 
 			FROM stocks_daily_k k
 			LEFT JOIN stocks_basic s ON s.code = k.code
-			WHERE k.trade_date >= ? AND k.trade_date <= ?`,
+			WHERE k.trade_date >= ? AND k.trade_date <= ? ORDER BY k.code`,
 			startDate, endDate).Scan(&universe)
 	}
 
@@ -763,11 +1356,75 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 		return
 	}
 
-	// Get trading days
-	var allDates []string
-	db.PG.Raw(`SELECT DISTINCT trade_date::text FROM stocks_daily_k 
-		WHERE trade_date >= ? AND trade_date <= ? ORDER BY trade_date`,
-		startDate, endDate).Scan(&allDates)
+	// Get all stock codes for preload
+	universeCodes := make([]string, len(universe))
+	for i, s := range universe {
+		universeCodes[i] = s.Code
+	}
+
+	// Preload K-line cache (one query instead of N+1)
+	kcache := preloadKline(universeCodes, startDate, endDate)
+	allDates := kcache.dates
+
+	// Preload indicator values in batch (one query per indicator instead of N+1 per stock)
+	icache := preloadIndicators(conds, universeCodes, startDate, endDate, kcache)
+
+	// Local evaluateSingleCondition that uses the preloaded cache
+	evalSingle := func(cond model.StrategyCondition, code, date string) bool {
+		ind := cond.Indicator
+		// Try cache first
+		if val, ok := icache.get(ind, code, date); ok {
+			return checkOp(val, cond.Operator, cond.Value)
+		}
+		// Compute from close cache for simple momentum indicators
+		switch ind {
+		case "daily_change":
+			cur := kcache.GetClose(code, date)
+			prev := getPrevClose(kcache, code, date)
+			if prev > 0 {
+				return checkOp((cur-prev)/prev*100, cond.Operator, cond.Value)
+			}
+			return false
+		case "momentum_5":
+			cur := kcache.GetClose(code, date)
+			prev := getCloseNDaysAgo(kcache, code, date, 5)
+			if prev > 0 {
+				return checkOp((cur-prev)/prev*100, cond.Operator, cond.Value)
+			}
+			return false
+		case "momentum_20":
+			cur := kcache.GetClose(code, date)
+			prev := getCloseNDaysAgo(kcache, code, date, 20)
+			if prev > 0 {
+				return checkOp((cur-prev)/prev*100, cond.Operator, cond.Value)
+			}
+			return false
+		}
+		// Fallback to original per-stock SQL query
+		return evaluateSingleCondition(cond, code, date)
+	}
+
+	// Local evaluateConditions that uses the cached evalSingle
+	evalConds := func(conds_ []model.StrategyCondition, code, date string) bool {
+		if len(conds_) == 0 { return false }
+		groups := make(map[int][]model.StrategyCondition)
+		for _, c := range conds_ {
+			groups[c.LogicGroup] = append(groups[c.LogicGroup], c)
+		}
+		for _, groupConds := range groups {
+			allMet := true
+			for _, c := range groupConds {
+				if !evalSingle(c, code, date) {
+					allMet = false
+					break
+				}
+			}
+			if allMet { return true }
+		}
+		return false
+	}
+	_ = evalSingle
+	_ = evalConds
 
 	if len(allDates) == 0 {
 		db.MySQL.Model(task).Updates(map[string]interface{}{
@@ -807,8 +1464,15 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 	positions := make(map[string]*Position)
 	var allTrades []backtestTrade
 	var equityPoints []map[string]interface{}
+	prevDayEquity := capital
 
 	for di, date := range allDates {
+		// Day start log
+		insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, 0,
+			"system", "info", "", "",
+			fmt.Sprintf("━━━ 第%d天 %s 持仓%d只 现金¥%.0f ━━━", di+1, date, len(positions), remainingCash),
+			nil)
+
 		// Check cancellation
 		select {
 		case <-ctx.Done():
@@ -825,8 +1489,19 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 		}
 
 		// Check sell/reduce + stop
-		for code, pos := range positions {
-			price := getClosePrice(code, date)
+		sellTriggered := 0
+		reduceTriggered := 0
+		origPosCount := len(positions)
+		// Sort position codes for deterministic iteration
+		sortedPosCodes := make([]string, 0, len(positions))
+		for code := range positions {
+			sortedPosCodes = append(sortedPosCodes, code)
+		}
+		sort.Strings(sortedPosCodes)
+		for _, code := range sortedPosCodes {
+			pos, exists := positions[code]
+			if !exists { continue }
+			price := kcache.GetClose(code, date)
 			if price <= 0 { continue }
 
 			triggered := ""
@@ -834,7 +1509,7 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 				triggered = "止损"
 			} else if s.StopProfit > 0 && price >= pos.BuyPrice*(1+s.StopProfit/100) {
 				triggered = "止盈"
-			} else if evaluateConditions(sellConds, code, date) {
+			} else if evalConds(sellConds, code, date) {
 				triggered = "卖出条件"
 			}
 
@@ -848,11 +1523,12 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 					Pnl: math.Round(pnl*100) / 100, PnlPct: math.Round(pnlPct*100) / 100,
 				}
 				allTrades = append(allTrades, t)
+				sellTriggered++
 				delete(positions, code)
 				continue
 			}
 
-			if evaluateConditions(reduceConds, code, date) {
+			if evalConds(reduceConds, code, date) {
 				reduceQty := int(float64(pos.Quantity) * reducePct / 100)
 				if reduceQty >= 100 && reduceQty < pos.Quantity {
 					pnl := (price - pos.BuyPrice) * float64(reduceQty)
@@ -865,19 +1541,49 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 						Pnl: math.Round(pnl*100) / 100, PnlPct: math.Round(pnlPct*100) / 100,
 					}
 					allTrades = append(allTrades, t)
+					reduceTriggered++
 				}
 			}
 		}
 
+		// Sell/reduce scan summary
+		hasSellConds := len(sellConds) > 0
+		hasReduceConds := len(reduceConds) > 0
+		hasStop := s.StopProfit > 0 || s.StopLoss < 0
+		if origPosCount > 0 {
+			parts := []string{}
+			if hasStop { parts = append(parts, fmt.Sprintf("止盈%.0f%%/止损%.0f%%", s.StopProfit, s.StopLoss)) }
+			if hasSellConds { parts = append(parts, "卖出条件") }
+			if hasReduceConds { parts = append(parts, "减仓条件") }
+			if sellTriggered > 0 || reduceTriggered > 0 {
+				insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, 1,
+					"condition_eval", "info", "", "",
+					fmt.Sprintf("卖出检查: %d只持仓 → 卖出%d只, 减仓%d只", origPosCount, sellTriggered, reduceTriggered),
+					nil)
+			} else {
+				insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, 1,
+					"condition_eval", "info", "", "",
+					fmt.Sprintf("卖出检查: %d只持仓, %s → 无触发", origPosCount, strings.Join(parts, "+")),
+					nil)
+			}
+		} else {
+			insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, 1,
+				"condition_eval", "info", "", "",
+				"卖出检查: 无持仓, 跳过",
+				nil)
+		}
+
 		// Check buy + add (respect max holdings)
+		buyHitCount := 0
+		addHitCount := 0
 		if len(positions) < maxHold {
 			for _, stock := range universe {
 				code := stock.Code
-				price := getClosePrice(code, date)
+				price := kcache.GetClose(code, date)
 				if price <= 0 { continue }
 
 				if pos, exists := positions[code]; exists {
-					if len(addConds) > 0 && evaluateConditions(addConds, code, date) {
+					if len(addConds) > 0 && evalConds(addConds, code, date) {
 						addQty := int(remainingCash * addPct / 100 / price)
 						// Round to 100-share lots (A-share rule)
 						addQty = (addQty / 100) * 100
@@ -895,13 +1601,14 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 									Price: price, Quantity: addQty, Reason: "加仓条件触发",
 								}
 								allTrades = append(allTrades, t)
+								addHitCount++
 							}
 						}
 					}
 					continue
 				}
 
-				if len(buyConds) > 0 && evaluateConditions(buyConds, code, date) {
+				if len(buyConds) > 0 && evalConds(buyConds, code, date) {
 					buyQty := int(remainingCash * buyPct / 100 / price)
 					// Round to 100-share lots (A-share minimum trading unit)
 					buyQty = (buyQty / 100) * 100
@@ -925,6 +1632,7 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 						Price: price, Quantity: buyQty, Reason: "买入条件触发",
 					}
 					allTrades = append(allTrades, t)
+					buyHitCount++
 
 					// Re-check max holdings after each buy
 					if len(positions) >= maxHold {
@@ -934,11 +1642,47 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 			}
 		}
 
+		// Buy/add scan summary
+		if len(buyConds) > 0 || len(addConds) > 0 {
+			// Build condition descriptions
+			condParts := []string{}
+			for _, c := range buyConds {
+				condParts = append(condParts, fmt.Sprintf("%s %s %.0f", c.Indicator, c.Operator, c.Value))
+			}
+			for _, c := range addConds {
+				condParts = append(condParts, fmt.Sprintf("加仓:%s %s %.0f", c.Indicator, c.Operator, c.Value))
+			}
+			condDesc := strings.Join(condParts, ", ")
+			if len(positions) >= maxHold && maxHold > 0 {
+				insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, 2,
+					"condition_eval", "info", "", "",
+					fmt.Sprintf("买入扫描: 已达最大持仓%d/%d, 跳过", len(positions), maxHold),
+					nil)
+			} else if buyHitCount > 0 || addHitCount > 0 {
+				insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, 2,
+					"condition_eval", "info", "", "",
+					fmt.Sprintf("买入扫描: %d只股票, 条件[%s] → 命中%d只(买%d/加%d), 持仓%d/%d",
+						len(universe), condDesc, buyHitCount+addHitCount, buyHitCount, addHitCount, len(positions), maxHold),
+					nil)
+			} else {
+				insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, 2,
+					"condition_eval", "info", "", "",
+					fmt.Sprintf("买入扫描: %d只股票, 条件[%s] → 无满足, 持仓%d/%d",
+						len(universe), condDesc, len(positions), maxHold),
+					nil)
+			}
+		} else {
+			insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, 2,
+				"condition_eval", "info", "", "",
+				"买入扫描: 无买入/加仓条件, 跳过",
+				nil)
+		}
+
 		// Update progress every trading day
 		posList := make([]map[string]interface{}, 0)
 		totalEquity := remainingCash
 		for _, pos := range positions {
-			cp := getClosePrice(pos.Code, date)
+			cp := kcache.GetClose(pos.Code, date)
 			mv := cp * float64(pos.Quantity)
 			pnl := (cp - pos.BuyPrice) * float64(pos.Quantity)
 			pnlPct := 0.0
@@ -978,6 +1722,50 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 		equityPoints = append(equityPoints, map[string]interface{}{
 			"date": date, "equity": math.Round(totalEquity*100) / 100,
 		})
+
+		// ── Insert daily snapshot ──
+		dailyRet := 0.0
+		if di > 0 {
+			prevEquity := capital
+			if len(equityPoints) >= 2 {
+				prevEquity = equityPoints[len(equityPoints)-2]["equity"].(float64)
+			}
+			if prevEquity > 0 {
+				dailyRet = (totalEquity - prevEquity) / prevEquity * 100
+			}
+		}
+		cumRet := (totalEquity - capital) / capital * 100
+		peak := capital
+		for _, eq := range equityPoints {
+			e := eq["equity"].(float64)
+			if e > peak { peak = e }
+		}
+		currentDD := 0.0
+		if peak > 0 { currentDD = (peak - totalEquity) / peak * 100 }
+		insertDailySnapshot(task.ID, task.StrategyID, task.UserID, date, di+1,
+			remainingCash, totalEquity, dailyRet, cumRet, currentDD, len(positions), posList)
+
+		// ── Log today's trades ──
+		logSeq := 0
+		for _, t := range todayTrades {
+			detail := map[string]interface{}{
+				"action": t.Action, "price": t.Price, "quantity": t.Quantity,
+				"reason": t.Reason, "pnl": t.Pnl, "pnlPct": t.PnlPct,
+			}
+			msg := fmt.Sprintf("📌 [%s] %s %s %d股 @¥%.2f %s",
+				t.Action, t.Code, t.Name, t.Quantity, t.Price, t.Reason)
+			insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, logSeq,
+				"trade", "info", t.Code, t.Name, msg, detail)
+			logSeq++
+		}
+
+		// Day end summary
+		dailyPnl := totalEquity - prevDayEquity
+		prevDayEquity = totalEquity
+		insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, logSeq+1,
+			"system", "info", "", "",
+			fmt.Sprintf("第%d天结束: 权益¥%.0f 日盈亏%+.0f 累计%+.1f%% 持仓%d只", di+1, totalEquity, dailyPnl, cumRet, len(positions)),
+			nil)
 	}
 
 	// Calculate final metrics
@@ -1043,51 +1831,75 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 		coveragePct = float64(klineSafe) / float64(len(usedIndicators)) * 100
 	}
 
-	// Build descriptive stock pool label
-	stockPoolLabel := "全部股票"
-	stockPoolCount := len(universe)
+	// Determine pool key (short enum) from task params
+	poolKey := "all"
 	if task.Params != "" {
 		var params map[string]interface{}
 		if json.Unmarshal([]byte(task.Params), &params) == nil {
 			if pool, ok := params["stockPool"].(string); ok && pool != "" {
-				switch {
-				case pool == "all":
-					stockPoolLabel = "全部股票"
-				case strings.HasPrefix(pool, "watchlist_"):
-					stockPoolLabel = "自选组"
-				case pool == "portfolio":
-					stockPoolLabel = "我的持仓"
-				}
+				poolKey = pool
 			}
 		}
 	}
-	stockPoolDisplay := fmt.Sprintf("%s (%d只)", stockPoolLabel, stockPoolCount)
+
+	// Build stock pool params for replay
+	poolParamsBytes, _ := json.Marshal(universeCodes)
+	poolParamsJSON := string(poolParamsBytes)
 
 	// Save result
 	bt := model.BacktestResult{
-		UserID:      task.UserID,
-		StrategyID:  task.StrategyID,
-		StockCode:   stockPoolDisplay,
-		StartDate:   parseDate(startDate),
-		EndDate:     parseDate(endDate),
-		TotalReturn: math.Round(totalReturn*100) / 100,
-		SharpeRatio: math.Round(sharpe*100) / 100,
-		MaxDrawdown: math.Round(maxDD*100) / 100,
-		WinRate:     math.Round(winRate*100) / 100,
-		TradeCount:  len(allTrades),
-		Trades:      model.JSONMap{"data": allTrades},
-		EquityCurve: model.JSONMap{"data": equityPoints},
-		Coverage:    model.JSONMap{"stats": coverageStats, "klineSafe": klineSafe, "klineUnsafe": klineUnsafe, "coveragePct": coveragePct},
+		TaskID:          task.ID,
+		UserID:          task.UserID,
+		StrategyID:      task.StrategyID,
+		StockPool:       poolKey,
+		StockPoolParams: poolParamsJSON,
+		StartDate:       parseDate(startDate),
+		EndDate:         parseDate(endDate),
+		InitialCapital:  capital,
+		FinalEquity:     math.Round(finalEquity*100) / 100,
+		TotalReturn:     math.Round(totalReturn*100) / 100,
+		SharpeRatio:     math.Round(sharpe*100) / 100,
+		MaxDrawdown:     math.Round(maxDD*100) / 100,
+		WinRate:         math.Round(winRate*100) / 100,
+		TradeCount:      len(allTrades),
+		Trades:          model.JSONMap{"data": allTrades},
+		EquityCurve:     model.JSONMap{"data": equityPoints},
+		Coverage:        model.JSONMap{"stats": coverageStats, "klineSafe": klineSafe, "klineUnsafe": klineUnsafe, "coveragePct": coveragePct},
 	}
-	db.MySQL.Create(&bt)
+	if err := db.MySQL.Create(&bt).Error; err != nil {
+		log.Printf("[backtest] failed to save result for task %d: %v", task.ID, err)
+		db.MySQL.Model(task).Updates(map[string]interface{}{
+			"status":    "failed",
+			"phase":     "保存结果失败",
+			"error_msg": fmt.Sprintf("保存结果失败: %v", err),
+		})
+		rm := getRunningMap(task.StrategyID)
+		delete(rm, task.ID)
+		return
+	}
+
+	// Final system log
+	insertBacktestLog(task.ID, task.StrategyID, task.UserID, "", 0,
+		"system", "info", "", "",
+		fmt.Sprintf("回测完成: 收益率%.2f%%, 夏普%.2f, 最大回撤%.2f%%, 胜率%.2f%%, 交易%d次",
+			totalReturn, sharpe, maxDD, winRate, len(allTrades)),
+		map[string]interface{}{
+			"totalReturn": math.Round(totalReturn*100)/100,
+			"sharpe": math.Round(sharpe*100)/100,
+			"maxDrawdown": math.Round(maxDD*100)/100,
+			"winRate": math.Round(winRate*100)/100,
+			"tradeCount": len(allTrades),
+		})
 
 	now2 := time.Now()
 	db.MySQL.Model(task).Updates(map[string]interface{}{
-		"status":       "completed",
-		"phase":        "回测完成",
-		"result_id":    bt.ID,
-		"progress_pct": 100,
-		"completed_at": now2,
+		"status":        "completed",
+		"phase":         "回测完成",
+		"result_id":     bt.ID,
+		"final_equity":  math.Round(finalEquity*100) / 100,
+		"total_return":  math.Round(totalReturn*100) / 100,
+		"progress_pct":  100,
+		"completed_at":  now2,
 	})
 
 	// Clean up running map
@@ -1205,6 +2017,12 @@ func (h *StrategyHandler) BacktestHistory(c *gin.Context) {
 		q = q.Where("strategy_id = ?", sid)
 	}
 	q.Order("created_at DESC").Limit(20).Find(&results)
+
+	// Resolve pool labels for display
+	for i := range results {
+		results[i].StockPoolLabel = resolveStockPoolLabel(results[i].StockPool, results[i].StockPoolParams)
+	}
+
 	response.Success(c, results)
 }
 
@@ -1483,6 +2301,64 @@ func evaluateConditions(conds []model.StrategyCondition, code, date string) bool
 		}
 	}
 	return false
+}
+
+
+// ── Backtest execution logging helpers ──
+
+// insertBacktestLog inserts a single execution log entry during backtest.
+// Use batch insert for better performance when many logs are generated per day.
+func insertBacktestLog(taskID, strategyID, userID uint, date string, seq int,
+	logType, level, stockCode, stockName, message string, detail interface{}) {
+	detailJSON := "{}"
+	if detail != nil {
+		b, _ := json.Marshal(detail)
+		detailJSON = string(b)
+	}
+	entry := model.BacktestExecutionLog{
+		TaskID:     taskID,
+		StrategyID: strategyID,
+		UserID:     userID,
+		Date:       date,
+		Seq:        seq,
+		LogType:    logType,
+		Level:      level,
+		StockCode:  stockCode,
+		StockName:  stockName,
+		Message:    message,
+		Detail:     detailJSON,
+	}
+	if err := db.MySQL.Create(&entry).Error; err != nil {
+		log.Printf("[backtest] insertLog failed: %v", err)
+	}
+}
+
+// insertDailySnapshot records a portfolio snapshot for one trading day.
+func insertDailySnapshot(taskID, strategyID, userID uint, date string, dayIndex int,
+	cash, totalEquity, dailyReturn, cumulativeReturn, maxDD float64,
+	positionCount int, positions []map[string]interface{}) {
+	posJSON := "[]"
+	if len(positions) > 0 {
+		b, _ := json.Marshal(positions)
+		posJSON = string(b)
+	}
+	snap := model.BacktestDailySnapshot{
+		TaskID:           taskID,
+		StrategyID:       strategyID,
+		UserID:           userID,
+		Date:             date,
+		DayIndex:         dayIndex,
+		Cash:             math.Round(cash*100) / 100,
+		TotalEquity:      math.Round(totalEquity*100) / 100,
+		DailyReturn:      math.Round(dailyReturn*100) / 100,
+		CumulativeReturn: math.Round(cumulativeReturn*100) / 100,
+		PositionCount:    positionCount,
+		Positions:        posJSON,
+		MaxDrawdown:      math.Round(maxDD*100) / 100,
+	}
+	if err := db.MySQL.Create(&snap).Error; err != nil {
+		log.Printf("[backtest] insertSnapshot failed: %v", err)
+	}
 }
 
 func evaluateSingleCondition(cond model.StrategyCondition, code, date string) bool {
