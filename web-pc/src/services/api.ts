@@ -169,6 +169,12 @@ export const uploadExcel = (file: File) => {
   return api.post('/import/excel', fd, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 60000 });
 };
 
+export const uploadKline = (file: File) => {
+  const fd = new FormData();
+  fd.append('file', file);
+  return api.post('/import/kline', fd, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 120000 });
+};
+
 export const uploadPrediction = (file: File) => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();

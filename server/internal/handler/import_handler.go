@@ -49,3 +49,31 @@ func (h *ImportHandler) History(c *gin.Context) {
 	}
 	response.Success(c, logs)
 }
+
+func (h *ImportHandler) UploadKline(c *gin.Context) {
+	file, err := c.FormFile("file")
+	if err != nil {
+		response.BadRequest(c, "请选择文件")
+		return
+	}
+
+	name := file.Filename
+	if len(name) < 5 {
+		response.BadRequest(c, "文件名无效")
+		return
+	}
+
+	f, err := file.Open()
+	if err != nil {
+		response.InternalError(c, "无法读取文件")
+		return
+	}
+	defer f.Close()
+
+	result, err := parseKlineCSV(f, name)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	response.Success(c, result)
+}

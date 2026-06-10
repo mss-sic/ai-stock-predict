@@ -115,6 +115,7 @@ func main() {
 		// Import
 		importH := handler.NewImportHandler()
 		api.POST("/import/excel", importH.Upload)
+		api.POST("/import/kline", importH.UploadKline)
 		api.GET("/import/history", importH.History)
 
 		// Watchlist

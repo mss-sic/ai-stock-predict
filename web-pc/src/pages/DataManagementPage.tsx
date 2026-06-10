@@ -7,7 +7,7 @@ import {
   Timer, Zap
 } from 'lucide-react';
 import {
-  uploadExcel, uploadPrediction, triggerCollection, fetchCollectorProgress,
+  uploadExcel, uploadKline, uploadPrediction, triggerCollection, fetchCollectorProgress,
   fetchImportHistory, fetchCollectorHistory, clearCollectorHistory, fetchDataStats, fetchDataDetail,
   fetchScheduledTasks, runTaskNow, initDefaultTasks, fetchTaskLogs, resetTaskStatus, toggleTask
 } from '../services/api';
@@ -97,6 +97,7 @@ export default function DataManagementPage() {
   const [tab, setTab] = useState<'overview' | 'tasks' | 'import' | 'collect' | 'history'>('overview');
   const [loading, setLoading] = useState(false);
   const [predLoading, setPredLoading] = useState(false);
+  const [klineLoading, setKlineLoading] = useState(false);
   const [result, setResult] = useState<any>(null);
   const [history, setHistory] = useState<any[]>([]);
   const [colHistory, setColHistory] = useState<any[]>([]);
@@ -531,6 +532,14 @@ export default function DataManagementPage() {
           </div>
 
           <div className="card">
+            <div className="card-header"><span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><BarChart3 size={16} color="#00b42a" /><span style={{ fontSize: 15, fontWeight: 600 }}>导入 K 线数据 CSV</span></span><span className="muted" style={{ fontSize: 12 }}>日K线行情 .csv (GBK/UTF-8)</span></div>
+            <div className="card-body">
+              <Upload drag accept=".csv" autoUpload={false} disabled={klineLoading || loading} onChange={(_, file) => { setKlineLoading(true); setResult(null); uploadKline(file.originFile as File).then((res: any) => { setResult({ ...res.data, fileName: file.name, type: 'kline' }); showToast('success', 'K线数据导入完成'); }).catch((err: any) => showToast('error', err?.response?.data?.error || '导入失败')).finally(() => setKlineLoading(false)); return false; }} tip="拖拽或点击上传 CSV 文件，格式: 股票代码,交易日期,开盘价,最高价,最低价,收盘价,成交量,成交额,换手率..." />
+              {klineLoading && <div style={{ marginTop: 16, padding: '12px 16px', background: '#e8f9e8', borderRadius: 4, display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, color: '#00b42a' }}><RefreshCw size={14} className="spin" />正在解析并导入K线数据...</div>}
+            </div>
+          </div>
+
+          <div className="card">
             <div className="card-header"><span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><FileJson size={16} color="#722ed1" /><span style={{ fontSize: 15, fontWeight: 600 }}>导入预测数据 JSON</span></span><span className="muted" style={{ fontSize: 12 }}>算法预测结果文件 .json</span></div>
             <div className="card-body">
               <Upload drag accept=".json" autoUpload={false} disabled={predLoading || loading} onChange={(_, file) => { setPredLoading(true); setResult(null); uploadPrediction(file.originFile as File).then((res: any) => { setResult({ ...res.data, fileName: file.name, type: 'prediction' }); showToast('success', '预测数据导入完成'); }).catch((err: any) => showToast('error', typeof err === 'string' ? err : (err?.response?.data?.error || '导入失败'))).finally(() => setPredLoading(false)); return false; }} tip="拖拽或点击上传，JSON 格式: 算法团队预测数据" />
@@ -539,10 +548,10 @@ export default function DataManagementPage() {
           </div>
           {result && (
             <div className="card">
-              <div className="card-header"><span style={{ fontSize: 15, fontWeight: 600 }}>导入结果</span><span className="muted" style={{ fontSize: 12 }}>{result.fileName}{result.type === 'prediction' ? ' (预测)' : ''}</span></div>
+              <div className="card-header"><span style={{ fontSize: 15, fontWeight: 600 }}>导入结果</span><span className="muted" style={{ fontSize: 12 }}>{result.fileName}{result.type === 'kline' ? ' (K线)' : result.type === 'prediction' ? ' (预测)' : ''}</span></div>
               <div className="card-body">
                 <div style={{ display: 'grid', gridTemplateColumns: result.type === 'prediction' ? 'repeat(3, 1fr)' : 'repeat(4, 1fr)', gap: 16, marginBottom: 16 }}>
-                  {(result.type === 'prediction' ? [{ label: '预测记录', value: result.imported || 0, color: '#722ed1' }, { label: '跳过', value: result.skipped || 0, color: '#86909c' }, { label: '股票数', value: result.total || 0, color: '#165dff' }] : [{ label: '交易日数', value: result.datesImported, color: '#165dff' }, { label: '上榜记录', value: result.picksImported, color: '#f53f3f' }, { label: '信号数据', value: result.signalsImported, color: '#00b42a' }, { label: '新增个股', value: result.stocksCreated, color: '#ff7d00' }]).map(item => (
+                  {(result.type === 'kline' ? [{ label: '导入成功', value: result.imported || 0, color: '#00b42a' }, { label: '跳过', value: result.skipped || 0, color: '#86909c' }, { label: '总行数', value: result.totalRows || 0, color: '#165dff' }, { label: '交易日期', value: result.tradeDate || '-', color: '#722ed1' }] : result.type === 'prediction' ? [{ label: '预测记录', value: result.imported || 0, color: '#722ed1' }, { label: '跳过', value: result.skipped || 0, color: '#86909c' }, { label: '股票数', value: result.total || 0, color: '#165dff' }] : [{ label: '交易日数', value: result.datesImported, color: '#165dff' }, { label: '上榜记录', value: result.picksImported, color: '#f53f3f' }, { label: '信号数据', value: result.signalsImported, color: '#00b42a' }, { label: '新增个股', value: result.stocksCreated, color: '#ff7d00' }]).map(item => (
                     <div key={item.label} style={{ textAlign: 'center', padding: '12px', background: '#f7f8fa', borderRadius: 6 }}><div style={{ fontSize: 24, fontWeight: 700, color: item.color, fontFamily: 'var(--font-family-mono, monospace)' }}>{item.value}</div><div style={{ fontSize: 12, color: '#86909c', marginTop: 4 }}>{item.label}</div></div>
                   ))}
                 </div>
