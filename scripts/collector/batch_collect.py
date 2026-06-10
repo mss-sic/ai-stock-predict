@@ -136,8 +136,9 @@ def main():
         else:
             missing = (today - latest).days
             if missing <= 0:
-                # Still check for 除权 adjustment every 7 days
-                if i % 7 == 0 and detect_adjustment(cur, code):
+                # Skip — already up-to-date (除权检测改为按需触发)
+                continue
+            if False and detect_adjustment(cur, code):
                     # Full reload for adjusted stock
                     klines = fetch_kline(code, days=365)
                     updated = 0
@@ -168,7 +169,6 @@ def main():
         if (i + 1) % 200 == 0:
             elapsed = time.time() - start
             conn.commit()
-            conn.commit()
             print(f"  📈 进度 {i+1}/{len(stocks)} | 更新{total_new}只股票 | 入库{total_records}条K线 | 除权修复{total_adjusted}只 | 耗时{elapsed:.0f}s", flush=True)
 
     conn.commit()
@@ -183,13 +183,14 @@ def main():
         quotes = fetch_quote_batch(batch)
         for code, q in quotes.items():
             # 更新换手率到 K线表（匹配最新交易日）
+            # 腾讯行情返回百分比(1.32=1.32%), 统一存为比率(0.0132)保持与CSV导入一致
             if q['turnover'] > 0:
                 cur.execute("""
                     UPDATE stocks_daily_k SET turnover_rate = %s
                     WHERE code = %s AND trade_date = (
                         SELECT MAX(trade_date) FROM stocks_daily_k WHERE code = %s
                     )
-                """, (q['turnover'], code, code))
+                """, (q['turnover'] / 100, code, code))
                 if cur.rowcount > 0:
                     turnover_updated += 1
             

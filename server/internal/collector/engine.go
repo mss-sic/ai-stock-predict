@@ -284,6 +284,7 @@ func RunManualCollection(phases []string) {
 
 	if shouldRun("reports") {
 		appendResult(runReportsPhase())
+	}
 
 	// === Backfill phases ===
 	if shouldRun("backfill_financial") {
@@ -294,7 +295,6 @@ func RunManualCollection(phases []string) {
 	}
 	if shouldRun("backfill_indicator") {
 		appendResult(runBackfillIndicatorPhase())
-	}
 	}
 	if shouldRun("concept") {
 		appendResult(runConceptPhase())

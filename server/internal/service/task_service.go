@@ -19,7 +19,7 @@ var DefaultTasks = []struct {
 	Phase    string
 	CronExpr string
 }{
-	{"实时行情采集", "quote", "0 */5 * * * *"},        // every 5 min
+	{"概念板块采集", "concept", "0 0 8 * * *"},        // daily 08:00
 	{"日K线采集", "kline", "0 0 16 * * *"},             // daily 16:00
 	{"PE/PB指标采集", "indicator", "0 30 16 * * *"},     // daily 16:30
 	{"行业分类采集", "industry", "0 0 2 * * 1"},         // weekly Mon 2:00
