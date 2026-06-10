@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { useTheme } from '../services/ThemeContext';
+import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ZoomIn, ZoomOut } from 'lucide-react';
 
 interface KLineItem {
   tradeDate?: string; date?: string;
@@ -721,26 +722,26 @@ export default function KLineChart({
         background: chartBg, color: textColor, flexWrap: 'wrap', userSelect: 'none'
       }}>
         <button onClick={() => setPanOffset(p => p - step * 30)} disabled={startIdx <= 0}
-          className="kl-btn" title="左移30根">◀◀</button>
+          className="kl-btn" title="左移30根"><ChevronsLeft size={15} /></button>
         <button onClick={() => setPanOffset(p => p - step * 5)} disabled={startIdx <= 0}
-          className="kl-btn" title="左移5根">◀</button>
+          className="kl-btn" title="左移5根"><ChevronLeft size={15} /></button>
 
         <button onClick={() => handleZoom(-10)}
-          className="kl-btn" title="放大（减少K线数）">🔍−</button>
+          className="kl-btn" title="放大（减少K线数）"><ZoomIn size={15} /></button>
 
-        <span style={{ fontSize: 12, color: axisColor, minWidth: 100, textAlign: 'center', fontWeight: 500 }}>
-          {useLineMode ? '📈' : '🕯️'} {startIdx + 1}-{Math.min(startIdx + visCount, totalN)} / {totalN}
+        <span style={{ fontSize: 12, color: axisColor, minWidth: 90, textAlign: 'center', fontWeight: 500, fontVariantNumeric: 'tabular-nums' }}>
+          {startIdx + 1}-{Math.min(startIdx + visCount, totalN)} / {totalN}
         </span>
 
         <button onClick={() => handleZoom(10)}
-          className="kl-btn" title="缩小（增加K线数）">🔍+</button>
+          className="kl-btn" title="缩小（增加K线数）"><ZoomOut size={15} /></button>
 
         <button onClick={() => setPanOffset(p => p + step * 5)} disabled={startIdx + visCount >= totalN}
-          className="kl-btn" title="右移5根">▶</button>
+          className="kl-btn" title="右移5根"><ChevronRight size={15} /></button>
         <button onClick={() => setPanOffset(p => p + step * 30)} disabled={startIdx + visCount >= totalN}
-          className="kl-btn" title="右移30根">▶▶</button>
+          className="kl-btn" title="右移30根"><ChevronsRight size={15} /></button>
 
-        <span style={{ width: 1, height: 18, background: '#3d3d54', margin: '0 6px' }} />
+        <span style={{ width: 1, height: 18, background: gridColor, margin: '0 6px' }} />
 
         {[
           { label: '1月', days: 22 },

@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"log"
 	"fmt"
 	"net/http"
 	"strings"
@@ -142,6 +143,90 @@ func (h *AIHandler) GetScore(c *gin.Context) {
 		return
 	}
 	response.Success(c, score)
+}
+
+// ScoreStock runs AI scoring for a single stock (reusable, no gin context)
+func (h *AIHandler) ScoreStock(code string, uid uint) error {
+	stockCtx, _ := h.buildScoringContext(code)
+
+	sysPrompt := fmt.Sprintf(`你是一位资深A股分析师。请全面分析以下股票，从六个维度打分（1-10分），并返回严格JSON格式（不要markdown代码块）：
+%%s
+
+六维评分标准：
+- fundamentalScore(基本面): 营收/利润/ROE/现金流等财务健康度
+- growthScore(成长性): 营收增速/利润增速/行业空间
+- valuationScore(估值): PE/PB分位数/与行业对比
+- capitalScore(资金面): 成交量/北向资金/主力资金流向
+- technicalScore(技术面): 趋势/均线/MACD/KDJ等指标
+- industryScore(行业景气): 行业周期/政策/景气度
+
+综合评分compositeScore为六维加权平均（基本面20%%%%/成长性20%%%%/估值20%%%%/资金面15%%%%/技术面15%%%%/行业景气10%%%%）
+
+额外要求：
+- riskWarnings: 列出3-5条风险提示
+- riskLevel: 高风险/中高风险/中风险/中低风险/低风险
+- suggestion: 强烈买入/买入/增持/持有/减持/卖出/强烈卖出
+- summary: 50字以内综合总结
+
+返回格式（严格JSON，不要代码块标记）：
+{"compositeScore":7.2,"fundamentalScore":7.5,"growthScore":6.8,"valuationScore":7.0,"capitalScore":6.5,"technicalScore":7.8,"industryScore":8.0,"riskLevel":"中风险","suggestion":"增持","summary":"...","riskWarnings":["...","..."]}`, stockCtx)
+
+	reply, err := h.svc.ChatCompletion(uid, "", []map[string]string{
+		{"role": "system", "content": sysPrompt},
+		{"role": "user", "content": "请输出JSON格式的六维评分结果。"},
+	})
+	if err != nil {
+		return err
+	}
+
+	reply = strings.TrimSpace(reply)
+	reply = strings.TrimPrefix(reply, "```json")
+	reply = strings.TrimPrefix(reply, "```")
+	reply = strings.TrimSuffix(reply, "```")
+	reply = strings.TrimSpace(reply)
+
+	var result map[string]interface{}
+	if err := json.Unmarshal([]byte(reply), &result); err != nil {
+		return fmt.Errorf("AI返回格式异常: %%w", err)
+	}
+
+	score := model.AIStockScore{
+		Code:       code,
+		AnalyzedAt: time.Now(),
+	}
+	if v, ok := result["compositeScore"].(float64); ok { score.CompositeScore = v }
+	if v, ok := result["fundamentalScore"].(float64); ok { score.FundamentalScore = v }
+	if v, ok := result["growthScore"].(float64); ok { score.GrowthScore = v }
+	if v, ok := result["valuationScore"].(float64); ok { score.ValuationScore = v }
+	if v, ok := result["capitalScore"].(float64); ok { score.CapitalScore = v }
+	if v, ok := result["technicalScore"].(float64); ok { score.TechnicalScore = v }
+	if v, ok := result["industryScore"].(float64); ok { score.IndustryScore = v }
+	if v, ok := result["riskLevel"].(string); ok { score.RiskLevel = v }
+	if v, ok := result["suggestion"].(string); ok { score.Suggestion = v }
+	if v, ok := result["summary"].(string); ok { score.Summary = v }
+	if warnings, ok := result["riskWarnings"].([]interface{}); ok {
+		for _, w := range warnings {
+			if s, ok := w.(string); ok { score.RiskWarnings = append(score.RiskWarnings, s) }
+		}
+	}
+
+	return db.PG.Create(&score).Error
+}
+
+// BatchScoreStocks runs AI scoring for multiple stocks asynchronously
+func (h *AIHandler) BatchScoreStocks(codes []string, uid uint) {
+	go func() {
+		log.Printf("[AI批量评分] 开始分析 %%d 只股票", len(codes))
+		for i, code := range codes {
+			log.Printf("[AI批量评分] %%d/%%d: %%s", i+1, len(codes), code)
+			if err := h.ScoreStock(code, uid); err != nil {
+				log.Printf("[AI批量评分] %%s 失败: %%v", code, err)
+			}
+			// Rate limit: sleep between calls
+			time.Sleep(2 * time.Second)
+		}
+		log.Printf("[AI批量评分] 完成，共 %%d 只股票", len(codes))
+	}()
 }
 
 // RunScore triggers a comprehensive AI scoring analysis

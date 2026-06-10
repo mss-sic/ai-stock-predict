@@ -15,7 +15,7 @@ import {
 const PHASE_LABELS: Record<string, string> = {
   full_sync: '股票列表同步', kline: '日K线数据', indicator: 'PE/PB指标',
   industry: '行业分类', quote: '实时行情', shareholder: '股东数据',
-  financial: '财务数据', news: '资讯数据', reports: '研报数据',
+  financial: '财务数据', news: '资讯数据', reports: '研报数据', concept: '概念板块',
   backfill_financial: '财报全量回填', backfill_shareholder: '股东全量回填',
   backfill_indicator: 'PE/PB历史回填',
 };
@@ -30,6 +30,7 @@ const PHASE_DESCRIPTIONS: Record<string, string> = {
   financial: '采集营收、净利润、ROE、EPS、毛利率、资产负债率等财务数据',
   news: '采集个股公告、新闻资讯、行业动态等信息',
   reports: '采集券商研报、评级调整、盈利预测、目标价等机构观点',
+  concept: '采集东方财富概念板块、行业板块分类及成分股关联',
   backfill_financial: '全量回溯历史财报数据，补齐所有报告期的财务指标',
   backfill_shareholder: '全量回溯历史股东数据，补齐所有报告期的股东变化',
   backfill_indicator: '全量回溯历史PE/PB指标，补齐所有交易日的估值数据',
@@ -38,7 +39,7 @@ const PHASE_DESCRIPTIONS: Record<string, string> = {
 const PHASE_COLORS: Record<string, string> = {
   full_sync: '#165dff', kline: '#ff7d00', indicator: '#00b42a',
   industry: '#722ed1', quote: '#14c9c9', shareholder: '#f53f3f',
-  financial: '#0fc6c2', news: '#f77234', reports: '#e865b7',
+  financial: '#0fc6c2', news: '#f77234', reports: '#e865b7', concept: '#f5319d',
   backfill_financial: '#4080ff', backfill_shareholder: '#ff4080', backfill_indicator: '#00c853',
 };
 
@@ -240,6 +241,7 @@ export default function DataManagementPage() {
                       indicator: { icon: <PieChart size={18} />, color: '#00b42a' }, quote: { icon: <Activity size={18} />, color: '#14c9c9' },
                       financial: { icon: <Banknote size={18} />, color: '#0fc6c2' }, shareholder: { icon: <Users size={18} />, color: '#f53f3f' },
                       news: { icon: <Newspaper size={18} />, color: '#f77234' }, reports: { icon: <FileText size={18} />, color: '#e865b7' },
+                      concept: { icon: <PieChart size={18} />, color: '#f5319d' },
                       board_picks: { icon: <FileSpreadsheet size={18} />, color: '#722ed1' }, board_details: { icon: <FileSpreadsheet size={18} />, color: '#722ed1' },
                       signals: { icon: <Activity size={18} />, color: '#ffb400' },
                     };
@@ -389,7 +391,7 @@ export default function DataManagementPage() {
             <div className="card-body" style={{ padding: '14px 20px' }}>
               {/* Phase tabs */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>
-                {['indicator', 'kline', 'quote', 'industry', 'full_sync', 'shareholder', 'financial', 'news', 'reports'].map(phase => {
+                {['indicator', 'kline', 'quote', 'industry', 'full_sync', 'shareholder', 'financial', 'news', 'reports', 'concept'].map(phase => {
                   const isActive = collecting && progress?.phase === phase;
                   const isSelected = selectedCollectPhase === phase;
                   return (
@@ -524,7 +526,7 @@ export default function DataManagementPage() {
       {tab === 'import' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div className="card">
-            <div className="card-header"><span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><FileSpreadsheet size={16} color="#165dff" /><span style={{ fontSize: 15, fontWeight: 600 }}>上传 Excel 数据文件</span></span><span className="muted" style={{ fontSize: 12 }}>支持 .xlsx / .xlsm</span></div>
+            <div className="card-header"><span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><FileSpreadsheet size={16} color="#165dff" /><span style={{ fontSize: 15, fontWeight: 600 }}>导入榜单数据文件</span></span><span className="muted" style={{ fontSize: 12 }}>支持 .xlsx / .xlsm</span></div>
             <div className="card-body">
               <Upload drag accept=".xlsx,.xlsm" autoUpload={false} disabled={loading} onChange={(_, file) => { setLoading(true); setResult(null); uploadExcel(file.originFile as File).then((res: any) => { setResult(res.data); showToast('success', 'Excel 导入完成'); }).catch((err: any) => showToast('error', err?.response?.data?.error || '导入失败')).finally(() => setLoading(false)); return false; }} tip="拖拽或点击上传，参考文件: MSS20260603.xlsm" />
               {loading && <div style={{ marginTop: 16, padding: '12px 16px', background: '#e8f3ff', borderRadius: 4, display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, color: '#165dff' }}><RefreshCw size={14} className="spin" />正在解析并导入数据...</div>}

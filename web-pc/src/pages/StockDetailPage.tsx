@@ -7,8 +7,9 @@ import {
   Send, Trash2, Loader2, Check, X, Layers, FileText, Users, Newspaper, Star, StarOff, ChevronLeft, ChevronRight, ExternalLink,
 } from 'lucide-react';
 import { showToast } from '../components/Toast';
-import { authFetch, checkAPIError, fetchStockDetail, fetchKLine, fetchIndicator, fetchPredictionResult, fetchPredictionHitRate, fetchStockHeatmap, fetchSignal, fetchFinancials, fetchShareholders, fetchStockNews, fetchReports, addToWatchlist, removeFromWatchlist, fetchWatchlist, fetchWatchlistGroups, createWatchlistGroup } from '../services/api';
+import { authFetch, checkAPIError, fetchStockDetail, fetchKLine, fetchIndicator, fetchPredictionResult, fetchPredictionHitRate, fetchStockHeatmap, fetchSignal, fetchFinancials, fetchShareholders, fetchStockNews, fetchReports, fetchStockConceptTags, addToWatchlist, removeFromWatchlist, fetchWatchlist, fetchWatchlistGroups, createWatchlistGroup } from '../services/api';
 import KLineChart from '../components/KLineChart';
+import BoardSidebar from '../components/BoardSidebar';
 
 type TabKey = 'forecast' | 'analysis' | 'strategy' | 'technical' | 'trading' | 'financial' | 'shareholder' | 'reports' | 'news';
 
@@ -78,7 +79,7 @@ function FinCard({ label, value, color, prefix, extra, extraLabel }: { label: st
       <div style={{ fontSize: 17, fontWeight: 600, color: color || '#1d2129', fontFamily: "'SF Mono', 'Menlo', monospace" }}>
         {prefix || ''}{value}
       </div>
-      {extra && <div style={{ fontSize: 10, color: '#86909c', marginTop: 2 }}>{extraLabel || '环比'}: <span style={{ fontWeight: 500, color: color || '#4e5969' }}>{extra}</span></div>}
+      {extra && <div style={{ fontSize: 10, color: '#86909c', marginTop: 16 }}>{extraLabel || '环比'}: <span style={{ fontWeight: 500, color: color || '#4e5969' }}>{extra}</span></div>}
     </div>
   );
 }
@@ -318,6 +319,7 @@ export default function StockDetailPage() {
   const [aiScore, setAiScore] = useState<any>(null);
   const [scoreLoading, setScoreLoading] = useState(false);
   const [signal, setSignal] = useState<number | null>(null);
+  const [conceptTags, setConceptTags] = useState<any[]>([]);
   const [todayBoardRank, setTodayBoardRank] = useState<number | null>(null);
   const [financials, setFinancials] = useState<any[]>([]);
   const [shareholders, setShareholders] = useState<any[]>([]);
@@ -361,6 +363,7 @@ fetchPredictionResult(code).then((r: any) => {
       setBoardRanks(map);
     }).catch(() => {});
     fetchSignal(code).then((r: any) => setSignal(r.data?.data?.signalValue ?? r.data?.signalValue ?? null)).catch(() => {});
+    fetchStockConceptTags(code).then((r: any) => setConceptTags(r.data?.data || [])).catch(() => {});
 
     (async () => {
       try {
@@ -688,8 +691,12 @@ fetchPredictionResult(code).then((r: any) => {
                 <span style={{ fontSize: 13, color: '#86909c', fontFamily: 'monospace' }}>{stock.code}</span>
                 <button onClick={toggleWL} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 10px', borderRadius: 4, border: 'none', cursor: 'pointer', fontSize: 12, background: isWatched ? '#fff7e6' : '#f2f3f5', color: isWatched ? '#f7ba1e' : '#86909c' }}>{isWatched ? <><StarOff size={13} /> 已自选</> : <><Star size={13} /> 加自选</>}</button>
                 {stock.industry && <Tag color="blue" style={{ fontSize: 11 }}>{stock.industry}</Tag>}
+                {conceptTags.map((ct: any, i: number) => (
+                  <Tag key={i} color="arcoblue" style={{ fontSize: 10, padding: '1px 6px', lineHeight: '16px' }}>{ct.conceptName}</Tag>
+                ))}
                 {sug && <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 4, background: SUGGEST_BG[sug] || '#f2f3f5', color: SUGGEST_COLORS[sug] || '#86909c', border: '1px solid ' + (SUGGEST_COLORS[sug] || '#e5e6eb') }}>{sug}</span>}
                 {risk && <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 4, background: RISK_BG[risk] || '#f2f3f5', color: RISK_COLORS[risk] || '#86909c', border: '1px solid ' + (RISK_COLORS[risk] || '#e5e6eb') }}>{risk}</span>}
+
               </div>
               {priceStats && (
                 <>
@@ -713,35 +720,7 @@ fetchPredictionResult(code).then((r: any) => {
                 </>
               )}
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flexShrink: 0 }}>
-              <span style={{ fontSize: 11, color: '#86909c', marginBottom: 2, display: 'flex', alignItems: 'center', gap: 4 }}>
-                <ExternalLink size={12} /> 外部行情
-              </span>
-              {(() => {
-                const code = stock.code || '';
-                const mkt = code.startsWith('6') ? 'sh' : 'sz';
-                const MKT = mkt.toUpperCase();
-                const links = [
-                  { name: '新浪', url: `https://finance.sina.com.cn/realstock/company/${mkt}${code}/nc.shtml`, color: '#F53F3F' },
-                  { name: '东财', url: `https://quote.eastmoney.com/${MKT}${code}.html`, color: '#165DFF' },
-                  { name: '同花顺', url: `https://www.10jqka.com.cn/${code}/`, color: '#F77234' },
-                ];
-                return links.map(l => (
-                  <a key={l.name} href={l.url} target="_blank" rel="noopener noreferrer"
-                    style={{
-                      display: 'inline-flex', alignItems: 'center', gap: 4,
-                      padding: '5px 12px', borderRadius: 6, fontSize: 12,
-                      border: `1px solid ${l.color}20`, color: l.color, textDecoration: 'none',
-                      fontWeight: 500, transition: 'all 0.15s',
-                    }}
-                    onMouseEnter={e => { e.currentTarget.style.background = `${l.color}10`; }}
-                    onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
-                  >
-                    {l.name}
-                  </a>
-                ));
-              })()}
-            </div>
+
           </div>
         </div>
       </div>
@@ -758,48 +737,55 @@ fetchPredictionResult(code).then((r: any) => {
 
       {/* ── Forecast Tab ── */}
       {tab === 'forecast' && (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: 16, alignItems: 'start' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: 16, alignItems: 'stretch' }}>
           {/* LEFT: Charts */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14, minWidth: 0 }}>
-            {/* Header strip */}
+            {/* K-line card */}
             <div className="card">
-              <div style={{ padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
-                <div style={{ width: 38, height: 38, borderRadius: 8, background: 'linear-gradient(135deg, #165dff, #722ed1)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                  <Layers size={18} color="#fff" />
+              <div className="card-header" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{ width: 28, height: 28, borderRadius: 6, background: 'linear-gradient(135deg, #165dff, #722ed1)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <Layers size={14} color="#fff" />
                 </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 14, fontWeight: 600 }}>算法走势预测 · {stock.name} <span className="muted" style={{ fontWeight: 400 }}>{stock.code}</span></div>
-                  <div className="muted" style={{ fontSize: 11 }}>
-                    {MODEL_NAMES.length} 模型集成 · 现价 <b style={{ color: '#1d2129' }}>{priceStats?.price.toFixed(2)}</b>
-                    {ensemble && <> · 集成收益 <b className={ensemble.ensembleChg >= 0 ? 'up' : 'down'}>{ensemble.ensembleChg >= 0 ? '+' : ''}{ensemble.ensembleChg.toFixed(2)}%</b></>}
-                  </div>
-                </div>
-                <div className="seg">
+                <span style={{ fontWeight: 600, fontSize: 13, flex: 1, minWidth: 0 }}>
+                  价格路径预测 · {stock.name} <span className="muted" style={{ fontWeight: 400, fontSize: 11 }}>{stock.code}</span>
+                  {ensemble && <> · 集成收益 <b className={ensemble.ensembleChg >= 0 ? 'up' : 'down'} style={{ fontSize: 11 }}>{ensemble.ensembleChg >= 0 ? '+' : ''}{ensemble.ensembleChg.toFixed(2)}%</b></>}
+                </span>
+                <div className="seg" style={{ flexShrink: 0 }}>
                   {horizons.map(h => (
-                    <button key={h} className={horizon === h ? 'active' : ''} onClick={() => setHorizon(h)} style={{ fontSize: 12, padding: '4px 12px' }}>{h}日</button>
+                    <button key={h} className={horizon === h ? 'active' : ''} onClick={() => setHorizon(h)} style={{ fontSize: 11, padding: '3px 10px' }}>{h}日</button>
                   ))}
                 </div>
+                {(() => {
+                  const code = stock.code || '';
+                  const mkt = code.startsWith('6') ? 'sh' : 'sz';
+                  const MKT = mkt.toUpperCase();
+                  const links = [
+                    { name: '新浪', url: `https://finance.sina.com.cn/realstock/company/${mkt}${code}/nc.shtml`, color: '#F53F3F' },
+                    { name: '东财', url: `https://quote.eastmoney.com/${MKT}${code}.html`, color: '#165DFF' },
+                    { name: '同花顺', url: `https://stockpage.10jqka.com.cn/${code}/`, color: '#F77234' },
+                  ];
+                  return links.map(l => (
+                    <a key={l.name} href={l.url} target="_blank" rel="noopener noreferrer"
+                      style={{
+                        display: 'inline-flex', alignItems: 'center', gap: 2,
+                        padding: '2px 7px', borderRadius: 4, fontSize: 11,
+                        border: `1px solid ${l.color}20`, color: l.color, textDecoration: 'none',
+                        fontWeight: 500, marginLeft: 4, flexShrink: 0,
+                      }}
+                      onMouseEnter={e => { e.currentTarget.style.background = `${l.color}10`; }}
+                      onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+                    >
+                      <ExternalLink size={10} />{l.name}
+                    </a>
+                  ));
+                })()}
               </div>
-            </div>
-
-            {/* K-line with prediction */}
-            <div className="card">
-              <div className="card-header">
-                <span style={{ fontWeight: 600, fontSize: 13 }}>价格路径预测 · 未来 {horizon} 日 · 含置信区间</span>
-                {ensemble && (
-                  <span className={`tag ${ensemble.ensembleChg >= 0 ? 'tag-red' : 'tag-green'}`} style={{ fontSize: 11, fontWeight: 600 }}>
-                    {ensemble.ensembleChg >= 0 ? '看多' : '看空'} · 期望 {ensemble.ensembleChg >= 0 ? '+' : ''}{ensemble.ensembleChg.toFixed(2)}%
-                  </span>
-                )}
-              </div>
-              <div style={{ padding: 8 }}>
+              <div style={{ padding: '0 4px 4px' }}>
                 <KLineChart data={klines} height={460} markers={markers} splitIdx={predOverlay.splitIdx} predictionLines={predOverlay.lines} predMarkers={predOverlay.markers} />
               </div>
             </div>
-          </div>
-
-          {/* RIGHT: Ensemble detail + backtest */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {/* ═══ Ensemble + Backtest ═══ */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginTop: 50 }}>
             {/* Model ensemble breakdown */}
             <div className="card">
               <div className="card-header">
@@ -892,6 +878,12 @@ fetchPredictionResult(code).then((r: any) => {
                 )}
               </div>
             </div>
+          </div>
+          </div>
+
+          {/* RIGHT: 历史榜单 */}
+          <div style={{ width: 320, flexShrink: 0, position: 'sticky', top: 12, alignSelf: 'start', height: 'calc(100vh - 160px)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <BoardSidebar stockCode={stock.code} stockName={stock.name} />
           </div>
         </div>
       )}
@@ -1403,7 +1395,7 @@ fetchPredictionResult(code).then((r: any) => {
                           color: '#fff',
                         }}>
                           <div style={{ fontSize: 14, fontWeight: 600 }}>📐 区间统计</div>
-                          <div style={{ fontSize: 11, opacity: 0.85, marginTop: 2 }}>
+                          <div style={{ fontSize: 11, opacity: 0.85, marginTop: 16 }}>
                             {intervalStats.startDate?.slice(0,10) || ''} → {intervalStats.endDate?.slice(0,10) || ''} · {intervalStats.bars}根K线
                           </div>
                         </div>
@@ -1423,7 +1415,7 @@ fetchPredictionResult(code).then((r: any) => {
                             }}>
                               {intervalStats.changePct >= 0 ? '+' : ''}{intervalStats.changePct.toFixed(2)}%
                             </div>
-                            <div style={{ fontSize: 10, color: '#86909c', marginTop: 2 }}>
+                            <div style={{ fontSize: 10, color: '#86909c', marginTop: 16 }}>
                               {intervalStats.startPrice?.toFixed(2)} → {intervalStats.endPrice?.toFixed(2)}
                             </div>
                           </div>
@@ -1435,7 +1427,7 @@ fetchPredictionResult(code).then((r: any) => {
                             <div style={{ fontSize: 20, fontWeight: 700, color: '#1D2129', fontFamily: 'monospace' }}>
                               {intervalStats.amplitude.toFixed(2)}%
                             </div>
-                            <div style={{ fontSize: 10, color: '#86909c', marginTop: 2 }}>
+                            <div style={{ fontSize: 10, color: '#86909c', marginTop: 16 }}>
                               {intervalStats.high?.toFixed(2)} / {intervalStats.low?.toFixed(2)}
                             </div>
                           </div>
@@ -1448,7 +1440,7 @@ fetchPredictionResult(code).then((r: any) => {
                             <div style={{ fontSize: 20, fontWeight: 700, color: '#F77234', fontFamily: 'monospace' }}>
                               -{intervalStats.maxDrawdown.toFixed(2)}%
                             </div>
-                            <div style={{ fontSize: 10, color: '#86909c', marginTop: 2 }}>区间内峰值回落</div>
+                            <div style={{ fontSize: 10, color: '#86909c', marginTop: 16 }}>区间内峰值回落</div>
                           </div>
                           {/* 涨跌天数比 */}
                           <div style={{
@@ -1460,7 +1452,7 @@ fetchPredictionResult(code).then((r: any) => {
                               <span style={{ color: '#C9CDD4', margin: '0 4px' }}>/</span>
                               <span style={{ color: '#00B42A' }}>{intervalStats.downDays}</span>
                             </div>
-                            <div style={{ fontSize: 10, color: '#86909c', marginTop: 2 }}>
+                            <div style={{ fontSize: 10, color: '#86909c', marginTop: 16 }}>
                               阳{intervalStats.upDays}天 · 阴{intervalStats.downDays}天
                             </div>
                           </div>
@@ -1635,14 +1627,14 @@ fetchPredictionResult(code).then((r: any) => {
                     <div style={{ fontSize: 20, fontWeight: 700, color: '#1d2129' }}>
                       {(latestSH.totalHolders / 10000).toFixed(2)}<span style={{ fontSize: 12, fontWeight: 400, color: '#86909c' }}>万户</span>
                     </div>
-                    <div style={{ fontSize: 11, color: '#86909c', marginTop: 2 }}>截至 {latestSH.reportDate}</div>
+                    <div style={{ fontSize: 11, color: '#86909c', marginTop: 16 }}>截至 {latestSH.reportDate}</div>
                   </div>
                   <div style={{ background: '#f7f8fa', borderRadius: 8, padding: '12px 14px' }}>
                     <div style={{ fontSize: 11, color: '#86909c', marginBottom: 4 }}>环比变化</div>
                     <div style={{ fontSize: 20, fontWeight: 700, color: latestSH.holderChange > 0 ? '#00B42A' : latestSH.holderChange < 0 ? '#F53F3F' : '#86909c' }}>
                       {latestSH.holderChange > 0 ? '+' : ''}{latestSH.holderChange?.toFixed(2)}%
                     </div>
-                    <div style={{ fontSize: 11, color: latestSH.holderChange > 0 ? '#00B42A' : latestSH.holderChange < 0 ? '#F53F3F' : '#86909c', marginTop: 2 }}>
+                    <div style={{ fontSize: 11, color: latestSH.holderChange > 0 ? '#00B42A' : latestSH.holderChange < 0 ? '#F53F3F' : '#86909c', marginTop: 16 }}>
                       {latestSH.holderChange > 0 ? '筹码分散 ↑' : latestSH.holderChange < 0 ? '筹码集中 ↓' : '持平'}
                     </div>
                   </div>
@@ -1651,14 +1643,14 @@ fetchPredictionResult(code).then((r: any) => {
                     <div style={{ fontSize: 20, fontWeight: 700, color: '#1d2129' }}>
                       {fmtVol(latestSH.avgHolding)}<span style={{ fontSize: 12, fontWeight: 400, color: '#86909c' }}>股</span>
                     </div>
-                    <div style={{ fontSize: 11, color: '#86909c', marginTop: 2 }}>人均持股市值</div>
+                    <div style={{ fontSize: 11, color: '#86909c', marginTop: 16 }}>人均持股市值</div>
                   </div>
                   <div style={{ background: '#f7f8fa', borderRadius: 8, padding: '12px 14px' }}>
                     <div style={{ fontSize: 11, color: '#86909c', marginBottom: 4 }}>机构持股比例</div>
                     <div style={{ fontSize: 20, fontWeight: 700, color: '#1d2129' }}>
                       {latestSH.instHoldRatio > 0 ? latestSH.instHoldRatio.toFixed(2) + '%' : '-'}
                     </div>
-                    <div style={{ fontSize: 11, color: '#86909c', marginTop: 2 }}>数据期数 {shList.length} 期</div>
+                    <div style={{ fontSize: 11, color: '#86909c', marginTop: 16 }}>数据期数 {shList.length} 期</div>
                   </div>
                 </div>
 

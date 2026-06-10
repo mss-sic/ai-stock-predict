@@ -76,3 +76,4 @@ CREATE TABLE IF NOT EXISTS stock_signals (
     source VARCHAR(50) DEFAULT 'excel_import',
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+CREATE INDEX IF NOT EXISTS idx_ai_scores_code_analyzed ON ai_stock_scores(code, analyzed_at DESC);

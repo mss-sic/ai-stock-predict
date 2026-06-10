@@ -14,7 +14,7 @@ interface BoardItem {
   open: number; close: number; chgPct: number;
   pe: number; pb: number; industry: string;
   nextDate: string; nextOpen: number; nextClose: number; nextChgPct: number;
-  cumuChgPct: number;
+  cumuChgPct: number; streakCount: number; appearanceCount: number;
 }
 
 const SUGGEST_COLORS: Record<string,string>={'强烈买入':'#F53F3F','买入':'#F77234','增持':'#FF7D00','持有':'#86909C','减持':'#3491FA','卖出':'#00B42A','强烈卖出':'#009A29'};
@@ -181,6 +181,16 @@ export default function HistoryBoardPage() {
           </Tooltip>
         );
       },
+    },
+    {
+      title: '上榜', dataIndex: 'appearanceCount', width: 55, align: 'center' as const,
+      sorter: (a: BoardItem, b: BoardItem) => (a.appearanceCount || 0) - (b.appearanceCount || 0),
+      render: (v: number) => v > 0 ? <span style={{ fontSize: 11, color: '#7c3aed', fontWeight: 500 }}>{v}次</span> : <span style={{ color: '#c9cdd4' }}>-</span>,
+    },
+    {
+      title: '连榜', dataIndex: 'streakCount', width: 55, align: 'center' as const,
+      sorter: (a: BoardItem, b: BoardItem) => (a.streakCount || 0) - (b.streakCount || 0),
+      render: (v: number) => v > 0 ? <span style={{ fontSize: 11, color: '#cb272d', fontWeight: 500 }}>{v}天</span> : <span style={{ color: '#c9cdd4' }}>-</span>,
     },
     {
       title: 'PE', dataIndex: 'pe', width: 58, align: 'right' as const,

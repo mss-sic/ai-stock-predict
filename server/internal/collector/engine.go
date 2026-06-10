@@ -203,7 +203,7 @@ func RunManualCollection(phases []string) {
 	progress.Current = 0
 	totalPhases := len(phases)
 	if totalPhases == 0 {
-		totalPhases = 12
+		totalPhases = 13
 	}
 	progress.Total = totalPhases
 	progress.Results = nil
@@ -296,6 +296,29 @@ func RunManualCollection(phases []string) {
 		appendResult(runBackfillIndicatorPhase())
 	}
 	}
+	if shouldRun("concept") {
+		appendResult(runConceptPhase())
+	}
+}
+
+func runConceptPhase() PhaseResult {
+	setPhase("concept", "采集概念板块数据...")
+	sseSend(SSELine{Type: "phase", Phase: "concept", Message: "开始采集东方财富概念板块...", Level: "info"})
+	t0 := time.Now()
+	var before int64
+	db.PG.Model(&model.StockConcept{}).Count(&before)
+	if err := CollectConcepts(); err != nil {
+		phaseRes := PhaseResult{Phase: "concept", Errors: 1}
+		phaseRes.DurationMs = time.Since(t0).Milliseconds()
+		sseSend(SSELine{Type: "result", Phase: "concept", Result: &phaseRes, Level: "error", Message: fmt.Sprintf("概念采集失败: %v", err)})
+		return phaseRes
+	}
+	var after int64
+	db.PG.Model(&model.StockConcept{}).Count(&after)
+	phaseRes := PhaseResult{Phase: "concept", Total: int(after), New: int(after - before)}
+	phaseRes.DurationMs = time.Since(t0).Milliseconds()
+	sseSend(SSELine{Type: "result", Phase: "concept", Result: &phaseRes, Level: "success", Message: fmt.Sprintf("概念板块: %d 条关联", after)})
+	return phaseRes
 }
 
 func runFullSyncPhase() PhaseResult {

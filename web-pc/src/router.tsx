@@ -69,6 +69,7 @@ const router = createBrowserRouter([
           { index: true, element: <BoardPage /> },
           { path: 'board/history', element: <HistoryBoardPage /> },
           { path: 'board/heatmap', element: <HeatmapPage /> },
+          { path: 'board/concepts', element: <HeatmapPage /> },
           { path: 'stock/:code', element: <StockDetailPage /> },
           { path: 'forecast/:code', element: <ForecastPage /> },
           { path: 'ai/:code', element: <AIAnalysisPage /> },

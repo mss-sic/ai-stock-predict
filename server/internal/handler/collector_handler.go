@@ -138,6 +138,8 @@ func (h *CollectorHandler) StockCollect(c *gin.Context) {
 }
 
 // CollectReports triggers per-stock report collection via Python script
+
+
 func (h *CollectorHandler) CollectReports(c *gin.Context) {
 	code := c.Param("code")
 	if code == "" {

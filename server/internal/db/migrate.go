@@ -8,6 +8,30 @@ import (
 
 func AutoMigrate() {
 	if PG != nil {
+		// Concept tables (created manually for reliability)
+		PG.Exec(`CREATE TABLE IF NOT EXISTS concept_boards (
+			concept_code VARCHAR(20) PRIMARY KEY,
+			concept_name VARCHAR(100) NOT NULL,
+			concept_type VARCHAR(20) DEFAULT 'concept',
+			stock_count INT DEFAULT 0,
+			updated_at TIMESTAMPTZ DEFAULT NOW()
+		)`)
+		PG.Exec(`CREATE INDEX IF NOT EXISTS idx_concept_boards_name ON concept_boards(concept_name)`)
+
+		PG.Exec(`CREATE TABLE IF NOT EXISTS stock_concepts (
+			id SERIAL PRIMARY KEY,
+			code VARCHAR(10) NOT NULL,
+			concept_code VARCHAR(20) NOT NULL,
+			concept_name VARCHAR(100) NOT NULL,
+			concept_type VARCHAR(20) DEFAULT 'concept',
+			stock_name VARCHAR(50),
+			updated_at TIMESTAMPTZ DEFAULT NOW(),
+			UNIQUE(code, concept_code)
+		)`)
+		PG.Exec(`CREATE INDEX IF NOT EXISTS idx_stock_concepts_code ON stock_concepts(code)`)
+		PG.Exec(`CREATE INDEX IF NOT EXISTS idx_stock_concepts_concept ON stock_concepts(concept_code)`)
+		PG.Exec(`CREATE INDEX IF NOT EXISTS idx_stock_concepts_name ON stock_concepts(concept_name)`)
+
 		PG.Exec(`CREATE TABLE IF NOT EXISTS stock_signals (
 			id SERIAL PRIMARY KEY,
 			code VARCHAR(10) UNIQUE,
@@ -30,6 +54,8 @@ func AutoMigrate() {
 			&model.StockShareholder{},
 			&model.StockFinancial{},
 			&model.StockNews{},
+			&model.ConceptBoard{},
+			&model.StockConcept{},
 			&model.PredictionKDist{},
 		); err != nil {
 			log.Printf("PG migrate warning: %v", err)

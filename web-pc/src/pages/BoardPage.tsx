@@ -14,6 +14,7 @@ interface BoardItem {
   rank: number; score: number; riskLevel: string; suggestion: string;
   open: number; close: number; preClose: number; chgPct: number;
   pe: number; pb: number; industry: string; marketCap: number;
+  streakCount: number; appearanceCount: number;
 }
 
 export default function BoardPage() {
@@ -111,7 +112,17 @@ export default function BoardPage() {
       },
     },
     {
-      title: 'PE', dataIndex: 'pe', width: 70, align: 'right' as const,
+      title: '上榜', dataIndex: 'appearanceCount', width: 55, align: 'center' as const,
+      sorter: (a: BoardItem, b: BoardItem) => (a.appearanceCount || 0) - (b.appearanceCount || 0),
+      render: (v: number) => v > 0 ? <span style={{ fontSize: 11, color: '#7c3aed', fontWeight: 500 }}>{v}次</span> : <span style={{ color: '#c9cdd4' }}>-</span>,
+    },
+    {
+      title: '连榜', dataIndex: 'streakCount', width: 55, align: 'center' as const,
+      sorter: (a: BoardItem, b: BoardItem) => (a.streakCount || 0) - (b.streakCount || 0),
+      render: (v: number) => v > 0 ? <span style={{ fontSize: 11, color: '#cb272d', fontWeight: 500 }}>{v}天</span> : <span style={{ color: '#c9cdd4' }}>-</span>,
+    },
+    {
+      title: 'PE', dataIndex: 'pe', width: 65, align: 'right' as const,
       sorter: (a: BoardItem, b: BoardItem) => (a.pe || 0) - (b.pe || 0),
       render: (v: number) => v > 0 ? <span style={{ fontWeight: 500, fontSize: 13 }}>{v.toFixed(1)}</span> : <span className="muted">-</span>,
     },

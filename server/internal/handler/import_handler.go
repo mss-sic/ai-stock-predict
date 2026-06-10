@@ -10,9 +10,11 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-type ImportHandler struct{}
+type ImportHandler struct {
+	aiH *AIHandler
+}
 
-func NewImportHandler() *ImportHandler { return &ImportHandler{} }
+func NewImportHandler(aiH *AIHandler) *ImportHandler { return &ImportHandler{aiH: aiH} }
 
 func (h *ImportHandler) Upload(c *gin.Context) {
 	file, err := c.FormFile("file")
@@ -39,6 +41,13 @@ func (h *ImportHandler) Upload(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+
+	// Trigger async AI batch scoring for imported stocks
+	if len(result.StockCodes) > 0 && h.aiH != nil {
+		uid, _ := c.Get("userId")
+		h.aiH.BatchScoreStocks(result.StockCodes, uid.(uint))
+	}
+
 	response.Success(c, result)
 }
 

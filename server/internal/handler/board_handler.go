@@ -1,8 +1,8 @@
 package handler
 
 import (
-	"fmt"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/ai-stock-predict/server/internal/db"
@@ -18,6 +18,38 @@ type BoardHandler struct {
 
 func NewBoardHandler() *BoardHandler {
 	return &BoardHandler{repo: &repository.BoardRepo{}}
+}
+
+// Internal row types for parallel queries
+type KLineRow struct {
+	Code     string
+	Close    float64
+	Open     float64
+	PreClose float64
+}
+
+type NextKLineRow struct {
+	Code  string
+	Open  float64
+	Close float64
+}
+
+type LatestCloseRow struct {
+	Code  string
+	Close float64
+}
+
+type IndicatorRow struct {
+	Code string
+	PE   float64
+	PB   float64
+	MCap float64
+}
+
+type AIScoreRow struct {
+	Code       string
+	RiskLevel  string
+	Suggestion string
 }
 
 type EnrichedBoardItem struct {
@@ -45,6 +77,9 @@ type EnrichedBoardItem struct {
 	NextChgPct float64 `json:"nextChgPct"`
 	// Cumulative return from pick-date close to latest close
 	CumuChgPct float64 `json:"cumuChgPct"`
+	// Board streak stats (last 20 trading days)
+	StreakCount     int `json:"streakCount"`
+	AppearanceCount int `json:"appearanceCount"`
 }
 
 func (h *BoardHandler) Today(c *gin.Context) {
@@ -80,7 +115,7 @@ func (h *BoardHandler) getEnrichedBoard(dateStr string) ([]EnrichedBoardItem, st
 	}
 
 	var picks []model.AlgorithmPickDetail
-	if err := db.PG.Where("pick_date = ?", dateStr).Order("score DESC").Find(&picks).Error; err != nil {
+	if err := db.PG.Where("pick_date = ?", dateStr).Order("rank ASC").Find(&picks).Error; err != nil {
 		return nil, dateStr, err
 	}
 
@@ -93,143 +128,145 @@ func (h *BoardHandler) getEnrichedBoard(dateStr string) ([]EnrichedBoardItem, st
 		codes[i] = p.StockCode
 	}
 
-	// Stock names + industries
-	var stocks []model.StockBasic
-	db.PG.Where("code IN ?", codes).Find(&stocks)
-	stockMap := make(map[string]model.StockBasic)
-	for _, s := range stocks {
-		stockMap[s.Code] = s
-	}
+	// ── Run 6 independent lookups in parallel ──
+	var (
+		stockMap      map[string]model.StockBasic
+		klineMap      map[string]KLineRow
+		indMap        map[string]IndicatorRow
+		aiScoreMap    map[string]AIScoreRow
+		latestCloseMap map[string]float64
+		nextKlineMap  map[string]NextKLineRow
+		nextDateMap   map[string]string
+		streakMap     map[string][2]int // [streak, appearance]
+		wg            sync.WaitGroup
+	)
 
-	// K-line for pick date
-	type KLineRow struct {
-		Code     string
-		Close    float64
-		Open     float64
-		PreClose float64
-	}
-	var klines []KLineRow
-	db.PG.Raw(`
-		SELECT k.code, k.close, k.open,
+	wg.Add(7)
+
+	go func() {
+		defer wg.Done()
+		var stocks []model.StockBasic
+		db.PG.Where("code IN ?", codes).Find(&stocks)
+		m := make(map[string]model.StockBasic, len(stocks))
+		for _, s := range stocks { m[s.Code] = s }
+		stockMap = m
+	}()
+
+	go func() {
+		defer wg.Done()
+		var klines []KLineRow
+		db.PG.Raw(`SELECT k.code, k.close, k.open,
 			COALESCE(LAG(k.close) OVER (PARTITION BY k.code ORDER BY k.trade_date), k.open) AS pre_close
-		FROM stocks_daily_k k
-		WHERE k.code IN ? AND k.trade_date = ?
-	`, codes, dateStr).Scan(&klines)
-	klineMap := make(map[string]KLineRow)
-	for _, k := range klines {
-		klineMap[k.Code] = k
-	}
+			FROM stocks_daily_k k WHERE k.code IN ? AND k.trade_date = ?`, codes, dateStr).Scan(&klines)
+		m := make(map[string]KLineRow, len(klines))
+		for _, k := range klines { m[k.Code] = k }
+		klineMap = m
+	}()
 
-	// Next-day K-line
-	type NextDateRow struct {
-		Code     string
-		NextDate string
-	}
-	var nextDates []NextDateRow
-	db.PG.Raw(`
-		SELECT code, MIN(trade_date)::text AS next_date
-		FROM stocks_daily_k
-		WHERE code IN ? AND trade_date > ?
-		GROUP BY code
-	`, codes, dateStr).Scan(&nextDates)
+	go func() {
+		defer wg.Done()
+		var indicators []IndicatorRow
+		db.PG.Raw(`SELECT i.code, i.pe, i.pb, i.total_market_cap
+			FROM stocks_daily_indicator i
+			INNER JOIN (SELECT code, MAX(trade_date) as max_date FROM stocks_daily_indicator WHERE code IN ? GROUP BY code) latest
+			ON i.code = latest.code AND i.trade_date = latest.max_date`, codes).Scan(&indicators)
+		m := make(map[string]IndicatorRow, len(indicators))
+		for _, ind := range indicators { m[ind.Code] = ind }
+		indMap = m
+	}()
 
-	nextDateMap := make(map[string]string)
-	for _, nd := range nextDates {
-		nextDateMap[nd.Code] = nd.NextDate
-	}
+	go func() {
+		defer wg.Done()
+		var aiScores []AIScoreRow
+		db.PG.Raw(`SELECT s.code, s.risk_level, s.suggestion
+			FROM ai_stock_scores s
+			INNER JOIN (SELECT code, MAX(analyzed_at) AS max_at FROM ai_stock_scores WHERE code IN ? GROUP BY code) latest
+			ON s.code = latest.code AND s.analyzed_at = latest.max_at`, codes).Scan(&aiScores)
+		m := make(map[string]AIScoreRow, len(aiScores))
+		for _, a := range aiScores { m[a.Code] = a }
+		aiScoreMap = m
+	}()
 
-	type NextKLineRow struct {
-		Code     string
-		Open     float64
-		Close    float64
-		PreClose float64
-	}
-	nextKlineMap := make(map[string]NextKLineRow)
-	if len(nextDates) > 0 {
-		var conditions []string
-		var args []interface{}
-		for _, nd := range nextDates {
-			conditions = append(conditions, "(code = ? AND trade_date = ?)")
-			args = append(args, nd.Code, nd.NextDate)
+	go func() {
+		defer wg.Done()
+		var latestCloses []LatestCloseRow
+		db.PG.Raw(`SELECT l.code, l.close FROM stocks_daily_k l
+			INNER JOIN (SELECT code, MAX(trade_date) AS max_date FROM stocks_daily_k WHERE code IN ? GROUP BY code) latest
+			ON l.code = latest.code AND l.trade_date = latest.max_date`, codes).Scan(&latestCloses)
+		m := make(map[string]float64, len(latestCloses))
+		for _, lc := range latestCloses { m[lc.Code] = lc.Close }
+		latestCloseMap = m
+	}()
+
+	go func() {
+		defer wg.Done()
+		// Combined next-day lookup: single query using ROW_NUMBER window function
+		type NextDayRow struct {
+			Code     string
+			NextDate string
+			Open     float64
+			Close    float64
 		}
-		sql := fmt.Sprintf(`
-			SELECT n.code, n.open, n.close,
-				COALESCE(LAG(n.close) OVER (PARTITION BY n.code ORDER BY n.trade_date), n.open) AS pre_close
-			FROM stocks_daily_k n
-			WHERE %s
-		`, joinStrings(conditions, " OR "))
-		var nkl []NextKLineRow
-		db.PG.Raw(sql, args...).Scan(&nkl)
-		for _, n := range nkl {
-			nextKlineMap[n.Code] = n
-		}
-	}
-
-	// Latest close price for each stock (cumulative return)
-	type LatestCloseRow struct {
-		Code  string
-		Close float64
-	}
-	var latestCloses []LatestCloseRow
-	db.PG.Raw(`
-		SELECT l.code, l.close
-		FROM stocks_daily_k l
-		INNER JOIN (
-			SELECT code, MAX(trade_date) AS max_date
+		var nextRows []NextDayRow
+		db.PG.Raw(`SELECT code, trade_date::text AS next_date, open, close FROM (
+			SELECT code, trade_date, open, close,
+				ROW_NUMBER() OVER (PARTITION BY code ORDER BY trade_date) AS rn
 			FROM stocks_daily_k
-			WHERE code IN ?
-			GROUP BY code
-		) latest ON l.code = latest.code AND l.trade_date = latest.max_date
-	`, codes).Scan(&latestCloses)
-	latestCloseMap := make(map[string]float64)
-	for _, lc := range latestCloses {
-		latestCloseMap[lc.Code] = lc.Close
-	}
+			WHERE code IN ? AND trade_date > ?
+		) sub WHERE rn = 1`, codes, dateStr).Scan(&nextRows)
+		ndm := make(map[string]string, len(nextRows))
+		nkm := make(map[string]NextKLineRow, len(nextRows))
+		for _, n := range nextRows {
+			ndm[n.Code] = n.NextDate
+			nkm[n.Code] = NextKLineRow{Code: n.Code, Open: n.Open, Close: n.Close}
+		}
+		nextDateMap = ndm
+		nextKlineMap = nkm
+	}()
 
-	// PE/PB
-	type IndicatorRow struct {
-		Code string
-		PE   float64
-		PB   float64
-		MCap float64
-	}
-	var indicators []IndicatorRow
-	db.PG.Raw(`
-		SELECT i.code, i.pe, i.pb, i.total_market_cap
-		FROM stocks_daily_indicator i
-		INNER JOIN (
-			SELECT code, MAX(trade_date) as max_date
-			FROM stocks_daily_indicator
-			WHERE code IN ?
-			GROUP BY code
-		) latest ON i.code = latest.code AND i.trade_date = latest.max_date
-	`, codes).Scan(&indicators)
-	indMap := make(map[string]IndicatorRow)
-	for _, ind := range indicators {
-		indMap[ind.Code] = ind
-	}
+	go func() {
+		defer wg.Done()
+		// Compute streak count and appearance count (last 20 trading days)
+		type BoardDateRow struct {
+			StockCode string
+			PickDate  string
+		}
+		var rows []BoardDateRow
+		db.PG.Raw(`SELECT stock_code, pick_date::text
+			FROM algorithm_pick_details
+			WHERE stock_code IN ? AND pick_date <= ? AND pick_date > (?::date - INTERVAL '30 days')
+			ORDER BY stock_code, pick_date DESC`, codes, dateStr, dateStr).Scan(&rows)
 
-	// AI Stock Scores — override risk/suggestion with AI analysis results
-	type AIScoreRow struct {
-		Code       string
-		RiskLevel  string
-		Suggestion string
-	}
-	var aiScores []AIScoreRow
-	db.PG.Raw(`
-		SELECT s.code, s.risk_level, s.suggestion
-		FROM ai_stock_scores s
-		INNER JOIN (
-			SELECT code, MAX(analyzed_at) AS max_at
-			FROM ai_stock_scores
-			WHERE code IN ?
-			GROUP BY code
-		) latest ON s.code = latest.code AND s.analyzed_at = latest.max_at
-	`, codes).Scan(&aiScores)
-	aiScoreMap := make(map[string]AIScoreRow)
-	for _, a := range aiScores {
-		aiScoreMap[a.Code] = a
-	}
+		m := make(map[string][2]int, len(codes))
+		// Group by code
+		codeDates := make(map[string][]string)
+		for _, r := range rows {
+			codeDates[r.StockCode] = append(codeDates[r.StockCode], r.PickDate[:10])
+		}
+		for code, dates := range codeDates {
+			appearance := len(dates)
+			streak := 0
+			// Compute consecutive streak backwards from dateStr
+			// dates are sorted DESC, so check consecutive trading days
+			if len(dates) > 0 && dates[0] == dateStr {
+				streak = 1
+				prev := dateStr
+				for i := 1; i < len(dates); i++ {
+					// Check if dates[i] is the previous trading day of prev
+					if isPrevTradingDay(dates[i], prev) {
+						streak++
+						prev = dates[i]
+					} else {
+						break
+					}
+				}
+			}
+			m[code] = [2]int{streak, appearance}
+		}
+		streakMap = m
+	}()
+
+	wg.Wait()
 
 	result := make([]EnrichedBoardItem, 0, len(picks))
 	for _, p := range picks {
@@ -247,7 +284,6 @@ func (h *BoardHandler) getEnrichedBoard(dateStr string) ([]EnrichedBoardItem, st
 			item.StockName = s.Name
 			item.Industry = s.Industry
 		}
-		// Override with AI analysis results
 		if a, ok := aiScoreMap[p.StockCode]; ok {
 			item.RiskLevel = a.RiskLevel
 			item.Suggestion = a.Suggestion
@@ -268,17 +304,24 @@ func (h *BoardHandler) getEnrichedBoard(dateStr string) ([]EnrichedBoardItem, st
 			item.PB = ind.PB
 			item.MarketCap = ind.MCap
 		}
+		// Next-day performance
 		if n, ok := nextKlineMap[p.StockCode]; ok {
 			item.NextDate = nextDateMap[p.StockCode]
 			item.NextOpen = n.Open
 			item.NextClose = n.Close
-			if n.PreClose > 0 {
-				item.NextChgPct = ((n.Close - n.PreClose) / n.PreClose) * 100
-			}
+		}
+		// Fix: compute NextChgPct from pick-day close, not next-day pre_close
+		if item.NextClose > 0 && item.Close > 0 {
+			item.NextChgPct = ((item.NextClose - item.Close) / item.Close) * 100
 		}
 		// Cumulative return: (latest_close - pick_close) / pick_close * 100
-		if latestClose, ok := latestCloseMap[p.StockCode]; ok && latestClose > 0 && item.Close > 0 {
-			item.CumuChgPct = ((latestClose - item.Close) / item.Close) * 100
+		if lc, ok := latestCloseMap[p.StockCode]; ok && lc > 0 && item.Close > 0 {
+			item.CumuChgPct = ((lc - item.Close) / item.Close) * 100
+		}
+		// Streak & appearance count
+		if sa, ok := streakMap[p.StockCode]; ok {
+			item.StreakCount = sa[0]
+			item.AppearanceCount = sa[1]
 		}
 
 		result = append(result, item)
@@ -287,15 +330,19 @@ func (h *BoardHandler) getEnrichedBoard(dateStr string) ([]EnrichedBoardItem, st
 	return result, dateStr, nil
 }
 
-func joinStrings(strs []string, sep string) string {
-	if len(strs) == 0 {
-		return ""
+// isPrevTradingDay checks if d1 is the immediate previous trading day of d2
+func isPrevTradingDay(d1, d2 string) bool {
+	t1, err1 := time.Parse("2006-01-02", d1)
+	t2, err2 := time.Parse("2006-01-02", d2)
+	if err1 != nil || err2 != nil {
+		return false
 	}
-	r := strs[0]
-	for i := 1; i < len(strs); i++ {
-		r += sep + strs[i]
+	// Walk backwards from d2 looking for the previous trading day
+	prev := t2.AddDate(0, 0, -1)
+	for prev.Weekday() == time.Saturday || prev.Weekday() == time.Sunday {
+		prev = prev.AddDate(0, 0, -1)
 	}
-	return r
+	return t1.Equal(prev)
 }
 
 func (h *BoardHandler) Heatmap(c *gin.Context) {
@@ -315,6 +362,135 @@ func (h *BoardHandler) Heatmap(c *gin.Context) {
 	}
 	response.Success(c, data)
 }
+
+// ── Concept Board APIs ──
+
+// StockConcepts returns concept tags for a stock
+func (h *BoardHandler) StockConcepts(c *gin.Context) {
+	code := c.Param("code")
+	var concepts []model.StockConcept
+	db.PG.Where("code = ?", code).Order("concept_name ASC").Find(&concepts)
+	
+	if len(concepts) == 0 {
+		// Fallback: get from stocks_basic industry
+		var stock model.StockBasic
+		if db.PG.Where("code = ?", code).First(&stock).Error == nil && stock.Industry != "" {
+			concepts = append(concepts, model.StockConcept{
+				Code:        stock.Code,
+				ConceptCode: "IND_" + stock.Industry,
+				ConceptName: stock.Industry,
+				ConceptType: "industry",
+				StockName:   stock.Name,
+			})
+		}
+	}
+	
+	response.Success(c, concepts)
+}
+
+// ConceptBoards returns all concept boards
+func (h *BoardHandler) ConceptBoards(c *gin.Context) {
+	conceptType := c.DefaultQuery("type", "")
+	var boards []model.ConceptBoard
+	q := db.PG.Order("stock_count DESC")
+	if conceptType != "" {
+		q = q.Where("concept_type = ?", conceptType)
+	}
+	q.Find(&boards)
+	response.Success(c, boards)
+}
+
+// ConceptBoardStocks returns stocks in a concept board with summary
+func (h *BoardHandler) ConceptBoardStocks(c *gin.Context) {
+	conceptCode := c.Param("code")
+	
+	type StockSummary struct {
+		model.StockConcept
+		Close    float64 `json:"close"`
+		ChgPct   float64 `json:"chgPct"`
+		MarketCap float64 `json:"marketCap"`
+	}
+	
+	var stocks []StockSummary
+	db.PG.Raw(`
+		SELECT sc.code, sc.concept_code, sc.concept_name, sc.concept_type, sc.stock_name,
+			COALESCE(k.close, 0) as close,
+			CASE WHEN k.pre_close > 0 THEN ((k.close - k.pre_close) / k.pre_close * 100) ELSE 0 END as chg_pct,
+			COALESCE(i.total_market_cap, 0) as market_cap
+		FROM stock_concepts sc
+		LEFT JOIN LATERAL (
+			SELECT close, LAG(close) OVER (ORDER BY trade_date) as pre_close
+			FROM stocks_daily_k WHERE code = sc.code ORDER BY trade_date DESC LIMIT 1
+		) k ON true
+		LEFT JOIN LATERAL (
+			SELECT total_market_cap FROM stocks_daily_indicator 
+			WHERE code = sc.code ORDER BY trade_date DESC LIMIT 1
+		) i ON true
+		WHERE sc.concept_code = ?
+		ORDER BY sc.code
+	`, conceptCode).Scan(&stocks)
+	
+	// Board info
+	var board model.ConceptBoard
+	db.PG.Where("concept_code = ?", conceptCode).First(&board)
+	
+	// Summary stats
+	var upCount, downCount int
+	var avgChg float64
+	for _, s := range stocks {
+		if s.ChgPct > 0 {
+			upCount++
+		} else if s.ChgPct < 0 {
+			downCount++
+		}
+		avgChg += s.ChgPct
+	}
+	if len(stocks) > 0 {
+		avgChg = avgChg / float64(len(stocks))
+	}
+	
+	response.Success(c, gin.H{
+		"board":     board,
+		"stocks":    stocks,
+		"upCount":   upCount,
+		"downCount": downCount,
+		"avgChgPct": avgChg,
+		"total":     len(stocks),
+	})
+}
+
+// ConceptHeatmap returns heatmap data for concept boards
+func (h *BoardHandler) ConceptHeatmap(c *gin.Context) {
+	var items []model.ConceptHeatmapItem
+	
+	rows, err := db.PG.Raw(`
+		SELECT cb.concept_code, cb.concept_name, cb.concept_type, cb.stock_count,
+			COALESCE(AVG(CASE WHEN k.pre_close > 0 THEN ((k.close - k.pre_close) / k.pre_close * 100) END), 0) as avg_chg_pct,
+			COUNT(CASE WHEN k.close > k.pre_close THEN 1 END) as up_count,
+			COUNT(CASE WHEN k.close < k.pre_close THEN 1 END) as down_count
+		FROM concept_boards cb
+		LEFT JOIN stock_concepts sc ON sc.concept_code = cb.concept_code
+		LEFT JOIN LATERAL (
+			SELECT close, LAG(close) OVER (ORDER BY trade_date) as pre_close
+			FROM stocks_daily_k WHERE code = sc.code ORDER BY trade_date DESC LIMIT 1
+		) k ON true
+		GROUP BY cb.concept_code, cb.concept_name, cb.concept_type, cb.stock_count
+		ORDER BY cb.stock_count DESC
+	`).Rows()
+	
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var item model.ConceptHeatmapItem
+			rows.Scan(&item.ConceptCode, &item.ConceptName, &item.ConceptType, &item.StockCount,
+				&item.AvgChgPct, &item.UpCount, &item.DownCount)
+			items = append(items, item)
+		}
+	}
+	
+	response.Success(c, items)
+}
+
 
 func (h *BoardHandler) HeatmapEnriched(c *gin.Context) {
 	from := c.Query("from")
@@ -350,3 +526,4 @@ func (h *BoardHandler) Dates(c *gin.Context) {
 		Scan(&dates)
 	response.Success(c, dates)
 }
+

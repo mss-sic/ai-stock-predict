@@ -289,6 +289,13 @@ export const runBatchPrediction = () => api.post('/prediction/batch');
 export const fetchPredictionResult = (code: string) => api.get(`/prediction/${code}`);
 export const fetchPredictionHitRate = (code: string) => api.get(`/prediction/${code}/hitrate`);
 
+
+// ── Concept Board APIs ──
+export const fetchConceptBoards = (type?: string) => api.get('/concept-boards', { params: type ? { type } : {} });
+export const fetchConceptBoardStocks = (code: string) => api.get(`/concept-boards/${code}/stocks`);
+export const fetchConceptHeatmap = () => api.get('/concept-boards/heatmap');
+export const fetchStockConceptTags = (stockCode: string) => api.get(`/stocks/${stockCode}/concept-tags`);
+
 // ── Index / Market APIs ──
 export const fetchIndices = () => api.get('/indices');
 

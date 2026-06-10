@@ -18,6 +18,7 @@ type ImportResult struct {
 	PicksImported  int      `json:"picksImported"`
 	SignalsImported int     `json:"signalsImported"`
 	StocksCreated  int      `json:"stocksCreated"`
+	StockCodes     []string `json:"stockCodes,omitempty"`
 	Errors         []string `json:"errors"`
 	Previews       []string `json:"previews"`
 }
@@ -201,6 +202,10 @@ func importSheet2(f *excelize.File, result *ImportResult, signalMap map[string]f
 			db.PG.Where("pick_date = ? AND stock_code = ?", p.date, p.code).
 				Assign(detail).FirstOrCreate(&detail)
 		}
+	}
+
+	for code := range stockNames {
+		result.StockCodes = append(result.StockCodes, code)
 	}
 
 	result.DatesImported = len(dateMap)

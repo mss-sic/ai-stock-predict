@@ -160,6 +160,10 @@ func parseKlineRow(row []string, colIdx map[string]int) (model.StockDailyK, stri
 	}
 
 	code := getStr("股票代码")
+	// Strip exchange prefix (sh/sz/bj)
+	code = strings.TrimPrefix(code, "sh")
+	code = strings.TrimPrefix(code, "sz")
+	code = strings.TrimPrefix(code, "bj")
 	if code == "" {
 		return r, "", fmt.Sprintf("缺少股票代码: %v", row)
 	}

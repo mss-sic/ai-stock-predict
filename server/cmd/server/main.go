@@ -49,6 +49,13 @@ func main() {
 	r.POST("/api/v1/auth/refresh", authH.Refresh)
 	r.GET("/api/v1/indices", handler.GetIndices) // public index data
 
+	// ── Concept Board routes ──
+	boardH := handler.NewBoardHandler()
+	r.GET("/api/v1/concept-boards", boardH.ConceptBoards)
+	r.GET("/api/v1/concept-boards/:code/stocks", boardH.ConceptBoardStocks)
+	r.GET("/api/v1/concept-boards/heatmap", boardH.ConceptHeatmap)
+	r.GET("/api/v1/stocks/:code/concept-tags", boardH.StockConcepts)
+
 	// ── Protected routes ──
 	api := r.Group("/api/v1")
 	api.Use(handler.AuthMiddleware())
@@ -111,13 +118,6 @@ func main() {
 		api.GET("/board/heatmap", boardH.Heatmap)
 		api.GET("/board/heatmap-enriched", boardH.HeatmapEnriched)
 		api.GET("/board/heatmap/:code", boardH.StockHeatmap)
-
-		// Import
-		importH := handler.NewImportHandler()
-		api.POST("/import/excel", importH.Upload)
-		api.POST("/import/kline", importH.UploadKline)
-		api.GET("/import/history", importH.History)
-
 		// Watchlist
 		watchH := handler.NewWatchlistHandler()
 		api.GET("/watchlist/groups", watchH.ListGroups)
@@ -192,6 +192,12 @@ func main() {
 		api.DELETE("/ai/history/:code", aiH.ClearHistory)
 		api.GET("/ai/score/:code", aiH.GetScore)
 		api.POST("/ai/score/:code", aiH.RunScore)
+
+		// Import
+		importH := handler.NewImportHandler(aiH)
+		api.POST("/import/excel", importH.Upload)
+		api.POST("/import/kline", importH.UploadKline)
+		api.GET("/import/history", importH.History)
 
 		// Settings (per-user)
 		settingsH := handler.NewSettingsHandler()
