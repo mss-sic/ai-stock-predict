@@ -1376,6 +1376,16 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 	// Preload K-line cache (one query instead of N+1)
 	kcache := preloadKline(universeCodes, startDate, endDate)
 	allDates := kcache.dates
+	// Debug: verify preload
+	loadedCount := 0
+	if len(allDates) > 0 {
+		for _, c := range universeCodes {
+			if kcache.GetClose(c, allDates[0]) > 0 || kcache.GetClose(c, allDates[len(allDates)-1]) > 0 {
+				loadedCount++
+			}
+		}
+	}
+	log.Printf("[backtest] kcache preload: %d codes, %d dates, %d have data on first/last day", len(universeCodes), len(allDates), loadedCount)
 
 	// Preload indicator values in batch (one query per indicator instead of N+1 per stock)
 	icache := preloadIndicators(conds, universeCodes, startDate, endDate, kcache)
