@@ -865,17 +865,20 @@ func preloadKline(codes []string, startDate, endDate string) *KlineCache {
 		return kc
 	}
 
-	// 2. Bulk load close prices in ONE query
+	// 2. Bulk load close prices in ONE query (use GORM builder for reliable IN clause)
 	type KCRow struct {
 		Code  string
 		Date  string
 		Close float64
 	}
 	var rows []KCRow
-	db.PG.Raw(`SELECT code, trade_date::text, close FROM stocks_daily_k 
-		WHERE code IN ? AND trade_date >= ? AND trade_date <= ?
-		ORDER BY code, trade_date`,
-		codes, startDate, endDate).Scan(&rows)
+	db.PG.Table("stocks_daily_k").
+		Select("code, trade_date::text as date, close").
+		Where("code IN ?", codes).
+		Where("trade_date >= ?", startDate).
+		Where("trade_date <= ?", endDate).
+		Order("code, trade_date").
+		Scan(&rows)
 
 	// 3. Initialize arrays with zeros
 	nDays := len(kc.dates)
@@ -1348,14 +1351,19 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 	}
 	var universe []StockInfo
 	if len(stockCodes) > 0 {
-		db.PG.Raw("SELECT code, COALESCE(name,'') as name FROM stocks_basic WHERE code IN ?", stockCodes).Scan(&universe)
+		db.PG.Table("stocks_basic").
+			Select("code, COALESCE(name,'') as name").
+			Where("code IN ?", stockCodes).
+			Scan(&universe)
 	} else {
 		// Stock pool "all" — sample up to 3000 stocks for performance
-		db.PG.Raw(`SELECT DISTINCT k.code, COALESCE(s.name, k.code) as name 
-			FROM stocks_daily_k k
-			LEFT JOIN stocks_basic s ON s.code = k.code
-			WHERE k.trade_date >= ? AND k.trade_date <= ? ORDER BY RANDOM() LIMIT 3000`,
-			startDate, endDate).Scan(&universe)
+		db.PG.Table("stocks_daily_k k").
+			Select("DISTINCT k.code, COALESCE(s.name, k.code) as name").
+			Joins("LEFT JOIN stocks_basic s ON s.code = k.code").
+			Where("k.trade_date >= ?", startDate).
+			Where("k.trade_date <= ?", endDate).
+			Order("RANDOM()").Limit(3000).
+			Scan(&universe)
 	}
 
 	if len(universe) == 0 {
