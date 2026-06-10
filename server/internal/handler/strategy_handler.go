@@ -873,7 +873,7 @@ func preloadKline(codes []string, startDate, endDate string) *KlineCache {
 	}
 	var rows []KCRow
 	db.PG.Raw(`SELECT code, trade_date::text, close FROM stocks_daily_k 
-		WHERE code = ANY($1) AND trade_date >= $2 AND trade_date <= $3
+		WHERE code IN ? AND trade_date >= ? AND trade_date <= ?
 		ORDER BY code, trade_date`,
 		codes, startDate, endDate).Scan(&rows)
 
@@ -1054,7 +1054,7 @@ func preloadIndicators(conds []model.StrategyCondition, codes []string, startDat
 				SELECT code, trade_date::text as date, high, low, close,
 					LAG(close) OVER (PARTITION BY code ORDER BY trade_date) as prev_close
 				FROM stocks_daily_k
-				WHERE code = ANY($1) AND trade_date BETWEEN $2 AND $3
+				WHERE code IN ? AND trade_date BETWEEN $2 AND $3
 			), tr_calc AS (
 				SELECT code, date,
 					GREATEST(high - LAG(high) OVER (PARTITION BY code ORDER BY date), 0) as up_move,
@@ -1090,7 +1090,7 @@ func preloadIndicators(conds []model.StrategyCondition, codes []string, startDat
 			`WITH klines AS (
 				SELECT code, trade_date::text as date, high, low, close,
 					LAG(close) OVER (PARTITION BY code ORDER BY trade_date) as prev_close
-				FROM stocks_daily_k WHERE code = ANY($1) AND trade_date BETWEEN $2 AND $3
+				FROM stocks_daily_k WHERE code IN ? AND trade_date BETWEEN $2 AND $3
 			), tr_calc AS (
 				SELECT code, date,
 					GREATEST(high - LAG(high) OVER (PARTITION BY code ORDER BY date), 0) as up_move,
@@ -1114,7 +1114,7 @@ func preloadIndicators(conds []model.StrategyCondition, codes []string, startDat
 			`WITH klines AS (
 				SELECT code, trade_date::text as date, high, low, close,
 					LAG(close) OVER (PARTITION BY code ORDER BY trade_date) as prev_close
-				FROM stocks_daily_k WHERE code = ANY($1) AND trade_date BETWEEN $2 AND $3
+				FROM stocks_daily_k WHERE code IN ? AND trade_date BETWEEN $2 AND $3
 			), tr_calc AS (
 				SELECT code, date,
 					GREATEST(high - LAG(high) OVER (PARTITION BY code ORDER BY date), 0) as up_move,
@@ -1142,7 +1142,7 @@ func preloadIndicators(conds []model.StrategyCondition, codes []string, startDat
 			`WITH klines AS (
 				SELECT code, trade_date::text as date, close,
 					close - LAG(close) OVER (PARTITION BY code ORDER BY trade_date) as chg
-				FROM stocks_daily_k WHERE code = ANY($1) AND trade_date BETWEEN $2 AND $3
+				FROM stocks_daily_k WHERE code IN ? AND trade_date BETWEEN $2 AND $3
 			), gains AS (
 				SELECT code, date,
 					AVG(CASE WHEN chg > 0 THEN chg ELSE 0 END) OVER (PARTITION BY code ORDER BY date ROWS BETWEEN 13 PRECEDING AND CURRENT ROW) as avg_gain,
@@ -1162,7 +1162,7 @@ func preloadIndicators(conds []model.StrategyCondition, codes []string, startDat
 		cache.batchScan("macd",
 			`WITH klines AS (
 				SELECT code, trade_date::text as date, close FROM stocks_daily_k
-				WHERE code = ANY($1) AND trade_date BETWEEN $2 AND $3
+				WHERE code IN ? AND trade_date BETWEEN $2 AND $3
 			), ema AS (
 				SELECT code, date,
 					AVG(close) OVER (PARTITION BY code ORDER BY date ROWS BETWEEN 11 PRECEDING AND CURRENT ROW) as ema12,
@@ -1185,7 +1185,7 @@ func preloadIndicators(conds []model.StrategyCondition, codes []string, startDat
 		cache.batchScan("kdj_k",
 			`WITH klines AS (
 				SELECT code, trade_date::text as date, high, low, close FROM stocks_daily_k
-				WHERE code = ANY($1) AND trade_date BETWEEN $2 AND $3
+				WHERE code IN ? AND trade_date BETWEEN $2 AND $3
 			), rsv AS (
 				SELECT code, date,
 					CASE WHEN MAX(high) OVER (PARTITION BY code ORDER BY date ROWS BETWEEN 8 PRECEDING AND CURRENT ROW) -
@@ -1213,7 +1213,7 @@ func preloadIndicators(conds []model.StrategyCondition, codes []string, startDat
 		cache.batchScan("volume_ratio",
 			`SELECT code, trade_date::text as date, 
 				COALESCE(volume / NULLIF(AVG(volume) OVER (PARTITION BY code ORDER BY trade_date ROWS BETWEEN 4 PRECEDING AND 1 PRECEDING), 0), 0) as value
-			FROM stocks_daily_k WHERE code = ANY($1) AND trade_date BETWEEN $2 AND $3`,
+			FROM stocks_daily_k WHERE code IN ? AND trade_date BETWEEN $2 AND $3`,
 			codes, startDate, endDate)
 		delete(needPreload, "volume_ratio")
 	}
@@ -1223,7 +1223,7 @@ func preloadIndicators(conds []model.StrategyCondition, codes []string, startDat
 		log.Printf("[backtest] batch preloading turnover_rate for %d stocks...", len(codes))
 		cache.batchScan("turnover_rate",
 			`SELECT code, trade_date::text as date, COALESCE(turnover_rate, 0) as value
-			FROM stocks_daily_k WHERE code = ANY($1) AND trade_date BETWEEN $2 AND $3`,
+			FROM stocks_daily_k WHERE code IN ? AND trade_date BETWEEN $2 AND $3`,
 			codes, startDate, endDate)
 		delete(needPreload, "turnover_rate")
 	}
@@ -1235,7 +1235,7 @@ func preloadIndicators(conds []model.StrategyCondition, codes []string, startDat
 			`WITH klines AS (
 				SELECT code, trade_date::text as date, high, low, close,
 					LAG(close) OVER (PARTITION BY code ORDER BY trade_date) as prev_close
-				FROM stocks_daily_k WHERE code = ANY($1) AND trade_date BETWEEN $2 AND $3
+				FROM stocks_daily_k WHERE code IN ? AND trade_date BETWEEN $2 AND $3
 			)
 			SELECT code, date,
 				AVG(GREATEST(high-low, ABS(high-prev_close), ABS(low-prev_close)))
@@ -1251,7 +1251,7 @@ func preloadIndicators(conds []model.StrategyCondition, codes []string, startDat
 		cache.batchScan("cci",
 			`WITH klines AS (
 				SELECT code, trade_date::text as date, high, low, close FROM stocks_daily_k
-				WHERE code = ANY($1) AND trade_date BETWEEN $2 AND $3
+				WHERE code IN ? AND trade_date BETWEEN $2 AND $3
 			), tp AS (
 				SELECT code, date, (high+low+close)/3 as typical FROM klines
 			)
@@ -1348,7 +1348,7 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 	}
 	var universe []StockInfo
 	if len(stockCodes) > 0 {
-		db.PG.Raw("SELECT code, COALESCE(name,'') as name FROM stocks_basic WHERE code = ANY($1)", stockCodes).Scan(&universe)
+		db.PG.Raw("SELECT code, COALESCE(name,'') as name FROM stocks_basic WHERE code IN ?", stockCodes).Scan(&universe)
 	} else {
 		// Stock pool "all" — sample up to 3000 stocks for performance
 		db.PG.Raw(`SELECT DISTINCT k.code, COALESCE(s.name, k.code) as name 
@@ -2175,7 +2175,7 @@ func (h *StrategyHandler) StockPool(c *gin.Context) {
 		}
 		var items []PoolItem
 		if len(codes) > 0 {
-			db.PG.Raw("SELECT code, COALESCE(name,'') as name FROM stocks_basic WHERE code = ANY($1) ORDER BY code", codes).Scan(&items)
+			db.PG.Raw("SELECT code, COALESCE(name,'') as name FROM stocks_basic WHERE code IN ? ORDER BY code", codes).Scan(&items)
 		}
 		pools = append(pools, PoolGroup{
 			Key:   fmt.Sprintf("watchlist_%d", g.ID),
@@ -2197,7 +2197,7 @@ func (h *StrategyHandler) StockPool(c *gin.Context) {
 			codes[i] = h.Code
 		}
 		var holdings []PoolItem
-		db.PG.Raw("SELECT code, COALESCE(name,'') as name FROM stocks_basic WHERE code = ANY($1) ORDER BY code", codes).Scan(&holdings)
+		db.PG.Raw("SELECT code, COALESCE(name,'') as name FROM stocks_basic WHERE code IN ? ORDER BY code", codes).Scan(&holdings)
 		if len(holdings) > 0 {
 			pools = append(pools, PoolGroup{
 				Key:   "portfolio",
