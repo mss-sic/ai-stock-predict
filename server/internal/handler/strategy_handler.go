@@ -1725,7 +1725,13 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 					if si >= maxDetail { break }
 					code := stock.Code
 					price := kcache.GetClose(code, date)
-					if price <= 0 { continue }
+					if price <= 0 {
+						insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, diagSeq,
+							"condition_eval", "warn", code, stock.Name,
+							fmt.Sprintf("  %s 无K线数据, 跳过", code), nil)
+						diagSeq++
+						continue
+					}
 					condResults := []string{}
 					allCondResults := []map[string]interface{}{}
 					for _, c := range buyConds {
