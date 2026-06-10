@@ -1424,6 +1424,40 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 		}
 		return false
 	}
+	// evalSingleWithDetail returns (passed bool, detail string) for diagnostic logging.
+	evalSingleWithDetail := func(cond model.StrategyCondition, code, date string) (bool, string) {
+		ind := cond.Indicator
+		var val float64
+		found := false
+		if v, ok := icache.get(ind, code, date); ok {
+			val = v
+			found = true
+		} else {
+			switch ind {
+			case "daily_change":
+				cur := kcache.GetClose(code, date)
+				prev := getPrevClose(kcache, code, date)
+				if prev > 0 { val = (cur - prev) / prev * 100; found = true }
+			case "momentum_5":
+				cur := kcache.GetClose(code, date)
+				prev := getCloseNDaysAgo(kcache, code, date, 5)
+				if prev > 0 { val = (cur - prev) / prev * 100; found = true }
+			case "momentum_20":
+				cur := kcache.GetClose(code, date)
+				prev := getCloseNDaysAgo(kcache, code, date, 20)
+				if prev > 0 { val = (cur - prev) / prev * 100; found = true }
+			default:
+				val = getIndicatorValue(cond, code, date)
+				found = true
+			}
+		}
+		_ = found
+		passed := checkOp(val, cond.Operator, cond.Value)
+		status := "✓"
+		if !passed { status = "✗" }
+		return passed, fmt.Sprintf("%s %s=%.2f op=%s thr=%.2f", status, ind, val, cond.Operator, cond.Value)
+	}
+
 	_ = evalSingle
 	_ = evalConds
 
@@ -1666,11 +1700,37 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 						len(universe), condDesc, buyHitCount, addHitCount, len(positions), maxHold),
 					nil)
 			} else {
+				// Build diagnostic detail for small universes
+				diagMsg := fmt.Sprintf("买入扫描: 遍历%d只股票, 条件[%s] → 无满足买入条件的股票, 当前持仓%d/%d",
+					len(universe), condDesc, len(positions), maxHold)
+				diagDetail := map[string]interface{}{}
+				diagLines := []string{diagMsg}
+				maxDetail := 8
+				if len(universe) <= 10 { maxDetail = len(universe) }
+				for si, stock := range universe {
+					if si >= maxDetail { break }
+					code := stock.Code
+					price := kcache.GetClose(code, date)
+					if price <= 0 { continue }
+					stockInfo := map[string]interface{}{"code": code, "price": price}
+					condResults := []string{}
+					allCondResults := []map[string]interface{}{}
+					for _, c := range buyConds {
+						passed, reason := evalSingleWithDetail(c, code, date)
+						condResults = append(condResults, reason)
+						allCondResults = append(allCondResults, map[string]interface{}{
+							"indicator": c.Indicator, "op": c.Operator,
+							"threshold": c.Value, "passed": passed, "detail": reason,
+						})
+					}
+					stockInfo["conditions"] = allCondResults
+					diagLines = append(diagLines, fmt.Sprintf("  %s %s ¥%.2f → %s", code, stock.Name, price, strings.Join(condResults, " | ")))
+					diagDetail[code] = stockInfo
+				}
 				insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, 21,
 					"condition_eval", "warn", "", "",
-					fmt.Sprintf("买入扫描: 遍历%d只股票, 条件[%s] → 无满足买入条件的股票, 当前持仓%d/%d",
-						len(universe), condDesc, len(positions), maxHold),
-					nil)
+					strings.Join(diagLines, "\n"),
+					diagDetail)
 			}
 		} else {
 			insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, 21,
