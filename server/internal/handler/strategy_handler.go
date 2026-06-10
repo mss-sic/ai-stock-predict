@@ -1279,6 +1279,16 @@ func preloadIndicators(conds []model.StrategyCondition, codes []string, startDat
 // ── The async backtest runner (runs in goroutine) ──
 
 func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.BacktestTask, s *model.Strategy, startDate, endDate string, stockCodes []string) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[backtest] PANIC in task %d: %v", task.ID, r)
+			db.MySQL.Model(task).Updates(map[string]interface{}{
+				"status": "failed",
+				"phase":  "回测异常",
+				"error_msg": fmt.Sprintf("panic: %v", r),
+			})
+		}
+	}()
 	// Mark as running
 	now := time.Now()
 	db.MySQL.Model(task).Updates(map[string]interface{}{
@@ -1709,6 +1719,7 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 				// Per-stock diagnostic: emit individual condition_eval lines for small universes
 				maxDetail := 8
 				if len(universe) <= 10 { maxDetail = len(universe) }
+				log.Printf("[backtest] task=%d date=%s emitting per-stock diag for %d stocks", task.ID, date, maxDetail)
 				diagSeq := 30
 				for si, stock := range universe {
 					if si >= maxDetail { break }
@@ -1726,7 +1737,7 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 						})
 					}
 					insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, diagSeq,
-						"condition_eval", "debug", code, stock.Name,
+						"condition_eval", "info", code, stock.Name,
 						fmt.Sprintf("  %s ¥%.2f → %s", code, price, strings.Join(condResults, " | ")),
 						map[string]interface{}{"conditions": allCondResults})
 					diagSeq++
