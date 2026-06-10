@@ -1340,10 +1340,11 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 	if len(stockCodes) > 0 {
 		db.PG.Raw("SELECT code, COALESCE(name,'') as name FROM stocks_basic WHERE code = ANY($1)", stockCodes).Scan(&universe)
 	} else {
+		// Stock pool "all" — sample up to 3000 stocks for performance
 		db.PG.Raw(`SELECT DISTINCT k.code, COALESCE(s.name, k.code) as name 
 			FROM stocks_daily_k k
 			LEFT JOIN stocks_basic s ON s.code = k.code
-			WHERE k.trade_date >= ? AND k.trade_date <= ? ORDER BY k.code`,
+			WHERE k.trade_date >= ? AND k.trade_date <= ? ORDER BY RANDOM() LIMIT 3000`,
 			startDate, endDate).Scan(&universe)
 	}
 
@@ -1505,7 +1506,7 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 			if price <= 0 { continue }
 
 			triggered := ""
-			if s.StopLoss < 0 && price <= pos.BuyPrice*(1+s.StopLoss/100) {
+			if s.StopLoss > 0 && price <= pos.BuyPrice*(1-s.StopLoss/100) {
 				triggered = "止损"
 			} else if s.StopProfit > 0 && price >= pos.BuyPrice*(1+s.StopProfit/100) {
 				triggered = "止盈"
@@ -1546,7 +1547,7 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 			}
 		}
 
-		// Sell/reduce scan summary
+		// Sell/reduce scan summary (seq=1, before trades)
 		hasSellConds := len(sellConds) > 0
 		hasReduceConds := len(reduceConds) > 0
 		hasStop := s.StopProfit > 0 || s.StopLoss < 0
@@ -1556,18 +1557,18 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 			if hasSellConds { parts = append(parts, "卖出条件") }
 			if hasReduceConds { parts = append(parts, "减仓条件") }
 			if sellTriggered > 0 || reduceTriggered > 0 {
-				insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, 1,
+				insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, 11,
 					"condition_eval", "info", "", "",
 					fmt.Sprintf("卖出检查: %d只持仓 → 卖出%d只, 减仓%d只", origPosCount, sellTriggered, reduceTriggered),
 					nil)
 			} else {
-				insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, 1,
+				insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, 11,
 					"condition_eval", "info", "", "",
 					fmt.Sprintf("卖出检查: %d只持仓, %s → 无触发", origPosCount, strings.Join(parts, "+")),
 					nil)
 			}
 		} else {
-			insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, 1,
+			insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, 11,
 				"condition_eval", "info", "", "",
 				"卖出检查: 无持仓, 跳过",
 				nil)
@@ -1654,25 +1655,25 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 			}
 			condDesc := strings.Join(condParts, ", ")
 			if len(positions) >= maxHold && maxHold > 0 {
-				insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, 2,
+				insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, 21,
 					"condition_eval", "info", "", "",
-					fmt.Sprintf("买入扫描: 已达最大持仓%d/%d, 跳过", len(positions), maxHold),
+					fmt.Sprintf("买入扫描: 已达最大持仓%d/%d, 跳过扫描", len(positions), maxHold),
 					nil)
 			} else if buyHitCount > 0 || addHitCount > 0 {
-				insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, 2,
+				insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, 21,
 					"condition_eval", "info", "", "",
-					fmt.Sprintf("买入扫描: %d只股票, 条件[%s] → 命中%d只(买%d/加%d), 持仓%d/%d",
-						len(universe), condDesc, buyHitCount+addHitCount, buyHitCount, addHitCount, len(positions), maxHold),
+					fmt.Sprintf("买入扫描: 遍历%d只股票, 条件[%s] → 命中买入%d只, 加仓%d只, 当前持仓%d/%d",
+						len(universe), condDesc, buyHitCount, addHitCount, len(positions), maxHold),
 					nil)
 			} else {
-				insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, 2,
-					"condition_eval", "info", "", "",
-					fmt.Sprintf("买入扫描: %d只股票, 条件[%s] → 无满足, 持仓%d/%d",
+				insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, 21,
+					"condition_eval", "warn", "", "",
+					fmt.Sprintf("买入扫描: 遍历%d只股票, 条件[%s] → 无满足买入条件的股票, 当前持仓%d/%d",
 						len(universe), condDesc, len(positions), maxHold),
 					nil)
 			}
 		} else {
-			insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, 2,
+			insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, 21,
 				"condition_eval", "info", "", "",
 				"买入扫描: 无买入/加仓条件, 跳过",
 				nil)
@@ -1746,7 +1747,7 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 			remainingCash, totalEquity, dailyRet, cumRet, currentDD, len(positions), posList)
 
 		// ── Log today's trades ──
-		logSeq := 0
+		logSeq := 100
 		for _, t := range todayTrades {
 			detail := map[string]interface{}{
 				"action": t.Action, "price": t.Price, "quantity": t.Quantity,
@@ -1762,7 +1763,7 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 		// Day end summary
 		dailyPnl := totalEquity - prevDayEquity
 		prevDayEquity = totalEquity
-		insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, logSeq+1,
+		insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, 999,
 			"system", "info", "", "",
 			fmt.Sprintf("第%d天结束: 权益¥%.0f 日盈亏%+.0f 累计%+.1f%% 持仓%d只", di+1, totalEquity, dailyPnl, cumRet, len(positions)),
 			nil)
@@ -1861,7 +1862,7 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 		SharpeRatio:     math.Round(sharpe*100) / 100,
 		MaxDrawdown:     math.Round(maxDD*100) / 100,
 		WinRate:         math.Round(winRate*100) / 100,
-		TradeCount:      len(allTrades),
+		TradeCount:      sellCount, // completed (sell+reduce), not all actions
 		Trades:          model.JSONMap{"data": allTrades},
 		EquityCurve:     model.JSONMap{"data": equityPoints},
 		Coverage:        model.JSONMap{"stats": coverageStats, "klineSafe": klineSafe, "klineUnsafe": klineUnsafe, "coveragePct": coveragePct},
