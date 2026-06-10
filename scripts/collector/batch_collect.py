@@ -134,7 +134,7 @@ def main():
         if latest is None:
             days_to_fetch = 60
         else:
-            missing = (today - latest.date()).days
+            missing = (today - latest).days
             if missing <= 0:
                 # Still check for 除权 adjustment every 7 days
                 if i % 7 == 0 and detect_adjustment(cur, code):
