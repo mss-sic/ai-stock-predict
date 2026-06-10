@@ -464,16 +464,25 @@ func (h *BoardHandler) ConceptHeatmap(c *gin.Context) {
 	var items []model.ConceptHeatmapItem
 	
 	rows, err := db.PG.Raw(`
+		WITH latest_prices AS (
+			SELECT code, close,
+				LAG(close) OVER (PARTITION BY code ORDER BY trade_date) as prev_close,
+				ROW_NUMBER() OVER (PARTITION BY code ORDER BY trade_date DESC) as rn
+			FROM stocks_daily_k
+			WHERE trade_date >= (SELECT MAX(trade_date) FROM stocks_daily_k) - INTERVAL '3 days'
+		),
+		stock_changes AS (
+			SELECT code, close, prev_close
+			FROM latest_prices
+			WHERE rn = 1
+		)
 		SELECT cb.concept_code, cb.concept_name, cb.concept_type, cb.stock_count,
-			COALESCE(AVG(CASE WHEN k.pre_close > 0 THEN ((k.close - k.pre_close) / k.pre_close * 100) END), 0) as avg_chg_pct,
-			COUNT(CASE WHEN k.close > k.pre_close THEN 1 END) as up_count,
-			COUNT(CASE WHEN k.close < k.pre_close THEN 1 END) as down_count
+			COALESCE(AVG(CASE WHEN sc2.prev_close > 0 THEN (sc2.close - sc2.prev_close) / sc2.prev_close * 100 END), 0) as avg_chg_pct,
+			COUNT(CASE WHEN sc2.close > sc2.prev_close THEN 1 END) as up_count,
+			COUNT(CASE WHEN sc2.close < sc2.prev_close THEN 1 END) as down_count
 		FROM concept_boards cb
 		LEFT JOIN stock_concepts sc ON sc.concept_code = cb.concept_code
-		LEFT JOIN LATERAL (
-			SELECT close, LAG(close) OVER (ORDER BY trade_date) as pre_close
-			FROM stocks_daily_k WHERE code = sc.code ORDER BY trade_date DESC LIMIT 1
-		) k ON true
+		LEFT JOIN stock_changes sc2 ON sc2.code = sc.code
 		GROUP BY cb.concept_code, cb.concept_name, cb.concept_type, cb.stock_count
 		ORDER BY cb.stock_count DESC
 	`).Rows()
