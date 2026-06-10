@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
-import { fetchEnrichedHeatmap, fetchConceptHeatmap } from '../services/api';
+import { useNavigate } from 'react-router-dom';
+import { fetchEnrichedHeatmap } from '../services/api';
 import { Flame } from 'lucide-react';
 
 /* types for enriched data */
@@ -38,11 +38,7 @@ function scoreBg(score: number): { bg: string; fg: string } {
 
 export default function HeatmapPage() {
   const [raw, setRaw] = useState<EnrichedCell[]>([]);
-  const [conceptData, setConceptData] = useState<any[]>([]);
-    const location = useLocation();
-  const [view, setView] = useState<'calendar' | 'matrix' | 'concept'>(
-    location.pathname === '/board/concepts' ? 'concept' : 'calendar'
-  );
+    const [view, setView] = useState<'calendar' | 'matrix'>('calendar');
   const [colorBy, setColorBy] = useState<'chg' | 'score'>('chg');
   const [sortKey, setSortKey] = useState<'appearances' | 'streak' | 'score'>('appearances');
   const [hover, setHover] = useState<{ cell: EnrichedCell; row: StockRow; colIdx: number } | null>(null);
@@ -50,7 +46,6 @@ export default function HeatmapPage() {
 
   useEffect(() => {
     fetchEnrichedHeatmap().then((res: any) => setRaw(res.data?.data || []));
-    fetchConceptHeatmap().then((res: any) => setConceptData(res.data?.data || []));
   }, []);
 
   /* ── derived data ── */
@@ -140,12 +135,6 @@ export default function HeatmapPage() {
               color: view === 'matrix' ? '#165dff' : '#4e5969', fontWeight: view === 'matrix' ? 500 : 400,
               borderLeft: '1px solid #e5e6eb',
             }}>矩阵热力</button>
-            <button onClick={() => setView('concept')} style={{
-              padding: '5px 14px', fontSize: 12, border: 'none', cursor: 'pointer',
-              background: view === 'concept' ? '#e8f3ff' : '#fff',
-              color: view === 'concept' ? '#165dff' : '#4e5969', fontWeight: view === 'concept' ? 500 : 400,
-              borderLeft: '1px solid #e5e6eb',
-            }}>概念板块</button>
           </div>
         </div>
 
@@ -254,6 +243,7 @@ export default function HeatmapPage() {
       </div>
     );
   }
+
 
   /* ═══════════════════════════════════════════
      Matrix View — stock × date grid

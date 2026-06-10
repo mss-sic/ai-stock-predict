@@ -4,6 +4,8 @@ import AppLayout from './App';
 import BoardPage from './pages/BoardPage';
 import HistoryBoardPage from './pages/HistoryBoardPage';
 import HeatmapPage from './pages/HeatmapPage';
+import ConceptBoardPage from './pages/ConceptBoardPage';
+import ConceptBoardDetailPage from './pages/ConceptBoardDetailPage';
 import StockDetailPage from './pages/StockDetailPage';
 import ForecastPage from './pages/ForecastPage';
 import AIAnalysisPage from './pages/AIAnalysisPage';
@@ -69,7 +71,8 @@ const router = createBrowserRouter([
           { index: true, element: <BoardPage /> },
           { path: 'board/history', element: <HistoryBoardPage /> },
           { path: 'board/heatmap', element: <HeatmapPage /> },
-          { path: 'board/concepts', element: <HeatmapPage /> },
+          { path: 'board/concepts', element: <ConceptBoardPage /> },
+          { path: 'concept/:code', element: <ConceptBoardDetailPage /> },
           { path: 'stock/:code', element: <StockDetailPage /> },
           { path: 'forecast/:code', element: <ForecastPage /> },
           { path: 'ai/:code', element: <AIAnalysisPage /> },

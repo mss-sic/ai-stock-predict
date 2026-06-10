@@ -509,7 +509,7 @@ fetchPredictionResult(code).then((r: any) => {
     const prev = safeKlines.length > 1 ? safeKlines[safeKlines.length - 2] : latest;
     const chg = (latest?.close ?? 0) - (prev?.close ?? 0), chgPct = (prev?.close ?? 0) > 0 ? (chg / (prev?.close ?? 1)) * 100 : 0;
     const high = Math.max(...safeKlines.slice(-20).map((k: any) => k.high)), low = Math.min(...safeKlines.slice(-20).map((k: any) => k.low));
-    const vol = latest.volume ?? 0, amount = (latest.amount ?? 0) * 1e4; const turnover = latest.turnoverRate ?? 0;
+    const vol = latest.volume ?? 0, amount = (latest.amount ?? 0) * 1e4; const turnover = (latest.turnoverRate ?? 0) * 100;
     const amplitude = (latest?.open ?? 0) > 0 ? (((latest?.high ?? 0) - (latest?.low ?? 0)) / (latest?.open ?? 1)) * 100 : 0;
     return { price: latest?.close ?? 0, chg, chgPct, high, low, prevClose: prev?.close ?? 0, open: latest?.open ?? 0, vol, amount, amplitude, turnover };
   }, [safeKlines]);
@@ -1517,7 +1517,7 @@ fetchPredictionResult(code).then((r: any) => {
                         <td className={`r num ${chg >= 0 ? 'up' : 'down'}`} style={{ padding: '6px 10px' }}>{chg >= 0 ? '+' : ''}{chg.toFixed(2)}%</td>
                         <td className="r num" style={{ padding: '6px 10px' }}>{k.volume ? (k.volume / 10000).toFixed(0) : '-'}</td>
                         <td className="r num" style={{ padding: '6px 10px' }}>{k.amount ? (k.amount * 1e4 / 1e8).toFixed(2) : '-'}</td>
-                        <td className="r num" style={{ padding: '6px 10px' }}>{k.turnoverRate > 0 ? k.turnoverRate.toFixed(2) : '-'}</td>
+                        <td className="r num" style={{ padding: '6px 10px' }}>{k.turnoverRate > 0 ? (k.turnoverRate * 100).toFixed(2) : '-'}</td>
                       </tr>
                     );
                   })}

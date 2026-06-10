@@ -778,7 +778,7 @@ export default function KLineChart({
               <div>低 <span style={{ color: DOWN, fontWeight: 500 }}>{hoverData?.low?.toFixed(2) ?? '-'}</span></div>
               <div>收 <span style={{ color: (hoverData?.close ?? 0) >= (hoverData?.open ?? 0) ? UP : DOWN, fontWeight: 600, fontSize: 13 }}>{hoverData?.close?.toFixed(2) ?? '-'}</span></div>
               <div style={{ marginTop: 4, color: isDark ? '#a0a4a8' : '#86909c' }}>量 {(hoverData?.volume || 0) >= 1e8 ? ((hoverData?.volume || 0) / 1e8).toFixed(2) + '亿' : ((hoverData?.volume || 0) / 1e4).toFixed(0) + '万手'}</div>
-              <div style={{ color: isDark ? '#a0a4a8' : '#86909c' }}>换手 {(hoverData?.turnoverRate || 0) > 0 ? (hoverData?.turnoverRate || 0).toFixed(2) + '%' : '-'}</div>
+              <div style={{ color: isDark ? '#a0a4a8' : '#86909c' }}>换手 {(hoverData?.turnoverRate || 0) > 0 ? ((hoverData?.turnoverRate || 0) * 100).toFixed(2) + '%' : '-'}</div>
             </>
           ) : (
             <>
