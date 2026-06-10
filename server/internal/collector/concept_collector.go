@@ -18,8 +18,14 @@ func CollectConcepts() error {
 
 	// Step 1: Fetch all concept boards
 	boards, err := fetchConceptBoards()
-	if err != nil {
-		return fmt.Errorf("获取概念板块列表失败: %w", err)
+	if err != nil || len(boards) == 0 {
+		if err != nil {
+			log.Printf("[概念采集] 东方财富API不可用: %v", err)
+		} else {
+			log.Println("[概念采集] 东方财富API返回空列表")
+		}
+		// Fallback: seed from stocks_basic.industry
+		return seedFromStocksBasic()
 	}
 	log.Printf("[概念采集] 获取到 %d 个概念板块", len(boards))
 
@@ -188,6 +194,81 @@ func fetchBoardStocks(boardCode, boardName, boardType string) ([]model.StockConc
 	}
 
 	return stocks, nil
+}
+
+
+// seedFromStocksBasic falls back to seeding concept data from stocks_basic.industry
+// when the EastMoney API is unavailable (e.g. overseas or blocked).
+func seedFromStocksBasic() error {
+	log.Println("[概念采集] 东方财富API不可用，从stocks_basic.industry种子化...")
+
+	type industryRow struct {
+		Industry string
+		Cnt      int
+	}
+
+	var industries []industryRow
+	if err := db.PG.Raw(
+		"SELECT industry, count(*) as cnt FROM stocks_basic WHERE industry != '' GROUP BY industry ORDER BY cnt DESC",
+	).Scan(&industries).Error; err != nil {
+		return fmt.Errorf("查询stocks_basic行业分布失败: %w", err)
+	}
+
+	log.Printf("[概念采集] 发现 %d 个行业", len(industries))
+
+	totalStocks := 0
+	for _, ind := range industries {
+		code := ind.Industry
+		// Upsert concept board
+		board := model.ConceptBoard{
+			ConceptCode: code,
+			ConceptName: code,
+			ConceptType: "industry",
+			StockCount:  ind.Cnt,
+			UpdatedAt:   time.Now(),
+		}
+		if err := db.PG.Where("concept_code = ?", code).Assign(board).FirstOrCreate(&model.ConceptBoard{}).Error; err != nil {
+			log.Printf("[概念采集] 行业板块 %s 入库失败: %v", code, err)
+			continue
+		}
+
+		// Upsert stock-concept mappings
+		var stocks []struct {
+			Code string
+			Name string
+		}
+		if err := db.PG.Raw(
+			"SELECT code, name FROM stocks_basic WHERE industry = ?",
+			code,
+		).Scan(&stocks).Error; err != nil {
+			log.Printf("[概念采集] 行业 %s 查询股票失败: %v", code, err)
+			continue
+		}
+
+		batchSize := 200
+		for j := 0; j < len(stocks); j += batchSize {
+			end := j + batchSize
+			if end > len(stocks) {
+				end = len(stocks)
+			}
+			for _, s := range stocks[j:end] {
+				sc := model.StockConcept{
+					Code:        s.Code,
+					ConceptCode: code,
+					ConceptName: code,
+					ConceptType: "industry",
+					StockName:   s.Name,
+					UpdatedAt:   time.Now(),
+				}
+				db.PG.Where("code = ? AND concept_code = ?", s.Code, code).
+					Assign(sc).FirstOrCreate(&model.StockConcept{})
+			}
+		}
+		totalStocks += len(stocks)
+	}
+
+	log.Printf("[概念采集] 完成(种子): %d 板块, %d 条股票-行业关联", len(industries), totalStocks)
+	return nil
 }
 
 func httpGet(url string) ([]byte, error) {
