@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"log"
+	"fmt"
 	"time"
 	"strconv"
 
@@ -146,10 +148,12 @@ func (h *WatchlistHandler) ListStocks(c *gin.Context) {
 	var infos []StockInfo
 	infoMap := make(map[string]StockInfo)
 	if len(codes) > 0 {
-		db.PG.Raw(`SELECT s.code, s.name, COALESCE(k.close, 0) AS close
+		if err := db.PG.Raw(fmt.Sprintf(`SELECT s.code, s.name, COALESCE(k.close, 0) AS close
 			FROM stocks_basic s
 			LEFT JOIN LATERAL (SELECT close FROM stocks_daily_k WHERE code = s.code ORDER BY trade_date DESC LIMIT 1) k ON true
-			WHERE s.code = ANY($1)`, codes).Scan(&infos)
+			WHERE s.code IN (%s)`, db.CodesToInClause(codes))).Scan(&infos).Error; err != nil {
+		log.Printf("[watchlist] price info query failed: %v", err)
+	}
 		for _, info := range infos {
 			infoMap[info.Code] = info
 		}

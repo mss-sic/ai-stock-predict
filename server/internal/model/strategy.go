@@ -33,6 +33,9 @@ type Strategy struct {
 	AddPositionPct    float64 `gorm:"default:10" json:"addPositionPct"`    // 加仓仓位 (占总资金%)
 	ReducePositionPct float64 `gorm:"default:50" json:"reducePositionPct"` // 减仓比例 (占持仓%)
 
+	// Position sizing method
+	PositionSizing string `gorm:"size:15;default:fixed_pct" json:"positionSizing"` // fixed_pct / equal_weight / kelly
+
 	// Investment plan
 	InitialCapital  float64 `gorm:"default:100000" json:"initialCapital"` // 初始资金
 	InvestmentType  string  `gorm:"size:10;default:lump" json:"investmentType"` // lump=一次性 / regular=定投

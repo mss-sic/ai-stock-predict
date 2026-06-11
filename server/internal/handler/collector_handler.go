@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"log"
 	"bufio"
 	"bytes"
 	"encoding/json"
@@ -201,7 +202,9 @@ func (h *CollectorHandler) CollectReports(c *gin.Context) {
 	}
 
 	var count int64
-	db.PG.Raw("SELECT count(*) FROM stock_reports WHERE stock_code = ?", code).Scan(&count)
+	if err := db.PG.Raw("SELECT count(*) FROM stock_reports WHERE stock_code = ?", code).Scan(&count).Error; err != nil {
+		log.Printf("[collector] report count query failed for %s: %v", code, err)
+	}
 	if count > 0 {
 		emit("complete", fmt.Sprintf("成功拉取 %d 篇研报", count), "success")
 	} else {

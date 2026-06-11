@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"fmt"
+	"log"
 	"net/http"
 	"sync"
 	"time"
@@ -152,12 +154,16 @@ func (h *BoardHandler) getEnrichedBoard(dateStr string) ([]EnrichedBoardItem, st
 		stockMap = m
 	}()
 
+	inClause := db.CodesToInClause(codes)
 	go func() {
 		defer wg.Done()
 		var klines []KLineRow
-		db.PG.Raw(`SELECT k.code, k.close, k.open,
+		if err := db.PG.Raw(fmt.Sprintf(`SELECT k.code, k.close, k.open,
 			COALESCE(LAG(k.close) OVER (PARTITION BY k.code ORDER BY k.trade_date), k.open) AS pre_close
-			FROM stocks_daily_k k WHERE k.code IN ? AND k.trade_date = ?`, codes, dateStr).Scan(&klines)
+			FROM stocks_daily_k k WHERE k.code IN (%s) AND k.trade_date = ?`, inClause), dateStr).Scan(&klines).Error; err != nil {
+			log.Printf("[board] klines query failed: %v", err)
+			return
+		}
 		m := make(map[string]KLineRow, len(klines))
 		for _, k := range klines { m[k.Code] = k }
 		klineMap = m
@@ -166,10 +172,13 @@ func (h *BoardHandler) getEnrichedBoard(dateStr string) ([]EnrichedBoardItem, st
 	go func() {
 		defer wg.Done()
 		var indicators []IndicatorRow
-		db.PG.Raw(`SELECT i.code, i.pe, i.pb, i.total_market_cap
+		if err := db.PG.Raw(fmt.Sprintf(`SELECT i.code, i.pe, i.pb, i.total_market_cap
 			FROM stocks_daily_indicator i
-			INNER JOIN (SELECT code, MAX(trade_date) as max_date FROM stocks_daily_indicator WHERE code IN ? GROUP BY code) latest
-			ON i.code = latest.code AND i.trade_date = latest.max_date`, codes).Scan(&indicators)
+			INNER JOIN (SELECT code, MAX(trade_date) as max_date FROM stocks_daily_indicator WHERE code IN (%s) GROUP BY code) latest
+			ON i.code = latest.code AND i.trade_date = latest.max_date`, inClause)).Scan(&indicators).Error; err != nil {
+			log.Printf("[board] indicators query failed: %v", err)
+			return
+		}
 		m := make(map[string]IndicatorRow, len(indicators))
 		for _, ind := range indicators { m[ind.Code] = ind }
 		indMap = m
@@ -178,10 +187,13 @@ func (h *BoardHandler) getEnrichedBoard(dateStr string) ([]EnrichedBoardItem, st
 	go func() {
 		defer wg.Done()
 		var aiScores []AIScoreRow
-		db.PG.Raw(`SELECT s.code, s.risk_level, s.suggestion
+		if err := db.PG.Raw(fmt.Sprintf(`SELECT s.code, s.risk_level, s.suggestion
 			FROM ai_stock_scores s
-			INNER JOIN (SELECT code, MAX(analyzed_at) AS max_at FROM ai_stock_scores WHERE code IN ? GROUP BY code) latest
-			ON s.code = latest.code AND s.analyzed_at = latest.max_at`, codes).Scan(&aiScores)
+			INNER JOIN (SELECT code, MAX(analyzed_at) AS max_at FROM ai_stock_scores WHERE code IN (%s) GROUP BY code) latest
+			ON s.code = latest.code AND s.analyzed_at = latest.max_at`, inClause)).Scan(&aiScores).Error; err != nil {
+			log.Printf("[board] ai_scores query failed: %v", err)
+			return
+		}
 		m := make(map[string]AIScoreRow, len(aiScores))
 		for _, a := range aiScores { m[a.Code] = a }
 		aiScoreMap = m
@@ -190,9 +202,12 @@ func (h *BoardHandler) getEnrichedBoard(dateStr string) ([]EnrichedBoardItem, st
 	go func() {
 		defer wg.Done()
 		var latestCloses []LatestCloseRow
-		db.PG.Raw(`SELECT l.code, l.close FROM stocks_daily_k l
-			INNER JOIN (SELECT code, MAX(trade_date) AS max_date FROM stocks_daily_k WHERE code IN ? GROUP BY code) latest
-			ON l.code = latest.code AND l.trade_date = latest.max_date`, codes).Scan(&latestCloses)
+		if err := db.PG.Raw(fmt.Sprintf(`SELECT l.code, l.close FROM stocks_daily_k l
+			INNER JOIN (SELECT code, MAX(trade_date) AS max_date FROM stocks_daily_k WHERE code IN (%s) GROUP BY code) latest
+			ON l.code = latest.code AND l.trade_date = latest.max_date`, inClause)).Scan(&latestCloses).Error; err != nil {
+			log.Printf("[board] latest_closes query failed: %v", err)
+			return
+		}
 		m := make(map[string]float64, len(latestCloses))
 		for _, lc := range latestCloses { m[lc.Code] = lc.Close }
 		latestCloseMap = m
@@ -208,12 +223,14 @@ func (h *BoardHandler) getEnrichedBoard(dateStr string) ([]EnrichedBoardItem, st
 			Close    float64
 		}
 		var nextRows []NextDayRow
-		db.PG.Raw(`SELECT code, trade_date::text AS next_date, open, close FROM (
+		if err := db.PG.Raw(fmt.Sprintf(`SELECT code, TO_CHAR(trade_date, 'YYYY-MM-DD') AS next_date, open, close FROM (
 			SELECT code, trade_date, open, close,
 				ROW_NUMBER() OVER (PARTITION BY code ORDER BY trade_date) AS rn
 			FROM stocks_daily_k
-			WHERE code IN ? AND trade_date > ?
-		) sub WHERE rn = 1`, codes, dateStr).Scan(&nextRows)
+			WHERE code IN (%s) AND trade_date > ?
+		) sub WHERE rn = 1`, inClause), dateStr).Scan(&nextRows).Error; err != nil {
+			log.Printf("[board] next-day kline query failed: %v", err)
+		}
 		ndm := make(map[string]string, len(nextRows))
 		nkm := make(map[string]NextKLineRow, len(nextRows))
 		for _, n := range nextRows {
@@ -232,10 +249,12 @@ func (h *BoardHandler) getEnrichedBoard(dateStr string) ([]EnrichedBoardItem, st
 			PickDate  string
 		}
 		var rows []BoardDateRow
-		db.PG.Raw(`SELECT stock_code, pick_date::text
+		if err := db.PG.Raw(fmt.Sprintf(`SELECT stock_code, TO_CHAR(pick_date, 'YYYY-MM-DD HH24:MI:SS')
 			FROM algorithm_pick_details
-			WHERE stock_code IN ? AND pick_date <= ? AND pick_date > (?::date - INTERVAL '30 days')
-			ORDER BY stock_code, pick_date DESC`, codes, dateStr, dateStr).Scan(&rows)
+			WHERE stock_code IN (%s) AND pick_date <= ? AND pick_date > (?::date - INTERVAL '30 days')
+			ORDER BY stock_code, pick_date DESC`, inClause), dateStr, dateStr).Scan(&rows).Error; err != nil {
+			log.Printf("[board] pick_date query failed: %v", err)
+		}
 
 		m := make(map[string][2]int, len(codes))
 		// Group by code

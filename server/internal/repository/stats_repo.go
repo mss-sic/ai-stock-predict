@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"log"
 	"time"
 
 	"github.com/ai-stock-predict/server/internal/db"
@@ -25,49 +26,63 @@ func GetDataStats() []DataStat {
 	var klineCount int64
 	var klineLast time.Time
 	db.PG.Table("stocks_daily_k").Count(&klineCount)
-	db.PG.Table("stocks_daily_k").Select("MAX(trade_date)").Scan(&klineLast)
+	if err := db.PG.Table("stocks_daily_k").Select("MAX(trade_date)").Scan(&klineLast).Error; err != nil {
+		log.Printf("[stats] kline last date query failed: %v", err)
+	}
 	stats = append(stats, DataStat{Key: "kline", Label: "日K线数据", Count: klineCount, UpdatedAt: &klineLast})
 
 	// indicator count
 	var indCount int64
 	var indLast time.Time
 	db.PG.Table("stocks_daily_indicator").Count(&indCount)
-	db.PG.Table("stocks_daily_indicator").Select("MAX(trade_date)").Scan(&indLast)
+	if err := db.PG.Table("stocks_daily_indicator").Select("MAX(trade_date)").Scan(&indLast).Error; err != nil {
+		log.Printf("[stats] indicator last date query failed: %v", err)
+	}
 	stats = append(stats, DataStat{Key: "indicator", Label: "PE/PB 指标数据", Count: indCount, UpdatedAt: &indLast})
 
 	// financial count
 	var finCount int64
 	var finLast time.Time
 	db.PG.Table("stock_financials").Count(&finCount)
-	db.PG.Table("stock_financials").Select("MAX(created_at)").Scan(&finLast)
+	if err := db.PG.Table("stock_financials").Select("MAX(created_at)").Scan(&finLast).Error; err != nil {
+		log.Printf("[stats] financials last date query failed: %v", err)
+	}
 	stats = append(stats, DataStat{Key: "financial", Label: "财务数据", Count: finCount, UpdatedAt: &finLast})
 
 	// shareholder count
 	var shCount int64
 	var shLast time.Time
 	db.PG.Table("stock_shareholders").Count(&shCount)
-	db.PG.Table("stock_shareholders").Select("MAX(created_at)").Scan(&shLast)
+	if err := db.PG.Table("stock_shareholders").Select("MAX(created_at)").Scan(&shLast).Error; err != nil {
+		log.Printf("[stats] shareholders last date query failed: %v", err)
+	}
 	stats = append(stats, DataStat{Key: "shareholder", Label: "股东数据", Count: shCount, UpdatedAt: &shLast})
 
 	// news count
 	var newsCount int64
 	var newsLast time.Time
 	db.PG.Table("stock_news").Count(&newsCount)
-	db.PG.Table("stock_news").Select("MAX(created_at)").Scan(&newsLast)
+	if err := db.PG.Table("stock_news").Select("MAX(created_at)").Scan(&newsLast).Error; err != nil {
+		log.Printf("[stats] news last date query failed: %v", err)
+	}
 	stats = append(stats, DataStat{Key: "news", Label: "资讯数据", Count: newsCount, UpdatedAt: &newsLast})
 
 	// reports count
 	var reportsCount int64
 	var reportsLast time.Time
 	db.PG.Table("stock_reports").Count(&reportsCount)
-	db.PG.Table("stock_reports").Select("MAX(created_at)").Scan(&reportsLast)
+	if err := db.PG.Table("stock_reports").Select("MAX(created_at)").Scan(&reportsLast).Error; err != nil {
+		log.Printf("[stats] reports last date query failed: %v", err)
+	}
 	stats = append(stats, DataStat{Key: "reports", Label: "研报数据", Count: reportsCount, UpdatedAt: &reportsLast})
 
 	// algorithm picks (Excel imported board data)
 	var picksCount int64
 	var picksLast time.Time
 	db.PG.Table("algorithm_picks").Count(&picksCount)
-	db.PG.Table("algorithm_picks").Select("MAX(pick_date)").Scan(&picksLast)
+	if err := db.PG.Table("algorithm_picks").Select("MAX(pick_date)").Scan(&picksLast).Error; err != nil {
+		log.Printf("[stats] picks last date query failed: %v", err)
+	}
 	stats = append(stats, DataStat{Key: "board_picks", Label: "上榜批次", Count: picksCount, UpdatedAt: &picksLast})
 
 	var pickDetailsCount int64

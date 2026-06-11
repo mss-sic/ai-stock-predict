@@ -7,7 +7,6 @@ import (
 	"log"
 	"math"
 	"net/http"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -448,8 +447,11 @@ func (h *StrategyHandler) StartBacktest(c *gin.Context) {
 
 	// Count trading days for estimate
 	var totalDays int
-	db.PG.Raw(`SELECT COUNT(DISTINCT trade_date) FROM stocks_daily_k 
-		WHERE trade_date >= ? AND trade_date <= ?`, body.StartDate, body.EndDate).Scan(&totalDays)
+	if err := db.PG.Raw(`SELECT COUNT(DISTINCT trade_date) FROM stocks_daily_k 
+		WHERE trade_date >= ? AND trade_date <= ?`, body.StartDate, body.EndDate).Scan(&totalDays).Error; err != nil {
+		response.Error(c, 500, response.CodeInternalError, "查询交易日数据失败: "+err.Error())
+		return
+	}
 	if totalDays == 0 {
 		response.BadRequest(c, "所选时间段无交易日数据")
 		return
@@ -853,9 +855,12 @@ func preloadKline(codes []string, startDate, endDate string) *KlineCache {
 	}
 
 	// 1. Get all trading days
-	db.PG.Raw(`SELECT DISTINCT trade_date::text FROM stocks_daily_k 
-		WHERE trade_date >= ? AND trade_date <= ? ORDER BY trade_date`,
-		startDate, endDate).Scan(&kc.dates)
+	if err := db.PG.Raw(`SELECT DISTINCT TO_CHAR(trade_date, 'YYYY-MM-DD') as d FROM stocks_daily_k 
+		WHERE trade_date >= ? AND trade_date <= ? ORDER BY d`,
+		startDate, endDate).Scan(&kc.dates).Error; err != nil {
+		log.Printf("[backtest] preloadKline dates query failed: %v", err)
+		return kc
+	}
 
 	for i, d := range kc.dates {
 		kc.dateIdx[d] = i
@@ -872,13 +877,17 @@ func preloadKline(codes []string, startDate, endDate string) *KlineCache {
 		Close float64
 	}
 	var rows []KCRow
-	db.PG.Table("stocks_daily_k").
-		Select("code, trade_date::text as date, close").
+	err := db.PG.Table("stocks_daily_k").
+		Select("code, TO_CHAR(trade_date, 'YYYY-MM-DD') as date, close").
 		Where("code IN ?", codes).
 		Where("trade_date >= ?", startDate).
 		Where("trade_date <= ?", endDate).
 		Order("code, trade_date").
-		Scan(&rows)
+		Scan(&rows).Error
+	if err != nil {
+		log.Printf("[backtest] preloadKline close query failed: %v", err)
+		return kc
+	}
 
 	// 3. Initialize arrays with zeros
 	nDays := len(kc.dates)
@@ -1010,6 +1019,13 @@ func (ic *IndicatorCache) batchScan(indicator string, query string, args ...inte
 	}
 }
 
+// batchScanWithCodes builds an IN clause from codes and injects it via fmt.Sprintf at %%s.
+func (ic *IndicatorCache) batchScanWithCodes(indicator string, codes []string, queryFmt string, args ...interface{}) {
+	inClause := db.CodesToInClause(codes)
+	query := fmt.Sprintf(queryFmt, inClause)
+	ic.batchScan(indicator, query, args...)
+}
+
 // preloadIndicators batch-loads all indicator values needed by the strategy for the given universe.
 func preloadIndicators(conds []model.StrategyCondition, codes []string, startDate, endDate string, kcache *KlineCache) *IndicatorCache {
 	cache := newIndicatorCache()
@@ -1052,12 +1068,12 @@ func preloadIndicators(conds []model.StrategyCondition, codes []string, startDat
 	// Batch preload: DMI/ADX (most expensive, preload all three at once)
 	if needPreload["dmi_plus"] || needPreload["dmi_minus"] || needPreload["adx"] {
 		log.Printf("[backtest] batch preloading DMI/ADX for %d stocks...", len(codes))
-		cache.batchScan("dmi_plus",
+		cache.batchScanWithCodes("dmi_plus", codes,
 			`WITH klines AS (
-				SELECT code, trade_date::text as date, high, low, close,
+				SELECT code, TO_CHAR(trade_date, 'YYYY-MM-DD') as date, high, low, close,
 					LAG(close) OVER (PARTITION BY code ORDER BY trade_date) as prev_close
 				FROM stocks_daily_k
-				WHERE code IN ? AND trade_date BETWEEN $2 AND $3
+				WHERE code IN (%s) AND trade_date BETWEEN ? AND ?
 			), tr_calc AS (
 				SELECT code, date,
 					GREATEST(high - LAG(high) OVER (PARTITION BY code ORDER BY date), 0) as up_move,
@@ -1086,14 +1102,14 @@ func preloadIndicators(conds []model.StrategyCondition, codes []string, startDat
 			SELECT code, date, 
 				AVG(dx) OVER (PARTITION BY code ORDER BY date ROWS BETWEEN 13 PRECEDING AND CURRENT ROW) as value
 			FROM adx_calc`,
-			codes, startDate, endDate)
+			startDate, endDate)
 		delete(needPreload, "adx")
 
-		cache.batchScan("dmi_minus",
+		cache.batchScanWithCodes("dmi_minus", codes,
 			`WITH klines AS (
-				SELECT code, trade_date::text as date, high, low, close,
+				SELECT code, TO_CHAR(trade_date, 'YYYY-MM-DD') as date, high, low, close,
 					LAG(close) OVER (PARTITION BY code ORDER BY trade_date) as prev_close
-				FROM stocks_daily_k WHERE code IN ? AND trade_date BETWEEN $2 AND $3
+				FROM stocks_daily_k WHERE code IN (%s) AND trade_date BETWEEN ? AND ?
 			), tr_calc AS (
 				SELECT code, date,
 					GREATEST(high - LAG(high) OVER (PARTITION BY code ORDER BY date), 0) as up_move,
@@ -1110,14 +1126,14 @@ func preloadIndicators(conds []model.StrategyCondition, codes []string, startDat
 			SELECT code, date,
 				CASE WHEN avg_tr > 0 THEN avg_down/avg_tr*100 ELSE 0 END as value
 			FROM dmi14`,
-			codes, startDate, endDate)
+			startDate, endDate)
 		delete(needPreload, "dmi_minus")
 
-		cache.batchScan("dmi_plus",
+		cache.batchScanWithCodes("dmi_plus", codes,
 			`WITH klines AS (
-				SELECT code, trade_date::text as date, high, low, close,
+				SELECT code, TO_CHAR(trade_date, 'YYYY-MM-DD') as date, high, low, close,
 					LAG(close) OVER (PARTITION BY code ORDER BY trade_date) as prev_close
-				FROM stocks_daily_k WHERE code IN ? AND trade_date BETWEEN $2 AND $3
+				FROM stocks_daily_k WHERE code IN (%s) AND trade_date BETWEEN ? AND ?
 			), tr_calc AS (
 				SELECT code, date,
 					GREATEST(high - LAG(high) OVER (PARTITION BY code ORDER BY date), 0) as up_move,
@@ -1134,18 +1150,18 @@ func preloadIndicators(conds []model.StrategyCondition, codes []string, startDat
 			SELECT code, date,
 				CASE WHEN avg_tr > 0 THEN avg_up/avg_tr*100 ELSE 0 END as value
 			FROM dmi14`,
-			codes, startDate, endDate)
+			startDate, endDate)
 		delete(needPreload, "dmi_plus")
 	}
 
 	// Batch preload: RSI
 	if needPreload["rsi"] {
 		log.Printf("[backtest] batch preloading RSI for %d stocks...", len(codes))
-		cache.batchScan("rsi",
+		cache.batchScanWithCodes("rsi", codes,
 			`WITH klines AS (
-				SELECT code, trade_date::text as date, close,
+				SELECT code, TO_CHAR(trade_date, 'YYYY-MM-DD') as date, close,
 					close - LAG(close) OVER (PARTITION BY code ORDER BY trade_date) as chg
-				FROM stocks_daily_k WHERE code IN ? AND trade_date BETWEEN $2 AND $3
+				FROM stocks_daily_k WHERE code IN (%s) AND trade_date BETWEEN ? AND ?
 			), gains AS (
 				SELECT code, date,
 					AVG(CASE WHEN chg > 0 THEN chg ELSE 0 END) OVER (PARTITION BY code ORDER BY date ROWS BETWEEN 13 PRECEDING AND CURRENT ROW) as avg_gain,
@@ -1155,17 +1171,17 @@ func preloadIndicators(conds []model.StrategyCondition, codes []string, startDat
 			SELECT code, date,
 				CASE WHEN avg_loss > 0 THEN 100 - 100/(1 + avg_gain/NULLIF(avg_loss,0)) ELSE 100 END as value
 			FROM gains`,
-			codes, startDate, endDate)
+			startDate, endDate)
 		delete(needPreload, "rsi")
 	}
 
 	// Batch preload: MACD
 	if needPreload["macd"] {
 		log.Printf("[backtest] batch preloading MACD for %d stocks...", len(codes))
-		cache.batchScan("macd",
+		cache.batchScanWithCodes("macd", codes,
 			`WITH klines AS (
-				SELECT code, trade_date::text as date, close FROM stocks_daily_k
-				WHERE code IN ? AND trade_date BETWEEN $2 AND $3
+				SELECT code, TO_CHAR(trade_date, 'YYYY-MM-DD') as date, close FROM stocks_daily_k
+				WHERE code IN (%s) AND trade_date BETWEEN ? AND ?
 			), ema AS (
 				SELECT code, date,
 					AVG(close) OVER (PARTITION BY code ORDER BY date ROWS BETWEEN 11 PRECEDING AND CURRENT ROW) as ema12,
@@ -1178,17 +1194,17 @@ func preloadIndicators(conds []model.StrategyCondition, codes []string, startDat
 				FROM ema
 			)
 			SELECT code, date, dif - dea as value FROM macd_calc`,
-			codes, startDate, endDate)
+			startDate, endDate)
 		delete(needPreload, "macd")
 	}
 
 	// Batch preload: KDJ (preload K, D, J separately)
 	if needPreload["kdj_k"] || needPreload["kdj_d"] || needPreload["kdj_j"] {
 		log.Printf("[backtest] batch preloading KDJ for %d stocks...", len(codes))
-		cache.batchScan("kdj_k",
+		cache.batchScanWithCodes("kdj_k", codes,
 			`WITH klines AS (
-				SELECT code, trade_date::text as date, high, low, close FROM stocks_daily_k
-				WHERE code IN ? AND trade_date BETWEEN $2 AND $3
+				SELECT code, TO_CHAR(trade_date, 'YYYY-MM-DD') as date, high, low, close FROM stocks_daily_k
+				WHERE code IN (%s) AND trade_date BETWEEN ? AND ?
 			), rsv AS (
 				SELECT code, date,
 					CASE WHEN MAX(high) OVER (PARTITION BY code ORDER BY date ROWS BETWEEN 8 PRECEDING AND CURRENT ROW) -
@@ -1203,7 +1219,7 @@ func preloadIndicators(conds []model.StrategyCondition, codes []string, startDat
 				(0.6667 * COALESCE(LAG(rsv_val) OVER (PARTITION BY code ORDER BY date), 50) + 0.3333 * rsv_val) + 
 				COALESCE(LAG((0.6667 * COALESCE(LAG(rsv_val) OVER (PARTITION BY code ORDER BY date), 50) + 0.3333 * rsv_val)) OVER (PARTITION BY code ORDER BY date), 50) * 0.3333
 				as value FROM rsv`,
-			codes, startDate, endDate)
+			startDate, endDate)
 		// For simplicity, preload K only for now; D/J are similar
 		delete(needPreload, "kdj_k")
 		delete(needPreload, "kdj_d")
@@ -1213,48 +1229,48 @@ func preloadIndicators(conds []model.StrategyCondition, codes []string, startDat
 	// Batch preload: simple volume-related from stocks_daily_k
 	if needPreload["volume_ratio"] || needPreload["volume_ma_ratio"] {
 		log.Printf("[backtest] batch preloading volume data for %d stocks...", len(codes))
-		cache.batchScan("volume_ratio",
-			`SELECT code, trade_date::text as date, 
+		cache.batchScanWithCodes("volume_ratio", codes,
+			`SELECT code, TO_CHAR(trade_date, 'YYYY-MM-DD') as date, 
 				COALESCE(volume / NULLIF(AVG(volume) OVER (PARTITION BY code ORDER BY trade_date ROWS BETWEEN 4 PRECEDING AND 1 PRECEDING), 0), 0) as value
-			FROM stocks_daily_k WHERE code IN ? AND trade_date BETWEEN $2 AND $3`,
-			codes, startDate, endDate)
+			FROM stocks_daily_k WHERE code IN (%s) AND trade_date BETWEEN ? AND ?`,
+			startDate, endDate)
 		delete(needPreload, "volume_ratio")
 	}
 
 	// Batch preload: turnover_rate if available
 	if needPreload["turnover_rate"] {
 		log.Printf("[backtest] batch preloading turnover_rate for %d stocks...", len(codes))
-		cache.batchScan("turnover_rate",
-			`SELECT code, trade_date::text as date, COALESCE(turnover_rate, 0) as value
-			FROM stocks_daily_k WHERE code IN ? AND trade_date BETWEEN $2 AND $3`,
-			codes, startDate, endDate)
+		cache.batchScanWithCodes("turnover_rate", codes,
+			`SELECT code, TO_CHAR(trade_date, 'YYYY-MM-DD') as date, COALESCE(turnover_rate, 0) as value
+			FROM stocks_daily_k WHERE code IN (%s) AND trade_date BETWEEN ? AND ?`,
+			startDate, endDate)
 		delete(needPreload, "turnover_rate")
 	}
 
 	// Batch preload: ATR
 	if needPreload["atr"] || needPreload["atr_pct"] {
 		log.Printf("[backtest] batch preloading ATR for %d stocks...", len(codes))
-		cache.batchScan("atr",
+		cache.batchScanWithCodes("atr", codes,
 			`WITH klines AS (
-				SELECT code, trade_date::text as date, high, low, close,
+				SELECT code, TO_CHAR(trade_date, 'YYYY-MM-DD') as date, high, low, close,
 					LAG(close) OVER (PARTITION BY code ORDER BY trade_date) as prev_close
-				FROM stocks_daily_k WHERE code IN ? AND trade_date BETWEEN $2 AND $3
+				FROM stocks_daily_k WHERE code IN (%s) AND trade_date BETWEEN ? AND ?
 			)
 			SELECT code, date,
 				AVG(GREATEST(high-low, ABS(high-prev_close), ABS(low-prev_close)))
 					OVER (PARTITION BY code ORDER BY date ROWS BETWEEN 13 PRECEDING AND CURRENT ROW) as value
 			FROM klines`,
-			codes, startDate, endDate)
+			startDate, endDate)
 		delete(needPreload, "atr")
 	}
 
 	// Batch preload: CCI
 	if needPreload["cci"] {
 		log.Printf("[backtest] batch preloading CCI for %d stocks...", len(codes))
-		cache.batchScan("cci",
+		cache.batchScanWithCodes("cci", codes,
 			`WITH klines AS (
-				SELECT code, trade_date::text as date, high, low, close FROM stocks_daily_k
-				WHERE code IN ? AND trade_date BETWEEN $2 AND $3
+				SELECT code, TO_CHAR(trade_date, 'YYYY-MM-DD') as date, high, low, close FROM stocks_daily_k
+				WHERE code IN (%s) AND trade_date BETWEEN ? AND ?
 			), tp AS (
 				SELECT code, date, (high+low+close)/3 as typical FROM klines
 			)
@@ -1263,7 +1279,7 @@ func preloadIndicators(conds []model.StrategyCondition, codes []string, startDat
 				NULLIF(0.015 * AVG(ABS(typical - AVG(typical) OVER (PARTITION BY code ORDER BY date ROWS BETWEEN 19 PRECEDING AND CURRENT ROW)))
 					OVER (PARTITION BY code ORDER BY date ROWS BETWEEN 19 PRECEDING AND CURRENT ROW), 0) as value
 			FROM tp`,
-			codes, startDate, endDate)
+			startDate, endDate)
 		delete(needPreload, "cci")
 	}
 
@@ -1351,19 +1367,27 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 	}
 	var universe []StockInfo
 	if len(stockCodes) > 0 {
-		db.PG.Table("stocks_basic").
+		if err := db.PG.Table("stocks_basic").
 			Select("code, COALESCE(name,'') as name").
 			Where("code IN ?", stockCodes).
-			Scan(&universe)
+			Scan(&universe).Error; err != nil {
+			log.Printf("[backtest] universe query (stockCodes) failed: %v", err)
+		}
 	} else {
 		// Stock pool "all" — sample up to 3000 stocks for performance
-		db.PG.Table("stocks_daily_k k").
-			Select("DISTINCT k.code, COALESCE(s.name, k.code) as name").
+		err := db.PG.Table("stocks_daily_k k").
+			Select("k.code, COALESCE(s.name, k.code) as name").
 			Joins("LEFT JOIN stocks_basic s ON s.code = k.code").
 			Where("k.trade_date >= ?", startDate).
 			Where("k.trade_date <= ?", endDate).
+			Group("k.code, s.name").
 			Order("RANDOM()").Limit(3000).
-			Scan(&universe)
+			Scan(&universe).Error
+		if err != nil {
+			log.Printf("[backtest] universe query (all) failed: %v", err)
+		} else {
+			log.Printf("[backtest] universe query (all): %d stocks found for %s~%s", len(universe), startDate, endDate)
+		}
 	}
 
 	if len(universe) == 0 {
@@ -1517,14 +1541,7 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 		}
 	}
 
-	type Position struct {
-		Code     string  `json:"code"`
-		Name     string  `json:"name"`
-		BuyPrice float64 `json:"buyPrice"`
-		Quantity int     `json:"quantity"`
-		BuyDate  string  `json:"buyDate"`
-	}
-	positions := make(map[string]*Position)
+	positions := make(map[string]*dcPosition)
 	var allTrades []backtestTrade
 	var equityPoints []map[string]interface{}
 	prevDayEquity := capital
@@ -1551,230 +1568,53 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 			remainingCash += s.RegularAmount
 		}
 
-		// Check sell/reduce + stop
-		sellTriggered := 0
-		reduceTriggered := 0
-		origPosCount := len(positions)
-		// Sort position codes for deterministic iteration
-		sortedPosCodes := make([]string, 0, len(positions))
-		for code := range positions {
-			sortedPosCodes = append(sortedPosCodes, code)
-		}
-		sort.Strings(sortedPosCodes)
-		for _, code := range sortedPosCodes {
-			pos, exists := positions[code]
-			if !exists { continue }
-			price := kcache.GetClose(code, date)
-			if price <= 0 { continue }
+		// ── Decision Chain: run trading decision loop for this day ──
+		pm := NewPositionManager(
+			capital, maxHold,
+			buyPct, addPct, reducePct,
+			s.StopProfit, s.StopLoss,
+			NewPositionSizer(SizingFixedPct),
+		)
 
-			triggered := ""
-			if s.StopLoss > 0 && price <= pos.BuyPrice*(1-s.StopLoss/100) {
-				triggered = "止损"
-			} else if s.StopProfit > 0 && price >= pos.BuyPrice*(1+s.StopProfit/100) {
-				triggered = "止盈"
-			} else if evalConds(sellConds, code, date) {
-				triggered = "卖出条件"
-			}
-
-			if triggered != "" {
-				pnl := (price - pos.BuyPrice) * float64(pos.Quantity)
-				pnlPct := (price - pos.BuyPrice) / pos.BuyPrice * 100
-				remainingCash += price * float64(pos.Quantity)
-				t := backtestTrade{
-					Date: date, Code: code, Name: pos.Name, Action: "sell",
-					Price: price, Quantity: pos.Quantity, Reason: triggered,
-					Pnl: math.Round(pnl*100) / 100, PnlPct: math.Round(pnlPct*100) / 100,
-				}
-				allTrades = append(allTrades, t)
-				sellTriggered++
-				delete(positions, code)
-				continue
-			}
-
-			if evalConds(reduceConds, code, date) {
-				reduceQty := int(float64(pos.Quantity) * reducePct / 100)
-				if reduceQty >= 100 && reduceQty < pos.Quantity {
-					pnl := (price - pos.BuyPrice) * float64(reduceQty)
-					pnlPct := (price - pos.BuyPrice) / pos.BuyPrice * 100
-					remainingCash += price * float64(reduceQty)
-					pos.Quantity -= reduceQty
-					t := backtestTrade{
-						Date: date, Code: code, Name: pos.Name, Action: "reduce",
-						Price: price, Quantity: reduceQty, Reason: "减仓条件触发",
-						Pnl: math.Round(pnl*100) / 100, PnlPct: math.Round(pnlPct*100) / 100,
-					}
-					allTrades = append(allTrades, t)
-					reduceTriggered++
-				}
-			}
+		// Convert universe to dcStockInfo for the decision chain
+		dcUniverse := make([]dcStockInfo, len(universe))
+		for i, s := range universe {
+			dcUniverse[i] = dcStockInfo{Code: s.Code, Name: s.Name}
 		}
 
-		// Sell/reduce scan summary (seq=1, before trades)
-		hasSellConds := len(sellConds) > 0
-		hasReduceConds := len(reduceConds) > 0
-		hasStop := s.StopProfit > 0 || s.StopLoss < 0
-		if origPosCount > 0 {
-			parts := []string{}
-			if hasStop { parts = append(parts, fmt.Sprintf("止盈%.0f%%/止损%.0f%%", s.StopProfit, s.StopLoss)) }
-			if hasSellConds { parts = append(parts, "卖出条件") }
-			if hasReduceConds { parts = append(parts, "减仓条件") }
-			if sellTriggered > 0 || reduceTriggered > 0 {
-				insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, 11,
-					"condition_eval", "info", "", "",
-					fmt.Sprintf("卖出检查: %d只持仓 → 卖出%d只, 减仓%d只", origPosCount, sellTriggered, reduceTriggered),
-					nil)
-			} else {
-				insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, 11,
-					"condition_eval", "info", "", "",
-					fmt.Sprintf("卖出检查: %d只持仓, %s → 无触发", origPosCount, strings.Join(parts, "+")),
-					nil)
-			}
-		} else {
-			insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, 11,
-				"condition_eval", "info", "", "",
-				"卖出检查: 无持仓, 跳过",
-				nil)
+		dcGetPrice := func(code, d string) float64 {
+			return kcache.GetClose(code, d)
 		}
 
-		// Check buy + add (respect max holdings)
-		buyHitCount := 0
-		addHitCount := 0
-		if len(positions) < maxHold {
-			for _, stock := range universe {
-				code := stock.Code
-				price := kcache.GetClose(code, date)
-				if price <= 0 { continue }
+		remainingCash, todayTrades, dayLogs := RunDailyDecisionLoop(
+			date, remainingCash, positions, dcUniverse,
+			buyConds, sellConds, addConds, reduceConds,
+			pm, dcGetPrice, evalConds, evalSingleWithDetail,
+		)
 
-				if pos, exists := positions[code]; exists {
-					if len(addConds) > 0 && evalConds(addConds, code, date) {
-						addQty := int(remainingCash * addPct / 100 / price)
-						// Round to 100-share lots (A-share rule)
-						addQty = (addQty / 100) * 100
-						if addQty >= 100 {
-							cost := price * float64(addQty)
-							if cost > remainingCash {
-								addQty = (int(remainingCash/price) / 100) * 100
-								cost = price * float64(addQty)
-							}
-							if addQty >= 100 {
-								remainingCash -= cost
-								pos.Quantity += addQty
-								t := backtestTrade{
-									Date: date, Code: code, Name: pos.Name, Action: "add",
-									Price: price, Quantity: addQty, Reason: "加仓条件触发",
-								}
-								allTrades = append(allTrades, t)
-								addHitCount++
-							}
-						}
-					}
-					continue
-				}
-
-				if len(buyConds) > 0 && evalConds(buyConds, code, date) {
-					buyQty := int(remainingCash * buyPct / 100 / price)
-					// Round to 100-share lots (A-share minimum trading unit)
-					buyQty = (buyQty / 100) * 100
-					if buyQty < 100 { buyQty = 100 }
-					cost := price * float64(buyQty)
-					if cost > remainingCash {
-						buyQty = (int(remainingCash/price) / 100) * 100
-						cost = price * float64(buyQty)
-					}
-					if buyQty < 100 { continue }
-
-					remainingCash -= cost
-					name := stock.Name
-					if name == "" { name = code }
-					positions[code] = &Position{
-						Code: code, Name: name,
-						BuyPrice: price, Quantity: buyQty, BuyDate: date,
-					}
-					t := backtestTrade{
-						Date: date, Code: code, Name: name, Action: "buy",
-						Price: price, Quantity: buyQty, Reason: "买入条件触发",
-					}
-					allTrades = append(allTrades, t)
-					buyHitCount++
-
-					// Re-check max holdings after each buy
-					if len(positions) >= maxHold {
-						break
-					}
-				}
+		// Emit per-stock diagnostic logs for small universes (only when no buys hit)
+		hasBuyTrade := false
+		for _, t := range todayTrades {
+			if t.Action == "buy" {
+				hasBuyTrade = true
+				break
 			}
 		}
-
-		// Buy/add scan summary
-		if len(buyConds) > 0 || len(addConds) > 0 {
-			// Build condition descriptions
-			condParts := []string{}
-			for _, c := range buyConds {
-				condParts = append(condParts, fmt.Sprintf("%s %s %.0f", c.Indicator, c.Operator, c.Value))
-			}
-			for _, c := range addConds {
-				condParts = append(condParts, fmt.Sprintf("加仓:%s %s %.0f", c.Indicator, c.Operator, c.Value))
-			}
-			condDesc := strings.Join(condParts, ", ")
-			if len(positions) >= maxHold && maxHold > 0 {
-				insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, 21,
-					"condition_eval", "info", "", "",
-					fmt.Sprintf("买入扫描: 已达最大持仓%d/%d, 跳过扫描", len(positions), maxHold),
-					nil)
-			} else if buyHitCount > 0 || addHitCount > 0 {
-				insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, 21,
-					"condition_eval", "info", "", "",
-					fmt.Sprintf("买入扫描: 遍历%d只股票, 条件[%s] → 命中买入%d只, 加仓%d只, 当前持仓%d/%d",
-						len(universe), condDesc, buyHitCount, addHitCount, len(positions), maxHold),
-					nil)
-			} else {
-				// Summary log
-				insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, 21,
-					"condition_eval", "warn", "", "",
-					fmt.Sprintf("买入扫描: 遍历%d只股票, 条件[%s] → 无满足买入条件的股票, 当前持仓%d/%d",
-						len(universe), condDesc, len(positions), maxHold),
-					nil)
-				// Per-stock diagnostic: emit individual condition_eval lines for small universes
-				maxDetail := 8
-				if len(universe) <= 10 { maxDetail = len(universe) }
-				log.Printf("[backtest] task=%d date=%s emitting per-stock diag for %d stocks", task.ID, date, maxDetail)
-				diagSeq := 30
-				for si, stock := range universe {
-					if si >= maxDetail { break }
-					code := stock.Code
-					price := kcache.GetClose(code, date)
-					if price <= 0 {
-						insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, diagSeq,
-							"condition_eval", "warn", code, stock.Name,
-							fmt.Sprintf("  %s 无K线数据, 跳过", code), nil)
-						diagSeq++
-						continue
-					}
-					condResults := []string{}
-					allCondResults := []map[string]interface{}{}
-					for _, c := range buyConds {
-						passed, reason := evalSingleWithDetail(c, code, date)
-						condResults = append(condResults, reason)
-						allCondResults = append(allCondResults, map[string]interface{}{
-							"indicator": c.Indicator, "op": c.Operator,
-							"threshold": c.Value, "passed": passed, "detail": reason,
-						})
-					}
-					insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, diagSeq,
-						"condition_eval", "info", code, stock.Name,
-						fmt.Sprintf("  %s ¥%.2f → %s", code, price, strings.Join(condResults, " | ")),
-						map[string]interface{}{"conditions": allCondResults})
-					diagSeq++
-				}
-			}
-		} else {
-			insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, 21,
-				"condition_eval", "info", "", "",
-				"买入扫描: 无买入/加仓条件, 跳过",
-				nil)
+		if !hasBuyTrade && len(buyConds) > 0 {
+			diagLogs := dcScanLog(date, buyConds, dcUniverse, positions, dcGetPrice, evalSingleWithDetail)
+			dayLogs = append(dayLogs, diagLogs...)
 		}
 
-		// Update progress every trading day
+		// Write all decision chain logs to DB
+		for _, log := range dayLogs {
+			insertBacktestLog(task.ID, task.StrategyID, task.UserID,
+				date, log.Seq, log.Type, log.Level,
+				log.Code, log.Name, log.Msg, log.Detail)
+		}
+
+		allTrades = append(allTrades, todayTrades...)
+
+		// ── Daily snapshot & progress update ──
 		posList := make([]map[string]interface{}, 0)
 		totalEquity := remainingCash
 		for _, pos := range positions {
@@ -1790,16 +1630,6 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 				"pnl": math.Round(pnl*100)/100, "pnlPct": math.Round(pnlPct*100)/100,
 			})
 			totalEquity += mv
-		}
-
-		// Collect trades that happened today (since last snapshot)
-		todayTrades := make([]backtestTrade, 0)
-		tradeCountSoFar := 0
-		for _, t := range allTrades {
-			if t.Date == date {
-				todayTrades = append(todayTrades, t)
-			}
-			tradeCountSoFar++
 		}
 
 		posData := map[string]interface{}{
@@ -2045,8 +1875,11 @@ func (h *StrategyHandler) RunBacktest(c *gin.Context) {
 
 	// Count trading days
 	var totalDays int
-	db.PG.Raw(`SELECT COUNT(DISTINCT trade_date) FROM stocks_daily_k 
-		WHERE trade_date >= ? AND trade_date <= ?`, body.StartDate, body.EndDate).Scan(&totalDays)
+	if err := db.PG.Raw(`SELECT COUNT(DISTINCT trade_date) FROM stocks_daily_k 
+		WHERE trade_date >= ? AND trade_date <= ?`, body.StartDate, body.EndDate).Scan(&totalDays).Error; err != nil {
+		sendSSE("error", map[string]string{"message": "查询交易日数据失败: " + err.Error()})
+		return
+	}
 	if totalDays == 0 {
 		sendSSE("error", map[string]string{"message": "所选时间段无交易日数据"})
 		return
@@ -2153,9 +1986,13 @@ func (h *StrategyHandler) StockPool(c *gin.Context) {
 
 	// 1. All stocks
 	var allCount int64
-	db.PG.Raw("SELECT COUNT(*) FROM stocks_basic").Scan(&allCount)
+	if err := db.PG.Raw("SELECT COUNT(*) FROM stocks_basic").Scan(&allCount).Error; err != nil {
+		log.Printf("[strategy] stock count query failed: %v", err)
+	}
 	var allStocks []PoolItem
-	db.PG.Raw("SELECT code, COALESCE(name,'') as name FROM stocks_basic ORDER BY code LIMIT 5000").Scan(&allStocks)
+	if err := db.PG.Raw("SELECT code, COALESCE(name,'') as name FROM stocks_basic ORDER BY code LIMIT 5000").Scan(&allStocks).Error; err != nil {
+		log.Printf("[strategy] all stocks query failed: %v", err)
+	}
 	pools = append(pools, PoolGroup{
 		Key:   "all",
 		Label: "全部股票",
@@ -2169,21 +2006,29 @@ func (h *StrategyHandler) StockPool(c *gin.Context) {
 		Name string `json:"name"`
 	}
 	var wlGroups []WLGroup
-	db.MySQL.Raw("SELECT id, name FROM watchlist_groups WHERE user_id = ? ORDER BY sort_order", uid).Scan(&wlGroups)
+	if err := db.MySQL.Raw("SELECT id, name FROM watchlist_groups WHERE user_id = ? ORDER BY sort_order", uid).Scan(&wlGroups).Error; err != nil {
+		log.Printf("[strategy] watchlist groups query failed: %v", err)
+	}
 	for _, g := range wlGroups {
 		// Query watchlist stocks from MySQL, then join with PG for names
 		type WLRaw struct {
 			StockCode string
 		}
 		var wlRaw []WLRaw
-		db.MySQL.Raw("SELECT stock_code FROM watchlists WHERE user_id = ? AND group_id = ? ORDER BY stock_code", uid, g.ID).Scan(&wlRaw)
+		if err := db.MySQL.Raw("SELECT stock_code FROM watchlists WHERE user_id = ? AND group_id = ? ORDER BY stock_code", uid, g.ID).Scan(&wlRaw).Error; err != nil {
+			log.Printf("[strategy] watchlist items query failed for group %d: %v", g.ID, err)
+			continue
+		}
 		codes := make([]string, len(wlRaw))
 		for i, w := range wlRaw {
 			codes[i] = w.StockCode
 		}
 		var items []PoolItem
 		if len(codes) > 0 {
-			db.PG.Raw("SELECT code, COALESCE(name,'') as name FROM stocks_basic WHERE code IN ? ORDER BY code", codes).Scan(&items)
+			if err := db.PG.Raw(fmt.Sprintf("SELECT code, COALESCE(name,'') as name FROM stocks_basic WHERE code IN (%s) ORDER BY code", db.CodesToInClause(codes))).Scan(&items).Error; err != nil {
+			log.Printf("[strategy] watchlist stock names query failed: %v", err)
+			continue
+		}
 		}
 		pools = append(pools, PoolGroup{
 			Key:   fmt.Sprintf("watchlist_%d", g.ID),
@@ -2198,14 +2043,18 @@ func (h *StrategyHandler) StockPool(c *gin.Context) {
 		Code string
 	}
 	var holdingCodes []HoldingRaw
-	db.MySQL.Raw("SELECT DISTINCT stock_code as code FROM holdings WHERE user_id = ? ORDER BY stock_code", uid).Scan(&holdingCodes)
+	if err := db.MySQL.Raw("SELECT DISTINCT stock_code as code FROM holdings WHERE user_id = ? ORDER BY stock_code", uid).Scan(&holdingCodes).Error; err != nil {
+		log.Printf("[strategy] holdings query failed: %v", err)
+	}
 	if len(holdingCodes) > 0 {
 		codes := make([]string, len(holdingCodes))
 		for i, h := range holdingCodes {
 			codes[i] = h.Code
 		}
 		var holdings []PoolItem
-		db.PG.Raw("SELECT code, COALESCE(name,'') as name FROM stocks_basic WHERE code IN ? ORDER BY code", codes).Scan(&holdings)
+		if err := db.PG.Raw(fmt.Sprintf("SELECT code, COALESCE(name,'') as name FROM stocks_basic WHERE code IN (%s) ORDER BY code", db.CodesToInClause(codes))).Scan(&holdings).Error; err != nil {
+			log.Printf("[strategy] holdings stock names query failed: %v", err)
+		}
 		if len(holdings) > 0 {
 			pools = append(pools, PoolGroup{
 				Key:   "portfolio",
@@ -3563,6 +3412,8 @@ func hasAnyData(code, date, indicator string) bool {
 
 func getStockName(code string) string {
 	var name string
-	db.PG.Raw("SELECT COALESCE(name,'') FROM stocks_basic WHERE code = ? LIMIT 1", code).Scan(&name)
+	if err := db.PG.Raw("SELECT COALESCE(name,'') FROM stocks_basic WHERE code = ? LIMIT 1", code).Scan(&name).Error; err != nil {
+		log.Printf("[backtest] stock name query failed for %s: %v", code, err)
+	}
 	return name
 }

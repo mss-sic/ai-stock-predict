@@ -2,6 +2,7 @@ package service
 
 import (
 	"fmt"
+	"strings"
 	"log"
 	"time"
 
@@ -16,6 +17,14 @@ type RiskRule struct {
 }
 
 // ScanUserHoldings scans all user holdings and generates risk alerts
+
+func codesToInClause(codes []string) string {
+	if len(codes) == 0 { return "''" }
+	q := make([]string, len(codes))
+	for i, c := range codes { q[i] = "'" + c + "'" }
+	return strings.Join(q, ",")
+}
+
 func ScanUserHoldings() (int, error) {
 	var holdings []model.Holding
 	db.MySQL.Find(&holdings)
@@ -32,6 +41,7 @@ func ScanUserHoldings() (int, error) {
 	for c := range codeSet {
 		codes = append(codes, c)
 	}
+	inClause := codesToInClause(codes)
 
 	// Clear old non-ignored alerts for fresh scan
 	db.MySQL.Where("ignored = false").Delete(&model.RiskAlert{})
@@ -70,18 +80,18 @@ func ScanUserHoldings() (int, error) {
 		ChgPct float64
 	}
 	var drops []KlineChg
-	db.PG.Raw(`
+	db.PG.Raw(fmt.Sprintf(`
 		WITH recent AS (
 			SELECT code, close,
 				ROW_NUMBER() OVER (PARTITION BY code ORDER BY trade_date DESC) as rn
 			FROM stocks_daily_k
-			WHERE code = ANY($1)
+			WHERE code = %s
 		)
 		SELECT r5.code, ((r5.close - r1.close) / NULLIF(r1.close, 0) * 100) as chg_pct
 		FROM (SELECT code, close FROM recent WHERE rn = 1) r1
 		JOIN (SELECT code, close FROM recent WHERE rn = 5) r5 ON r5.code = r1.code
 		WHERE r1.close > 0
-	`, codes).Scan(&drops)
+	`, inClause)).Scan(&drops)
 
 	for _, d := range drops {
 		if d.ChgPct < -8 {
@@ -100,19 +110,19 @@ func ScanUserHoldings() (int, error) {
 		PrevM float64
 	}
 	var crosses []MACross
-	db.PG.Raw(`
+	db.PG.Raw(fmt.Sprintf(`
 		WITH ranked AS (
 			SELECT code, trade_date, close,
 				AVG(close) OVER (PARTITION BY code ORDER BY trade_date ROWS BETWEEN 19 PRECEDING AND CURRENT ROW) as ma20,
 				ROW_NUMBER() OVER (PARTITION BY code ORDER BY trade_date DESC) as rn
 			FROM stocks_daily_k
-			WHERE code = ANY($1)
+			WHERE code = %s
 		)
 		SELECT t1.code, t1.close, t1.ma20, t2.close as prev_c, t2.ma20 as prev_m
 		FROM ranked t1
 		JOIN ranked t2 ON t2.code = t1.code AND t2.rn = 2
 		WHERE t1.rn = 1 AND t1.close < t1.ma20 AND t2.close >= t2.ma20
-	`, codes).Scan(&crosses)
+	`, inClause)).Scan(&crosses)
 
 	for _, c := range crosses {
 		addAlert(c.Code, "medium", "跌破均线", "收盘价 "+fmtPrice(c.Close)+" 跌破20日均线 "+fmtPrice(c.MA20))
@@ -125,18 +135,18 @@ func ScanUserHoldings() (int, error) {
 		IndAvg float64
 	}
 	var peInfos []PEInfo
-	db.PG.Raw(`
+	db.PG.Raw(fmt.Sprintf(`
 		WITH latest_pe AS (
 			SELECT DISTINCT ON (code) code, pe_ttm as pe
 			FROM stocks_daily_indicator
-			WHERE code = ANY($1) AND pe_ttm > 0
+			WHERE code = %s AND pe_ttm > 0
 			ORDER BY code, trade_date DESC
 		),
 		ind_avg AS (
 			SELECT sb.industry, AVG(i.pe_ttm) as avg_pe
 			FROM stocks_daily_indicator i
 			JOIN stocks_basic sb ON sb.code = i.code
-			WHERE i.code = ANY($1) AND i.pe_ttm > 0 AND i.pe_ttm < 500
+			WHERE i.code = %s AND i.pe_ttm > 0 AND i.pe_ttm < 500
 				AND i.trade_date = (SELECT MAX(trade_date) FROM stocks_daily_indicator WHERE code = i.code)
 			GROUP BY sb.industry
 		)
@@ -144,7 +154,7 @@ func ScanUserHoldings() (int, error) {
 		FROM latest_pe lp
 		JOIN stocks_basic sb ON sb.code = lp.code
 		LEFT JOIN ind_avg ia ON ia.industry = sb.industry
-	`, codes).Scan(&peInfos)
+	`, inClause)).Scan(&peInfos)
 
 	for _, p := range peInfos {
 		if p.PE > 200 {
@@ -160,14 +170,14 @@ func ScanUserHoldings() (int, error) {
 		Cnt  int
 	}
 	var boardCounts []BoardCount
-	db.PG.Raw(`
+	db.PG.Raw(fmt.Sprintf(`
 		SELECT stock_code as code, COUNT(*) as cnt
 		FROM algorithm_pick_details
-		WHERE stock_code = ANY($1)
+		WHERE stock_code = %s
 			AND pick_date >= (SELECT MAX(pick_date) FROM algorithm_picks) - INTERVAL '20 days'
 		GROUP BY stock_code
 		HAVING COUNT(*) >= 5
-	`, codes).Scan(&boardCounts)
+	`, inClause)).Scan(&boardCounts)
 
 	for _, b := range boardCounts {
 		addAlert(b.Code, "medium", "连续上榜", "近20天上榜 "+fmt.Sprintf("%d", b.Cnt)+" 次，短线情绪过热")
@@ -180,17 +190,17 @@ func ScanUserHoldings() (int, error) {
 		RevChg  float64
 	}
 	var declines []FinDecline
-	db.PG.Raw(`
+	db.PG.Raw(fmt.Sprintf(`
 		WITH latest AS (
 			SELECT DISTINCT ON (code) code, profit_growth, revenue_growth
 			FROM stock_financials
-			WHERE code = ANY($1)
+			WHERE code = %s
 			ORDER BY code, report_date DESC
 		)
 		SELECT code, profit_growth as chg, revenue_growth as rev_chg
 		FROM latest
 		WHERE profit_growth < -30
-	`, codes).Scan(&declines)
+	`, inClause)).Scan(&declines)
 
 	for _, d := range declines {
 		level := "medium"
@@ -238,7 +248,7 @@ func GetUserRiskAlerts(userID uint) ([]model.RiskAlert, error) {
 		for i, a := range alerts {
 			alertCodes[i] = a.StockCode
 		}
-		db.PG.Raw("SELECT code, name FROM stocks_basic WHERE code = ANY($1)", alertCodes).Scan(&names)
+		db.PG.Raw(fmt.Sprintf("SELECT code, name FROM stocks_basic WHERE code IN (%s)", codesToInClause(alertCodes))).Scan(&names)
 		nameMap := make(map[string]string, len(names))
 		for _, n := range names {
 			nameMap[n.Code] = n.Name

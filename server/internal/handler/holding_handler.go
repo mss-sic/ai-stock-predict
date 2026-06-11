@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"fmt"
+	"log"
 	"strconv"
 
 	"github.com/ai-stock-predict/server/internal/db"
@@ -49,10 +51,12 @@ func (h *HoldingHandler) List(c *gin.Context) {
 	}
 	var infos []PriceInfo
 	infoMap := make(map[string]PriceInfo)
-	db.PG.Raw(`SELECT s.code, s.name, COALESCE(k.close, 0) AS close
+	if err := db.PG.Raw(fmt.Sprintf(`SELECT s.code, s.name, COALESCE(k.close, 0) AS close
 		FROM stocks_basic s
 		LEFT JOIN LATERAL (SELECT close FROM stocks_daily_k WHERE code = s.code ORDER BY trade_date DESC LIMIT 1) k ON true
-		WHERE s.code = ANY($1)`, codes).Scan(&infos)
+		WHERE s.code IN (%s)`, db.CodesToInClause(codes))).Scan(&infos).Error; err != nil {
+		log.Printf("[holding] price info query failed: %v", err)
+	}
 	for _, info := range infos {
 		infoMap[info.Code] = info
 	}
@@ -101,7 +105,10 @@ func (h *HoldingHandler) Create(c *gin.Context) {
 
 	// Verify stock exists in PG
 	var count int64
-	db.PG.Raw("SELECT COUNT(*) FROM stocks_basic WHERE code = ?", body.StockCode).Scan(&count)
+	if err := db.PG.Raw("SELECT COUNT(*) FROM stocks_basic WHERE code = ?", body.StockCode).Scan(&count).Error; err != nil {
+		response.Error(c, 500, response.CodeInternalError, "查询股票代码失败: "+err.Error())
+		return
+	}
 	if count == 0 {
 		response.BadRequest(c, "股票代码不存在: "+body.StockCode)
 		return

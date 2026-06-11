@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"log"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -69,7 +70,9 @@ func (h *InternalHandler) SyncPredictions(c *gin.Context) {
 
 		// Get latest close price
 		var lastClose float64
-		db.PG.Raw("SELECT COALESCE(close, 0) FROM stocks_daily_k WHERE code = ? ORDER BY trade_date DESC LIMIT 1", code).Scan(&lastClose)
+		if err := db.PG.Raw("SELECT COALESCE(close, 0) FROM stocks_daily_k WHERE code = ? ORDER BY trade_date DESC LIMIT 1", code).Scan(&lastClose).Error; err != nil {
+			log.Printf("[internal] lastClose query failed for %s: %v", code, err)
+		}
 		if lastClose <= 0 {
 			skipped++
 			continue

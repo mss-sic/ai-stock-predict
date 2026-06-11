@@ -345,12 +345,16 @@ func runKLinePhase() PhaseResult {
 	var totalStocks int64
 	db.PG.Model(&model.StockBasic{}).Count(&totalStocks)
 	var stocksWithK int64
-	db.PG.Raw("SELECT COUNT(DISTINCT code) FROM stocks_daily_k").Scan(&stocksWithK)
+	if err := db.PG.Raw("SELECT COUNT(DISTINCT code) FROM stocks_daily_k").Scan(&stocksWithK).Error; err != nil {
+	log.Printf("[collector] stocksWithK query failed: %v", err)
+}
 
 	// 检查数据新鲜度：最近交易日距今超过 3 天则重新采集
 	needK := int(totalStocks - stocksWithK)
 	var latestDate time.Time
-	db.PG.Raw("SELECT MAX(trade_date) FROM stocks_daily_k").Scan(&latestDate)
+	if err := db.PG.Raw("SELECT MAX(trade_date) FROM stocks_daily_k").Scan(&latestDate).Error; err != nil {
+	log.Printf("[collector] latestDate query failed: %v", err)
+}
 	stale := time.Since(latestDate) > 72*time.Hour
 
 	if needK <= 0 && !stale {
@@ -365,7 +369,9 @@ func runKLinePhase() PhaseResult {
 	runPythonStream("batch_collect.py")
 	phaseRes := PhaseResult{Phase: "kline", Skipped: int(stocksWithK)}
 	var after int64
-	db.PG.Raw("SELECT COUNT(DISTINCT code) FROM stocks_daily_k").Scan(&after)
+	if err := db.PG.Raw("SELECT COUNT(DISTINCT code) FROM stocks_daily_k").Scan(&after).Error; err != nil {
+	log.Printf("[collector] after count query failed: %v", err)
+}
 	phaseRes.Total = int(after)
 	phaseRes.New = int(after - stocksWithK)
 	phaseRes.DurationMs = time.Since(t0).Milliseconds()
@@ -433,7 +439,9 @@ func runFinancialPhase() PhaseResult {
 	var totalStocks int64
 	db.PG.Model(&model.StockBasic{}).Count(&totalStocks)
 	var existing int64
-	db.PG.Model(&model.StockFinancial{}).Select("COUNT(DISTINCT code)").Scan(&existing)
+	if err := db.PG.Model(&model.StockFinancial{}).Select("COUNT(DISTINCT code)").Scan(&existing).Error; err != nil {
+	log.Printf("[collector] financial existing query failed: %v", err)
+}
 	need := totalStocks - existing
 	if need <= 0 {
 		pr := PhaseResult{Phase: "financial", Total: int(existing), Skipped: int(existing), DurationMs: time.Since(t0).Milliseconds()}
@@ -444,7 +452,9 @@ func runFinancialPhase() PhaseResult {
 	runPythonStream("financial_collect.py")
 	phaseRes := PhaseResult{Phase: "financial", Skipped: int(existing)}
 	var after int64
-	db.PG.Model(&model.StockFinancial{}).Select("COUNT(DISTINCT code)").Scan(&after)
+	if err := db.PG.Model(&model.StockFinancial{}).Select("COUNT(DISTINCT code)").Scan(&after).Error; err != nil {
+	log.Printf("[collector] financial after query failed: %v", err)
+}
 	phaseRes.Total = int(after)
 	phaseRes.New = int(after - existing)
 	phaseRes.DurationMs = time.Since(t0).Milliseconds()
@@ -459,7 +469,9 @@ func runNewsPhase() PhaseResult {
 	var totalStocks int64
 	db.PG.Model(&model.StockBasic{}).Count(&totalStocks)
 	var existing int64
-	db.PG.Model(&model.StockNews{}).Select("COUNT(DISTINCT code)").Scan(&existing)
+	if err := db.PG.Model(&model.StockNews{}).Select("COUNT(DISTINCT code)").Scan(&existing).Error; err != nil {
+	log.Printf("[collector] news existing query failed: %v", err)
+}
 	need := totalStocks - existing
 	if need <= 0 {
 		pr := PhaseResult{Phase: "news", Total: int(existing), Skipped: int(existing), DurationMs: time.Since(t0).Milliseconds()}
@@ -470,7 +482,9 @@ func runNewsPhase() PhaseResult {
 	runPythonStream("news_collect.py")
 	phaseRes := PhaseResult{Phase: "news", Skipped: int(existing)}
 	var after int64
-	db.PG.Model(&model.StockNews{}).Select("COUNT(DISTINCT code)").Scan(&after)
+	if err := db.PG.Model(&model.StockNews{}).Select("COUNT(DISTINCT code)").Scan(&after).Error; err != nil {
+	log.Printf("[collector] news after query failed: %v", err)
+}
 	phaseRes.Total = int(after)
 	phaseRes.New = int(after - existing)
 	phaseRes.DurationMs = time.Since(t0).Milliseconds()

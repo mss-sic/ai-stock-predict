@@ -376,13 +376,19 @@ func (h *AIHandler) buildScoringContext(code string) (string, map[string]interfa
 	}
 
 	var stock StockInfo
-	db.PG.Raw("SELECT name, industry FROM stocks_basic WHERE code = ?", code).Scan(&stock)
+	if err := db.PG.Raw("SELECT name, industry FROM stocks_basic WHERE code = ?", code).Scan(&stock).Error; err != nil {
+		log.Printf("[ai_handler] stock info query failed for %s: %v", code, err)
+	}
 
 	var kline KLineInfo
-	db.PG.Raw("SELECT close, high, low, volume FROM stocks_daily_k WHERE code = ? ORDER BY trade_date DESC LIMIT 1", code).Scan(&kline)
+	if err := db.PG.Raw("SELECT close, high, low, volume FROM stocks_daily_k WHERE code = ? ORDER BY trade_date DESC LIMIT 1", code).Scan(&kline).Error; err != nil {
+		log.Printf("[ai_handler] kline query failed for %s: %v", code, err)
+	}
 
 	var ind IndicatorInfo
-	db.PG.Raw("SELECT pe, pb FROM stocks_daily_indicator WHERE code = ? ORDER BY trade_date DESC LIMIT 1", code).Scan(&ind)
+	if err := db.PG.Raw("SELECT pe, pb FROM stocks_daily_indicator WHERE code = ? ORDER BY trade_date DESC LIMIT 1", code).Scan(&ind).Error; err != nil {
+		log.Printf("[ai_handler] indicator query failed for %s: %v", code, err)
+	}
 
 	var klines []struct {
 		TradeDate string
@@ -392,7 +398,9 @@ func (h *AIHandler) buildScoringContext(code string) (string, map[string]interfa
 		Low       float64
 		Volume    float64
 	}
-	db.PG.Raw("SELECT trade_date, open, close, high, low, volume FROM stocks_daily_k WHERE code = ? ORDER BY trade_date DESC LIMIT 20", code).Scan(&klines)
+	if err := db.PG.Raw("SELECT trade_date, open, close, high, low, volume FROM stocks_daily_k WHERE code = ? ORDER BY trade_date DESC LIMIT 20", code).Scan(&klines).Error; err != nil {
+		log.Printf("[ai_handler] klines history query failed for %s: %v", code, err)
+	}
 
 	klineSummary := ""
 	for i := len(klines) - 1; i >= 0; i-- {
@@ -439,11 +447,17 @@ func (h *AIHandler) buildStockContext(code string) string {
 	}
 
 	var stock StockInfo
-	db.PG.Raw("SELECT name, industry FROM stocks_basic WHERE code = ?", code).Scan(&stock)
+	if err := db.PG.Raw("SELECT name, industry FROM stocks_basic WHERE code = ?", code).Scan(&stock).Error; err != nil {
+		log.Printf("[ai_handler] stock info query failed for %s: %v", code, err)
+	}
 	var kline KLineInfo
-	db.PG.Raw("SELECT close FROM stocks_daily_k WHERE code = ? ORDER BY trade_date DESC LIMIT 1", code).Scan(&kline)
+	if err := db.PG.Raw("SELECT close FROM stocks_daily_k WHERE code = ? ORDER BY trade_date DESC LIMIT 1", code).Scan(&kline).Error; err != nil {
+		log.Printf("[ai_handler] kline query failed for %s: %v", code, err)
+	}
 	var ind IndicatorInfo
-	db.PG.Raw("SELECT pe, pb FROM stocks_daily_indicator WHERE code = ? ORDER BY trade_date DESC LIMIT 1", code).Scan(&ind)
+	if err := db.PG.Raw("SELECT pe, pb FROM stocks_daily_indicator WHERE code = ? ORDER BY trade_date DESC LIMIT 1", code).Scan(&ind).Error; err != nil {
+		log.Printf("[ai_handler] indicator query failed for %s: %v", code, err)
+	}
 
 	return fmt.Sprintf(`你是一个专业的A股投资分析助手。当前分析的股票信息：
 - 代码：%s
