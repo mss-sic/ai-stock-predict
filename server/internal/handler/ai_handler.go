@@ -535,15 +535,64 @@ func (h *AIHandler) buildStockContext(code string) string {
 		Name     string
 		Industry string
 	}
+	type KLineInfo struct {
+		Close float64
+		High  float64
+		Low   float64
+		Vol   float64
+		TradeDate string
+	}
+	type IndicatorInfo struct {
+		PE float64
+		PB float64
+	}
+
 	var stock StockInfo
 	db.PG.Raw("SELECT name, industry FROM stocks_basic WHERE code = ?", code).Scan(&stock)
+
+	var kline KLineInfo
+	db.PG.Raw("SELECT close, high, low, volume, trade_date FROM stocks_daily_k WHERE code = ? ORDER BY trade_date DESC LIMIT 1", code).Scan(&kline)
+
+	var ind IndicatorInfo
+	db.PG.Raw("SELECT pe, pb FROM stocks_daily_indicator WHERE code = ? ORDER BY trade_date DESC LIMIT 1", code).Scan(&ind)
 
 	now := time.Now()
 	cfg := h.loadSystemConfig("chat_analysis")
 	prompt := cfg.SystemPrompt
 	if prompt == "" {
-		prompt = "你是一个专业的A股分析助手。请联网搜索最新信息。\n当前标的：%s（%s），行业：%s。截止%s。"
+		// Default prompt with real-time stock data
+		prompt = `你是一个专业的A股分析助手。
+
+【重要】以下是该股票的实时数据，请严格基于以下数据回答，不要编造价格：
+
+标的：%s（%s）
+行业：%s
+最新收盘价：%.2f（数据日期：%s）
+最高价：%.2f
+最低价：%.2f
+成交量：%.0f
+市盈率PE：%.2f
+市净率PB：%.2f
+
+截止时间：%s`
+		return fmt.Sprintf(prompt,
+			code, stock.Name, stock.Industry,
+			kline.Close, safeSlice(kline.TradeDate, 10),
+			kline.High, kline.Low, kline.Vol,
+			ind.PE, ind.PB,
+			now.Format("2006年1月"))
 	}
+	// Custom prompt: use old 4-arg format for backward compatibility
+	if strings.Contains(prompt, "%.2f") {
+		// New-style custom prompt with price placeholders
+		return fmt.Sprintf(prompt,
+			code, stock.Name, stock.Industry,
+			kline.Close, safeSlice(kline.TradeDate, 10),
+			kline.High, kline.Low, kline.Vol,
+			ind.PE, ind.PB,
+			now.Format("2006年1月"))
+	}
+	// Legacy custom prompt with only code/name/industry/date
 	return fmt.Sprintf(prompt,
 		code, stock.Name, stock.Industry, now.Format("2006年1月"))
 }
