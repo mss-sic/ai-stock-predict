@@ -153,6 +153,7 @@ func (h *AIHandler) AnalyzeStream(c *gin.Context) {
 		c.Writer.Flush()
 	})
 	if err != nil {
+		log.Printf("[ai_stream] ERROR uid=%v code=%s: %v", uid, body.Code, err)
 		errData, _ := json.Marshal(gin.H{"error": true, "message": err.Error(), "code": response.CodeAIConfigMissing})
 		fmt.Fprintf(c.Writer, "data: %s\n\n", string(errData))
 		c.Writer.Flush()
