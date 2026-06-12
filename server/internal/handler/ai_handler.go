@@ -884,44 +884,37 @@ func (h *AIHandler) toolGetKlineSummary(code string, days int) string {
 		code, n, first.TradeDate, last.TradeDate, first.Close, last.Close, chgPct, ma5, ma10, highAll, lowAll, amp)
 }
 
+
 func (h *AIHandler) toolGetTechnical(code string) string {
-	type Row struct {
-		TradeDate      string
-		RSI1, RSI2     float64
+	type KRow struct {
+		Close, High, Low, Volume, TurnoverRate float64
+		TradeDate                              string
 	}
-	var rows []Row
-	db.PG.Raw(`SELECT TO_CHAR(trade_date,'YYYY-MM-DD') as trade_date, rsi1, rsi2
-		FROM stocks_daily_indicator WHERE code=? ORDER BY trade_date DESC LIMIT 10`, code).Scan(&rows)
-
-	if len(rows) == 0 {
-		// Try stocks_daily_k for MACD pattern
-		type KRow struct {
-			Close, High, Low float64
-			TradeDate        string
-		}
-		var krows []KRow
-		db.PG.Raw(`SELECT close, high, low, TO_CHAR(trade_date,'YYYY-MM-DD') as trade_date
-			FROM stocks_daily_k WHERE code=? ORDER BY trade_date DESC LIMIT 20`, code).Scan(&krows)
-		if len(krows) < 5 {
-			return `{"error":"insufficient data for technical analysis"}`
-		}
-		// Simple MA crossover detection
-		ma5, ma10 := 0.0, 0.0
-		for i := 0; i < 5 && i < len(krows); i++ { ma5 += krows[i].Close }
-		for i := 0; i < 10 && i < len(krows); i++ { ma10 += krows[i].Close }
-		ma5 /= 5
-		ma10 /= float64(min(10, len(krows)))
-		crossover := "多头排列"
-		if ma5 < ma10 { crossover = "死叉" }
-		return fmt.Sprintf(`{"code":"%s","latestClose":%.2f,"ma5":%.2f,"ma10":%.2f,"maStatus":"%s","note":"基础MA数据，完整指标需采集器运行"}`,
-			code, krows[0].Close, ma5, ma10, crossover)
-	}
-
-	latest := rows[0]
-	return fmt.Sprintf(`{"code":"%s","tradeDate":"%s","rsi6":%.2f,"rsi12":%.2f,"note":"RSI为采集器计算的基础指标，更详细的MACD/KDJ/布林带需确保采集器已运行"}`,
-		code, latest.TradeDate, latest.RSI1, latest.RSI2)
+	var krows []KRow
+	db.PG.Raw(`SELECT close, high, low, volume, turnover_rate, TO_CHAR(trade_date,'YYYY-MM-DD') as trade_date FROM stocks_daily_k WHERE code=? ORDER BY trade_date DESC LIMIT 20`, code).Scan(&krows)
+	if len(krows) < 5 { return `{"error":"insufficient data for technical analysis"}` }
+	n := len(krows); latest := krows[0]
+	ma5, ma10, ma20 := 0.0, 0.0, 0.0
+	for i := 0; i < n && i < 5; i++ { ma5 += krows[i].Close }
+	for i := 0; i < n && i < 10; i++ { ma10 += krows[i].Close }
+	for i := 0; i < n && i < 20; i++ { ma20 += krows[i].Close }
+	c5 := float64(min(5, n)); ma5 /= c5
+	c10 := float64(min(10, n)); ma10 /= c10
+	c20 := float64(min(20, n)); ma20 /= c20
+	trend := "震荡整理"
+	if ma5 > ma10 && ma10 > ma20 { trend = "多头排列" } else if ma5 < ma10 && ma10 < ma20 { trend = "空头排列" } else if ma5 > ma10 { trend = "短期偏多" } else { trend = "短期偏空" }
+	chg5 := (latest.Close - krows[min(4, n-1)].Close) / krows[min(4, n-1)].Close * 100
+	vol5, volPrev5 := 0.0, 0.0
+	for i := 0; i < min(5, n); i++ { vol5 += krows[i].Volume }
+	for i := 5; i < min(10, n); i++ { volPrev5 += krows[i].Volume }
+	vol5 /= float64(min(5, n))
+	volTrend := "持平"
+	if min(10, n) > 5 { volPrev5 /= float64(min(10, n)-5); if volPrev5 > 0 { r := vol5/volPrev5*100 - 100; if r > 20 { volTrend = "放量" } else if r < -20 { volTrend = "缩量" } } }
+	high20, low20 := latest.High, latest.Low
+	for _, r := range krows { if r.High > high20 { high20 = r.High }; if r.Low < low20 { low20 = r.Low } }
+	posInRange := (latest.Close - low20) / (high20 - low20) * 100
+	return fmt.Sprintf(`{"code":"%s","tradeDate":"%s","close":%.2f,"ma5":%.2f,"ma10":%.2f,"ma20":%.2f,"trend":"%s","chg5d":%.2f,"volTrend":"%s","posIn20dRange":%.1f,"high20d":%.2f,"low20d":%.2f}`, code, latest.TradeDate, latest.Close, ma5, ma10, ma20, trend, chg5, volTrend, posInRange, high20, low20)
 }
-
 func (h *AIHandler) toolGetFinancials(code string) string {
 	type Row struct {
 		ReportDate, ReportType                string
