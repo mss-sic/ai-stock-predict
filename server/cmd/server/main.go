@@ -155,6 +155,7 @@ func main() {
 		api.PUT("/pk/events/:id", pkH.UpdateEvent)
 		api.POST("/pk/events/:id/start", pkH.StartEvent)
 		api.POST("/pk/events/:id/close", pkH.CloseEvent)
+		api.DELETE("/pk/events/:id", pkH.DeleteEvent)
 		api.POST("/pk/events/:id/join", pkH.JoinEvent)
 		api.GET("/pk/entries/:entryId/detail", pkH.EntryDetail)
 		api.GET("/pk/active-notice", pkH.ActiveNotice)

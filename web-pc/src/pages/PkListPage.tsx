@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, Tag, Button, Spin, Empty, Typography, Space } from '@arco-design/web-react';
-import { Trophy, Users, Calendar, Play, Plus, Swords } from 'lucide-react';
+import { Trophy, Users, Calendar, Play, Plus } from 'lucide-react';
 import api from '../services/api';
+import { useAuth } from '../services/AuthContext';
 import dayjs from 'dayjs';
 
 const { Title, Text } = Typography;
@@ -20,6 +21,7 @@ interface PkEvent {
   maxEntries: number;
   creatorName: string;
   bannerText: string;
+  createdBy: number;
   createdAt: string;
 }
 
@@ -34,11 +36,12 @@ export default function PkListPage() {
   const [events, setEvents] = useState<PkEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
+  const { user } = useAuth();
 
   const fetchEvents = async () => {
     try {
       const res = await api.get('/pk/events');
-      setEvents(res.data || []);
+      setEvents(res.data.data || []);
     } catch (e) {
       console.error(e);
     } finally {
@@ -54,9 +57,10 @@ export default function PkListPage() {
     <div style={{ padding: '24px 32px', maxWidth: 1200, margin: '0 auto' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
         <Space>
-          <Swords size={28} style={{ color: 'var(--color-primary-6)' }} />
+          <Trophy size={28} style={{ color: 'var(--color-primary-6)' }} />
           <Title heading={3} style={{ margin: 0 }}>策略PK</Title>
         </Space>
+        <Button type="primary" icon={<Plus size={14} />} onClick={() => navigate('/pk/create')}>创建活动</Button>
       </div>
 
       {events.length === 0 ? (
@@ -89,9 +93,14 @@ export default function PkListPage() {
                 </div>
                 <div style={{ marginTop: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <Tag>{ev.type === 'backtest' ? '历史回测' : '实盘PK'}</Tag>
-                  {ev.status === 'enrolling' && (
-                    <Button type="primary" size="small" icon={<Play size={14} />}>立即报名</Button>
-                  )}
+                  <Space size={8}>
+                    {ev.status === 'enrolling' && (
+                      <Button type="primary" size="small" icon={<Play size={14} />} onClick={(e) => { e.stopPropagation(); navigate(`/pk/${ev.id}`); }}>立即报名</Button>
+                    )}
+                    {user?.id === ev.createdBy && ev.status === 'draft' && (
+                      <Button size="small" onClick={(e) => { e.stopPropagation(); navigate(`/pk/${ev.id}`); }}>管理</Button>
+                    )}
+                  </Space>
                 </div>
               </Card>
             );

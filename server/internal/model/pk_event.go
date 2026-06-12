@@ -13,7 +13,7 @@ type PkEvent struct {
 	EndDate         time.Time `gorm:"type:date" json:"endDate"`
 	Status          string    `gorm:"size:15;default:draft" json:"status"` // draft / enrolling / running / completed
 	StockPool       string    `gorm:"size:30" json:"stockPool"`
-	StockPoolParams string    `gorm:"type:json" json:"stockPoolParams"`
+	StockPoolParams string    `gorm:"type:json;default:"[]"" json:"stockPoolParams"`
 	MaxEntries      int       `gorm:"default:0" json:"maxEntries"` // 0=unlimited
 	BannerText      string    `gorm:"size:200" json:"bannerText"`
 	CreatedBy       uint      `json:"createdBy"`

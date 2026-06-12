@@ -62,7 +62,7 @@ func (h *PkHandler) CreateEvent(c *gin.Context) {
 		EndDate:         endDate,
 		Status:          "draft",
 		StockPool:       body.StockPool,
-		StockPoolParams: body.StockPoolParams,
+		StockPoolParams: orEmptyJSON(body.StockPoolParams),
 		MaxEntries:      body.MaxEntries,
 		BannerText:      body.BannerText,
 		CreatedBy:       uid,
@@ -206,6 +206,26 @@ func (h *PkHandler) CloseEvent(c *gin.Context) {
 	db.MySQL.Model(&event).Update("status", "completed")
 	event.Status = "completed"
 	response.Success(c, event)
+}
+
+// ── Delete Event (only draft) ──
+
+func (h *PkHandler) DeleteEvent(c *gin.Context) {
+	eid, _ := strconv.Atoi(c.Param("id"))
+	var event model.PkEvent
+	if db.MySQL.First(&event, eid).Error != nil {
+		response.NotFound(c, "活动不存在")
+		return
+	}
+	if event.Status != "draft" {
+		response.BadRequest(c, "只有草稿状态的活动可以删除")
+		return
+	}
+	// Delete related entries
+	db.MySQL.Where("event_id = ?", eid).Delete(&model.PkEntry{})
+	db.MySQL.Where("event_id = ?", eid).Delete(&model.PkDailyRanking{})
+	db.MySQL.Delete(&event)
+	response.Success(c, nil)
 }
 
 // ── Join Event ──
@@ -371,14 +391,6 @@ func runPkBacktest(event *model.PkEvent, entry *model.PkEntry, s *model.Strategy
 			"completed_at": time.Now(),
 		})
 		rankPkEntries(entry.EventID)
-
-		var pendingCount int64
-		db.MySQL.Model(&model.PkEntry{}).
-			Where("event_id = ? AND status IN ?", entry.EventID, []string{"pending", "running"}).
-			Count(&pendingCount)
-		if pendingCount == 0 {
-			db.MySQL.Model(&model.PkEvent{}).Where("id = ?", entry.EventID).Update("status", "completed")
-		}
 	} else if updatedTask.Status == "failed" {
 		db.MySQL.Model(entry).Updates(map[string]interface{}{
 			"status":       "completed",
@@ -465,6 +477,14 @@ func rankPkDaily(event *model.PkEvent, date string) {
 }
 
 // DefaultStrategyHandler is set by main, used by PK to delegate backtest execution.
+
+func orEmptyJSON(s string) string {
+	if s == "" {
+		return "[]"
+	}
+	return s
+}
+
 var defaultStrategyHandler *StrategyHandler
 
 func SetDefaultStrategyHandler(h *StrategyHandler) {

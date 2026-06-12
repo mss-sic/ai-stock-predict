@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Card, Tag, Button, Spin, Empty, Table, Modal, Select, Typography, Space, Message } from '@arco-design/web-react';
-import { Trophy, Users, Calendar, ArrowLeft, Play, TrendingUp, BarChart3 } from 'lucide-react';
+import { Card, Tag, Button, Spin, Empty, Table, Modal, Select, Typography, Space, Message, Input, InputNumber, DatePicker, Popconfirm } from '@arco-design/web-react';
+import { Trophy, Users, Calendar, ArrowLeft, Play, TrendingUp, BarChart3, Edit3, Power, StopCircle, Trash2 } from 'lucide-react';
 import api from '../services/api';
 import { useAuth } from '../services/AuthContext';
 import dayjs from 'dayjs';
@@ -11,7 +11,7 @@ const { Title, Text } = Typography;
 interface PkEvent {
   id: number; name: string; description: string; type: string;
   initialCapital: number; startDate: string; endDate: string; status: string;
-  entryCount: number; maxEntries: number; creatorName: string;
+  entryCount: number; maxEntries: number; creatorName: string; createdBy: number;
 }
 
 interface PkEntry {
@@ -26,6 +26,7 @@ interface Strategy {
 }
 
 const statusMap: Record<string, { color: string; text: string }> = {
+  draft: { color: 'gray', text: '草稿' },
   enrolling: { color: 'green', text: '报名中' },
   running: { color: 'blue', text: '进行中' },
   completed: { color: 'red', text: '已结束' },
@@ -42,12 +43,19 @@ export default function PkDetailPage() {
   const [strategies, setStrategies] = useState<Strategy[]>([]);
   const [selectedSid, setSelectedSid] = useState<number>(0);
   const [joining, setJoining] = useState(false);
+  const [editVisible, setEditVisible] = useState(false);
+  const [editName, setEditName] = useState('');
+  const [editDesc, setEditDesc] = useState('');
+  const [editCapital, setEditCapital] = useState(100000);
+  const [editMax, setEditMax] = useState(0);
+  const [editBanner, setEditBanner] = useState('');
+  const [actionLoading, setActionLoading] = useState(false);
 
   const fetchData = async () => {
     try {
       const res = await api.get(`/pk/events/${id}`);
-      setEvent(res.data.event);
-      setEntries(res.data.entries || []);
+      setEvent(res.data.data.event);
+      setEntries(res.data.data.entries || []);
     } catch (e) {
       console.error(e);
     } finally {
@@ -58,11 +66,47 @@ export default function PkDetailPage() {
   const fetchStrategies = async () => {
     try {
       const res = await api.get('/strategies');
-      setStrategies(res.data || []);
+      setStrategies(res.data.data || []);
     } catch (e) {}
   };
 
   useEffect(() => { fetchData(); }, [id]);
+
+  const handleStart = async () => {
+    setActionLoading(true);
+    try { await api.post(`/pk/events/${id}/start`); Message.success('活动已开启！'); fetchData(); }
+    catch (e: any) { Message.error(e?.response?.data?.message || '操作失败'); }
+    finally { setActionLoading(false); }
+  };
+  const handleClose = async () => {
+    setActionLoading(true);
+    try { await api.post(`/pk/events/${id}/close`); Message.success('活动已关闭'); fetchData(); }
+    catch (e: any) { Message.error(e?.response?.data?.message || '操作失败'); }
+    finally { setActionLoading(false); }
+  };
+  const handleEdit = async () => {
+    setActionLoading(true);
+    try {
+      await api.put(`/pk/events/${id}`, {
+        name: editName, description: editDesc, initialCapital: editCapital,
+        maxEntries: editMax, bannerText: editBanner,
+      });
+      Message.success('已更新'); setEditVisible(false); fetchData();
+    } catch (e: any) { Message.error(e?.response?.data?.message || '保存失败'); }
+    finally { setActionLoading(false); }
+  };
+  const openEdit = () => {
+    if (!event) return;
+    setEditName(event.name); setEditDesc(event.description || '');
+    setEditCapital(event.initialCapital); setEditMax(event.maxEntries);
+    setEditBanner(event.bannerText || ''); setEditVisible(true);
+  };
+  const handleDelete = async () => {
+    setActionLoading(true);
+    try { await api.delete(`/pk/events/${id}`); Message.success('已删除'); navigate('/pk'); }
+    catch (e: any) { Message.error(e?.response?.data?.message || '删除失败'); }
+    finally { setActionLoading(false); }
+  };
 
   const handleJoin = async () => {
     if (!selectedSid) return;
@@ -83,7 +127,7 @@ export default function PkDetailPage() {
   if (!event) return <Empty description="活动不存在" />;
 
   const st = statusMap[event.status] || { color: 'gray', text: event.status };
-  const myEntry = entries.find((e) => e.userId === user?.uid);
+  const myEntry = entries.find((e) => e.userId === user?.id);
 
   const columns = [
     { title: '排名', dataIndex: 'finalRank', width: 60, render: (v: number) => v > 0 ? `#${v}` : '-' },
@@ -111,6 +155,22 @@ export default function PkDetailPage() {
         <Trophy size={24} style={{ color: 'var(--color-warning-6)' }} />
         <Title heading={3} style={{ margin: 0 }}>{event.name}</Title>
         <Tag color={st.color}>{st.text}</Tag>
+        {user?.id === event.createdBy && (
+          <Space size={8} style={{ marginLeft: 8 }}>
+            {event.status === 'draft' && (
+              <>
+                <Button size="small" icon={<Edit3 size={12} />} onClick={openEdit}>编辑</Button>
+                <Button size="small" type="primary" icon={<Power size={12} />} onClick={handleStart} loading={actionLoading}>开启</Button>
+                <Popconfirm title="确定删除该活动？" onOk={handleDelete}>
+                  <Button size="small" status="danger" icon={<Trash2 size={12} />} loading={actionLoading}>删除</Button>
+                </Popconfirm>
+              </>
+            )}
+            {(event.status === 'enrolling' || event.status === 'running') && (
+              <Button size="small" status="danger" icon={<StopCircle size={12} />} onClick={handleClose} loading={actionLoading}>关闭</Button>
+            )}
+          </Space>
+        )}
       </div>
 
       <Card style={{ marginBottom: 16 }}>
@@ -143,7 +203,24 @@ export default function PkDetailPage() {
       )}
 
       <Modal
-        title="报名参赛"
+        title="编辑活动"
+        visible={editVisible}
+        onOk={handleEdit}
+        onCancel={() => setEditVisible(false)}
+        confirmLoading={actionLoading}
+        okText="保存"
+      >
+        <Space direction="vertical" style={{ width: '100%' }} size={12}>
+          <div><Text>活动名称</Text><Input value={editName} onChange={setEditName} /></div>
+          <div><Text>描述</Text><Input.TextArea value={editDesc} onChange={setEditDesc} rows={2} /></div>
+          <div><Text>起始资金</Text><InputNumber value={editCapital} onChange={(v) => setEditCapital(v || 0)} min={10000} style={{ width: '100%' }} suffix="元" /></div>
+          <div><Text>报名上限</Text><InputNumber value={editMax} onChange={(v) => setEditMax(v || 0)} min={0} style={{ width: '100%' }} suffix="人 (0=不限)" /></div>
+          <div><Text>通知文案</Text><Input value={editBanner} onChange={setEditBanner} /></div>
+        </Space>
+      </Modal>
+
+      <Modal
+        title="报名参赛" 
         visible={joinVisible}
         onOk={handleJoin}
         onCancel={() => setJoinVisible(false)}

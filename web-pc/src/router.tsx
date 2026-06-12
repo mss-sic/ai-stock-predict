@@ -21,6 +21,7 @@ import LoginPage from './pages/LoginPage';
 import AdminPage from './pages/AdminPage';
 import PkListPage from './pages/PkListPage';
 import PkDetailPage from './pages/PkDetailPage';
+import PkAdminPage from './pages/PkAdminPage';
 
 function ErrorBoundary() {
   const error = useRouteError() as any;
@@ -89,6 +90,7 @@ const router = createBrowserRouter([
           { path: 'admin', element: <AdminPage /> },
           { path: 'pk', element: <PkListPage /> },
           { path: 'pk/:id', element: <PkDetailPage /> },
+          { path: 'pk/create', element: <PkAdminPage /> },
           { path: '*', element: <Navigate to="/" replace /> },
         ],
       },
