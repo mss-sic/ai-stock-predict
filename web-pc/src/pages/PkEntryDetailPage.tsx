@@ -3,7 +3,6 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { Table, Tabs, Tag, Spin, Card, Button } from '@arco-design/web-react';
 import { ArrowLeft, TrendingUp, Trophy, Shield, PieChart, FileText, Activity } from 'lucide-react';
 import api from '../services/api';
-import KLineChart from '../components/KLineChart';
 
 interface EntryData {
   entry: any;
@@ -89,7 +88,13 @@ export default function PkEntryDetailPage() {
   if (!data) return <div style={{ padding: 60, textAlign: 'center', color: 'var(--color-text-3)' }}>数据加载失败</div>;
 
   const { entry, strategy, result, logs } = data;
-  const tradesArr = result?.trades?.data || result?.trades || [];
+  const tradesArr = (() => {
+    const t = result?.trades;
+    if (!t) return [];
+    if (Array.isArray(t)) return t;
+    if (t.data && Array.isArray(t.data)) return t.data;
+    return [];
+  })();
 
   return (
     <div style={{ padding: '20px 24px', maxWidth: 1200, margin: '0 auto' }}>
@@ -202,18 +207,31 @@ export default function PkEntryDetailPage() {
         <Tabs activeTab={tab} onChange={setTab} type="card-gutter" style={{ padding: '0 20px' }}>
           <Tabs.TabPane key="overview" title={<span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Activity size={14} />概览</span>}>
             <div style={{ padding: '16px 0' }}>
-              {result?.equityCurve?.data ? (
-                <div style={{ height: 360 }}>
-                  <KLineChart
-                    data={{ dates: result.equityCurve.data.dates || [], values: result.equityCurve.data.values || [] }}
-                    type="equity"
-                    height={360}
-                  />
+              {result ? (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 14 }}>
+                  <Card style={{ background: 'var(--color-fill-1)' }}>
+                    <div style={{ fontSize: 12, color: 'var(--color-text-3)', marginBottom: 4 }}>初始资金</div>
+                    <div style={{ fontSize: 20, fontWeight: 700 }}>¥{((result.initialCapital || entry.initialCapital || 100000)).toLocaleString()}</div>
+                  </Card>
+                  <Card style={{ background: 'var(--color-fill-1)' }}>
+                    <div style={{ fontSize: 12, color: 'var(--color-text-3)', marginBottom: 4 }}>最终权益</div>
+                    <div style={{ fontSize: 20, fontWeight: 700, color: (result.finalEquity || 0) >= (result.initialCapital || 100000) ? '#F53F3F' : '#00B42A' }}>
+                      ¥{(result.finalEquity || 0).toLocaleString()}
+                    </div>
+                  </Card>
+                  <Card style={{ background: 'var(--color-fill-1)' }}>
+                    <div style={{ fontSize: 12, color: 'var(--color-text-3)', marginBottom: 4 }}>交易天数</div>
+                    <div style={{ fontSize: 20, fontWeight: 700 }}>{result.tradingDays || result.totalDays || '-'}</div>
+                  </Card>
+                  <Card style={{ background: 'var(--color-fill-1)' }}>
+                    <div style={{ fontSize: 12, color: 'var(--color-text-3)', marginBottom: 4 }}>日均收益率</div>
+                    <div style={{ fontSize: 20, fontWeight: 700, color: (result.dailyReturn || 0) >= 0 ? '#F53F3F' : '#00B42A' }}>
+                      {result.dailyReturn ? `${(result.dailyReturn * 100).toFixed(2)}%` : '-'}
+                    </div>
+                  </Card>
                 </div>
               ) : (
-                <div style={{ padding: 48, textAlign: 'center', color: 'var(--color-text-3)', fontSize: 13 }}>
-                  暂无权益曲线数据
-                </div>
+                <div style={{ padding: 48, textAlign: 'center', color: 'var(--color-text-3)' }}>回测未完成，暂无数据</div>
               )}
             </div>
           </Tabs.TabPane>
