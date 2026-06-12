@@ -205,7 +205,7 @@ export default function HistoryBoardPage() {
     {
       title: '建议', dataIndex: 'suggestion', width: 62, align: 'center' as const,
       render: (v: string) => {
-        if (!v) return <span style={{ color: '#C9CDD4', fontSize: 12 }}>—</span>;
+        if (!v) return <span style={{ color: 'var(--color-border-2)', fontSize: 12 }}>—</span>;
         const color = SUGGEST_COLORS[v] || '#86909C';
         const bg = SUGGEST_BG[v] || '#F2F3F5';
         return (
@@ -220,7 +220,7 @@ export default function HistoryBoardPage() {
     {
       title: '风险', dataIndex: 'riskLevel', width: 85, align: 'center' as const,
       render: (v: string) => {
-        if (!v) return <span style={{ color: '#C9CDD4', fontSize: 12 }}>—</span>;
+        if (!v) return <span style={{ color: 'var(--color-border-2)', fontSize: 12 }}>—</span>;
         const color = RISK_COLORS[v] || '#86909C';
         const bg = RISK_BG[v] || '#F2F3F5';
         return (
@@ -280,7 +280,7 @@ export default function HistoryBoardPage() {
       <div className="page-header">
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <h2 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <CalendarDays size={20} color="#165dff" />
+            <CalendarDays size={20} color="var(--arcoblue-6)" />
             <span style={{ fontSize: 16, fontWeight: 700 }}>历史榜单</span>
           </h2>
           {selectedDate && <Tag color="blue" style={{ fontSize: 12 }}>{selectedDate}</Tag>}
@@ -307,13 +307,13 @@ export default function HistoryBoardPage() {
                     border: isSelected ? '2px solid #165dff' : '1px solid #e5e6eb',
                     background: isSelected ? '#e8f3ff' : '#fff',
                     cursor: 'pointer', minWidth: 54, transition: 'all 0.15s',
-                    color: isSelected ? '#165dff' : 'var(--color-text-1)', fontFamily: 'inherit',
+                    color: isSelected ? 'var(--arcoblue-6)' : 'var(--color-text-1)', fontFamily: 'inherit',
                   }}
                 >
                   <span style={{ fontSize: 12, fontWeight: isSelected ? 700 : 500, lineHeight: '18px' }}>
                     {isToday ? '今' : md}
                   </span>
-                  <span style={{ fontSize: 10, color: isSelected ? '#165dff' : 'var(--color-text-3)', lineHeight: '16px' }}>
+                  <span style={{ fontSize: 10, color: isSelected ? 'var(--arcoblue-6)' : 'var(--color-text-3)', lineHeight: '16px' }}>
                     {isToday ? '今天' : day}
                   </span>
                 </button>
@@ -327,7 +327,7 @@ export default function HistoryBoardPage() {
       {selectedDate && data.length > 0 && (
         <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
           {[
-            { label: '上榜股数', value: data.length, unit: '只', color: '#165dff', icon: Star },
+            { label: '上榜股数', value: data.length, unit: '只', color: 'var(--arcoblue-6)', icon: Star },
             { label: '次日上涨', value: nextUp, unit: '只', color: '#f53f3f', icon: TrendingUp, sub: `${((nextUp / data.length) * 100).toFixed(0)}%` },
             { label: '次日下跌', value: nextDown, unit: '只', color: '#00b42a', icon: TrendingDown, sub: `${((nextDown / data.length) * 100).toFixed(0)}%` },
             { label: '平均次日', value: nextAvg >= 0 ? `+${nextAvg.toFixed(2)}` : nextAvg.toFixed(2), unit: '%', color: nextAvg >= 0 ? '#f53f3f' : '#00b42a', icon: Zap },
@@ -377,7 +377,7 @@ export default function HistoryBoardPage() {
               <>
                 <div className="card-header">
                   <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <Star size={14} color="#165dff" />
+                    <Star size={14} color="var(--arcoblue-6)" />
                     <span style={{ fontSize: 14, fontWeight: 600 }}>{selectedDate} 榜单</span>
                     <Tag color="blue" style={{ fontSize: 11 }}>{data.length} 只</Tag>
                   </span>

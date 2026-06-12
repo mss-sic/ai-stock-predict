@@ -68,7 +68,7 @@ body{
   display:flex;align-items:center;padding:0 24px;gap:12px;flex:none
 }
 .app-topbar .title{font-size:14px;font-weight:600;color:var(--color-text-1);display:flex;align-items:center}
-.page-content{flex:1;overflow:auto;padding:20px 24px 24px;min-width:0}
+.page-content{flex:1;overflow:auto;padding:20px 24px 24px;min-width:0;background:var(--color-fill-1)}
 
 /* ===== Sidebar ===== */
 .app-sidebar{

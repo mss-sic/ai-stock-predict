@@ -134,7 +134,7 @@ export default function BoardPage() {
     {
       title: '建议', dataIndex: 'suggestion', width: 85, align: 'center' as const,
       render: (v: string) => {
-        if (!v) return <span style={{ color: '#C9CDD4', fontSize: 12 }}>—</span>;
+        if (!v) return <span style={{ color: 'var(--color-border-2)', fontSize: 12 }}>—</span>;
         const color = SUGGEST_COLORS[v] || '#86909C';
         const bg = SUGGEST_BG[v] || '#F2F3F5';
         return (
@@ -149,7 +149,7 @@ export default function BoardPage() {
     {
       title: '风险', dataIndex: 'riskLevel', width: 85, align: 'center' as const,
       render: (v: string) => {
-        if (!v) return <span style={{ color: '#C9CDD4', fontSize: 12 }}>—</span>;
+        if (!v) return <span style={{ color: 'var(--color-border-2)', fontSize: 12 }}>—</span>;
         const color = RISK_COLORS[v] || '#86909C';
         const bg = RISK_BG[v] || '#F2F3F5';
         return (
@@ -176,7 +176,7 @@ export default function BoardPage() {
       <div className="page-header">
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <h2 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <Star size={22} color="#165dff" />
+            <Star size={22} color="var(--arcoblue-6)" />
             <span>算法精选榜单</span>
           </h2>
           {boardDate && (
@@ -191,11 +191,11 @@ export default function BoardPage() {
       {/* Missing data warning */}
       {(missingStats.name > 0 || missingStats.pe > 0 || missingStats.industry > 0) && (
         <div style={{
-          marginBottom: 16, padding: '10px 16px', background: '#fff7e8',
-          border: '1px solid #ffb400', borderRadius: 6, fontSize: 13, color: '#6b5900',
+          marginBottom: 16, padding: '10px 16px', background: 'var(--orange-1)',
+          border: '1px solid var(--orange-6)', borderRadius: 6, fontSize: 13, color: 'var(--color-text-1)',
           display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
         }}>
-          <AlertTriangle size={14} color="#ffb400" />
+          <AlertTriangle size={14} color="var(--orange-6)" />
           <span>部分数据缺失：</span>
           {missingStats.name > 0 && <span><b>{missingStats.name}</b> 只缺名称（需运行股票列表同步）</span>}
           {missingStats.pe > 0 && <span>· <b>{missingStats.pe}</b> 只缺 PE/PB（需运行指标采集）</span>}
