@@ -2,6 +2,7 @@ package db
 
 import (
 	"log"
+	"strings"
 
 	"github.com/ai-stock-predict/server/internal/model"
 )
@@ -412,17 +413,22 @@ func init() {
 	})
 
 
-	// v15: add position_sizing column to strategies
+	// v15: add position_sizing column to strategies (idempotent, ignores dup error)
 	migrations = append(migrations, Migration{
 		Version:     15,
 		Description: "MySQL: strategies add position_sizing column",
 		Up: func() error {
-			safeExecMysql(`
-				SET @col_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS
-					WHERE TABLE_SCHEMA = 'stock_predict' AND TABLE_NAME = 'strategies' AND COLUMN_NAME = 'position_sizing');
-				SET @sql = IF(@col_exists = 0, 'ALTER TABLE strategies ADD COLUMN position_sizing VARCHAR(15) DEFAULT ''fixed_pct''', 'SELECT 1');
-				PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
-			`)
+			if MySQL == nil {
+				return nil
+			}
+			err := MySQL.Exec("ALTER TABLE strategies ADD COLUMN position_sizing VARCHAR(15) DEFAULT 'fixed_pct'").Error
+			if err != nil {
+				if strings.Contains(err.Error(), "1060") || strings.Contains(err.Error(), "Duplicate") {
+					log.Printf("[migrate] v15 column already exists, skipping")
+					return nil
+				}
+				log.Printf("[migrate] v15 WARN: %v", err)
+			}
 			return nil
 		},
 	})
