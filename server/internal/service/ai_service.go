@@ -456,6 +456,12 @@ func (s *AIService) ChatCompletionAgentStream(userID uint, history []map[string]
 
 	const maxTurns = 5
 	for turn := 0; turn < maxTurns; turn++ {
+		// Send phase event at start of each turn
+		if turn == 0 {
+			onEvent("agent_phase", map[string]string{
+				"phase": "analyzing", "label": "AI 正在分析问题...",
+			})
+		}
 		body := map[string]interface{}{
 			"model":       modelName,
 			"messages":    msgs,
@@ -506,12 +512,28 @@ func (s *AIService) ChatCompletionAgentStream(userID uint, history []map[string]
 				Content:   choice.Message.Content,
 				ToolCalls: choice.Message.ToolCalls,
 			})
-			for _, tc := range choice.Message.ToolCalls {
-				onEvent("tool_start", map[string]string{"tool": tc.Function.Name})
+			for idx, tc := range choice.Message.ToolCalls {
+				toolName := tc.Function.Name
+				toolLabel := toolName
+				switch toolName {
+				case "get_stock_price": toolLabel = "查询行情估值"
+				case "get_kline_summary": toolLabel = "分析K线走势"
+				case "get_technical": toolLabel = "计算技术指标"
+				case "get_financials": toolLabel = "读取财务数据"
+				case "get_news": toolLabel = "检索最新资讯"
+				}
+				onEvent("tool_start", map[string]string{
+					"tool": toolName, "label": toolLabel,
+					"turn": fmt.Sprintf("%d", turn+1),
+					"index": fmt.Sprintf("%d", idx+1),
+					"total": fmt.Sprintf("%d", len(choice.Message.ToolCalls)),
+				})
 				var args map[string]interface{}
 				json.Unmarshal([]byte(tc.Function.Arguments), &args)
 				toolResult := toolExecutor(tc.Function.Name, args)
-				onEvent("tool_end", map[string]string{"tool": tc.Function.Name})
+				onEvent("tool_end", map[string]string{
+					"tool": toolName, "label": toolLabel,
+				})
 				msgs = append(msgs, AgentMessage{
 					Role:       "tool",
 					ToolCallID: tc.ID,

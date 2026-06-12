@@ -15,7 +15,7 @@ import BoardSidebar from '../components/BoardSidebar';
 
 type TabKey = 'forecast' | 'analysis' | 'strategy' | 'technical' | 'trading' | 'financial' | 'shareholder' | 'reports' | 'news';
 
-interface Message { role: 'user' | 'ai'; text: string; status?: string }
+interface Message { role: 'user' | 'ai'; text: string; status?: { phase: string; label: string; tool?: string; index?: number; total?: number; turn?: number } }
 interface Marker { i: number; type: 'board' | 'buy' | 'sell'; label?: string }
 
 // ─── Technical indicators (same as before, omitted for brevity) ───
@@ -593,7 +593,7 @@ fetchPredictionResult(code).then((r: any) => {
       const res = await authFetch('/api/v1/ai/analyze/stream', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code, question: msg }) });
       const reader = res.body?.getReader(); if (!reader) throw new Error('no reader');
       const decoder = new TextDecoder(); let buffer = '';
-      while (true) { const { done, value } = await reader.read(); if (done) break; buffer += decoder.decode(value, { stream: true }); const lines = buffer.split('\n'); buffer = lines.pop() || ''; for (const line of lines) { if (!line.startsWith('data: ')) continue; const data = line.slice(6); if (data === '[DONE]') continue; try { const p = JSON.parse(data); if (p.status === 'tool_start') setMsgs(prev => { const cp = [...prev]; cp[cp.length - 1] = { ...cp[cp.length - 1], text: cp[cp.length - 1].text, status: '🔍 正在查询 ' + (p.tool || '数据') + '...' }; return cp; }); if (p.status === 'tool_end') setMsgs(prev => { const cp = [...prev]; cp[cp.length - 1] = { ...cp[cp.length - 1], text: cp[cp.length - 1].text, status: '📊 分析中...' }; return cp; }); if (p.chunk) setMsgs(prev => { const cp = [...prev]; cp[cp.length - 1] = { ...cp[cp.length - 1], text: cp[cp.length - 1].text + p.chunk, status: '' }; return cp; }); if (p.error) setMsgs(prev => { const cp = [...prev]; cp[cp.length - 1] = { ...cp[cp.length - 1], text: '错误: ' + (p.message || '请求失败'), status: '' }; return cp; }); } catch (_) {} } }
+      while (true) { const { done, value } = await reader.read(); if (done) break; buffer += decoder.decode(value, { stream: true }); const lines = buffer.split('\n'); buffer = lines.pop() || ''; for (const line of lines) { if (!line.startsWith('data: ')) continue; const data = line.slice(6); if (data === '[DONE]') continue; try { const p = JSON.parse(data); if (p.status === 'agent_phase') setMsgs(prev => { const cp = [...prev]; cp[cp.length - 1] = { ...cp[cp.length - 1], text: cp[cp.length - 1].text, status: { phase: p.phase || 'analyzing', label: p.label || 'AI 分析中...' } }; return cp; }); if (p.status === 'tool_start') setMsgs(prev => { const cp = [...prev]; cp[cp.length - 1] = { ...cp[cp.length - 1], text: cp[cp.length - 1].text, status: { phase: 'tool', label: p.label || p.tool || '查询中', tool: p.tool, index: p.index ? parseInt(p.index) : undefined, total: p.total ? parseInt(p.total) : undefined, turn: p.turn ? parseInt(p.turn) : undefined } }; return cp; }); if (p.status === 'tool_end') setMsgs(prev => { const cp = [...prev]; cp[cp.length - 1] = { ...cp[cp.length - 1], text: cp[cp.length - 1].text, status: { phase: 'analyzing', label: '整合分析结果...' } }; return cp; }); if (p.chunk) setMsgs(prev => { const cp = [...prev]; cp[cp.length - 1] = { ...cp[cp.length - 1], text: cp[cp.length - 1].text + p.chunk, status: undefined }; return cp; }); if (p.error) setMsgs(prev => { const cp = [...prev]; cp[cp.length - 1] = { ...cp[cp.length - 1], text: '错误: ' + (p.message || '请求失败'), status: undefined }; return cp; }); } catch (_) {} } }
       setMsgs(prev => { const cp = [...prev]; if (cp[cp.length - 1].text === '') cp[cp.length - 1] = { ...cp[cp.length - 1], text: '(回复为空)' }; return cp; });
     } catch { setMsgs(prev => { const cp = [...prev]; cp[cp.length - 1] = { ...cp[cp.length - 1], text: '服务暂不可用' }; return cp; }); }
     setChatLoading(false);
@@ -1118,20 +1118,109 @@ fetchPredictionResult(code).then((r: any) => {
                           whiteSpace: hasWidgets ? 'normal' : 'pre-wrap',
                           wordBreak: 'break-word',
                         }}>
-                          {m.status && <div style={{ 
-                            display: 'flex', alignItems: 'center', gap: 8, 
-                            padding: '8px 12px', color: 'var(--color-text-2)', fontSize: 12,
-                            background: 'var(--color-fill-1)', borderRadius: 6,
-                            border: '1px solid var(--color-border-1)',
-                            marginBottom: 8,
-                          }}>
-                            <span style={{ 
-                              display: 'inline-block', width: 8, height: 8, borderRadius: '50%',
-                              background: 'var(--arcoblue-6)', animation: 'pulse 1s ease-in-out infinite',
-                              flexShrink: 0,
-                            }} />
-                            <span style={{ animation: 'pulse 1.5s ease-in-out infinite' }}>{m.status}</span>
-                          </div>}
+                          {m.status && (() => {
+                            const s = m.status;
+                            const isTool = s.phase === 'tool';
+                            const label = s.label || (isTool ? '查询中' : '分析中');
+                            const toolName = s.tool || '';
+                            const iconMap: Record<string, string> = {
+                              get_stock_price: '📈', get_kline_summary: '📊', get_technical: '🔬',
+                              get_financials: '📋', get_news: '📰',
+                            };
+                            return (
+                              <div style={{
+                                display: 'flex', flexDirection: 'column', gap: 8,
+                                padding: isTool ? '12px 14px' : '10px 14px',
+                                borderRadius: 10,
+                                background: 'var(--color-fill-1)',
+                                border: '1px solid var(--color-border-2)',
+                                marginBottom: 10,
+                                position: 'relative',
+                                overflow: 'hidden',
+                                animation: 'agentFadeSlide 0.3s ease-out',
+                              }}>
+                                {/* Scanning line effect */}
+                                <div style={{
+                                  position: 'absolute', left: 0, right: 0, height: 2,
+                                  background: 'linear-gradient(90deg, transparent, var(--arcoblue-6), transparent)',
+                                  top: 0, animation: 'agentScan 3s ease-in-out infinite',
+                                }} />
+                                
+                                {/* Header row */}
+                                <div style={{
+                                  display: 'flex', alignItems: 'center', gap: 10,
+                                }}>
+                                  {/* Animated ring */}
+                                  <div style={{
+                                    width: 28, height: 28, borderRadius: '50%',
+                                    background: isTool ? 'rgba(59,130,246,0.08)' : 'rgba(139,92,246,0.08)',
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    flexShrink: 0,
+                                    border: `2px solid ${isTool ? 'rgba(59,130,246,0.2)' : 'rgba(139,92,246,0.2)'}`,
+                                    borderTopColor: isTool ? '#3B82F6' : '#8B5CF6',
+                                    animation: 'spin 1.5s linear infinite',
+                                  }}>
+                                    <span style={{ fontSize: 12, animation: 'spin 1.5s linear infinite reverse' }}>
+                                      {iconMap[toolName] || (isTool ? '⚡' : '🧠')}
+                                    </span>
+                                  </div>
+                                  
+                                  <div style={{ flex: 1, minWidth: 0 }}>
+                                    <div style={{
+                                      fontSize: 13, fontWeight: 600, color: 'var(--color-text-1)',
+                                      display: 'flex', alignItems: 'center', gap: 8,
+                                    }}>
+                                      {label}
+                                      {/* Dots animation */}
+                                      <span style={{ display: 'inline-flex', gap: 3 }}>
+                                        {[0,1,2].map(d => (
+                                          <span key={d} style={{
+                                            width: 4, height: 4, borderRadius: '50%',
+                                            background: isTool ? '#3B82F6' : '#8B5CF6',
+                                            animation: `typingBounce 0.8s ease-in-out ${d * 0.15}s infinite`,
+                                            display: 'inline-block',
+                                          }} />
+                                        ))}
+                                      </span>
+                                    </div>
+                                    {/* Subtitle - tool name */}
+                                    {isTool && (
+                                      <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginTop: 2 }}>
+                                        {toolName} · 第 {s.turn || '?'} 轮分析
+                                        {s.index && s.total ? ` · ${s.index}/${s.total}` : ''}
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  {/* Step badge */}
+                                  {s.turn && (
+                                    <span style={{
+                                      fontSize: 10, fontWeight: 700, padding: '3px 8px', borderRadius: 10,
+                                      background: 'var(--color-fill-2)', color: 'var(--color-text-3)',
+                                      flexShrink: 0, border: '1px solid var(--color-border-1)',
+                                    }}>T-{s.turn}</span>
+                                  )}
+                                </div>
+
+                                {/* Progress bar for tool phase */}
+                                {isTool && (
+                                  <div style={{
+                                    height: 3, borderRadius: 2,
+                                    background: 'var(--color-fill-2)',
+                                    overflow: 'hidden',
+                                  }}>
+                                    <div style={{
+                                      height: '100%', borderRadius: 2,
+                                      width: '60%',
+                                      background: 'linear-gradient(90deg, #3B82F6, #8B5CF6, #3B82F6)',
+                                      backgroundSize: '200% 100%',
+                                      animation: 'progressFlow 2s ease-in-out infinite',
+                                    }} />
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })()}
                           {m.text ? (m.role === 'ai' ? (
                             sections.length > 0 ? (
                               <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -1175,9 +1264,48 @@ fetchPredictionResult(code).then((r: any) => {
                               >{m.text}</ReactMarkdown>
                             )
                           ) : m.text) : (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--color-text-3)', fontSize: 12, padding: '8px 0' }}>
-                              <span style={{ width: 16, height: 16, borderRadius: '50%', border: '2px solid var(--color-border-2)', borderTopColor: 'var(--color-primary)', animation: 'spin 0.8s linear infinite' }} />
-                              <span style={{ animation: 'pulse 1.5s ease-in-out infinite' }}>AI 思考中...</span>
+                            <div style={{
+                              display: 'flex', flexDirection: 'column', gap: 8,
+                              padding: '10px 14px', borderRadius: 10,
+                              background: 'var(--color-fill-1)',
+                              border: '1px solid var(--color-border-2)',
+                              position: 'relative', overflow: 'hidden',
+                              animation: 'agentFadeSlide 0.3s ease-out',
+                            }}>
+                              <div style={{
+                                position: 'absolute', left: 0, right: 0, height: 2,
+                                background: 'linear-gradient(90deg, transparent, var(--arcoblue-6), transparent)',
+                                top: 0, animation: 'agentScan 3s ease-in-out infinite',
+                              }} />
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                <div style={{
+                                  width: 28, height: 28, borderRadius: '50%',
+                                  background: 'rgba(139,92,246,0.08)',
+                                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                  flexShrink: 0,
+                                  border: '2px solid rgba(139,92,246,0.2)',
+                                  borderTopColor: '#8B5CF6',
+                                  animation: 'spin 1.5s linear infinite',
+                                }}>
+                                  <span style={{ fontSize: 12, animation: 'spin 1.5s linear infinite reverse' }}>🧠</span>
+                                </div>
+                                <div>
+                                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-1)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                                    AI 分析引擎已启动
+                                    <span style={{ display: 'inline-flex', gap: 3 }}>
+                                      {[0,1,2].map(d => (
+                                        <span key={d} style={{
+                                          width: 4, height: 4, borderRadius: '50%',
+                                          background: '#8B5CF6',
+                                          animation: `typingBounce 0.8s ease-in-out ${d * 0.15}s infinite`,
+                                          display: 'inline-block',
+                                        }} />
+                                      ))}
+                                    </span>
+                                  </div>
+                                  <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginTop: 2 }}>连接 DeepSeek · 准备调用工具...</div>
+                                </div>
+                              </div>
                             </div>
                           )}
                         </div>;
