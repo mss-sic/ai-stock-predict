@@ -544,9 +544,20 @@ func (s *AIService) ChatCompletionAgentStream(userID uint, history []map[string]
 			continue
 		}
 
-		// ── Final text response ──
+		// ── Final text response (simulated streaming) ──
 		if choice.Message.Content != "" {
-			onChunk(choice.Message.Content)
+			// Split into ~15-char chunks with 30ms delay for smooth streaming UX
+			text := choice.Message.Content
+			runes := []rune(text)
+			chunkSize := 15
+			for i := 0; i < len(runes); i += chunkSize {
+				end := i + chunkSize
+				if end > len(runes) {
+					end = len(runes)
+				}
+				onChunk(string(runes[i:end]))
+				time.Sleep(30 * time.Millisecond)
+			}
 		}
 		return nil
 	}

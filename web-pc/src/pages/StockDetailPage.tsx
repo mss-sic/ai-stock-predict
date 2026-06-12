@@ -1118,7 +1118,7 @@ fetchPredictionResult(code).then((r: any) => {
                           whiteSpace: hasWidgets ? 'normal' : 'pre-wrap',
                           wordBreak: 'break-word',
                         }}>
-                          {m.status && (() => {
+                          {m.status && !m.text && (() => {
                             const s = m.status;
                             const isTool = s.phase === 'tool';
                             const label = s.label || (isTool ? '查询中' : '分析中');
@@ -1129,12 +1129,12 @@ fetchPredictionResult(code).then((r: any) => {
                             };
                             return (
                               <div style={{
-                                display: 'flex', flexDirection: 'column', gap: 8,
-                                padding: isTool ? '12px 14px' : '10px 14px',
-                                borderRadius: 10,
-                                background: 'var(--color-fill-1)',
+                                display: 'flex', flexDirection: 'column', gap: 10,
+                                padding: '16px 18px',
+                                borderRadius: 12,
+                                background: 'var(--color-bg-2)',
                                 border: '1px solid var(--color-border-2)',
-                                marginBottom: 10,
+                                boxShadow: '0 2px 12px rgba(0,0,0,0.04)',
                                 position: 'relative',
                                 overflow: 'hidden',
                                 animation: 'agentFadeSlide 0.3s ease-out',
@@ -1148,11 +1148,11 @@ fetchPredictionResult(code).then((r: any) => {
                                 
                                 {/* Header row */}
                                 <div style={{
-                                  display: 'flex', alignItems: 'center', gap: 10,
+                                  display: 'flex', alignItems: 'center', gap: 12,
                                 }}>
                                   {/* Animated ring */}
                                   <div style={{
-                                    width: 28, height: 28, borderRadius: '50%',
+                                    width: 36, height: 36, borderRadius: '50%',
                                     background: isTool ? 'rgba(59,130,246,0.08)' : 'rgba(139,92,246,0.08)',
                                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                                     flexShrink: 0,
@@ -1160,22 +1160,21 @@ fetchPredictionResult(code).then((r: any) => {
                                     borderTopColor: isTool ? '#3B82F6' : '#8B5CF6',
                                     animation: 'spin 1.5s linear infinite',
                                   }}>
-                                    <span style={{ fontSize: 12, animation: 'spin 1.5s linear infinite reverse' }}>
+                                    <span style={{ fontSize: 14, animation: 'spin 1.5s linear infinite reverse' }}>
                                       {iconMap[toolName] || (isTool ? '⚡' : '🧠')}
                                     </span>
                                   </div>
                                   
                                   <div style={{ flex: 1, minWidth: 0 }}>
                                     <div style={{
-                                      fontSize: 13, fontWeight: 600, color: 'var(--color-text-1)',
+                                      fontSize: 14, fontWeight: 600, color: 'var(--color-text-1)',
                                       display: 'flex', alignItems: 'center', gap: 8,
                                     }}>
                                       {label}
-                                      {/* Dots animation */}
                                       <span style={{ display: 'inline-flex', gap: 3 }}>
                                         {[0,1,2].map(d => (
                                           <span key={d} style={{
-                                            width: 4, height: 4, borderRadius: '50%',
+                                            width: 5, height: 5, borderRadius: '50%',
                                             background: isTool ? '#3B82F6' : '#8B5CF6',
                                             animation: `typingBounce 0.8s ease-in-out ${d * 0.15}s infinite`,
                                             display: 'inline-block',
@@ -1183,35 +1182,32 @@ fetchPredictionResult(code).then((r: any) => {
                                         ))}
                                       </span>
                                     </div>
-                                    {/* Subtitle - tool name */}
                                     {isTool && (
-                                      <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginTop: 2 }}>
+                                      <div style={{ fontSize: 12, color: 'var(--color-text-3)', marginTop: 3 }}>
                                         {toolName} · 第 {s.turn || '?'} 轮分析
                                         {s.index && s.total ? ` · ${s.index}/${s.total}` : ''}
                                       </div>
                                     )}
                                   </div>
 
-                                  {/* Step badge */}
                                   {s.turn && (
                                     <span style={{
-                                      fontSize: 10, fontWeight: 700, padding: '3px 8px', borderRadius: 10,
+                                      fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 12,
                                       background: 'var(--color-fill-2)', color: 'var(--color-text-3)',
                                       flexShrink: 0, border: '1px solid var(--color-border-1)',
                                     }}>T-{s.turn}</span>
                                   )}
                                 </div>
 
-                                {/* Progress bar for tool phase */}
                                 {isTool && (
                                   <div style={{
-                                    height: 3, borderRadius: 2,
+                                    height: 4, borderRadius: 2,
                                     background: 'var(--color-fill-2)',
                                     overflow: 'hidden',
                                   }}>
                                     <div style={{
                                       height: '100%', borderRadius: 2,
-                                      width: '60%',
+                                      width: '70%',
                                       background: 'linear-gradient(90deg, #3B82F6, #8B5CF6, #3B82F6)',
                                       backgroundSize: '200% 100%',
                                       animation: 'progressFlow 2s ease-in-out infinite',
@@ -1221,6 +1217,17 @@ fetchPredictionResult(code).then((r: any) => {
                               </div>
                             );
                           })()}
+                          {m.status && m.text ? <div style={{
+                            fontSize: 11, color: 'var(--color-text-3)', padding: '4px 0 8px',
+                            display: 'flex', alignItems: 'center', gap: 6,
+                          }}>
+                            <span style={{
+                              width: 6, height: 6, borderRadius: '50%',
+                              background: '#3B82F6', display: 'inline-block',
+                              animation: 'pulse 1s ease-in-out infinite',
+                            }} />
+                            {m.status.phase === 'tool' ? `已获取${m.status.label}` : m.status.label}
+                          </div> : null}
                           {m.text ? (m.role === 'ai' ? (
                             sections.length > 0 ? (
                               <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
