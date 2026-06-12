@@ -262,9 +262,22 @@ func (h *PkHandler) JoinEvent(c *gin.Context) {
 		}
 	}
 
+	// Check: user already registered for this event?
 	var existing model.PkEntry
 	if db.MySQL.Where("event_id = ? AND user_id = ?", eid, uid).First(&existing).Error == nil {
 		response.BadRequest(c, "您已报名该活动")
+		return
+	}
+
+	// Check: same strategy already registered in another active/enrolling event?
+	var conflictEntry model.PkEntry
+	err := db.MySQL.
+		Joins("JOIN pk_events ON pk_events.id = pk_entries.event_id").
+		Where("pk_entries.strategy_id = ? AND pk_entries.user_id = ? AND pk_events.status IN (?)",
+			body.StrategyID, uid, []string{"enrolling", "running"}).
+		First(&conflictEntry).Error
+	if err == nil {
+		response.BadRequest(c, "该策略已报名其他进行中的活动")
 		return
 	}
 
