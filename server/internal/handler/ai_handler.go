@@ -79,7 +79,9 @@ func (h *AIHandler) Analyze(c *gin.Context) {
 		{"role": "system", "content": sysMsg},
 	}
 	for _, h := range chronHistory {
-		messages = append(messages, map[string]string{"role": h.Role, "content": h.Content})
+		role := h.Role
+		if role == "ai" { role = "assistant" }
+		messages = append(messages, map[string]string{"role": role, "content": h.Content})
 	}
 
 	uid, _ := c.Get("userId")
@@ -136,8 +138,10 @@ func (h *AIHandler) AnalyzeStream(c *gin.Context) {
 			txt = safeSlice(txt, remain) + "…"
 		}
 		total += len(txt)
+		role := history[i].Role
+		if role == "ai" { role = "assistant" }
 		messages = append(messages, map[string]string{
-			"role": history[i].Role, "content": txt,
+			"role": role, "content": txt,
 		})
 		if total >= maxCtx { break }
 	}
