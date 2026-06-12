@@ -276,39 +276,101 @@ export default function PkEntryDetailPage() {
             <div style={{ padding: '16px 0' }}>
               {strategy ? (
                 <>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px 20px', marginBottom: 20 }}>
-                    <div><span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>止盈</span><div style={{ fontWeight: 600 }}>{strategy.stopProfit > 0 ? `${strategy.stopProfit}%` : '未设置'}</div></div>
-                    <div><span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>止损</span><div style={{ fontWeight: 600, color: '#F53F3F' }}>{strategy.stopLoss < 0 ? `${strategy.stopLoss}%` : '未设置'}</div></div>
-                    <div><span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>最大持股</span><div style={{ fontWeight: 600 }}>{strategy.maxHoldings} 只</div></div>
-                    <div><span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>建仓比例</span><div style={{ fontWeight: 600 }}>{strategy.buyPct}%</div></div>
-                    <div><span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>加仓比例</span><div style={{ fontWeight: 600 }}>{strategy.addPct}%</div></div>
-                    <div><span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>初始资金</span><div style={{ fontWeight: 600 }}>¥{(strategy.initialCapital || 0).toLocaleString()}</div></div>
+                  {/* Strategy Parameters */}
+                  <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text-1)', marginBottom: 12 }}>策略参数</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10, marginBottom: 24 }}>
+                    {[
+                      { label: '止盈', value: strategy.stopProfit > 0 ? `${strategy.stopProfit}%` : '未设置', color: '#F53F3F' },
+                      { label: '止损', value: strategy.stopLoss < 0 ? `${strategy.stopLoss}%` : '未设置', color: '#00B42A' },
+                      { label: '最大持股', value: `${strategy.maxHoldings} 只` },
+                      { label: '建仓比例', value: `${strategy.buyPct}%` },
+                      { label: '加仓比例', value: `${strategy.addPct}%` },
+                      { label: '初始资金', value: `¥${(strategy.initialCapital || 0).toLocaleString()}` },
+                    ].map((p, i) => (
+                      <div key={i} style={{ background: 'var(--color-fill-1)', borderRadius: 8, padding: '10px 14px', border: '1px solid var(--color-border-1)' }}>
+                        <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 3 }}>{p.label}</div>
+                        <div style={{ fontSize: 15, fontWeight: 700, color: p.color || 'var(--color-text-1)', fontFamily: 'monospace' }}>{p.value}</div>
+                      </div>
+                    ))}
                   </div>
-                  {strategy.conditions && strategy.conditions.length > 0 && (
+
+                  {/* Condition Blocks */}
+                  {strategy.conditions && strategy.conditions.length > 0 ? (
                     <>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-2)', marginBottom: 10, borderTop: '1px solid var(--color-border-1)', paddingTop: 14 }}>
-                        交易条件
-                      </div>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                        {strategy.conditions.map((c: any, i: number) => {
-                          const typeLabels: Record<string, string> = { buy: '买入', add: '加仓', sell: '卖出', reduce: '减仓' };
-                          const typeColors: Record<string, string> = { buy: '#F53F3F', add: '#FF7D00', sell: '#00B42A', reduce: '#165DFF' };
-                          const opLabels: Record<string, string> = { gt: '>', lt: '<', gte: '≥', lte: '≤', eq: '=', cross_up: '上穿', cross_down: '下穿' };
+                      <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text-1)', marginBottom: 14 }}>交易条件</div>
+                      {(() => {
+                        const typeConfig: Record<string, { label: string; color: string; bg: string; border: string }> = {
+                          buy: { label: '买入条件', color: '#F53F3F', bg: 'rgba(245,63,63,0.04)', border: 'rgba(245,63,63,0.12)' },
+                          add: { label: '加仓条件', color: '#FF7D00', bg: 'rgba(255,125,0,0.04)', border: 'rgba(255,125,0,0.12)' },
+                          sell: { label: '卖出条件', color: '#00B42A', bg: 'rgba(0,180,42,0.04)', border: 'rgba(0,180,42,0.12)' },
+                          reduce: { label: '减仓条件', color: '#165DFF', bg: 'rgba(22,93,255,0.04)', border: 'rgba(22,93,255,0.12)' },
+                        };
+                        const opLabels: Record<string, string> = { gt: '>', lt: '<', gte: '≥', lte: '≤', eq: '=', cross_up: '↑ 上穿', cross_down: '↓ 下穿' };
+                        const indicatorNames: Record<string, string> = {
+                          streak_count: '连涨/连跌天数', algo_score: '算法评分', ai_score: 'AI评分',
+                          ma_cross: '均线交叉', rsi: 'RSI', macd: 'MACD', kdj_k: 'KDJ-K',
+                          kdj_d: 'KDJ-D', kdj_j: 'KDJ-J', volume_ratio: '量比', pe: '市盈率PE',
+                          pb: '市净率PB', turnover: '换手率', amplitude: '振幅', change_pct: '涨跌幅',
+                          score: '综合评分', signal_score: '信号评分',
+                        };
+                        const grouped: Record<string, any[]> = { buy: [], add: [], sell: [], reduce: [] };
+                        strategy.conditions.forEach((c: any) => {
+                          if (grouped[c.condType]) grouped[c.condType].push(c);
+                        });
+                        return (Object.keys(typeConfig) as string[]).map(ct => {
+                          const conds = grouped[ct] || [];
+                          if (conds.length === 0) return null;
+                          const cfg = typeConfig[ct];
                           return (
-                            <span key={i} style={{
-                              display: 'inline-flex', alignItems: 'center', gap: 4,
-                              padding: '4px 12px', borderRadius: 14, fontSize: 12, fontWeight: 500,
-                              background: `${typeColors[c.condType] || '#165DFF'}14`,
-                              color: typeColors[c.condType] || '#165DFF',
-                              border: `1px solid ${typeColors[c.condType] || '#165DFF'}30`,
+                            <div key={ct} style={{
+                              marginBottom: 16, borderRadius: 12, overflow: 'hidden',
+                              border: `1px solid ${cfg.border}`, background: cfg.bg,
                             }}>
-                              <span style={{ fontWeight: 700 }}>{typeLabels[c.condType] || c.condType}</span>
-                              {c.indicator} {opLabels[c.operator] || c.operator} {c.value}
-                            </span>
+                              <div style={{
+                                padding: '8px 16px', background: `${cfg.color}10`,
+                                display: 'flex', alignItems: 'center', gap: 8,
+                                borderBottom: `1px solid ${cfg.border}`,
+                              }}>
+                                <div style={{ width: 8, height: 8, borderRadius: '50%', background: cfg.color }} />
+                                <span style={{ fontSize: 13, fontWeight: 700, color: cfg.color }}>{cfg.label}</span>
+                                <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--color-text-3)' }}>{conds.length} 条 · AND 关系</span>
+                              </div>
+                              <div style={{ padding: '10px 16px' }}>
+                                {conds.map((c: any, i: number) => {
+                                  const indicatorName = indicatorNames[c.indicator] || c.indicator;
+                                  const opSymbol = opLabels[c.operator] || c.operator;
+                                  return (
+                                    <div key={i} style={{
+                                      display: 'flex', alignItems: 'center', gap: 10,
+                                      padding: i > 0 ? '10px 0 0' : '0', 
+                                      borderTop: i > 0 ? '1px solid var(--color-border-1)' : 'none',
+                                      marginTop: i > 0 ? 10 : 0,
+                                    }}>
+                                      <span style={{
+                                        flexShrink: 0, padding: '2px 10px', borderRadius: 10,
+                                        fontSize: 11, fontWeight: 700, fontFamily: 'monospace',
+                                        background: i === 0 ? `${cfg.color}18` : 'var(--color-fill-2)',
+                                        color: i === 0 ? cfg.color : 'var(--color-text-3)',
+                                      }}>{i === 0 ? 'IF' : 'AND'}</span>
+                                      <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--color-text-1)' }}>{indicatorName}</span>
+                                      <span style={{
+                                        flexShrink: 0, padding: '2px 8px', borderRadius: 6,
+                                        fontSize: 12, fontWeight: 700, fontFamily: 'monospace',
+                                        background: 'var(--color-fill-2)', color: cfg.color,
+                                      }}>{opSymbol} {c.value}</span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
                           );
-                        })}
-                      </div>
+                        });
+                      })()}
                     </>
+                  ) : (
+                    <div style={{ padding: 40, textAlign: 'center', color: 'var(--color-text-3)', border: '1.5px dashed var(--color-border-1)', borderRadius: 12 }}>
+                      暂无交易条件配置
+                    </div>
                   )}
                 </>
               ) : (
