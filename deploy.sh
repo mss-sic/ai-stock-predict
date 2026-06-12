@@ -13,7 +13,7 @@ echo "============================================"
 echo ""
 
 # ═══ 1. 检查环境 ═══
-echo "【1/6】检查环境..."
+echo "【1/5】检查环境..."
 
 if ! command -v docker &>/dev/null; then
   echo "❌ 未安装 Docker，请先安装: curl -fsSL https://get.docker.com | bash"
@@ -35,7 +35,7 @@ echo "  ✓ Docker Compose $(docker compose version --short 2>/dev/null || echo 
 
 # ═══ 2. 拉取代码 ═══
 echo ""
-echo "【2/6】拉取代码 (分支: $BRANCH)..."
+echo "【2/5】拉取代码 (分支: $BRANCH)..."
 
 if [ -d "$APP_ROOT/.git" ]; then
   cd "$APP_ROOT"
@@ -55,7 +55,7 @@ cd "$APP_ROOT"
 
 # ═══ 3. 构建前端 ═══
 echo ""
-echo "【3/6】构建前端..."
+echo "【3/5】构建前端..."
 
 if command -v node &>/dev/null && command -v npm &>/dev/null; then
   cd "$APP_ROOT/web-pc"
@@ -70,7 +70,7 @@ fi
 
 # ═══ 4. 构建 & 启动 Docker 服务 ═══
 echo ""
-echo "【4/6】启动 Docker 服务..."
+echo "【4/5】启动 Docker 服务..."
 
 cd "$APP_ROOT/docker"
 
@@ -92,27 +92,9 @@ for i in $(seq 1 30); do
   sleep 2
 done
 
-# ═══ 5. 恢复种子数据（可选） ═══
+# ═══ 5. 部署前端 ═══
 echo ""
-echo "【5/6】检查种子数据..."
-
-if ls "$APP_ROOT"/seed/data/pg_dump_*.sql >/dev/null 2>&1; then
-  echo "  发现种子数据文件"
-  read -r -p "  是否恢复种子数据? [y/N]: " REPLY
-  if [ "${REPLY,,}" = "y" ]; then
-    # 更新 restore.sh 中的容器名
-    cd "$APP_ROOT"
-    PG_CONTAINER="docker-postgres-1" \
-    MYSQL_CONTAINER="docker-mysql-1" \
-    bash seed/restore.sh
-  fi
-else
-  echo "  ⊘ 无种子数据文件，跳过（服务端会自动建空表）"
-fi
-
-# ═══ 6. 部署前端 ═══
-echo ""
-echo "【6/6】部署前端静态文件..."
+echo "【5/5】部署前端静态文件..."
 
 WEBROOT="/www/wwwroot/ai-stock-predict"
 if [ -d "/www/wwwroot" ]; then
