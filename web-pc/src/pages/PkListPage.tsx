@@ -41,7 +41,7 @@ export default function PkListPage() {
   const fetchEvents = async () => {
     try {
       const res = await api.get('/pk/events');
-      setEvents(res.data.data || []);
+      const evts = res.data?.data; setEvents(Array.isArray(evts) ? evts : []);
     } catch (e) {
       console.error(e);
     } finally {

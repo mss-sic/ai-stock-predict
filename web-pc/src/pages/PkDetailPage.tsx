@@ -329,7 +329,7 @@ export default function PkDetailPage() {
           style={{ width: '100%' }}
           value={selectedSid || undefined}
           onChange={(v) => setSelectedSid(v)}
-          options={strategies.map((s) => ({ label: s.name, value: s.id }))}
+          options={(Array.isArray(strategies) ? strategies : []).map((s: any) => ({ label: s.name, value: s.id }))}
         />
       </Modal>
     </div>
