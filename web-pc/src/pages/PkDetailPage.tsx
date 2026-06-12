@@ -65,7 +65,7 @@ export default function PkDetailPage() {
 
   const fetchStrategies = async () => {
     try {
-      const res = await api.get('/strategies');
+      const res = await api.get('/strategies', { params: { exclude_pk: 'true' } });
       setStrategies(res.data.data || []);
     } catch (e) {}
   };

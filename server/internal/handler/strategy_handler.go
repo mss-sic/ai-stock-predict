@@ -31,6 +31,29 @@ func (h *StrategyHandler) List(c *gin.Context) {
 	uid := getUID(c)
 	var strategies []model.Strategy
 	db.MySQL.Where("user_id = ?", uid).Order("sort_order ASC, id ASC").Find(&strategies)
+
+	// If exclude_pk=true, filter out strategies already in active PK events
+	if c.Query("exclude_pk") == "true" {
+		var activeSids []uint
+		db.MySQL.Model(&model.PkEntry{}).
+			Joins("JOIN pk_events ON pk_events.id = pk_entries.event_id").
+			Where("pk_entries.user_id = ? AND pk_events.status IN (?)", uid, []string{"enrolling", "running"}).
+			Pluck("pk_entries.strategy_id", &activeSids)
+		if len(activeSids) > 0 {
+			filtered := make([]model.Strategy, 0)
+			activeSet := make(map[uint]bool)
+			for _, sid := range activeSids {
+				activeSet[sid] = true
+			}
+			for _, s := range strategies {
+				if !activeSet[s.ID] {
+					filtered = append(filtered, s)
+				}
+			}
+			strategies = filtered
+		}
+	}
+
 	log.Printf("[strategy] list uid=%d count=%d", uid, len(strategies))
 	response.Success(c, strategies)
 }
