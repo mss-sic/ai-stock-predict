@@ -523,6 +523,7 @@ func (h *AIHandler) UpdateSystemConfig(c *gin.Context) {
 	if body.Temperature != nil { updates["temperature"] = *body.Temperature }
 	if body.MaxTokens != nil { updates["max_tokens"] = *body.MaxTokens }
 	if body.EnableSearch != nil { updates["enable_search"] = *body.EnableSearch }
+	if body.EnableTools != nil { updates["enable_tools"] = *body.EnableTools }
 	db.PG.Model(&cfg).Updates(updates)
 	response.SuccessMsg(c, "ok")
 }
