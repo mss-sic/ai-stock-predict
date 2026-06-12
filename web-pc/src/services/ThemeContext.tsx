@@ -27,6 +27,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
+    document.body.setAttribute('arco-theme', theme);
     try { localStorage.setItem(STORAGE_KEY, theme); } catch {}
   }, [theme]);
 
