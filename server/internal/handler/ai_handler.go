@@ -523,8 +523,10 @@ func (h *AIHandler) UpdateSystemConfig(c *gin.Context) {
 func (h *AIHandler) loadSystemConfig(scene string) model.AISystemConfig {
 	var cfg model.AISystemConfig
 	if err := db.PG.Where("scene = ?", scene).First(&cfg).Error; err != nil {
+		// chat_analysis gets real data injected, no need for web search by default
+		enableSearch := scene != "chat_analysis"
 		return model.AISystemConfig{
-			Scene: scene, Temperature: 0.7, MaxTokens: 2048, EnableSearch: true,
+			Scene: scene, Temperature: 0.7, MaxTokens: 2048, EnableSearch: enableSearch,
 		}
 	}
 	return cfg
@@ -561,20 +563,18 @@ func (h *AIHandler) buildStockContext(code string) string {
 	prompt := cfg.SystemPrompt
 	if prompt == "" {
 		// Default prompt with real-time stock data
-		prompt = `你是一个专业的A股分析助手。
+		prompt = `你是一个专业的A股分析助手。你已拥有该股票的最新精确数据，请直接基于以下数据进行分析回答。
 
-【重要】以下是该股票的实时数据，请严格基于以下数据回答，不要编造价格：
+【已注入的股票数据 — 请直接使用，无需联网搜索】
+标的：%s（%s）| 行业：%s
+收盘价：%.2f | 最高：%.2f | 最低：%.2f | 成交量：%.0f
+PE：%.2f | PB：%.2f
+数据日期：%s | 分析截止：%s
 
-标的：%s（%s）
-行业：%s
-最新收盘价：%.2f（数据日期：%s）
-最高价：%.2f
-最低价：%.2f
-成交量：%.0f
-市盈率PE：%.2f
-市净率PB：%.2f
-
-截止时间：%s`
+重要规则：
+1. 直接引用上述价格数据，不要说"无法获取实时数据"或"价格会变动"
+2. 避免使用"建议您通过交易软件"等推脱话术
+3. 数据已注入你的上下文，请当成已知信息使用`
 		return fmt.Sprintf(prompt,
 			code, stock.Name, stock.Industry,
 			kline.Close, safeSlice(kline.TradeDate, 10),
