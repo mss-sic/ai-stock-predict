@@ -15,7 +15,8 @@ import BoardSidebar from '../components/BoardSidebar';
 
 type TabKey = 'forecast' | 'analysis' | 'strategy' | 'technical' | 'trading' | 'financial' | 'shareholder' | 'reports' | 'news';
 
-interface Message { role: 'user' | 'ai'; text: string; status?: { phase: string; label: string; tool?: string; index?: number; total?: number; turn?: number } }
+interface ToolStatus { tool: string; label: string; index: number; total: number; turn: number; done?: boolean; startTime?: number }
+interface Message { role: 'user' | 'ai'; text: string; status?: { phase: string; label: string }; toolStatuses?: ToolStatus[]; startTime?: number }
 interface Marker { i: number; type: 'board' | 'buy' | 'sell'; label?: string }
 
 // ─── Technical indicators (same as before, omitted for brevity) ───
@@ -310,6 +311,7 @@ export default function StockDetailPage() {
   const [msgs, setMsgs] = useState<Message[]>([]);
   const [chatInput, setChatInput] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
+  const [, setTick] = useState(0);
   const chatBottomRef = useRef<HTMLDivElement>(null);
 
   const [intervalMode, setIntervalMode] = useState(true);
@@ -582,18 +584,27 @@ fetchPredictionResult(code).then((r: any) => {
     }
   }, [intervalMode, safeKlines.length]);
 
-  const handleChatSend = async (text?: string) => {
+  
+  const chunkBufRef = useRef('');
+  const rafRef = useRef<number>(0);
+const handleChatSend = async (text?: string) => {
     const msg = text || chatInput;
     if (!msg.trim() || !code) return;
     setMsgs(p => [...p, { role: 'user', text: msg }]);
     if (!text) setChatInput('');
     setChatLoading(true);
-    setMsgs(p => [...p, { role: 'ai', text: '' }]);
+    setMsgs(p => [...p, { role: 'ai', text: '', startTime: Date.now() }]);
     try {
       const res = await authFetch('/api/v1/ai/analyze/stream', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code, question: msg }) });
       const reader = res.body?.getReader(); if (!reader) throw new Error('no reader');
       const decoder = new TextDecoder(); let buffer = '';
-      while (true) { const { done, value } = await reader.read(); if (done) break; buffer += decoder.decode(value, { stream: true }); const lines = buffer.split('\n'); buffer = lines.pop() || ''; for (const line of lines) { if (!line.startsWith('data: ')) continue; const data = line.slice(6); if (data === '[DONE]') continue; try { const p = JSON.parse(data); if (p.status === 'agent_phase') setMsgs(prev => { const cp = [...prev]; cp[cp.length - 1] = { ...cp[cp.length - 1], text: cp[cp.length - 1].text, status: { phase: p.phase || 'analyzing', label: p.label || 'AI 分析中...' } }; return cp; }); if (p.status === 'tool_start') setMsgs(prev => { const cp = [...prev]; cp[cp.length - 1] = { ...cp[cp.length - 1], text: cp[cp.length - 1].text, status: { phase: 'tool', label: p.label || p.tool || '查询中', tool: p.tool, index: p.index ? parseInt(p.index) : undefined, total: p.total ? parseInt(p.total) : undefined, turn: p.turn ? parseInt(p.turn) : undefined } }; return cp; }); if (p.status === 'tool_end') setMsgs(prev => { const cp = [...prev]; cp[cp.length - 1] = { ...cp[cp.length - 1], text: cp[cp.length - 1].text, status: { phase: 'analyzing', label: '整合分析结果...' } }; return cp; }); if (p.chunk) setMsgs(prev => { const cp = [...prev]; cp[cp.length - 1] = { ...cp[cp.length - 1], text: cp[cp.length - 1].text + p.chunk, status: undefined }; return cp; }); if (p.error) setMsgs(prev => { const cp = [...prev]; cp[cp.length - 1] = { ...cp[cp.length - 1], text: '错误: ' + (p.message || '请求失败'), status: undefined }; return cp; }); } catch (_) {} } }
+      while (true) { const { done, value } = await reader.read(); if (done) break; buffer += decoder.decode(value, { stream: true }); const lines = buffer.split('\n'); buffer = lines.pop() || ''; for (const line of lines) { if (!line.startsWith('data: ')) continue; const data = line.slice(6); if (data === '[DONE]') continue; try { const p = JSON.parse(data); if (p.status === 'agent_phase') setMsgs(prev => { const cp = [...prev]; cp[cp.length - 1] = { ...cp[cp.length - 1], text: cp[cp.length - 1].text, status: { phase: p.phase || 'analyzing', label: p.label || 'AI 分析中...' } }; return cp; }); if (p.status === 'tool_start') setMsgs(prev => { const cp = [...prev]; const cur = cp[cp.length - 1]; const ts = [...(cur.toolStatuses || [])]; ts.push({ tool: p.tool, label: p.label || p.tool || '查询中', index: p.index ? parseInt(p.index) : 0, total: p.total ? parseInt(p.total) : 0, turn: p.turn ? parseInt(p.turn) : 0, done: false, startTime: Date.now() }); cp[cp.length - 1] = { ...cur, text: cur.text, status: { phase: 'tool', label: '并行查询中...' }, toolStatuses: ts }; return cp; }); if (p.status === 'tool_end') setMsgs(prev => { const cp = [...prev]; const cur = cp[cp.length - 1]; const ts = (cur.toolStatuses || []).map(t => t.tool === p.tool ? { ...t, done: true } : t); const allDone = ts.length > 0 && ts.every(t => t.done); cp[cp.length - 1] = { ...cur, text: cur.text, status: allDone ? { phase: 'analyzing', label: '整合分析结果...' } : { phase: 'tool', label: '并行查询中...' }, toolStatuses: ts }; return cp; }); if (p.chunk) { chunkBufRef.current += p.chunk; if (!rafRef.current) { rafRef.current = requestAnimationFrame(() => { rafRef.current = 0; const flush = chunkBufRef.current; chunkBufRef.current = ''; if (flush) setMsgs(prev => { const cp = [...prev]; const cur = cp[cp.length - 1]; cp[cp.length - 1] = { ...cur, text: cur.text + flush }; return cp; }); }); } } if (p.error) setMsgs(prev => { const cp = [...prev]; const cur = cp[cp.length - 1]; cp[cp.length - 1] = { ...cur, text: '错误: ' + (p.message || '请求失败'), status: undefined, toolStatuses: undefined }; return cp; }); } catch (_) {} } }
+      // Flush any remaining buffered chunks
+      if (chunkBufRef.current) {
+        const flush = chunkBufRef.current; chunkBufRef.current = '';
+        setMsgs(prev => { const cp = [...prev]; const cur = cp[cp.length - 1]; cp[cp.length - 1] = { ...cur, text: cur.text + flush }; return cp; });
+      }
+      if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = 0; }
       setMsgs(prev => { const cp = [...prev]; if (cp[cp.length - 1].text === '') cp[cp.length - 1] = { ...cp[cp.length - 1], text: '(回复为空)' }; return cp; });
     } catch { setMsgs(prev => { const cp = [...prev]; cp[cp.length - 1] = { ...cp[cp.length - 1], text: '服务暂不可用' }; return cp; }); }
     setChatLoading(false);
@@ -1106,118 +1117,212 @@ fetchPredictionResult(code).then((r: any) => {
                       {(() => {
                         const sections = m.role === 'ai' && m.text ? parseStreamSections(m.text, 0) : [];
                         const hasWidgets = sections.some((s: any) => s.type === 'widget');
+                        const hasToolStatus = !!(m.toolStatuses && m.toolStatuses.length > 0);
+                        const isFullWidth = hasWidgets || hasToolStatus;
                         return <div style={{
-                          maxWidth: hasWidgets ? '100%' : '80%',
-                          padding: hasWidgets ? '0' : '10px 16px',
+                          flex: 1,
+                          width: isFullWidth ? '100%' : 'auto',
+                          maxWidth: isFullWidth ? 'none' : '80%',
+                          minWidth: 0,
+                          padding: isFullWidth ? '0' : '10px 16px',
                           borderRadius: m.role === 'ai' ? '4px 12px 12px 12px' : '12px 4px 12px 12px',
                           fontSize: 13, lineHeight: '24px',
-                          background: m.role === 'ai' ? (hasWidgets ? 'transparent' : 'var(--color-bg-2)') : 'var(--color-primary)',
+                          background: m.role === 'ai' ? (isFullWidth ? 'transparent' : 'var(--color-bg-2)') : 'var(--color-primary)',
                           color: m.role === 'ai' ? 'var(--color-text-1)' : '#fff',
-                          border: m.role === 'ai' ? (hasWidgets ? 'none' : '1px solid var(--color-border-2)') : 'none',
-                          boxShadow: m.role === 'ai' && !hasWidgets ? '0 1px 3px rgba(0,0,0,0.04)' : 'none',
-                          whiteSpace: hasWidgets ? 'normal' : 'pre-wrap',
+                          border: m.role === 'ai' ? (isFullWidth ? 'none' : '1px solid var(--color-border-2)') : 'none',
+                          boxShadow: m.role === 'ai' && !isFullWidth ? '0 1px 3px rgba(0,0,0,0.04)' : 'none',
+                          whiteSpace: isFullWidth ? 'normal' : 'pre-wrap',
                           wordBreak: 'break-word',
                         }}>
-                          {m.status && !m.text && (() => {
-                            const s = m.status;
-                            const isTool = s.phase === 'tool';
-                            const label = s.label || (isTool ? '查询中' : '分析中');
-                            const toolName = s.tool || '';
+                          
+                          {(() => {
+                            const formatElapsed = (start: number) => {
+                              const s = Math.floor((Date.now() - start) / 1000);
+                              return s < 60 ? `${s}s` : `${Math.floor(s/60)}m${s%60}s`;
+                            };
                             const iconMap: Record<string, string> = {
                               get_stock_price: '📈', get_kline_summary: '📊', get_technical: '🔬',
                               get_financials: '📋', get_news: '📰',
                             };
-                            return (
-                              <div style={{
-                                display: 'flex', flexDirection: 'column', gap: 10,
-                                padding: '16px 18px',
-                                borderRadius: 12,
-                                background: 'var(--color-bg-2)',
-                                border: '1px solid var(--color-border-2)',
-                                boxShadow: '0 2px 12px rgba(0,0,0,0.04)',
-                                position: 'relative',
-                                overflow: 'hidden',
-                                animation: 'agentFadeSlide 0.3s ease-out',
-                              }}>
-                                {/* Scanning line effect */}
+                            const ts = m.toolStatuses;
+                            // ── Parallel tool execution display ──
+                            if (ts && ts.length > 0) {
+                              const doneCount = ts.filter(t => t.done).length;
+                              const allDone = doneCount === ts.length;
+                              const currentTool = ts.find(t => !t.done);
+                              return (
                                 <div style={{
-                                  position: 'absolute', left: 0, right: 0, height: 2,
-                                  background: 'linear-gradient(90deg, transparent, var(--arcoblue-6), transparent)',
-                                  top: 0, animation: 'agentScan 3s ease-in-out infinite',
-                                }} />
-                                
-                                {/* Header row */}
-                                <div style={{
-                                  display: 'flex', alignItems: 'center', gap: 12,
+                                  display: 'flex', flexDirection: 'column', gap: 10,
+                                  padding: '14px 18px',
+                                  borderRadius: 12,
+                                  background: allDone ? 'var(--color-fill-1)' : 'var(--color-bg-2)',
+                                  border: allDone ? '1px solid var(--color-border-1)' : '1px solid var(--color-border-2)',
+                                  boxShadow: allDone ? 'none' : '0 2px 12px rgba(0,0,0,0.04)',
+                                  position: 'relative',
+                                  overflow: 'hidden',
+                                  animation: 'agentFadeSlide 0.3s ease-out',
+                                  opacity: allDone && m.text ? 0.6 : 1,
+                                  transition: 'all 0.4s ease',
+                                  marginBottom: m.text ? 12 : 0,
                                 }}>
-                                  {/* Animated ring */}
+                                  {!allDone && (
+                                    <div style={{
+                                      position: 'absolute', left: 0, right: 0, height: 2,
+                                      background: 'linear-gradient(90deg, transparent, var(--arcoblue-6), transparent)',
+                                      top: 0, animation: 'agentScan 3s ease-in-out infinite',
+                                    }} />
+                                  )}
+                                  {/* Header: what's happening now */}
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                    <div style={{
+                                      width: 34, height: 34, borderRadius: 10,
+                                      background: allDone ? 'rgba(0,180,42,0.08)' : 'rgba(59,130,246,0.08)',
+                                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                      flexShrink: 0,
+                                      border: `2px solid ${allDone ? 'rgba(0,180,42,0.2)' : 'rgba(59,130,246,0.2)'}`,
+                                      borderTopColor: allDone ? '#00B42A' : '#3B82F6',
+                                      animation: allDone ? 'none' : 'spin 1.5s linear infinite',
+                                    }}>
+                                      <span style={{ fontSize: 15, animation: allDone ? 'none' : 'spin 1.5s linear infinite reverse' }}>
+                                        {allDone ? '✓' : (iconMap[currentTool?.tool || ''] || '⚡')}
+                                      </span>
+                                    </div>
+                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                      <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text-1)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                        {allDone ? '数据获取完成' : `调用${currentTool?.label || '工具'}查询`}
+                                        {!allDone && (
+                                          <span style={{ display: 'inline-flex', gap: 3 }}>
+                                            {[0,1,2].map(d => (
+                                              <span key={d} style={{
+                                                width: 5, height: 5, borderRadius: '50%',
+                                                background: '#3B82F6',
+                                                animation: `typingBounce 0.8s ease-in-out ${d * 0.15}s infinite`,
+                                                display: 'inline-block',
+                                              }} />
+                                            ))}
+                                          </span>
+                                        )}
+                                      </div>
+                                      <div style={{ fontSize: 12, color: 'var(--color-text-3)', marginTop: 2 }}>
+                                        {allDone
+                                          ? `已获取 ${doneCount} 项数据 · 第 ${ts[0]?.turn || '?'} 轮分析`
+                                          : `分析中... · 第 ${currentTool?.turn || '?'} 轮 · ${doneCount}/${ts.length} 项完成`
+                                        }
+                                      </div>
+                                    </div>
+                                    {!allDone && (
+                                      <span style={{
+                                        fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 12,
+                                        background: 'rgba(59,130,246,0.1)', color: '#3B82F6',
+                                        flexShrink: 0, border: '1px solid rgba(59,130,246,0.2)',
+                                      }}>T-{currentTool?.turn || '?'}</span>
+                                    )}
+                                  </div>
+                                  {/* Tool chips row */}
+                                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                                    {ts.map((t, ti) => (
+                                      <span key={ti} style={{
+                                        display: 'inline-flex', alignItems: 'center', gap: 4,
+                                        padding: '3px 10px', borderRadius: 14,
+                                        fontSize: 11, fontWeight: 500,
+                                        background: t.done ? 'rgba(0,180,42,0.06)' : 'rgba(59,130,246,0.06)',
+                                        color: t.done ? '#00B42A' : '#3B82F6',
+                                        border: `1px solid ${t.done ? 'rgba(0,180,42,0.15)' : 'rgba(59,130,246,0.15)'}`,
+                                        transition: 'all 0.3s ease',
+                                      }}>
+                                        <span style={{ fontSize: 12 }}>{t.done ? '✓' : iconMap[t.tool] || '⚡'}</span>
+                                        {t.label}
+                                      </span>
+                                    ))}
+                                  </div>
+                                  {/* Progress bar */}
+                                  {!allDone && (
+                                    <div style={{
+                                      height: 3, borderRadius: 1.5,
+                                      background: 'var(--color-fill-2)',
+                                      overflow: 'hidden',
+                                    }}>
+                                      <div style={{
+                                        height: '100%', borderRadius: 1.5,
+                                        width: `${Math.round((doneCount / ts.length) * 100)}%`,
+                                        background: 'linear-gradient(90deg, #3B82F6, #8B5CF6, #3B82F6)',
+                                        backgroundSize: '200% 100%',
+                                        animation: 'progressFlow 2s ease-in-out infinite',
+                                        transition: 'width 0.5s ease',
+                                      }} />
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            }
+                            // ── Single phase status (no tools) ──
+                            if (m.status && !m.text) {
+                              return (
+                                <div style={{
+                                  display: 'flex', alignItems: 'center', gap: 10,
+                                  padding: '12px 16px',
+                                  borderRadius: 12,
+                                  background: 'var(--color-bg-2)',
+                                  border: '1px solid var(--color-border-2)',
+                                  boxShadow: '0 2px 8px rgba(0,0,0,0.03)',
+                                  animation: 'agentFadeSlide 0.3s ease-out',
+                                }}>
                                   <div style={{
-                                    width: 36, height: 36, borderRadius: '50%',
-                                    background: isTool ? 'rgba(59,130,246,0.08)' : 'rgba(139,92,246,0.08)',
+                                    width: 32, height: 32, borderRadius: 10,
+                                    background: 'rgba(139,92,246,0.08)',
                                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                                     flexShrink: 0,
-                                    border: `2px solid ${isTool ? 'rgba(59,130,246,0.2)' : 'rgba(139,92,246,0.2)'}`,
-                                    borderTopColor: isTool ? '#3B82F6' : '#8B5CF6',
+                                    border: '2px solid rgba(139,92,246,0.2)',
+                                    borderTopColor: '#8B5CF6',
                                     animation: 'spin 1.5s linear infinite',
                                   }}>
-                                    <span style={{ fontSize: 14, animation: 'spin 1.5s linear infinite reverse' }}>
-                                      {iconMap[toolName] || (isTool ? '⚡' : '🧠')}
-                                    </span>
+                                    <span style={{ fontSize: 14, animation: 'spin 1.5s linear infinite reverse' }}>🧠</span>
                                   </div>
-                                  
                                   <div style={{ flex: 1, minWidth: 0 }}>
-                                    <div style={{
-                                      fontSize: 14, fontWeight: 600, color: 'var(--color-text-1)',
-                                      display: 'flex', alignItems: 'center', gap: 8,
-                                    }}>
-                                      {label}
+                                    <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text-1)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                                      {m.status.label}
                                       <span style={{ display: 'inline-flex', gap: 3 }}>
                                         {[0,1,2].map(d => (
                                           <span key={d} style={{
                                             width: 5, height: 5, borderRadius: '50%',
-                                            background: isTool ? '#3B82F6' : '#8B5CF6',
+                                            background: '#8B5CF6',
                                             animation: `typingBounce 0.8s ease-in-out ${d * 0.15}s infinite`,
                                             display: 'inline-block',
                                           }} />
                                         ))}
                                       </span>
                                     </div>
-                                    {isTool && (
-                                      <div style={{ fontSize: 12, color: 'var(--color-text-3)', marginTop: 3 }}>
-                                        {toolName} · 第 {s.turn || '?'} 轮分析
-                                        {s.index && s.total ? ` · ${s.index}/${s.total}` : ''}
-                                      </div>
-                                    )}
                                   </div>
-
-                                  {s.turn && (
-                                    <span style={{
-                                      fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 12,
-                                      background: 'var(--color-fill-2)', color: 'var(--color-text-3)',
-                                      flexShrink: 0, border: '1px solid var(--color-border-1)',
-                                    }}>T-{s.turn}</span>
-                                  )}
                                 </div>
-
-                                {isTool && (
-                                  <div style={{
-                                    height: 4, borderRadius: 2,
-                                    background: 'var(--color-fill-2)',
-                                    overflow: 'hidden',
-                                  }}>
-                                    <div style={{
-                                      height: '100%', borderRadius: 2,
-                                      width: '70%',
-                                      background: 'linear-gradient(90deg, #3B82F6, #8B5CF6, #3B82F6)',
-                                      backgroundSize: '200% 100%',
-                                      animation: 'progressFlow 2s ease-in-out infinite',
-                                    }} />
-                                  </div>
-                                )}
-                              </div>
-                            );
+                              );
+                            }
+                            return null;
                           })()}
-                          {m.status && m.text ? <div style={{
+
+
+                          {m.toolStatuses && m.toolStatuses.length > 0 && m.text ? (
+                            m.toolStatuses.every(t => t.done) ? (
+                              <div style={{
+                                fontSize: 11, color: 'var(--color-success)', padding: '4px 0 8px',
+                                display: 'flex', alignItems: 'center', gap: 6,
+                              }}>
+                                <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#00B42A', display: 'inline-block' }} />
+                                已获取 {m.toolStatuses.length} 项数据，正在生成分析...
+                              </div>
+                            ) : (
+                              <div style={{
+                                fontSize: 11, color: 'var(--color-text-3)', padding: '4px 0 8px',
+                                display: 'flex', alignItems: 'center', gap: 6,
+                              }}>
+                                <span style={{
+                                  width: 6, height: 6, borderRadius: '50%',
+                                  background: '#3B82F6', display: 'inline-block',
+                                  animation: 'pulse 1s ease-in-out infinite',
+                                }} />
+                                已获取 {m.toolStatuses.filter(t => t.done).length}/{m.toolStatuses.length} 项...
+                              </div>
+                            )
+                          ) : (m.status && m.text ? <div style={{
                             fontSize: 11, color: 'var(--color-text-3)', padding: '4px 0 8px',
                             display: 'flex', alignItems: 'center', gap: 6,
                           }}>
@@ -1226,8 +1331,8 @@ fetchPredictionResult(code).then((r: any) => {
                               background: '#3B82F6', display: 'inline-block',
                               animation: 'pulse 1s ease-in-out infinite',
                             }} />
-                            {m.status.phase === 'tool' ? `已获取${m.status.label}` : m.status.label}
-                          </div> : null}
+                            {m.status.label}
+                          </div> : null)}
                           {m.text ? (m.role === 'ai' ? (
                             sections.length > 0 ? (
                               <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
