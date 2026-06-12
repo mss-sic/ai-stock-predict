@@ -313,3 +313,119 @@ func (s *AIService) AnalyzeStock(userID uint, code, name, industry string, close
 	}
 	return result, nil
 }
+
+// ═══════════════════════════════════════════════════════════════
+// Function Calling Agent
+// ═══════════════════════════════════════════════════════════════
+
+type AgentMessage struct {
+	Role      string     `json:"role"`
+	Content   string     `json:"content,omitempty"`
+	ToolCalls []ToolCall `json:"tool_calls,omitempty"`
+	ToolCallID string   `json:"tool_call_id,omitempty"`
+	Name      string     `json:"name,omitempty"`
+}
+
+type ToolCall struct {
+	ID       string           `json:"id"`
+	Type     string           `json:"type"`
+	Function ToolCallFunction `json:"function"`
+}
+type ToolCallFunction struct {
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
+}
+
+// ChatCompletionAgent runs the agent loop with tools.
+// toolExecutor is called for each tool call; it returns the result string.
+// onChunk is called for each text chunk of the final response.
+func (s *AIService) ChatCompletionAgent(userID uint, history []map[string]string, tools []map[string]interface{}, toolExecutor func(name string, args map[string]interface{}) string, onChunk func(chunk string)) error {
+	cfg, err := s.GetConfig(userID)
+	if err != nil {
+		return err
+	}
+	if cfg.APIKey == "" {
+		return fmt.Errorf("AI API Key未配置")
+	}
+
+	msgs := make([]AgentMessage, len(history))
+	for i, h := range history {
+		role := h["role"]
+		if role == "ai" { role = "assistant" }
+		msgs[i] = AgentMessage{Role: role, Content: h["content"]}
+	}
+
+	const maxTurns = 5
+	for turn := 0; turn < maxTurns; turn++ {
+		body := map[string]interface{}{
+			"model":       cfg.ModelName,
+			"messages":    msgs,
+			"temperature": 0.7,
+			"max_tokens":  2048,
+			"tools":       tools,
+			"tool_choice": "auto",
+		}
+
+		b, _ := json.Marshal(body)
+		req, err := http.NewRequest("POST", cfg.BaseURL+"/v1/chat/completions", bytes.NewReader(b))
+		if err != nil { return err }
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
+		client := &http.Client{Timeout: 120 * time.Second}
+		resp, err := client.Do(req)
+		if err != nil { return fmt.Errorf("AI请求失败: %w", err) }
+		defer resp.Body.Close()
+		if resp.StatusCode != 200 {
+			respBody, _ := io.ReadAll(resp.Body)
+			return fmt.Errorf("AI API返回 %d: %s", resp.StatusCode, string(respBody))
+		}
+
+		var result struct {
+			Choices []struct {
+				Message struct {
+					Role      string    `json:"role"`
+					Content   string    `json:"content"`
+					ToolCalls []ToolCall `json:"tool_calls"`
+				} `json:"message"`
+				FinishReason string `json:"finish_reason"`
+			} `json:"choices"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			return fmt.Errorf("AI响应解析失败: %w", err)
+		}
+
+		if len(result.Choices) == 0 {
+			return fmt.Errorf("AI返回空结果")
+		}
+
+		choice := result.Choices[0]
+
+		// If tool calls, execute them
+		if len(choice.Message.ToolCalls) > 0 {
+			msgs = append(msgs, AgentMessage{
+				Role:      "assistant",
+				Content:   choice.Message.Content,
+				ToolCalls: choice.Message.ToolCalls,
+			})
+			for _, tc := range choice.Message.ToolCalls {
+				var args map[string]interface{}
+				json.Unmarshal([]byte(tc.Function.Arguments), &args)
+				result := toolExecutor(tc.Function.Name, args)
+				msgs = append(msgs, AgentMessage{
+					Role:       "tool",
+					ToolCallID: tc.ID,
+					Name:       tc.Function.Name,
+					Content:    result,
+				})
+			}
+			continue // Next turn
+		}
+
+		// Final text response
+		if choice.Message.Content != "" {
+			onChunk(choice.Message.Content)
+		}
+		return nil
+	}
+	return fmt.Errorf("Agent exceeded max turns (%d)", maxTurns)
+}
