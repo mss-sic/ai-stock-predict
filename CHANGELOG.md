@@ -1,56 +1,65 @@
-# 发布日志
+# Changelog
 
-## v1.2.0 (2026-06-13)
+## v1.3.0 (2026-06-13)
 
-### 数据层
+### 回测模块
 
-- **成交量/成交额单位修复**：修正 Collector 从腾讯 API 获取数据时 volume 以手存储、amount 公式错误的问题。修复后 volume 统一为股，amount = close × volume。含 301 万行历史数据修复脚本 `scripts/collector/fix_volume_unit.py`
-- **PE/PB/PS 数据回填**：财报覆盖从 230 只扩展到 530 只（含四大行等大市值股），运行 `backfill_indicator.py` 回填 2024-07 至今 PE/PB/PS/总市值数据（20.9 万条），表 `stocks_daily_indicator` 从 5 天扩展到 ~580 个交易日，覆盖 3,542 只股票
-- **文件导入增强**：K 线 CSV 导入同步写入 `stocks_daily_indicator`（PE/PB/PS/市值），导入结果 API 新增 `importedIndicator` 字段
-- **预测导入性能**：`/internal/predictions/sync` 从 71.7 万次逐条 `FirstOrCreate` 改为批量 `ON CONFLICT`，查询从 ~1,440,000 降至 ~370，耗时从数分钟→2-5 秒
+- **最后交易日强制清仓** — 回测最后交易日以收盘价卖出全部持仓，不执行/生成买入信号
+- **当日卖出持仓展示** — 实时持仓快照保留当日已卖出股票（半透明 + 已卖出标记 + 盈亏金额）
+- **收益分析 Tab** — 回测详情新增按股票汇总收益表格，支持列排序（盈亏/收益率/买卖次数）
+- **个股收益详情** — 点击股票查看 K 线图（买入红圈 B / 卖出绿圈 S，含价格和收益率）+ 交易记录表
+- **修复** 回测完成时持仓快照显示第一日数据（limit=1 → 取最后一条快照）
 
-### 数据采集
+### K 线图组件
 
-- `backfill_financial.py`：改为按市值优先采集，支持 limit 参数，已覆盖 530 只股票
-- 4 个采集脚本 volume 单位修正：`batch_collect.py`、`daily_k.py`、`backfill_kline_all.py`、`backfill_one.py`（手×100→股，amount = close×vol）
-- 新增 `fix_volume_unit.py`：批量修复 301 万行历史成交量/成交额数据
+- **买卖标记重构** — 买入标记在蜡烛下方（红色 B 圈），卖出在蜡烛上方（绿色 S 圈），天然错开不重叠
+- **新增 sell 类型标记** — 之前缺失，统一为 board / buy / sell 三种
+- **成本线** — 支持 `costLine` 属性，橙色水平虚线和标签
+- 标记显示价格和盈亏百分比
 
-### 策略回测
+### 股票详情
 
-- **新增指标**（全部 batch 预加载，回测零 N+1 查询）：
-  - MACD_DIF / MACD_DEA（拆分缓存）
-  - MA_5 / MA_10 / MA_20 / MA_30 / MA_60
-  - RSI_6 / RSI_12 / RSI_24（多周期）
-  - PSY_12 / PSY_MA（心理线）
-  - 布林线上/中/下轨（`boll_upper` / `boll_middle` / `boll_lower`）
-- **PE/PB 回测修复**：预加载中加入 PE/PB/PS/总市值 batch 查询，缺失数据返回 false 而非静默通过
-- `IndicatorCache` 新增 `hasIndicatorData` 追踪字段，缺失股票明确跳过条件评估
+- 若持有该股票，K 线图自动显示持仓成本线
 
-### 前端
+### 持股管理
 
-- 成交量显示统一：顶部统计 → 手，表格 → 万手，K 线悬浮 → 万手
-- `StockDetailPage.tsx`：移除 amount 错误的 ×1e4，改为原值
-- `KLineChart.tsx`：悬浮提示成交量单位修正
-- AI 对话卡片样式优化（`AIAnalysisCard.tsx`）
-- 设置页增加 Tab 分隔（`SettingsPage.tsx`）
+- 所有数值列支持点击列头排序
+- 股票名称可点击跳转详情页
 
-### 概念采集
+### UI
 
-- `concept_collector.go`：成分股/板块写入从逐条 `FirstOrCreate` 改为 `CreateInBatches(500)` + `OnConflict`
+- 回测 Tab 图标 Emoji → lucide-react（ClipboardList / FileSearch / PieChart / Wallet / TrendingUp / List）
+- 去除冗余 emoji 前缀
 
-### 新增文件
+### 基础设施
 
-- `scripts/collector/fix_volume_unit.py` — 成交量历史修复脚本
-- `server/internal/model/ai_system_config.go` — AI 系统配置模型
-- `CHANGELOG.md` — 本文件
+- 修复 `/tmp` 目录下二进制被 macOS 清理机制 SIGKILL 的问题
+- 新增 `CHANGELOG.md`
 
----
 
-## v1.1.0 及之前
+## v1.2.0 (2026-06-10)
 
-- 信号层重构（`BacktestSignal`，T 日收盘生成信号 → T+1 日开盘执行）
-- 交易账户/持仓管理
-- PK 活动系统（前三名金银铜牌展示、详情页 K 收益曲线）
-- AI 对话分析（混合 JSON Widget 流式解析、系统提示词配置）
-- 概念板块采集（东方财富 API）
-- 文件导入（Excel + CSV）
+- 成交量单位修复（股/手统一转换）
+- PE/PB 指标回填脚本 + 策略代码修复
+- 新增换手率/成交额/量比/振幅等指标采集
+- 文件导入大文件超时优化
+- 数据库迁移文件规范化
+
+
+## v1.1.0 (2026-06-05)
+
+- 暗色主题全面适配（CSS 变量替换硬编码颜色）
+- AI 分析提示词系统配置化
+- PK 活动领奖台优化（前三名金/银/铜卡片）
+- 前端混合格式 AI 对话渲染
+- 历史对话上下文支持
+
+
+## v1.0.0
+
+- 初始版本
+- 策略回测引擎 + 信号层重构
+- 股票数据采集（行情/K线/指标/财务/研报）
+- AI 对话分析
+- PK 活动系统
+- 数据管理（导入/导出）
