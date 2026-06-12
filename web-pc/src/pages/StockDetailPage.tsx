@@ -1,5 +1,6 @@
 import { useEffect, useState, useMemo, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
+import AIAnalysisCard, { tryParseAnalysis } from '../components/AIAnalysisCard';
 import { useParams } from 'react-router-dom';
 import { Button, Tag, Input, Tooltip, Modal, Select } from '@arco-design/web-react';
 import {
@@ -1084,15 +1085,21 @@ fetchPredictionResult(code).then((r: any) => {
                         background: m.role === 'ai' ? 'linear-gradient(135deg, var(--arcoblue-6), var(--purple-6))' : 'var(--gray-3)',
                         color: m.role === 'ai' ? '#fff' : 'var(--gray-8)',
                       }}>{m.role === 'ai' ? 'AI' : '我'}</div>
-                      <div style={{
-                        maxWidth: '78%', padding: '9px 14px', borderRadius: 8, fontSize: 13, lineHeight: '20px',
-                        background: m.role === 'ai' ? 'var(--color-bg-2)' : 'var(--color-primary)',
-                        color: m.role === 'ai' ? 'var(--color-text-1)' : '#fff',
-                        border: m.role === 'ai' ? '1px solid var(--color-border-1)' : 'none',
-                        whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-                      }}>
-                        {m.text ? (m.role === 'ai' ? (
-                          <ReactMarkdown
+                      {(() => {
+                        const isStructured = m.role === 'ai' && m.text && tryParseAnalysis(m.text);
+                        return <div style={{
+                          maxWidth: isStructured ? '100%' : '78%',
+                          padding: isStructured ? '0' : '9px 14px',
+                          borderRadius: 8, fontSize: 13, lineHeight: '20px',
+                          background: m.role === 'ai' ? (isStructured ? 'transparent' : 'var(--color-bg-2)') : 'var(--color-primary)',
+                          color: m.role === 'ai' ? 'var(--color-text-1)' : '#fff',
+                          border: m.role === 'ai' ? (isStructured ? 'none' : '1px solid var(--color-border-1)') : 'none',
+                          whiteSpace: isStructured ? 'normal' : 'pre-wrap',
+                          wordBreak: 'break-word',
+                        }}>
+                          {m.text ? (m.role === 'ai' ? (
+                            isStructured ? <AIAnalysisCard key={`struct-${i}`} data={isStructured} /> :
+                            <ReactMarkdown key={`md-${i}`}
                             components={{
                               table: ({ children }) => <table style={{ borderCollapse: 'collapse', width: '100%', margin: '8px 0', fontSize: 12 }}>{children}</table>,
                               th: ({ children }) => <th style={{ border: '1px solid var(--color-border-1)', padding: '4px 8px', background: 'var(--color-fill-2)', textAlign: 'left' }}>{children}</th>,
@@ -1111,8 +1118,9 @@ fetchPredictionResult(code).then((r: any) => {
                             {m.text}
                           </ReactMarkdown>
                         ) : m.text) : <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} />}
+                        </div>
+                      })()}
                       </div>
-                    </div>
                   ))}
                 </div>
               )}
