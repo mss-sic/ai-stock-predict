@@ -348,11 +348,14 @@ func (s *AIService) ChatCompletionAgent(userID uint, history []map[string]string
 		return fmt.Errorf("AI API Key未配置")
 	}
 
-	msgs := make([]AgentMessage, len(history))
-	for i, h := range history {
+	msgs := make([]AgentMessage, 0, len(history))
+	for _, h := range history {
+		if h["content"] == "" {
+			continue
+		}
 		role := h["role"]
 		if role == "ai" { role = "assistant" }
-		msgs[i] = AgentMessage{Role: role, Content: h["content"]}
+		msgs = append(msgs, AgentMessage{Role: role, Content: h["content"]})
 	}
 
 	const maxTurns = 5
@@ -447,11 +450,14 @@ func (s *AIService) ChatCompletionAgentStream(userID uint, history []map[string]
 		modelName = sysCfg.ModelName
 	}
 
-	msgs := make([]AgentMessage, len(history))
-	for i, h := range history {
+	msgs := make([]AgentMessage, 0, len(history))
+	for _, h := range history {
+		if h["content"] == "" {
+			continue
+		}
 		role := h["role"]
 		if role == "ai" { role = "assistant" }
-		msgs[i] = AgentMessage{Role: role, Content: h["content"]}
+		msgs = append(msgs, AgentMessage{Role: role, Content: h["content"]})
 	}
 
 	const maxTurns = 5

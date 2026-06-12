@@ -79,6 +79,9 @@ func (h *AIHandler) Analyze(c *gin.Context) {
 		{"role": "system", "content": sysMsg},
 	}
 	for _, h := range chronHistory {
+		if h.Content == "" {
+			continue
+		}
 		role := h.Role
 		if role == "ai" { role = "assistant" }
 		messages = append(messages, map[string]string{"role": role, "content": h.Content})
@@ -141,6 +144,9 @@ func (h *AIHandler) AnalyzeStream(c *gin.Context) {
 	const maxCtx = 2400
 	for i := len(history) - 1; i >= 0; i-- {
 		txt := history[i].Content
+		if txt == "" {
+			continue
+		}
 		if total+len(txt) > maxCtx {
 			remain := maxCtx - total
 			if remain < 20 { break }
@@ -628,6 +634,9 @@ func (h *AIHandler) analyzeStreamAgent(c *gin.Context, code, question string, ai
 	const maxCtx = 3000
 	for i := len(history) - 1; i >= 0; i-- {
 		txt := history[i].Content
+		if txt == "" {
+			continue
+		}
 		if total+len(txt) > maxCtx {
 			remain := maxCtx - total
 			if remain < 20 { break }
@@ -673,7 +682,9 @@ func (h *AIHandler) analyzeStreamAgent(c *gin.Context, code, question string, ai
 		fmt.Fprintf(w, "data: %s\n\n", string(errData))
 		w.Flush()
 	} else {
-		db.PG.Create(&model.AIConversation{Code: code, Role: "ai", Content: fullReply})
+		if fullReply != "" {
+			db.PG.Create(&model.AIConversation{Code: code, Role: "ai", Content: fullReply})
+		}
 		fmt.Fprintf(w, "data: [DONE]\n\n")
 		w.Flush()
 	}
