@@ -336,7 +336,7 @@ export default function PkEntryDetailPage() {
                         const c = cmap[v] || cmap.info;
                         return <span style={{ padding: '2px 8px', borderRadius: 4, background: c.bg, color: c.color, fontSize: 11, fontWeight: 600 }}>{c.text}</span>;
                       }},
-                      { title: '消息', dataIndex: 'msg', render: (v: string) => <span style={{ fontSize: 12, fontFamily: 'monospace', lineHeight: '20px' }}>{v}</span> },
+                      { title: '消息', dataIndex: 'message', render: (v: string) => <span style={{ fontSize: 12, fontFamily: 'monospace', lineHeight: '20px' }}>{v}</span> },
                     ]}
                     data={logs?.map((l: any, i: number) => ({ ...l, key: i })) || []}
                     rowKey="key"
