@@ -1,3 +1,6 @@
 /server
 *.exe
 server-bin
+server.log
+server2
+server_test
