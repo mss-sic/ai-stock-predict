@@ -237,12 +237,17 @@ export const fetchStockPool = () => api.get('/strategies/stock-pool');
 
 
 // ── Holdings ──
+export const fetchHoldingsSummary = () => api.get("/holdings/summary");
 export const fetchHoldings = () => api.get("/holdings");
-export const createHolding = (stockCode: string, costPrice: number, quantity: number) =>
-  api.post("/holdings", { stockCode, costPrice, quantity });
-export const updateHolding = (id: number, costPrice: number, quantity: number) =>
-  api.put(`/holdings/${id}`, { costPrice, quantity });
+export const createHolding = (stockCode: string, costPrice: number, quantity: number, buyDate?: string) =>
+  api.post("/holdings", { stockCode, costPrice, quantity, buyDate });
+export const updateHolding = (id: number, costPrice: number, quantity: number, buyDate?: string) =>
+  api.put(`/holdings/${id}`, { costPrice, quantity, buyDate });
 export const deleteHolding = (id: number) => api.delete(`/holdings/${id}`);
+export const fetchAccount = () => api.get("/holdings/account");
+export const updateAccount = (action: string, amount: number) =>
+  api.put("/holdings/account", { action, amount });
+export const fetchTradeRecords = () => api.get("/holdings/trades");
 
 // ── Risk APIs ──
 export const fetchRiskAlerts = () => api.get('/risks');

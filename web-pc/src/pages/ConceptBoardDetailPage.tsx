@@ -31,12 +31,12 @@ export default function ConceptBoardDetailPage() {
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
         <button onClick={() => navigate(-1)} style={{
-          width: 32, height: 32, borderRadius: 6, border: '1px solid #e5e6eb',
-          background: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center'
+          width: 32, height: 32, borderRadius: 6, border: '1px solid var(--color-border-1)',
+          background: 'var(--color-bg-1)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center'
         }}>
           <ArrowLeft size={16} color="#4e5969" />
         </button>
-        <div style={{ width: 36, height: 36, borderRadius: 8, background: 'linear-gradient(135deg, #165dff, #722ed1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ width: 36, height: 36, borderRadius: 8, background: 'linear-gradient(135deg, var(--color-primary), var(--purple-6))', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <Layers size={18} color="#fff" />
         </div>
         <div>
@@ -47,33 +47,33 @@ export default function ConceptBoardDetailPage() {
 
       {/* Stats Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
-        <div style={{ background: '#fff', borderRadius: 8, border: '1px solid #e5e6eb', padding: '14px 16px' }}>
+        <div style={{ background: 'var(--color-bg-1)', borderRadius: 8, border: '1px solid var(--color-border-1)', padding: '14px 16px' }}>
           <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 4 }}>成分股数量</div>
           <div style={{ fontSize: 22, fontWeight: 600, color: 'var(--color-text-1)' }}>{total}</div>
         </div>
-        <div style={{ background: '#fff', borderRadius: 8, border: '1px solid #e5e6eb', padding: '14px 16px' }}>
+        <div style={{ background: 'var(--color-bg-1)', borderRadius: 8, border: '1px solid var(--color-border-1)', padding: '14px 16px' }}>
           <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 4 }}>平均涨跌</div>
           <div style={{ fontSize: 22, fontWeight: 600, color: (avgChgPct || 0) >= 0 ? '#f53f3f' : '#00b42a' }}>
             {(avgChgPct || 0) >= 0 ? '+' : ''}{(avgChgPct || 0).toFixed(2)}%
           </div>
         </div>
-        <div style={{ background: '#fff', borderRadius: 8, border: '1px solid #e5e6eb', padding: '14px 16px' }}>
+        <div style={{ background: 'var(--color-bg-1)', borderRadius: 8, border: '1px solid var(--color-border-1)', padding: '14px 16px' }}>
           <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 4 }}>上涨</div>
-          <div style={{ fontSize: 22, fontWeight: 600, color: '#f53f3f', display: 'flex', alignItems: 'center', gap: 4 }}>
+          <div style={{ fontSize: 22, fontWeight: 600, color: 'var(--stock-up)', display: 'flex', alignItems: 'center', gap: 4 }}>
             <TrendingUp size={16} />{upCount || 0}
           </div>
         </div>
-        <div style={{ background: '#fff', borderRadius: 8, border: '1px solid #e5e6eb', padding: '14px 16px' }}>
+        <div style={{ background: 'var(--color-bg-1)', borderRadius: 8, border: '1px solid var(--color-border-1)', padding: '14px 16px' }}>
           <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 4 }}>下跌</div>
-          <div style={{ fontSize: 22, fontWeight: 600, color: '#00b42a', display: 'flex', alignItems: 'center', gap: 4 }}>
+          <div style={{ fontSize: 22, fontWeight: 600, color: 'var(--stock-down)', display: 'flex', alignItems: 'center', gap: 4 }}>
             <TrendingDown size={16} />{downCount || 0}
           </div>
         </div>
       </div>
 
       {/* Stock List */}
-      <div style={{ background: '#fff', borderRadius: 8, border: '1px solid #e5e6eb', overflow: 'hidden' }}>
-        <div style={{ padding: '12px 16px', borderBottom: '1px solid #f2f3f5', display: 'flex', alignItems: 'center', gap: 8 }}>
+      <div style={{ background: 'var(--color-bg-1)', borderRadius: 8, border: '1px solid var(--color-border-1)', overflow: 'hidden' }}>
+        <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--color-border-1)', display: 'flex', alignItems: 'center', gap: 8 }}>
           <BarChart3 size={14} color="#4e5969" />
           <span style={{ fontSize: 14, fontWeight: 600 }}>成分股列表</span>
         </div>
@@ -91,7 +91,7 @@ export default function ConceptBoardDetailPage() {
             <tbody>
               {(stocks || []).map((s: any, i: number) => (
                 <tr key={i} onClick={() => navigate(`/stock/${s.code}`)} style={{
-                  borderBottom: '1px solid #f2f3f5', cursor: 'pointer',
+                  borderBottom: '1px solid var(--color-border-1)', cursor: 'pointer',
                   transition: 'background .15s',
                 }}
                   onMouseEnter={e => (e.currentTarget.style.background = 'var(--color-fill-2)')}

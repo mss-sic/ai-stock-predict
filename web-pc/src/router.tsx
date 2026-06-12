@@ -22,6 +22,7 @@ import AdminPage from './pages/AdminPage';
 import PkListPage from './pages/PkListPage';
 import PkDetailPage from './pages/PkDetailPage';
 import PkAdminPage from './pages/PkAdminPage';
+import PkEntryDetailPage from './pages/PkEntryDetailPage';
 
 function ErrorBoundary() {
   const error = useRouteError() as any;
@@ -32,7 +33,7 @@ function ErrorBoundary() {
       <p style={{ color: 'var(--color-text-3)', fontSize: 13, maxWidth: 400, textAlign: 'center' }}>
         {error?.status === 404 ? '页面不存在' : error?.message || '未知错误'}
       </p>
-      <a href="/" style={{ color: '#165dff', fontSize: 13 }}>返回首页</a>
+      <a href="/" style={{ color: 'var(--color-primary)', fontSize: 13 }}>返回首页</a>
     </div>
   );
 }
@@ -91,6 +92,7 @@ const router = createBrowserRouter([
           { path: 'pk', element: <PkListPage /> },
           { path: 'pk/:id', element: <PkDetailPage /> },
           { path: 'pk/create', element: <PkAdminPage /> },
+          { path: 'pk/:id/entry/:entryId', element: <PkEntryDetailPage /> },
           { path: '*', element: <Navigate to="/" replace /> },
         ],
       },

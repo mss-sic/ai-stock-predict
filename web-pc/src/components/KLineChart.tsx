@@ -55,8 +55,8 @@ export default function KLineChart({
   onRangeChange,
 }: Props) {
   const { isDark } = useTheme();
-  const UP = isDark ? '#f87171' : '#F53F3F';
-  const DOWN = isDark ? '#4ade80' : '#00B42A';
+  const UP = isDark ? '#f85149' : '#F53F3F';
+  const DOWN = isDark ? '#3fb950' : '#00B42A';
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const [tooltipPos, setTooltipPos] = useState<{ x: number; y: number } | null>(null);
@@ -95,12 +95,12 @@ export default function KLineChart({
   const visCount = Math.min(candlesPerScreen + predExtra, totalN);
 
   // Theme colors
-  const chartBg = isDark ? '#1a1a2e' : '#fff';
-  const gridColor = isDark ? '#2d2d44' : '#F2F3F5';
+  const chartBg = isDark ? '#121215' : '#fff';
+  const gridColor = isDark ? '#27272a' : '#F2F3F5';
   const textColor = isDark ? '#8a8d91' : 'var(--color-text-3)';
   const axisColor = isDark ? '#b0b3b8' : '#4E5969';
   const crosshairColor = isDark ? '#b0b3b8' : '#C9CDD4';
-  const predBg = isDark ? '#16213e' : '#F7F8FA';
+  const predBg = isDark ? '#1c1c20' : '#F7F8FA';
   // ═══ All hooks must be called unconditionally ═══
   const W = 960;
   const H = height;
@@ -679,7 +679,7 @@ export default function KLineChart({
 
         {/* Legend */}
         <g transform={`translate(${padL}, ${padT - 1})`} fontSize="10">
-          <text x="0" y="0" fill={isDark ? "#fb923c" : "#F77234"}>— MA5</text>
+          <text x="0" y="0" fill={isDark ? "#d29922" : "#F77234"}>— MA5</text>
           <text x="50" y="0" fill="#722ED1">— MA10</text>
           <text x="108" y="0" fill="#3491FA">— MA20</text>
           {predictionLines.length > 0 && <text x="170" y="0" fill={predictionLines[0].color}>--- 预测</text>}
@@ -782,7 +782,7 @@ export default function KLineChart({
             </>
           ) : (
             <>
-              <div style={{ fontWeight: 600, marginBottom: 4, color: '#FFB400' }}>📈 预测价格</div>
+              <div style={{ fontWeight: 600, marginBottom: 4, color: 'var(--color-warning-text)' }}>📈 预测价格</div>
               {hoverPreds.map((p, i) => (
                 <div key={i}>
                   <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: 3, background: p.color, marginRight: 6 }} />
@@ -797,7 +797,7 @@ export default function KLineChart({
               {' '}({(safeData[hoverIdx - 1]?.close ?? 0) > 0 ? (((hoverData.close - (safeData[hoverIdx - 1]?.close ?? 0)) / (safeData[hoverIdx - 1]?.close ?? 1)) * 100).toFixed(2) : '0.00'}%)
             </div>
           )}
-          {hoverIdx != null && (() => { const bm = markers.find(m => m.type === 'board' && m.i === hoverIdx); return bm?.rank != null ? (<div style={{ color: '#9333ea', fontWeight: 600, marginTop: 2 }}>🏆 榜单第 {bm.rank} 名</div>) : null; })()}
+          {hoverIdx != null && (() => { const bm = markers.find(m => m.type === 'board' && m.i === hoverIdx); return bm?.rank != null ? (<div style={{ color: 'var(--purple-6)', fontWeight: 600, marginTop: 2 }}>🏆 榜单第 {bm.rank} 名</div>) : null; })()}
         </div>
       )}
     </div>

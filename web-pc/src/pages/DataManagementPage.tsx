@@ -48,9 +48,9 @@ interface PhaseResult { phase: string; total: number; new: number; skipped: numb
 interface DataStat { key: string; label: string; count: number; updatedAt?: string; }
 
 function Toast({ type, msg, onClose }: { type: 'success' | 'error' | 'info'; msg: string; onClose: () => void }) {
-  const colors = { success: '#f0fff4', error: '#ffece8', info: '#e8f3ff' };
-  const borders = { success: '#00b42a', error: '#f53f3f', info: '#165dff' };
-  const icons = { success: <CheckCircle size={14} color="#00b42a" />, error: <XCircle size={14} color="#f53f3f" />, info: <Activity size={14} color="#165dff" /> };
+  const colors = { success: 'var(--color-success-bg)', error: 'var(--color-danger-bg)', info: 'var(--color-info-bg)' };
+  const borders = { success: 'var(--color-success)', error: 'var(--color-danger)', info: 'var(--color-primary)' };
+  const icons = { success: <CheckCircle size={14} color="var(--color-success)" />, error: <XCircle size={14} color="var(--color-danger)" />, info: <Activity size={14} color="var(--color-primary)" /> };
   useEffect(() => { const t = setTimeout(onClose, 3000); return () => clearTimeout(t); }, [onClose]);
   return (
     <div style={{ position: 'fixed', top: 20, right: 20, zIndex: 9999, padding: '10px 16px', borderRadius: 6, fontSize: 13, background: colors[type], border: `1px solid ${borders[type]}`, display: 'flex', alignItems: 'center', gap: 8, boxShadow: '0 2px 8px rgba(0,0,0,0.1)', maxWidth: 400 }}>
@@ -199,8 +199,8 @@ export default function DataManagementPage() {
           50% { opacity: 0.5; transform: scale(1.3); }
         }
         @keyframes collectBgPulse {
-          0%, 100% { background-color: #fff3e0; }
-          50% { background-color: #ffe0b2; }
+          0%, 100% { background-color: var(--color-warning-bg); }
+          50% { background-color: var(--color-warning-text); }
         }
       `}</style>
       {toast && <Toast type={toast.type} msg={toast.msg} onClose={() => setToast(null)} />}
@@ -210,7 +210,7 @@ export default function DataManagementPage() {
       </div>
 
       {/* Tab bar */}
-      <div style={{ display: 'flex', gap: 0, marginBottom: 16, background: '#fff', borderRadius: 6, border: '1px solid #e5e6eb', overflow: 'hidden' }}>
+      <div style={{ display: 'flex', gap: 0, marginBottom: 16, background: 'var(--color-bg-1)', borderRadius: 6, border: '1px solid var(--color-border-1)', overflow: 'hidden' }}>
         {[
           { key: 'overview', label: '数据概览', icon: <BarChart3 size={14} /> },
           { key: 'tasks', label: '定时任务', icon: <Timer size={14} /> },
@@ -218,7 +218,7 @@ export default function DataManagementPage() {
           { key: 'collect', label: '采集控制台', icon: <Terminal size={14} /> },
           { key: 'history', label: '采集记录', icon: <History size={14} /> },
         ].map(t => (
-          <button key={t.key} onClick={() => setTab(t.key as any)} style={{ padding: '10px 20px', border: 'none', cursor: 'pointer', fontSize: 13, background: tab === t.key ? '#e8f3ff' : 'transparent', color: tab === t.key ? '#165dff' : 'var(--color-text-2)', fontWeight: tab === t.key ? 500 : 400, display: 'flex', alignItems: 'center', gap: 6, borderRight: '1px solid #e5e6eb' }}>{t.icon}{t.label}</button>
+          <button key={t.key} onClick={() => setTab(t.key as any)} style={{ padding: '10px 20px', border: 'none', cursor: 'pointer', fontSize: 13, background: tab === t.key ? 'var(--color-info-bg)' : 'transparent', color: tab === t.key ? 'var(--color-primary)' : 'var(--color-text-2)', fontWeight: tab === t.key ? 500 : 400, display: 'flex', alignItems: 'center', gap: 6, borderRight: '1px solid var(--color-border-1)' }}>{t.icon}{t.label}</button>
         ))}
       </div>
 
@@ -227,7 +227,7 @@ export default function DataManagementPage() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div className="card">
             <div className="card-header">
-              <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Database size={16} color="#165dff" /><span style={{ fontSize: 15, fontWeight: 600 }}>核心数据统计</span></span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Database size={16} color="var(--color-primary)" /><span style={{ fontSize: 15, fontWeight: 600 }}>核心数据统计</span></span>
               <Button size="small" type="text" icon={<RefreshCw size={12} />} loading={statsLoading} onClick={loadDataStats}>刷新</Button>
             </div>
             <div className="card-body" style={{ padding: '16px 20px' }}>
@@ -248,7 +248,7 @@ export default function DataManagementPage() {
                     const def = iconDefs[stat.key] || { icon: <Database size={18} />, color: 'var(--color-text-3)' };
                     const isSelected = selectedStat === stat.key;
                     return (
-                      <div key={stat.key} onClick={() => loadDetail(stat.key)} style={{ border: isSelected ? `2px solid ${def.color}` : '1px solid #e5e6eb', borderRadius: 8, padding: isSelected ? '13px 15px' : '14px 16px', background: isSelected ? `${def.color}08` : '#fff', cursor: 'pointer', transition: 'all 0.15s' }}
+                      <div key={stat.key} onClick={() => loadDetail(stat.key)} style={{ border: isSelected ? `2px solid ${def.color}` : '1px solid var(--color-border-1)', borderRadius: 8, padding: isSelected ? '13px 15px' : '14px 16px', background: isSelected ? `${def.color}08` : 'var(--color-bg-1)', cursor: 'pointer', transition: 'all 0.15s' }}
                         onMouseEnter={e => { if (!isSelected) { (e.currentTarget as HTMLElement).style.borderColor = def.color; (e.currentTarget as HTMLElement).style.boxShadow = '0 2px 8px rgba(0,0,0,0.08)'; } }}
                         onMouseLeave={e => { if (!isSelected) { (e.currentTarget as HTMLElement).style.borderColor = 'var(--color-border-1)'; (e.currentTarget as HTMLElement).style.boxShadow = 'none'; } }}>
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}><span style={{ fontSize: 13, color: 'var(--color-text-2)', fontWeight: 500 }}>{stat.label}</span><span style={{ color: def.color }}>{def.icon}</span></div>
@@ -264,11 +264,11 @@ export default function DataManagementPage() {
           {selectedStat && (
             <div className="card">
               <div className="card-header">
-                <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Database size={16} color="#165dff" /><span style={{ fontSize: 15, fontWeight: 600 }}>{dataStats.find(s => s.key === selectedStat)?.label || selectedStat} 明细</span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Database size={16} color="var(--color-primary)" /><span style={{ fontSize: 15, fontWeight: 600 }}>{dataStats.find(s => s.key === selectedStat)?.label || selectedStat} 明细</span>
                   <span className="muted" style={{ marginLeft: 8 }}>{detailData.length.toLocaleString()} 条{detailData.filter((d: any) => d.count === 0).length > 0 && `（${detailData.filter((d: any) => d.count === 0).length} 条缺失）`}</span>
                 </span>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <input placeholder="搜索代码或名称..." value={detailSearch} onChange={e => setDetailSearch(e.target.value)} style={{ padding: '4px 10px', border: '1px solid #e5e6eb', borderRadius: 4, fontSize: 12, width: 160, outline: 'none' }} />
+                  <input placeholder="搜索代码或名称..." value={detailSearch} onChange={e => setDetailSearch(e.target.value)} style={{ padding: '4px 10px', border: '1px solid var(--color-border-1)', borderRadius: 4, fontSize: 12, width: 160, outline: 'none' }} />
                   <Button size="small" type="text" icon={<RefreshCw size={12} />} loading={detailLoading} onClick={() => loadDetail(selectedStat)}>刷新</Button>
                   <Button size="small" type="text" icon={<X size={12} />} onClick={() => { setSelectedStat(null); setDetailData([]); }}>关闭</Button>
                 </div>
@@ -280,8 +280,8 @@ export default function DataManagementPage() {
                       { title: '代码', dataIndex: 'code', width: 90, render: (v: string) => <span style={{ fontFamily: 'monospace', fontSize: 12 }}>{v || '-'}</span> },
                       { title: '名称', dataIndex: 'name', width: 120, ellipsis: true },
                       { title: '记录数', dataIndex: 'count', width: 80, render: (v: number) => <span style={{ fontWeight: 600, color: v === 0 ? '#f53f3f' : v > 0 ? '#00b42a' : 'var(--color-text-3)' }}>{v.toLocaleString()}</span> },
-                      { title: '最早', dataIndex: 'firstDate', width: 100, render: (v: string) => v ? <span style={{ fontSize: 12, color: 'var(--color-text-2)' }}>{new Date(v).toLocaleDateString('zh-CN')}</span> : <span style={{ color: '#c9cdd4' }}>-</span> },
-                      { title: '最晚', dataIndex: 'lastDate', width: 100, render: (v: string) => v ? <span style={{ fontSize: 12, color: 'var(--color-text-2)' }}>{new Date(v).toLocaleDateString('zh-CN')}</span> : <span style={{ color: '#c9cdd4' }}>-</span> },
+                      { title: '最早', dataIndex: 'firstDate', width: 100, render: (v: string) => v ? <span style={{ fontSize: 12, color: 'var(--color-text-2)' }}>{new Date(v).toLocaleDateString('zh-CN')}</span> : <span style={{ color: 'var(--color-text-3)' }}>-</span> },
+                      { title: '最晚', dataIndex: 'lastDate', width: 100, render: (v: string) => v ? <span style={{ fontSize: 12, color: 'var(--color-text-2)' }}>{new Date(v).toLocaleDateString('zh-CN')}</span> : <span style={{ color: 'var(--color-text-3)' }}>-</span> },
                     ]} border={false} stripe />
                 )}
               </div>
@@ -308,7 +308,7 @@ export default function DataManagementPage() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div className="card">
             <div className="card-header">
-              <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Timer size={16} color="#165dff" /><span style={{ fontSize: 15, fontWeight: 600 }}>定时任务</span><span className="muted" style={{ marginLeft: 8 }}>{scheduledTasks.filter((t: any) => t.enabled).length}/{scheduledTasks.length} 已启用</span></span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Timer size={16} color="var(--color-primary)" /><span style={{ fontSize: 15, fontWeight: 600 }}>定时任务</span><span className="muted" style={{ marginLeft: 8 }}>{scheduledTasks.filter((t: any) => t.enabled).length}/{scheduledTasks.length} 已启用</span></span>
               <div style={{ display: 'flex', gap: 6 }}><Button size="small" icon={<RefreshCw size={12} />} loading={tasksLoading} onClick={loadTasks}>刷新</Button><Button size="small" icon={<Zap size={12} />} onClick={handleInitDefaults}>初始化默认任务</Button></div>
             </div>
             <div className="card-body" style={{ padding: 0 }}>
@@ -339,7 +339,7 @@ export default function DataManagementPage() {
                           ? <Tag color="red" style={{ cursor: 'pointer' }} title="任务可能卡住，点击重置">超时</Tag>
                           : <Tag color="blue">运行中</Tag>;
                       }
-                      return <span style={{ color: '#c9cdd4', fontSize: 12 }}>-</span>;
+                      return <span style={{ color: 'var(--color-text-3)', fontSize: 12 }}>-</span>;
                     } },
                     { title: '上次运行', dataIndex: 'lastRun', width: 125, render: (v: string) => <span style={{ fontSize: 12, color: 'var(--color-text-2)' }}>{v ? new Date(v).toLocaleString('zh-CN') : '-'}</span> },
                     { title: '下次运行', dataIndex: 'nextRun', width: 125, render: (v: string) => <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>{v ? new Date(v).toLocaleString('zh-CN') : '-'}</span> },
@@ -362,7 +362,7 @@ export default function DataManagementPage() {
               )}
             </div>
           </div>
-          <Modal title={<span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Activity size={16} color="#165dff" />运行日志 — {logModalTaskName}</span>} visible={logModalVisible} onCancel={() => { setLogModalVisible(false); setTaskLogs([]); }} footer={null} style={{ width: 800 }} unmountOnExit>
+          <Modal title={<span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Activity size={16} color="var(--color-primary)" />运行日志 — {logModalTaskName}</span>} visible={logModalVisible} onCancel={() => { setLogModalVisible(false); setTaskLogs([]); }} footer={null} style={{ width: 800 }} unmountOnExit>
             <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><span className="muted">最近 30 条记录</span><Button size="small" type="text" icon={<RefreshCw size={12} />} loading={taskLogsLoading} onClick={() => selectedTaskId && openTaskLogs(selectedTaskId, logModalTaskName)}>刷新</Button></div>
             {taskLogs.length === 0 && !taskLogsLoading ? <div style={{ padding: 40, textAlign: 'center', color: 'var(--color-text-3)', fontSize: 13 }}>暂无运行日志</div> : (
               <Table data={taskLogs} rowKey="id" size="small"
@@ -373,7 +373,7 @@ export default function DataManagementPage() {
                   { title: '错误', dataIndex: 'totalErr', width: 50, render: (v: number) => v > 0 ? <span style={{ color: '#f53f3f', fontWeight: 600 }}>{v}</span> : <span style={{ color: 'var(--color-text-3)' }}>0</span> },
                   { title: '耗时', dataIndex: 'durationMs', width: 65, render: (v: number) => <span style={{ fontSize: 12, color: 'var(--color-text-2)' }}>{v < 1000 ? v + 'ms' : (v / 1000).toFixed(1) + 's'}</span> },
                   { title: '时间', dataIndex: 'startedAt', width: 135, render: (v: string) => <span style={{ fontSize: 11, color: 'var(--color-text-3)' }}>{v ? new Date(v).toLocaleString('zh-CN') : '-'}</span> },
-                  { title: '详情', dataIndex: 'errorMsg', ellipsis: true, render: (v: string) => v ? <span style={{ fontSize: 11, color: '#f53f3f' }}>{v}</span> : <span style={{ color: '#c9cdd4', fontSize: 11 }}>-</span> },
+                  { title: '详情', dataIndex: 'errorMsg', ellipsis: true, render: (v: string) => v ? <span style={{ fontSize: 11, color: '#f53f3f' }}>{v}</span> : <span style={{ color: 'var(--color-text-3)', fontSize: 11 }}>-</span> },
                 ]} pagination={{ pageSize: 15, sizeCanChange: true }} border={false} stripe />
             )}
           </Modal>
@@ -385,8 +385,8 @@ export default function DataManagementPage() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div className="card">
             <div className="card-header">
-              <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Activity size={16} color="#165dff" /><span style={{ fontSize: 15, fontWeight: 600 }}>采集控制台</span></span>
-              {collecting && <Tag color="blue" style={{ display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ width: 6, height: 6, borderRadius: '50%', background: '#165dff', display: 'inline-block' }} />采集中...</Tag>}
+              <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Activity size={16} color="var(--color-primary)" /><span style={{ fontSize: 15, fontWeight: 600 }}>采集控制台</span></span>
+              {collecting && <Tag color="blue" style={{ display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--color-primary)', display: 'inline-block' }} />采集中...</Tag>}
             </div>
             <div className="card-body" style={{ padding: '14px 20px' }}>
               {/* Phase tabs */}
@@ -398,10 +398,10 @@ export default function DataManagementPage() {
                     <button key={phase} onClick={() => { setSelectedCollectPhase(phase); if (isActive) connectStream(); }}
                       style={{
                         padding: isActive ? '5px 13px' : '6px 14px',
-                        border: isActive ? '2px solid #ff7d00' : isSelected ? '2px solid #165dff' : '1px solid #d0d5dd',
+                        border: isActive ? '2px solid var(--color-warning)' : isSelected ? '2px solid var(--color-primary)' : '1px solid var(--color-border-2)',
                         borderRadius: 20, cursor: 'pointer', fontSize: 12,
                         fontWeight: isActive ? 600 : isSelected ? 600 : 400,
-                        background: isActive ? '#fff3e0' : isSelected ? '#e8f3ff' : '#fff',
+                        background: isActive ? 'var(--color-warning-bg)' : isSelected ? 'var(--color-info-bg)' : 'var(--color-bg-1)',
                         color: isActive ? '#e65100' : isSelected ? '#165dff' : 'var(--color-text-2)',
                         display: 'flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap',
                         transition: 'all 0.15s',
@@ -422,8 +422,8 @@ export default function DataManagementPage() {
               </div>
 
               {/* Selected phase detail panel */}
-              <div style={{ border: '1px solid #e5e6eb', borderRadius: 8, overflow: 'hidden', background: '#fafbfc' }}>
-                <div style={{ padding: '12px 16px', borderBottom: '1px solid #e5e6eb', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#fff' }}>
+              <div style={{ border: '1px solid var(--color-border-1)', borderRadius: 8, overflow: 'hidden', background: 'var(--color-fill-1)' }}>
+                <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--color-border-1)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--color-bg-1)' }}>
                   <div>
                     <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text-1)' }}>{PHASE_LABELS[selectedCollectPhase]}</div>
                     <div style={{ fontSize: 12, color: 'var(--color-text-3)', marginTop: 2 }}>{PHASE_DESCRIPTIONS[selectedCollectPhase] || ''}</div>
@@ -470,7 +470,7 @@ export default function DataManagementPage() {
                   {/* 控制台日志 — 始终显示，采集完成后不自动关闭 */}
                   {consoleLines.length > 0 && (
                     <div>
-                      <div ref={consoleRef} style={{ background: '#1a1a2e', borderRadius: 6, padding: '10px 14px', maxHeight: 300, overflow: 'auto', fontFamily: '"JetBrains Mono","Fira Code","SF Mono",monospace', fontSize: 12, lineHeight: '18px' }}>
+                      <div ref={consoleRef} style={{ background: '#121215', borderRadius: 6, padding: '10px 14px', maxHeight: 300, overflow: 'auto', fontFamily: '"JetBrains Mono","Fira Code","SF Mono",monospace', fontSize: 12, lineHeight: '18px' }}>
                         {consoleLines.slice(-80).map((line, i) => renderConsoleLine(line, i))}
                       </div>
                       <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
@@ -526,10 +526,10 @@ export default function DataManagementPage() {
       {tab === 'import' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div className="card">
-            <div className="card-header"><span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><FileSpreadsheet size={16} color="#165dff" /><span style={{ fontSize: 15, fontWeight: 600 }}>导入榜单数据文件</span></span><span className="muted" style={{ fontSize: 12 }}>支持 .xlsx / .xlsm</span></div>
+            <div className="card-header"><span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><FileSpreadsheet size={16} color="var(--color-primary)" /><span style={{ fontSize: 15, fontWeight: 600 }}>导入榜单数据文件</span></span><span className="muted" style={{ fontSize: 12 }}>支持 .xlsx / .xlsm</span></div>
             <div className="card-body">
               <Upload drag accept=".xlsx,.xlsm" autoUpload={false} disabled={loading} onChange={(_, file) => { setLoading(true); setResult(null); uploadExcel(file.originFile as File).then((res: any) => { setResult(res.data); showToast('success', 'Excel 导入完成'); }).catch((err: any) => showToast('error', err?.response?.data?.error || '导入失败')).finally(() => setLoading(false)); return false; }} tip="拖拽或点击上传，参考文件: MSS20260603.xlsm" />
-              {loading && <div style={{ marginTop: 16, padding: '12px 16px', background: '#e8f3ff', borderRadius: 4, display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, color: '#165dff' }}><RefreshCw size={14} className="spin" />正在解析并导入数据...</div>}
+              {loading && <div style={{ marginTop: 16, padding: '12px 16px', background: 'var(--color-info-bg)', borderRadius: 4, display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, color: 'var(--color-primary)' }}><RefreshCw size={14} className="spin" />正在解析并导入数据...</div>}
             </div>
           </div>
 
@@ -537,7 +537,7 @@ export default function DataManagementPage() {
             <div className="card-header"><span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><BarChart3 size={16} color="#00b42a" /><span style={{ fontSize: 15, fontWeight: 600 }}>导入 K 线数据 CSV</span></span><span className="muted" style={{ fontSize: 12 }}>日K线行情 .csv (GBK/UTF-8)</span></div>
             <div className="card-body">
               <Upload drag accept=".csv" autoUpload={false} disabled={klineLoading || loading} onChange={(_, file) => { setKlineLoading(true); setResult(null); uploadKline(file.originFile as File).then((res: any) => { setResult({ ...res.data, fileName: file.name, type: 'kline' }); showToast('success', 'K线数据导入完成'); }).catch((err: any) => showToast('error', err?.response?.data?.error || '导入失败')).finally(() => setKlineLoading(false)); return false; }} tip="拖拽或点击上传 CSV 文件，格式: 股票代码,交易日期,开盘价,最高价,最低价,收盘价,成交量,成交额,换手率..." />
-              {klineLoading && <div style={{ marginTop: 16, padding: '12px 16px', background: '#e8f9e8', borderRadius: 4, display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, color: '#00b42a' }}><RefreshCw size={14} className="spin" />正在解析并导入K线数据...</div>}
+              {klineLoading && <div style={{ marginTop: 16, padding: '12px 16px', background: 'var(--color-success-bg)', borderRadius: 4, display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, color: 'var(--color-success)' }}><RefreshCw size={14} className="spin" />正在解析并导入K线数据...</div>}
             </div>
           </div>
 
@@ -545,7 +545,7 @@ export default function DataManagementPage() {
             <div className="card-header"><span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><FileJson size={16} color="#722ed1" /><span style={{ fontSize: 15, fontWeight: 600 }}>导入预测数据 JSON</span></span><span className="muted" style={{ fontSize: 12 }}>算法预测结果文件 .json</span></div>
             <div className="card-body">
               <Upload drag accept=".json" autoUpload={false} disabled={predLoading || loading} onChange={(_, file) => { setPredLoading(true); setResult(null); uploadPrediction(file.originFile as File).then((res: any) => { setResult({ ...res.data, fileName: file.name, type: 'prediction' }); showToast('success', '预测数据导入完成'); }).catch((err: any) => showToast('error', typeof err === 'string' ? err : (err?.response?.data?.error || '导入失败'))).finally(() => setPredLoading(false)); return false; }} tip="拖拽或点击上传，JSON 格式: 算法团队预测数据" />
-              {predLoading && <div style={{ marginTop: 16, padding: '12px 16px', background: '#f3e8ff', borderRadius: 4, display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, color: '#722ed1' }}><RefreshCw size={14} className="spin" />正在解析并导入预测数据...</div>}
+              {predLoading && <div style={{ marginTop: 16, padding: '12px 16px', background: 'var(--purple-1)', borderRadius: 4, display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, color: 'var(--purple-6)' }}><RefreshCw size={14} className="spin" />正在解析并导入预测数据...</div>}
             </div>
           </div>
           {result && (
@@ -558,14 +558,14 @@ export default function DataManagementPage() {
                   ))}
                 </div>
                 {result.previews?.map((p: string, i: number) => <div key={i} style={{ padding: '8px 12px', background: 'var(--color-fill-2)', borderRadius: 4, fontSize: 13, color: 'var(--color-text-2)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}><CheckCircle size={12} color="#00b42a" />{p}</div>)}
-                {result.errors?.map((e: string, i: number) => <div key={i} style={{ padding: '8px 12px', background: '#ffece8', borderRadius: 4, fontSize: 12, color: '#cb272d', marginBottom: 4 }}><XCircle size={12} style={{ marginRight: 6 }} />{e}</div>)}
+                {result.errors?.map((e: string, i: number) => <div key={i} style={{ padding: '8px 12px', background: 'var(--color-danger-bg)', borderRadius: 4, fontSize: 12, color: 'var(--red-7)', marginBottom: 4 }}><XCircle size={12} style={{ marginRight: 6 }} />{e}</div>)}
               </div>
             </div>
           )}
           {/* Import history */}
           <div className="card" style={{ marginTop: 16 }}>
             <div className="card-header">
-              <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><FileSpreadsheet size={16} color="#165dff" /><span style={{ fontSize: 15, fontWeight: 600 }}>导入记录</span></span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><FileSpreadsheet size={16} color="var(--color-primary)" /><span style={{ fontSize: 15, fontWeight: 600 }}>导入记录</span></span>
               <Button size="small" type="text" icon={<RefreshCw size={12} />} onClick={loadHistory}>刷新</Button>
             </div>
             <div className="card-body" style={{ padding: 0 }}>
@@ -585,13 +585,13 @@ export default function DataManagementPage() {
       {tab === 'history' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div className="card">
-            <div className="card-header"><span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Activity size={16} color="#165dff" /><span style={{ fontSize: 15, fontWeight: 600 }}>采集记录</span></span><div style={{ display: 'flex', gap: 8 }}><Popconfirm title="清除超过30分钟仍处于运行中的异常记录？" onOk={() => handleClearStuck('stuck')}><Button size="small" type="text" status="warning" icon={<X size={12} />}>清除卡住</Button></Popconfirm><Popconfirm title="清除超过24小时的错误采集记录？" onOk={() => handleClearStuck('errors')}><Button size="small" type="text" status="danger" icon={<X size={12} />}>清除错误</Button></Popconfirm><Button size="small" type="text" icon={<RefreshCw size={12} />} onClick={loadColHistory}>刷新</Button></div></div>
+            <div className="card-header"><span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Activity size={16} color="var(--color-primary)" /><span style={{ fontSize: 15, fontWeight: 600 }}>采集记录</span></span><div style={{ display: 'flex', gap: 8 }}><Popconfirm title="清除超过30分钟仍处于运行中的异常记录？" onOk={() => handleClearStuck('stuck')}><Button size="small" type="text" status="warning" icon={<X size={12} />}>清除卡住</Button></Popconfirm><Popconfirm title="清除超过24小时的错误采集记录？" onOk={() => handleClearStuck('errors')}><Button size="small" type="text" status="danger" icon={<X size={12} />}>清除错误</Button></Popconfirm><Button size="small" type="text" icon={<RefreshCw size={12} />} onClick={loadColHistory}>刷新</Button></div></div>
             <div className="card-body" style={{ padding: 0 }}>
               {colHistory.length === 0 ? <div style={{ padding: 40, textAlign: 'center', color: 'var(--color-text-3)', fontSize: 13 }}>暂无采集记录</div> : (
                 <Table data={colHistory} rowKey="id" size="small"
                   columns={[
                     { title: '状态', dataIndex: 'status', width: 70, render: (v: string) => v === 'success' ? <Tag color="green">成功</Tag> : v === 'partial' ? <Tag color="orange">部分</Tag> : v === 'running' ? <Tag color="blue">运行中</Tag> : <Tag color="red">失败</Tag> },
-                    { title: '采集类型', dataIndex: 'phases', width: 170, render: (v: string) => { if (!v) return <span style={{ color: '#c9cdd4', fontSize: 12 }}>-</span>; try { const phases: any[] = JSON.parse(v); if (!Array.isArray(phases) || phases.length === 0) return <span style={{ fontSize: 12 }}>全量</span>; return (<div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>{phases.slice(0, 5).map((p: any, i: number) => <Tag key={i} color={p.errors > 0 ? 'red' : 'blue'} style={{ fontSize: 11, lineHeight: '18px', padding: '0 6px' }}>{PHASE_LABELS[p.phase] || p.phase}</Tag>)}{phases.length > 5 && <span style={{ fontSize: 11, color: 'var(--color-text-3)' }}>+{phases.length - 5}</span>}</div>); } catch { return <span style={{ fontSize: 12 }}>全量</span>; } } },
+                    { title: '采集类型', dataIndex: 'phases', width: 170, render: (v: string) => { if (!v) return <span style={{ color: 'var(--color-text-3)', fontSize: 12 }}>-</span>; try { const phases: any[] = JSON.parse(v); if (!Array.isArray(phases) || phases.length === 0) return <span style={{ fontSize: 12 }}>全量</span>; return (<div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>{phases.slice(0, 5).map((p: any, i: number) => <Tag key={i} color={p.errors > 0 ? 'red' : 'blue'} style={{ fontSize: 11, lineHeight: '18px', padding: '0 6px' }}>{PHASE_LABELS[p.phase] || p.phase}</Tag>)}{phases.length > 5 && <span style={{ fontSize: 11, color: 'var(--color-text-3)' }}>+{phases.length - 5}</span>}</div>); } catch { return <span style={{ fontSize: 12 }}>全量</span>; } } },
                     { title: '新增', dataIndex: 'totalNew', width: 60, render: (v: number) => <span style={{ fontWeight: 600, color: '#165dff' }}>{v}</span> },
                     { title: '跳过', dataIndex: 'totalSkipped', width: 60, render: (v: number) => <span style={{ color: 'var(--color-text-3)' }}>{v}</span> },
                     { title: '错误', dataIndex: 'totalErrors', width: 55, render: (v: number) => v > 0 ? <span style={{ color: '#f53f3f', fontWeight: 600 }}>{v}</span> : <span style={{ color: 'var(--color-text-3)' }}>0</span> },
@@ -602,7 +602,7 @@ export default function DataManagementPage() {
             </div>
           </div>
           <div className="card">
-            <div className="card-header"><span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><FileSpreadsheet size={16} color="#165dff" /><span style={{ fontSize: 15, fontWeight: 600 }}>Excel 导入记录</span></span><Button size="small" type="text" icon={<RefreshCw size={12} />} onClick={loadHistory}>刷新</Button></div>
+            <div className="card-header"><span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><FileSpreadsheet size={16} color="var(--color-primary)" /><span style={{ fontSize: 15, fontWeight: 600 }}>Excel 导入记录</span></span><Button size="small" type="text" icon={<RefreshCw size={12} />} onClick={loadHistory}>刷新</Button></div>
             <div className="card-body" style={{ padding: 0 }}>
               {history.length === 0 ? <div style={{ padding: 40, textAlign: 'center', color: 'var(--color-text-3)', fontSize: 13 }}>暂无导入记录</div> : (
                 <Table data={history} rowKey="id" size="small" columns={[

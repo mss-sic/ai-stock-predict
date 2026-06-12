@@ -119,7 +119,7 @@ export default function WatchlistPage() {
           onClick={() => setActiveGroup('all')}
           style={{
             padding: '6px 14px', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 13,
-            background: activeGroup === 'all' ? '#165dff' : '#f2f3f5',
+            background: activeGroup === 'all' ? '#165dff' : 'var(--color-fill-2)',
             color: activeGroup === 'all' ? '#fff' : 'var(--color-text-2)',
             fontWeight: activeGroup === 'all' ? 600 : 400,
             transition: 'all 0.15s',
@@ -131,7 +131,7 @@ export default function WatchlistPage() {
               onClick={() => setActiveGroup(String(g.id))}
               style={{
                 padding: '6px 14px', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 13,
-                background: activeGroup === String(g.id) ? '#165dff' : '#f2f3f5',
+                background: activeGroup === String(g.id) ? '#165dff' : 'var(--color-fill-2)',
                 color: activeGroup === String(g.id) ? '#fff' : 'var(--color-text-2)',
                 fontWeight: activeGroup === String(g.id) ? 600 : 400,
                 transition: 'all 0.15s',
@@ -158,7 +158,7 @@ export default function WatchlistPage() {
               cancelText="取消"
             >
               <span
-                style={{ cursor: 'pointer', color: '#f53f3f', fontSize: 10, marginLeft: -4, zIndex: 1 }}
+                style={{ cursor: 'pointer', color: 'var(--stock-up)', fontSize: 10, marginLeft: -4, zIndex: 1 }}
                 onClick={e => e.stopPropagation()}
                 title="删除分组"
               ><Trash2 size={11} /></span>
@@ -168,7 +168,7 @@ export default function WatchlistPage() {
       </div>
 
       {/* Stock table */}
-      <div style={{ borderRadius: 10, overflow: 'hidden', border: '1px solid #e5e6eb' }}>
+      <div style={{ borderRadius: 10, overflow: 'hidden', border: '1px solid var(--color-border-1)' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
           <thead>
             <tr style={{ background: 'var(--color-fill-2)' }}>
@@ -182,12 +182,12 @@ export default function WatchlistPage() {
           </thead>
           <tbody>
             {stocks.length === 0 && !loading && (
-              <tr><td colSpan={6} style={{ ...td, textAlign: 'center', color: '#c9cdd4', padding: 40 }}>
+              <tr><td colSpan={6} style={{ ...td, textAlign: 'center', color: 'var(--color-text-3)', padding: 40 }}>
                 暂无自选股，前往 <Link to="/stocks" style={{ color: 'var(--arcoblue-6)' }}>股票列表</Link> 添加
               </td></tr>
             )}
             {stocks.map(s => (
-              <tr key={s.stockCode} style={{ borderBottom: '1px solid #f2f3f5', cursor: 'pointer' }}
+              <tr key={s.stockCode} style={{ borderBottom: '1px solid var(--color-border-1)', cursor: 'pointer' }}
                 onClick={() => navigate(`/stock/${s.stockCode}`)}>
                 <td style={{ ...td, fontWeight: 600, color: 'var(--color-text-1)' }}>
                   {s.stockName}
@@ -205,7 +205,7 @@ export default function WatchlistPage() {
                     cancelText="取消"
                   >
                     <button onClick={e => e.stopPropagation()}
-                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#f53f3f', padding: 4 }}>
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--stock-up)', padding: 4 }}>
                       <Trash2 size={14} />
                     </button>
                   </Popconfirm>

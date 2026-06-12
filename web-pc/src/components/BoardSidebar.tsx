@@ -90,7 +90,7 @@ export default function BoardSidebar({ stockCode, stockName }: BoardSidebarProps
         </span>
       </div>
 
-      <div style={{ padding: '8px 14px', flexShrink: 0, borderBottom: '1px solid #f0f0f0', display: 'flex', alignItems: 'center', gap: 6 }}>
+      <div style={{ padding: '8px 14px', flexShrink: 0, borderBottom: '1px solid var(--color-border-1)', display: 'flex', alignItems: 'center', gap: 6 }}>
         {hasDates ? (
           <>
             <Select
@@ -130,7 +130,7 @@ export default function BoardSidebar({ stockCode, stockName }: BoardSidebarProps
       {currentStockItem && (
         <div style={{
           padding: '8px 14px', background: 'linear-gradient(135deg, var(--purple-1), #ede9fe)',
-          borderBottom: '1px solid #e9d5ff', flexShrink: 0,
+          borderBottom: '1px solid var(--color-border-1)', flexShrink: 0,
         }}>
           <div style={{ fontSize: 11, color: 'var(--purple-6)', marginBottom: 2 }}>当前排名</div>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
@@ -224,7 +224,7 @@ export default function BoardSidebar({ stockCode, stockName }: BoardSidebarProps
                       {item.chgPct?.toFixed(1)}%
                     </div>
                   </div>
-                  <ChevronRight size={12} color="#c9cdd4" />
+                  <ChevronRight size={12} color="var(--color-text-3)" />
                 </div>
               );
             })}

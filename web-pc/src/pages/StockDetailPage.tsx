@@ -1,4 +1,5 @@
 import { useEffect, useState, useMemo, useRef } from 'react';
+import ReactMarkdown from 'react-markdown';
 import { useParams } from 'react-router-dom';
 import { Button, Tag, Input, Tooltip, Modal, Select } from '@arco-design/web-react';
 import {
@@ -27,10 +28,10 @@ function calcBOLL(c: number[],p=20,m=2) { const ma=calcMA(c,p);const u:(number|n
 function fmtVol(v: number): string { if(v>=1e8)return(v/1e8).toFixed(2)+'亿';if(v>=1e4)return(v/1e4).toFixed(0)+'万';return v.toFixed(0) }
 function fmtMoney(v: number): string { if(!v||v===0)return'-';if(v>=1e12)return(v/1e12).toFixed(2)+'万亿';if(v>=1e8)return(v/1e8).toFixed(2)+'亿';if(v>=1e4)return(v/1e4).toFixed(0)+'万';return v.toFixed(0) }
 
-const SUGGEST_COLORS: Record<string,string>={'强烈买入':'#F53F3F','买入':'#F77234','增持':'#FF7D00','持有':'#86909C','减持':'#3491FA','卖出':'#00B42A','强烈卖出':'#009A29'};
-const SUGGEST_BG: Record<string,string>={'强烈买入':'#FFECE8','买入':'#FFF3E8','增持':'#FFF7E8','持有':'#F2F3F5','减持':'#E8F3FF','卖出':'#E8FFEA','强烈卖出':'#DBF5DF'};
+const SUGGEST_COLORS: Record<string,string>={'强烈买入':'var(--stock-up)','买入':'#F77234','增持':'var(--color-warning-text)','持有':'var(--color-text-3)','减持':'#3491FA','卖出':'var(--stock-down)','强烈卖出':'#009A29'};
+const SUGGEST_BG: Record<string,string>={'强烈买入':'rgba(245,63,63,0.12)','买入':'rgba(247,114,52,0.12)','增持':'rgba(255,125,0,0.12)','持有':'rgba(134,144,156,0.10)','减持':'rgba(52,145,250,0.12)','卖出':'rgba(0,180,42,0.12)','强烈卖出':'rgba(0,154,41,0.12)'};
 const RISK_COLORS: Record<string,string>={'高风险':'#F53F3F','中高风险':'#F77234','中风险':'#FF7D00','中低风险':'#3491FA','低风险':'#00B42A'};
-const RISK_BG: Record<string,string>={'高风险':'#FFECE8','中高风险':'#FFF3E8','中风险':'#FFF7E8','中低风险':'#E8F3FF','低风险':'#E8FFEA'};
+const RISK_BG: Record<string,string>={'高风险':'rgba(245,63,63,0.12)','中高风险':'rgba(247,114,52,0.12)','中风险':'rgba(255,125,0,0.12)','中低风险':'rgba(52,145,250,0.12)','低风险':'rgba(0,180,42,0.12)'};
 // ─── Indicator explanations ───
 const INDICATOR_DESC: Record<string, string> = {
   'MA5': '5日均线，短期趋势。价格在均线上方=偏多，下方=偏空。金叉(短穿长)=买入信号。',
@@ -54,9 +55,9 @@ function getBiasInfo(up: boolean, strength: number): { label: string; strength: 
   const levels = [
     { label: '极空', color: '#009A29', bg: '#DBF5DF' },
     { label: '偏空', color: '#00B42A', bg: '#E8FFEA' },
-    { label: '中性', color: '#86909C', bg: '#F2F3F5' },
-    { label: '偏多', color: '#F77234', bg: '#FFF3E8' },
-    { label: '极多', color: '#F53F3F', bg: '#FFECE8' },
+    { label: '中性', color: 'var(--color-text-3)', bg: 'var(--color-fill-2)' },
+    { label: '偏多', color: '#F77234', bg: 'rgba(247,114,52,0.12)' },
+    { label: '极多', color: '#F53F3F', bg: 'rgba(245,63,63,0.12)' },
   ];
   if (!up) {
     const idx = Math.max(0, 2 - Math.min(strength, 2));
@@ -126,7 +127,7 @@ function FinSummaryTable({ data }: { data: any[] }) {
       <div style={{
         display: 'grid', gridTemplateColumns: '80px 1fr 72px 72px',
         alignItems: 'center', gap: 8, padding: '6px 12px',
-        borderBottom: '2px solid #e5e6eb', marginBottom: 0,
+        borderBottom: '2px solid var(--color-border-1)', marginBottom: 0,
       }}>
         <span style={{ fontSize: 11, color: 'var(--color-text-3)', fontWeight: 500 }}>指标</span>
         <span style={{ textAlign: 'right', fontSize: 11, color: 'var(--color-text-3)', fontWeight: 500 }}>数值</span>
@@ -152,7 +153,7 @@ function FinSummaryTable({ data }: { data: any[] }) {
               display: 'grid', gridTemplateColumns: '80px 1fr 72px 72px',
               alignItems: 'center', gap: 8,
               padding: '10px 12px',
-              borderBottom: '1px solid #f2f3f5',
+              borderBottom: '1px solid var(--color-border-1)',
               background: r.primary ? 'linear-gradient(90deg, rgba(22,93,255,0.03) 0%, transparent 100%)' : 'transparent',
               borderLeft: r.primary ? '3px solid #165DFF' : '3px solid transparent',
             }}>
@@ -176,7 +177,7 @@ function FinSummaryTable({ data }: { data: any[] }) {
           );
         })}
       </div>
-      <div style={{ fontSize: 10, color: '#c9cdd4', marginTop: 10, paddingLeft: 4 }}>
+      <div style={{ fontSize: 10, color: 'var(--color-text-3)', marginTop: 10, paddingLeft: 4 }}>
         同比=去年同期 · 环比=上一报告期
       </div>
     </div>
@@ -186,11 +187,11 @@ function FinSummaryTable({ data }: { data: any[] }) {
 // ─── Change badge for YoY/QoQ ───
 function ChgBadge({ value, positive, available }: { value: string; positive: boolean; available: boolean }) {
   if (!available) {
-    return <span style={{ textAlign: 'center', fontSize: 12, color: '#c9cdd4' }}>—</span>;
+    return <span style={{ textAlign: 'center', fontSize: 12, color: 'var(--color-text-3)' }}>—</span>;
   }
   const isZero = value === '—' || value === '0.0%' || value === '+0.0%';
-  const bg = isZero ? '#F2F3F5' : positive ? '#FFECE8' : '#E8FFEA';
-  const fg = isZero ? '#86909C' : positive ? '#F53F3F' : '#00B42A';
+  const bg = isZero ? 'var(--color-fill-2)' : positive ? 'rgba(245,63,63,0.08)' : 'rgba(0,180,42,0.08)';
+  const fg = isZero ? 'var(--color-text-3)' : positive ? 'var(--stock-up)' : 'var(--stock-down)';
   return (
     <span style={{
       display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
@@ -232,7 +233,7 @@ function FinBarChart({ data }: { data: any[] }) {
     <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 'auto', maxWidth: 660 }}>
       {/* Zero axis line */}
       <line x1={padL - 4} y1={zeroY} x2={padL + cw + 4} y2={zeroY} stroke="#C9CDD4" strokeWidth="1" />
-      <text x={padL - 8} y={zeroY + 3} textAnchor="end" fontSize="9" fill="#86909c">0</text>
+      <text x={padL - 8} y={zeroY + 3} textAnchor="end" fontSize="9" fill="var(--color-text-3)">0</text>
       
       {/* Revenue bars (always positive, from bottom) */}
       {data.map((d: any, i: number) => {
@@ -241,9 +242,9 @@ function FinBarChart({ data }: { data: any[] }) {
         const y = zeroY - h;
         return (
           <g key={'rev'+i}>
-            <rect x={x} y={y} width={barW} height={h} rx="2" fill="#165DFF" opacity="0.75" />
+            <rect x={x} y={y} width={barW} height={h} rx="2" fill="var(--color-primary)" opacity="0.75" />
             {i % 2 === 0 && (
-              <text x={x + barW / 2} y={y - 5} textAnchor="middle" fontSize="8" fill="#165DFF" fontWeight={500}>
+              <text x={x + barW / 2} y={y - 5} textAnchor="middle" fontSize="8" fill="var(--color-primary)" fontWeight={500}>
                 {fmtP(d.totalRevenue || 0)}
               </text>
             )}
@@ -274,16 +275,16 @@ function FinBarChart({ data }: { data: any[] }) {
       {data.map((d: any, i: number) => {
         const label = (d.reportDate || '').slice(0, 7);
         return <text key={'xl'+i} x={padL + i * gap + gap / 2} y={H - 6}
-          textAnchor="middle" fontSize="9" fill="#86909c">{label}</text>;
+          textAnchor="middle" fontSize="9" fill="var(--color-text-3)">{label}</text>;
       })}
       
       {/* Right axis labels: profit max/min */}
       <text x={padL + cw + 6} y={padT + 10} fontSize="8" fill="#F53F3F">{fmtP(pAbsMax)}</text>
-      <text x={padL + cw + 6} y={zeroY + 4} fontSize="8" fill="#86909c">0</text>
+      <text x={padL + cw + 6} y={zeroY + 4} fontSize="8" fill="var(--color-text-3)">0</text>
       <text x={padL + cw + 6} y={padT + ch} fontSize="8" fill="#00B42A">{fmtP(-pAbsMax)}</text>
       
       {/* Legend */}
-      <rect x={padL} y={2} width="10" height="10" rx="2" fill="#165DFF" opacity="0.75" />
+      <rect x={padL} y={2} width="10" height="10" rx="2" fill="var(--color-primary)" opacity="0.75" />
       <text x={padL + 14} y={11} fontSize="9" fill="#4e5969">营收</text>
       <rect x={padL + 50} y={2} width="10" height="10" rx="2" fill="#F53F3F" opacity="0.8" />
       <text x={padL + 64} y={11} fontSize="9" fill="#4e5969">净利润(+正/-负)</text>
@@ -689,13 +690,13 @@ fetchPredictionResult(code).then((r: any) => {
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
                 <h2 style={{ fontSize: 22, fontWeight: 600, margin: 0 }}>{stock.name}</h2>
                 <span style={{ fontSize: 13, color: 'var(--color-text-3)', fontFamily: 'monospace' }}>{stock.code}</span>
-                <button onClick={toggleWL} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 10px', borderRadius: 4, border: 'none', cursor: 'pointer', fontSize: 12, background: isWatched ? '#fff7e6' : '#f2f3f5', color: isWatched ? '#f7ba1e' : 'var(--color-text-3)' }}>{isWatched ? <><StarOff size={13} /> 已自选</> : <><Star size={13} /> 加自选</>}</button>
+                <button onClick={toggleWL} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 10px', borderRadius: 4, border: 'none', cursor: 'pointer', fontSize: 12, background: isWatched ? 'var(--color-warning-bg)' : 'var(--color-fill-2)', color: isWatched ? 'var(--color-warning-text)' : 'var(--color-text-3)' }}>{isWatched ? <><StarOff size={13} /> 已自选</> : <><Star size={13} /> 加自选</>}</button>
                 {stock.industry && <Tag color="blue" style={{ fontSize: 11 }}>{stock.industry}</Tag>}
                 {conceptTags.map((ct: any, i: number) => (
                   <Tag key={i} color="arcoblue" style={{ fontSize: 10, padding: '1px 6px', lineHeight: '16px' }}>{ct.conceptName}</Tag>
                 ))}
-                {sug && <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 4, background: SUGGEST_BG[sug] || '#f2f3f5', color: SUGGEST_COLORS[sug] || 'var(--color-text-3)', border: '1px solid ' + (SUGGEST_COLORS[sug] || 'var(--color-border-1)') }}>{sug}</span>}
-                {risk && <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 4, background: RISK_BG[risk] || '#f2f3f5', color: RISK_COLORS[risk] || 'var(--color-text-3)', border: '1px solid ' + (RISK_COLORS[risk] || 'var(--color-border-1)') }}>{risk}</span>}
+                {sug && <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 4, background: SUGGEST_BG[sug] || 'var(--color-fill-2)', color: SUGGEST_COLORS[sug] || 'var(--color-text-3)', border: '1px solid ' + (SUGGEST_COLORS[sug] || 'var(--color-border-1)') }}>{sug}</span>}
+                {risk && <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 4, background: RISK_BG[risk] || 'var(--color-fill-2)', color: RISK_COLORS[risk] || 'var(--color-text-3)', border: '1px solid ' + (RISK_COLORS[risk] || 'var(--color-border-1)') }}>{risk}</span>}
 
               </div>
               {priceStats && (
@@ -743,7 +744,7 @@ fetchPredictionResult(code).then((r: any) => {
             {/* K-line card */}
             <div className="card">
               <div className="card-header" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <div style={{ width: 28, height: 28, borderRadius: 6, background: 'linear-gradient(135deg, #165dff, #722ed1)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <div style={{ width: 28, height: 28, borderRadius: 6, background: 'linear-gradient(135deg, var(--color-primary), var(--purple-6))', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                   <Layers size={14} color="#fff" />
                 </div>
                 <span style={{ fontWeight: 600, fontSize: 13, flex: 1, minWidth: 0 }}>
@@ -796,7 +797,7 @@ fetchPredictionResult(code).then((r: any) => {
                 {ensemble ? (
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                     <thead>
-                      <tr style={{ borderBottom: '1px solid #e5e6eb', background: 'var(--color-fill-2)' }}>
+                      <tr style={{ borderBottom: '1px solid var(--color-border-1)', background: 'var(--color-fill-2)' }}>
                         <th style={{ padding: '6px 10px', textAlign: 'left', fontWeight: 500, color: 'var(--color-text-3)', fontSize: 11 }}>模型</th>
                         <th style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 500, color: 'var(--color-text-3)', fontSize: 11 }}>命中率</th>
                         <th style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 500, color: 'var(--color-text-3)', fontSize: 11 }}>权重</th>
@@ -805,20 +806,20 @@ fetchPredictionResult(code).then((r: any) => {
                     </thead>
                     <tbody>
                       {ensemble.rows.map((r, i) => (
-                        <tr key={r.name} style={{ borderBottom: '1px solid #f5f5f5' }}>
+                        <tr key={r.name} style={{ borderBottom: '1px solid var(--color-table-row-border)' }}>
                           <td style={{ padding: '7px 10px', display: 'flex', alignItems: 'center', gap: 6 }}>
                             <span style={{ width: 8, height: 8, borderRadius: 2, background: MODEL_COLORS[i], display: 'inline-block', flexShrink: 0 }} />
                             <span style={{ fontWeight: 500 }}>{r.name}</span>
                           </td>
-                          <td style={{ padding: '7px 8px', textAlign: 'right', fontWeight: 600, color: r.hitRate >= 0.55 ? '#00b42a' : r.hitRate >= 0.45 ? '#ff7d00' : '#f53f3f' }}>
-                            {(r.hitRate * 100).toFixed(1)}% <span style={{ fontSize: 10, color: "#86909c", fontWeight: 400 }}>{r.total > 0 ? `(${r.hits||0}/${r.total})` : "(无回测数据)"}</span>
+                          <td style={{ padding: '7px 8px', textAlign: 'right', fontWeight: 600, color: r.hitRate >= 0.55 ? 'var(--stock-down)' : r.hitRate >= 0.45 ? 'var(--color-warning-text)' : 'var(--stock-up)' }}>
+                            {(r.hitRate * 100).toFixed(1)}% <span style={{ fontSize: 10, color: 'var(--color-text-3)', fontWeight: 400 }}>{r.total > 0 ? `(${r.hits||0}/${r.total})` : "(无回测数据)"}</span>
                           </td>
                           <td style={{ padding: '7px 8px', textAlign: 'right', color: 'var(--color-text-2)' }}>
                             {(r.weight * 100).toFixed(1)}%
                           </td>
                           <td style={{ padding: '7px 8px', textAlign: 'right' }}>
                             {r.predChg != null ? (
-                              <span style={{ color: r.predChg >= 0 ? '#f53f3f' : '#00b42a', fontWeight: 600, fontSize: 11 }}>
+                              <span style={{ color: r.predChg >= 0 ? 'var(--stock-up)' : 'var(--stock-down)', fontWeight: 600, fontSize: 11 }}>
                                 {r.predChg >= 0 ? '↑' : '↓'}{Math.abs(r.predChg).toFixed(1)}%
                               </span>
                             ) : <span className="muted" style={{ fontSize: 11 }}>-</span>}
@@ -829,12 +830,12 @@ fetchPredictionResult(code).then((r: any) => {
                     <tfoot>
                       <tr style={{ background: 'var(--color-fill-2)', fontWeight: 600 }}>
                         <td style={{ padding: '7px 10px', fontSize: 12 }}>集成结果</td>
-                        <td style={{ padding: '7px 8px', textAlign: 'right', fontSize: 12, color: '#165dff' }}>
+                        <td style={{ padding: '7px 8px', textAlign: 'right', fontSize: 12, color: 'var(--color-primary)' }}>
                           {(ensemble.avgHitRate * 100).toFixed(1)}%
                         </td>
                         <td style={{ padding: '7px 8px', textAlign: 'right', fontSize: 12 }}>100%</td>
                         <td style={{ padding: '7px 8px', textAlign: 'right', fontSize: 12 }}>
-                          <span style={{ color: ensemble.ensembleChg >= 0 ? '#f53f3f' : '#00b42a', fontWeight: 700 }}>
+                          <span style={{ color: ensemble.ensembleChg >= 0 ? 'var(--stock-up)' : 'var(--stock-down)', fontWeight: 700 }}>
                             {ensemble.ensembleChg >= 0 ? '+' : ''}{ensemble.ensembleChg.toFixed(2)}%
                           </span>
                         </td>
@@ -862,7 +863,7 @@ fetchPredictionResult(code).then((r: any) => {
                     </div>
                     <div>
                       <div style={{ fontSize: 10, color: 'var(--color-text-3)', marginBottom: 2 }}>夏普比率</div>
-                      <div style={{ fontSize: 18, fontWeight: 700, color: ensemble.sharpe >= 0 ? '#00b42a' : '#f53f3f' }}>{ensemble.sharpe.toFixed(2)}</div>
+                      <div style={{ fontSize: 18, fontWeight: 700, color: ensemble.sharpe >= 0 ? 'var(--stock-down)' : 'var(--stock-up)' }}>{ensemble.sharpe.toFixed(2)}</div>
                     </div>
                     <div>
                       <div style={{ fontSize: 10, color: 'var(--color-text-3)', marginBottom: 2 }}>平均误差(MAE)</div>
@@ -897,7 +898,7 @@ fetchPredictionResult(code).then((r: any) => {
               <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ fontWeight: 600, fontSize: 14 }}><Sparkles size={14} color="#165DFF" /> AI综合评分</span>
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                  {aiScore?.analyzedAt && <span style={{ fontSize: 10, color: '#86909C' }}>{new Date(aiScore.analyzedAt).toLocaleString('zh-CN', { month:'numeric', day:'numeric', hour:'2-digit', minute:'2-digit' })}</span>}
+                  {aiScore?.analyzedAt && <span style={{ fontSize: 10, color: 'var(--color-text-3)' }}>{new Date(aiScore.analyzedAt).toLocaleString('zh-CN', { month:'numeric', day:'numeric', hour:'2-digit', minute:'2-digit' })}</span>}
                   <Button size="mini" type="primary" loading={scoreLoading} onClick={handleRunScore} style={{ fontSize: 11 }}>{aiScore ? '重新分析' : '开始分析'}</Button>
                 </div>
               </div>
@@ -908,19 +909,19 @@ fetchPredictionResult(code).then((r: any) => {
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
                       <div style={{ textAlign: 'center' }}>
                         <div style={{ fontSize: 40, fontWeight: 800, color: aiScore.compositeScore >= 7 ? '#F53F3F' : aiScore.compositeScore >= 5 ? '#FF7D00' : '#00B42A', lineHeight: 1 }}>{aiScore.compositeScore?.toFixed(1)}</div>
-                        <div style={{ fontSize: 11, color: '#86909C', marginTop: 4 }}>综合评分 / 10</div>
+                        <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginTop: 4 }}>综合评分 / 10</div>
                       </div>
                       <div style={{ marginLeft: 24, textAlign: 'center' }}>
                         <span style={{
                           padding: '4px 14px', borderRadius: 4, fontWeight: 700, fontSize: 13,
                           color: SUGGEST_COLORS[aiScore.suggestion] || 'var(--color-text-3)',
-                          background: SUGGEST_BG[aiScore.suggestion] || '#F2F3F5',
+                          background: SUGGEST_BG[aiScore.suggestion] || 'var(--color-fill-2)',
                           border: '1px solid ' + (SUGGEST_COLORS[aiScore.suggestion] || 'var(--color-border-1)'),
                         }}>{aiScore.suggestion || '-'}</span>
                         <span style={{
                           marginLeft: 8, padding: '4px 14px', borderRadius: 4, fontWeight: 700, fontSize: 13,
                           color: RISK_COLORS[aiScore.riskLevel] || 'var(--color-text-3)',
-                          background: RISK_BG[aiScore.riskLevel] || '#F2F3F5',
+                          background: RISK_BG[aiScore.riskLevel] || 'var(--color-fill-2)',
                           border: '1px solid ' + (RISK_COLORS[aiScore.riskLevel] || 'var(--color-border-1)'),
                         }}>{aiScore.riskLevel || '-'}</span>
                       </div>
@@ -975,7 +976,7 @@ fetchPredictionResult(code).then((r: any) => {
                             <path d={dataPath} fill="rgba(22,93,255,0.12)" stroke="#165DFF" strokeWidth="2" strokeLinejoin="round" />
                             {/* Data dots */}
                             {dataPts.map((p, i) => (
-                              <circle key={i} cx={p.x.toFixed(1)} cy={p.y.toFixed(1)} r="4" fill="#165DFF" stroke="#fff" strokeWidth="1.5" />
+                              <circle key={i} cx={p.x.toFixed(1)} cy={p.y.toFixed(1)} r="4" fill="var(--color-primary)" stroke="var(--color-bg-1)" strokeWidth="1.5" />
                             ))}
                             {/* Score numbers at data points */}
                             {dims.map((d, i) => {
@@ -984,7 +985,7 @@ fetchPredictionResult(code).then((r: any) => {
                               const a = angle(i);
                               const ox = Math.cos(a) * 14, oy = Math.sin(a) * 14;
                               return (
-                                <text key={i} x={p.x + ox} y={p.y + oy} fontSize="10" fontWeight="700" fill="#165DFF" textAnchor="middle" dominantBaseline="central">
+                                <text key={i} x={p.x + ox} y={p.y + oy} fontSize="10" fontWeight="700" fill="var(--color-primary)" textAnchor="middle" dominantBaseline="central">
                                   {v.toFixed(1)}
                                 </text>
                               );
@@ -1000,7 +1001,7 @@ fetchPredictionResult(code).then((r: any) => {
                             })}
                             {/* Center composite score */}
                             <text x={cx} y={cy - 4} fontSize="26" fontWeight="800" fill="#1D2129" textAnchor="middle">{aiScore.compositeScore?.toFixed(1)}</text>
-                            <text x={cx} y={cy + 16} fontSize="10" fill="#86909C" textAnchor="middle">综合</text>
+                            <text x={cx} y={cy + 16} fontSize="10" fill="var(--color-text-3)" textAnchor="middle">综合</text>
                           </svg>
                         );
                       })()}
@@ -1016,7 +1017,7 @@ fetchPredictionResult(code).then((r: any) => {
                         { key: 'industryScore', label: '行业景气', w: '10%' },
                       ].map(d => {
                         const v = aiScore[d.key] || 0;
-                        const c = v >= 7 ? '#F53F3F' : v >= 5 ? '#FF7D00' : v >= 3 ? '#86909C' : '#00B42A';
+                        const c = v >= 7 ? 'var(--stock-up)' : v >= 5 ? 'var(--color-warning-text)' : v >= 3 ? 'var(--color-text-3)' : 'var(--stock-down)';
                         return (
                           <div key={d.key} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11 }}>
                             <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: '50%', background: c, flex: 'none' }} />
@@ -1029,7 +1030,7 @@ fetchPredictionResult(code).then((r: any) => {
                     </div>
                     {/* Risk warnings */}
                     {aiScore.riskWarnings?.length > 0 && (
-                      <div style={{ marginTop: 14, padding: '10px 14px', background: '#FFF7E8', borderRadius: 6, border: '1px solid #FFE4BA' }}>
+                      <div style={{ marginTop: 14, padding: '10px 14px', background: 'rgba(255,125,0,0.08)', borderRadius: 6, border: '1px solid rgba(255,125,0,0.18)' }}>
                         <div style={{ fontSize: 12, fontWeight: 600, color: '#FF7D00', marginBottom: 6 }}>⚠️ 风险提示</div>
                         {aiScore.riskWarnings.map((w: string, i: number) => (
                           <div key={i} style={{ fontSize: 11, color: '#6B7785', lineHeight: '18px', paddingLeft: 2 }}>• {w}</div>
@@ -1038,13 +1039,13 @@ fetchPredictionResult(code).then((r: any) => {
                     )}
                     {/* Summary */}
                     {aiScore.summary && (
-                      <div style={{ marginTop: 12, fontSize: 12, color: '#4E5969', lineHeight: '20px', padding: '8px 12px', background: '#F7F8FA', borderRadius: 6, borderLeft: '3px solid #165DFF' }}>
+                      <div style={{ marginTop: 12, fontSize: 12, color: 'var(--color-text-2)', lineHeight: '20px', padding: '8px 12px', background: '#F7F8FA', borderRadius: 6, borderLeft: '3px solid #165DFF' }}>
                         {aiScore.summary}
                       </div>
                     )}
                   </>
                 ) : (
-                  <div style={{ textAlign: 'center', padding: '24px 0', color: '#86909C', fontSize: 13 }}>
+                  <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--color-text-3)', fontSize: 13 }}>
                     <Sparkles size={28} color="#C9CDD4" style={{ marginBottom: 8 }} />
                     <div>点击「开始分析」进行AI六维综合评分</div>
                     <div style={{ fontSize: 11, marginTop: 4 }}>需先在设置页配置AI Key</div>
@@ -1060,7 +1061,7 @@ fetchPredictionResult(code).then((r: any) => {
               <span style={{ fontWeight: 600, fontSize: 14 }}><Brain size={14} /> AI对话分析</span>
               {msgs.length > 0 && <Button size="mini" type="text" icon={<Trash2 size={12} />} onClick={handleClearChat} style={{ color: 'var(--color-text-3)', fontSize: 11 }}>清除</Button>}
             </div>
-            <div className="card-body" style={{ flex: 1, overflow: 'auto', padding: '12px 16px', background: '#fafbfc' }}>
+            <div className="card-body" style={{ flex: 1, overflow: 'auto', padding: '12px 16px', background: 'var(--color-fill-1)' }}>
               {msgs.length === 0 ? (
                 <div style={{ textAlign: 'center', padding: '24px 0' }}>
                   <Brain size={28} color="#165dff" style={{ marginBottom: 8 }} />
@@ -1085,12 +1086,31 @@ fetchPredictionResult(code).then((r: any) => {
                       }}>{m.role === 'ai' ? 'AI' : '我'}</div>
                       <div style={{
                         maxWidth: '78%', padding: '9px 14px', borderRadius: 8, fontSize: 13, lineHeight: '20px',
-                        background: m.role === 'ai' ? '#fff' : '#165DFF',
-                        color: m.role === 'ai' ? '#1D2129' : '#fff',
-                        border: m.role === 'ai' ? '1px solid #E5E6EB' : 'none',
+                        background: m.role === 'ai' ? 'var(--color-bg-2)' : 'var(--color-primary)',
+                        color: m.role === 'ai' ? 'var(--color-text-1)' : '#fff',
+                        border: m.role === 'ai' ? '1px solid var(--color-border-1)' : 'none',
                         whiteSpace: 'pre-wrap', wordBreak: 'break-word',
                       }}>
-                        {m.text || <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} />}
+                        {m.text ? (m.role === 'ai' ? (
+                          <ReactMarkdown
+                            components={{
+                              table: ({ children }) => <table style={{ borderCollapse: 'collapse', width: '100%', margin: '8px 0', fontSize: 12 }}>{children}</table>,
+                              th: ({ children }) => <th style={{ border: '1px solid var(--color-border-1)', padding: '4px 8px', background: 'var(--color-fill-2)', textAlign: 'left' }}>{children}</th>,
+                              td: ({ children }) => <td style={{ border: '1px solid var(--color-border-1)', padding: '4px 8px' }}>{children}</td>,
+                              p: ({ children }) => <p style={{ margin: '4px 0' }}>{children}</p>,
+                              ul: ({ children }) => <ul style={{ margin: '4px 0', paddingLeft: 18 }}>{children}</ul>,
+                              ol: ({ children }) => <ol style={{ margin: '4px 0', paddingLeft: 18 }}>{children}</ol>,
+                              code: ({ children, className }) => <code className={className} style={{ background: 'var(--color-fill-2)', padding: '1px 4px', borderRadius: 3, fontSize: 11 }}>{children}</code>,
+                              pre: ({ children }) => <pre style={{ background: 'var(--color-fill-2)', padding: 8, borderRadius: 4, overflow: 'auto', fontSize: 11 }}>{children}</pre>,
+                              strong: ({ children }) => <strong style={{ color: 'var(--color-text-1)' }}>{children}</strong>,
+                              h3: ({ children }) => <h4 style={{ margin: '8px 0 4px', fontSize: 13 }}>{children}</h4>,
+                              h4: ({ children }) => <h4 style={{ margin: '6px 0 3px', fontSize: 12 }}>{children}</h4>,
+                              hr: () => <hr style={{ border: 'none', borderTop: '1px solid var(--color-border-1)', margin: '8px 0' }} />,
+                            }}
+                          >
+                            {m.text}
+                          </ReactMarkdown>
+                        ) : m.text) : <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} />}
                       </div>
                     </div>
                   ))}
@@ -1098,7 +1118,7 @@ fetchPredictionResult(code).then((r: any) => {
               )}
               <div ref={chatBottomRef} />
             </div>
-            <div style={{ borderTop: '1px solid #e5e6eb', padding: '10px 16px', display: 'flex', gap: 8 }}>
+            <div style={{ borderTop: '1px solid var(--color-border-1)', padding: '10px 16px', display: 'flex', gap: 8 }}>
               <Input value={chatInput} onChange={setChatInput} onPressEnter={() => handleChatSend()} placeholder="输入分析问题..." style={{ flex: 1 }} disabled={chatLoading} />
               <Button type="primary" icon={<Send size={14} />} onClick={() => handleChatSend()} loading={chatLoading}>发送</Button>
             </div>
@@ -1178,7 +1198,7 @@ fetchPredictionResult(code).then((r: any) => {
               
               const stratLabel = stratScore >= 7 ? '强烈看多' : stratScore >= 4 ? '看多' : stratScore >= 1 ? '偏多' : stratScore >= -1 ? '观望' : stratScore >= -4 ? '偏空' : stratScore >= -7 ? '看空' : '强烈看空';
               const stratColor = stratScore >= 7 ? '#F53F3F' : stratScore >= 4 ? '#F77234' : stratScore >= 1 ? '#FF7D00' : stratScore >= -1 ? '#86909C' : stratScore >= -4 ? '#3491FA' : stratScore >= -7 ? '#00B42A' : '#009A29';
-              const stratBg = stratScore >= 7 ? '#FFECE8' : stratScore >= 4 ? '#FFF3E8' : stratScore >= 1 ? '#FFF7E8' : stratScore >= -1 ? '#F2F3F5' : stratScore >= -4 ? '#E8F3FF' : stratScore >= -7 ? '#E8FFEA' : '#DBF5DF';
+              const stratBg = stratScore >= 7 ? 'rgba(245,63,63,0.12)' : stratScore >= 4 ? 'rgba(247,114,52,0.12)' : stratScore >= 1 ? 'rgba(255,125,0,0.10)' : stratScore >= -1 ? 'var(--color-fill-2)' : stratScore >= -4 ? 'rgba(52,145,250,0.10)' : stratScore >= -7 ? 'rgba(0,180,42,0.10)' : 'rgba(0,154,41,0.10)';
 
               // Entry / Stop-loss / Target
               const atr = priceStats ? (priceStats.high - priceStats.low) || price * 0.02 : price * 0.02;
@@ -1193,38 +1213,38 @@ fetchPredictionResult(code).then((r: any) => {
                   {/* ── TOP: Composite Score + Board status ── */}
                   <div style={{ display: 'flex', gap: 16, marginBottom: 20, flexWrap: 'wrap' }}>
                     <div style={{ flex: '1 1 200px', textAlign: 'center', padding: '16px 20px', borderRadius: 10, background: stratBg, border: `2px solid ${stratColor}` }}>
-                      <div style={{ fontSize: 11, color: '#86909C', marginBottom: 6, letterSpacing: 1 }}>综合策略评分</div>
+                      <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 6, letterSpacing: 1 }}>综合策略评分</div>
                       <div style={{ fontSize: 42, fontWeight: 800, color: stratColor, lineHeight: 1 }}>{stratScore > 0 ? '+' : ''}{stratScore.toFixed(1)}</div>
                       <div style={{ fontSize: 14, fontWeight: 700, color: stratColor, marginTop: 4 }}>{stratLabel}</div>
                     </div>
                     <div style={{ flex: '1 1 280px', display: 'flex', flexDirection: 'column', gap: 10, justifyContent: 'center' }}>
                       {/* Board status */}
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13 }}>
-                        <span style={{ color: '#86909C', width: 56 }}>上榜状态</span>
+                        <span style={{ color: 'var(--color-text-3)', width: 56 }}>上榜状态</span>
                         {todayBoardRank !== null ? (
-                          <span style={{ fontWeight: 600, color: todayBoardRank <= 10 ? '#F53F3F' : '#FF7D00', background: todayBoardRank <= 10 ? '#FFECE8' : '#FFF7E8', padding: '2px 10px', borderRadius: 4, fontSize: 12 }}>
+                          <span style={{ fontWeight: 600, color: todayBoardRank <= 10 ? '#F53F3F' : '#FF7D00', background: todayBoardRank <= 10 ? 'rgba(245,63,63,0.12)' : 'rgba(255,125,0,0.10)', padding: '2px 10px', borderRadius: 4, fontSize: 12 }}>
                             {`🏅 上榜 #${todayBoardRank}`}
                           </span>
-                        ) : <span style={{ color: '#C9CDD4', fontSize: 12 }}>未上榜</span>}
+                        ) : <span style={{ color: 'var(--color-text-3)', fontSize: 12 }}>未上榜</span>}
                       </div>
                       {/* Algorithm signal */}
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13 }}>
-                        <span style={{ color: '#86909C', width: 56 }}>算法评分</span>
+                        <span style={{ color: 'var(--color-text-3)', width: 56 }}>算法评分</span>
                         {signal !== null ? (
                           <span style={{ fontWeight: 600, color: signal > 5 ? '#F53F3F' : signal > 0 ? '#FF7D00' : signal > -5 ? '#86909C' : '#00B42A', fontSize: 14 }}>
                             {signal > 0 ? '+' : ''}{signal.toFixed(2)}
                           </span>
-                        ) : <span style={{ color: '#C9CDD4', fontSize: 12 }}>—</span>}
+                        ) : <span style={{ color: 'var(--color-text-3)', fontSize: 12 }}>—</span>}
                       </div>
                       {/* Prediction consensus */}
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13 }}>
-                        <span style={{ color: '#86909C', width: 56 }}>模型共识</span>
+                        <span style={{ color: 'var(--color-text-3)', width: 56 }}>模型共识</span>
                         <span style={{ fontWeight: 600, fontSize: 12 }}>
                           <span style={{ color: '#F53F3F' }}>看多 {bullishCount}</span>
-                          <span style={{ color: '#C9CDD4', margin: '0 4px' }}>/</span>
+                          <span style={{ color: 'var(--color-text-3)', margin: '0 4px' }}>/</span>
                           <span style={{ color: '#00B42A' }}>看空 {bearishCount}</span>
-                          <span style={{ color: '#C9CDD4', margin: '0 4px' }}>/</span>
-                          <span style={{ color: '#86909C' }}>中性 {6 - bullishCount - bearishCount}</span>
+                          <span style={{ color: 'var(--color-text-3)', margin: '0 4px' }}>/</span>
+                          <span style={{ color: 'var(--color-text-3)' }}>中性 {6 - bullishCount - bearishCount}</span>
                           <span style={{ marginLeft: 8, fontWeight: 700, color: consensusDir === 'bullish' ? '#F53F3F' : consensusDir === 'bearish' ? '#00B42A' : '#86909C', fontSize: 11 }}>
                             {consensusDir === 'bullish' ? '↑ 偏多' : consensusDir === 'bearish' ? '↓ 偏空' : '— 分歧'}
                           </span>
@@ -1232,49 +1252,49 @@ fetchPredictionResult(code).then((r: any) => {
                       </div>
                       {/* AI tags */}
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13 }}>
-                        <span style={{ color: '#86909C', width: 56 }}>AI建议</span>
+                        <span style={{ color: 'var(--color-text-3)', width: 56 }}>AI建议</span>
                         {(sug || risk) ? (
                           <span style={{ display: 'flex', gap: 6 }}>
-                            {sug && <span style={{ fontWeight: 600, fontSize: 12, padding: '2px 8px', borderRadius: 4, background: SUGGEST_BG[sug] || '#F2F3F5', color: SUGGEST_COLORS[sug] || '#86909C', border: '1px solid ' + (SUGGEST_COLORS[sug] || '#E5E6EB') }}>{sug}</span>}
-                            {risk && <span style={{ fontWeight: 600, fontSize: 12, padding: '2px 8px', borderRadius: 4, background: RISK_BG[risk] || '#F2F3F5', color: RISK_COLORS[risk] || '#86909C', border: '1px solid ' + (RISK_COLORS[risk] || '#E5E6EB') }}>{risk}</span>}
+                            {sug && <span style={{ fontWeight: 600, fontSize: 12, padding: '2px 8px', borderRadius: 4, background: SUGGEST_BG[sug] || 'var(--color-fill-2)', color: SUGGEST_COLORS[sug] || 'var(--color-text-3)', border: '1px solid ' + (SUGGEST_COLORS[sug] || 'var(--color-border-1)') }}>{sug}</span>}
+                            {risk && <span style={{ fontWeight: 600, fontSize: 12, padding: '2px 8px', borderRadius: 4, background: RISK_BG[risk] || 'var(--color-fill-2)', color: RISK_COLORS[risk] || 'var(--color-text-3)', border: '1px solid ' + (RISK_COLORS[risk] || 'var(--color-border-1)') }}>{risk}</span>}
                           </span>
-                        ) : <span style={{ color: '#C9CDD4', fontSize: 12 }}>未分析</span>}
+                        ) : <span style={{ color: 'var(--color-text-3)', fontSize: 12 }}>未分析</span>}
                       </div>
                     </div>
                   </div>
 
                   {/* ── MID: Trade plan ── */}
                   {price > 0 && (
-                    <div style={{ background: '#F7F8FA', borderRadius: 8, padding: '14px 18px', marginBottom: 16 }}>
-                      <div style={{ fontWeight: 600, fontSize: 13, color: '#1D2129', marginBottom: 12 }}>📋 交易计划参考</div>
+                    <div style={{ background: 'var(--color-fill-2)', borderRadius: 8, padding: '14px 18px', marginBottom: 16 }}>
+                      <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--color-text-1)', marginBottom: 12 }}>📋 交易计划参考</div>
                       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12 }}>
                         <div>
-                          <div style={{ fontSize: 11, color: '#86909C', marginBottom: 2 }}>当前价格</div>
-                          <div style={{ fontSize: 18, fontWeight: 700, color: '#1D2129' }}>{price.toFixed(2)}</div>
+                          <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 2 }}>当前价格</div>
+                          <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--color-text-1)' }}>{price.toFixed(2)}</div>
                         </div>
                         <div>
-                          <div style={{ fontSize: 11, color: '#86909C', marginBottom: 2 }}>建议入场</div>
+                          <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 2 }}>建议入场</div>
                           <div style={{ fontSize: 18, fontWeight: 700, color: '#165DFF' }}>
                             {stratScore >= 4 ? price.toFixed(2) : stratScore >= 1 ? (Math.min(price, supportPrice || price)).toFixed(2) : '观望'}
                           </div>
                         </div>
                         <div>
-                          <div style={{ fontSize: 11, color: '#86909C', marginBottom: 2 }}>止损位</div>
+                          <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 2 }}>止损位</div>
                           <div style={{ fontSize: 18, fontWeight: 700, color: '#F53F3F' }}>{stopLoss.toFixed(2)}</div>
                           <div style={{ fontSize: 10, color: '#F53F3F' }}>{(100 - (stopLoss/price)*100).toFixed(1)}% 风险</div>
                         </div>
                         <div>
-                          <div style={{ fontSize: 11, color: '#86909C', marginBottom: 2 }}>目标一</div>
+                          <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 2 }}>目标一</div>
                           <div style={{ fontSize: 18, fontWeight: 700, color: '#00B42A' }}>{target1.toFixed(2)}</div>
                           <div style={{ fontSize: 10, color: '#00B42A' }}>+{((target1/price - 1)*100).toFixed(1)}% 收益</div>
                         </div>
                         <div>
-                          <div style={{ fontSize: 11, color: '#86909C', marginBottom: 2 }}>目标二</div>
+                          <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 2 }}>目标二</div>
                           <div style={{ fontSize: 18, fontWeight: 700, color: '#00B42A' }}>{target2.toFixed(2)}</div>
                           <div style={{ fontSize: 10, color: '#00B42A' }}>+{((target2/price - 1)*100).toFixed(1)}% 收益</div>
                         </div>
                         <div>
-                          <div style={{ fontSize: 11, color: '#86909C', marginBottom: 2 }}>盈亏比</div>
+                          <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 2 }}>盈亏比</div>
                           <div style={{ fontSize: 18, fontWeight: 700, color: stratScore >= 1 ? '#F53F3F' : '#86909C' }}>
                             1:{(stratScore >= 1 ? ((target1/price - 1) / (1 - stopLoss/price)) : 0).toFixed(1)}
                           </div>
@@ -1285,28 +1305,28 @@ fetchPredictionResult(code).then((r: any) => {
                         <div style={{ flex: 1 }}>
                           <div style={{ fontSize: 11, color: '#F53F3F', marginBottom: 4, fontWeight: 600 }}>压力位</div>
                           {resistances.length > 0 ? resistances.map((r, i) => (
-                            <div key={i} style={{ fontSize: 12, color: '#4E5969', lineHeight: '20px' }}>
+                            <div key={i} style={{ fontSize: 12, color: 'var(--color-text-2)', lineHeight: '20px' }}>
                               {r.label}: <b style={{ color: '#F53F3F' }}>{r.value.toFixed(2)}</b>
-                              <span style={{ fontSize: 10, color: '#C9CDD4', marginLeft: 4 }}>(+{((r.value/price - 1)*100).toFixed(1)}%)</span>
+                              <span style={{ fontSize: 10, color: 'var(--color-text-3)', marginLeft: 4 }}>(+{((r.value/price - 1)*100).toFixed(1)}%)</span>
                             </div>
-                          )) : <div style={{ fontSize: 12, color: '#C9CDD4' }}>—</div>}
+                          )) : <div style={{ fontSize: 12, color: 'var(--color-text-3)' }}>—</div>}
                         </div>
                         <div style={{ flex: 1 }}>
                           <div style={{ fontSize: 11, color: '#00B42A', marginBottom: 4, fontWeight: 600 }}>支撑位</div>
                           {supports.length > 0 ? supports.map((s, i) => (
-                            <div key={i} style={{ fontSize: 12, color: '#4E5969', lineHeight: '20px' }}>
+                            <div key={i} style={{ fontSize: 12, color: 'var(--color-text-2)', lineHeight: '20px' }}>
                               {s.label}: <b style={{ color: '#00B42A' }}>{s.value.toFixed(2)}</b>
-                              <span style={{ fontSize: 10, color: '#C9CDD4', marginLeft: 4 }}>({(price/s.value - 1)*100 >= 0 ? '+' : ''}{((price/s.value - 1)*100).toFixed(1)}%)</span>
+                              <span style={{ fontSize: 10, color: 'var(--color-text-3)', marginLeft: 4 }}>({(price/s.value - 1)*100 >= 0 ? '+' : ''}{((price/s.value - 1)*100).toFixed(1)}%)</span>
                             </div>
-                          )) : <div style={{ fontSize: 12, color: '#C9CDD4' }}>—</div>}
+                          )) : <div style={{ fontSize: 12, color: 'var(--color-text-3)' }}>—</div>}
                         </div>
                       </div>
                     </div>
                   )}
 
                   {/* ── BOTTOM: Score breakdown ── */}
-                  <div style={{ fontSize: 12, color: '#86909C', lineHeight: '24px', padding: '10px 14px', background: '#FAFBFC', borderRadius: 6 }}>
-                    <div style={{ fontWeight: 600, color: '#4E5969', marginBottom: 4 }}>评分构成</div>
+                  <div style={{ fontSize: 12, color: 'var(--color-text-3)', lineHeight: '24px', padding: '10px 14px', background: 'var(--color-fill-2)', borderRadius: 6 }}>
+                    <div style={{ fontWeight: 600, color: 'var(--color-text-2)', marginBottom: 4 }}>评分构成</div>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0 16px' }}>
                       <div>📊 上榜评分: {todayBoardRank !== null ? (todayBoardRank <= 10 ? '+3' : '+1') : '0'}</div>
                       <div>📈 算法信号: {signal !== null ? (signal > 0 ? '+' : '') + Math.max(-3, Math.min(3, signal / 3)).toFixed(1) : '0'}</div>
@@ -1382,9 +1402,9 @@ fetchPredictionResult(code).then((r: any) => {
                     {intervalStats && (
                       <div style={{
                         flex: '0 0 300px',
-                        background: '#fff',
+                        background: 'var(--color-bg-1)',
                         borderRadius: 10,
-                        border: '1px solid #e5e6eb',
+                        border: '1px solid var(--color-border-1)',
                         boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
                         overflow: 'hidden',
                       }}>
@@ -1403,9 +1423,9 @@ fetchPredictionResult(code).then((r: any) => {
                         <div style={{ padding: '14px 16px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px 16px' }}>
                           {/* 涨跌幅 */}
                           <div style={{
-                            background: intervalStats.changePct >= 0 ? '#FFF7F5' : '#F2FFF5',
+                            background: intervalStats.changePct >= 0 ? 'rgba(245,63,63,0.06)' : 'rgba(0,180,42,0.06)',
                             borderRadius: 8, padding: '10px 12px',
-                            border: `1px solid ${intervalStats.changePct >= 0 ? '#FFDBD4' : '#D4FFE0'}`,
+                            border: `1px solid ${intervalStats.changePct >= 0 ? 'rgba(245,63,63,0.18)' : 'rgba(0,180,42,0.18)'}`,
                           }}>
                             <div style={{ fontSize: 10, color: 'var(--color-text-3)', marginBottom: 2 }}>涨跌幅</div>
                             <div style={{
@@ -1421,10 +1441,10 @@ fetchPredictionResult(code).then((r: any) => {
                           </div>
                           {/* 振幅 */}
                           <div style={{
-                            background: '#F7F8FA', borderRadius: 8, padding: '10px 12px',
+                            background: 'var(--color-fill-2)', borderRadius: 8, padding: '10px 12px',
                           }}>
                             <div style={{ fontSize: 10, color: 'var(--color-text-3)', marginBottom: 2 }}>振幅</div>
-                            <div style={{ fontSize: 20, fontWeight: 700, color: '#1D2129', fontFamily: 'monospace' }}>
+                            <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--color-text-1)', fontFamily: 'monospace' }}>
                               {intervalStats.amplitude.toFixed(2)}%
                             </div>
                             <div style={{ fontSize: 10, color: 'var(--color-text-3)', marginTop: 16 }}>
@@ -1433,8 +1453,8 @@ fetchPredictionResult(code).then((r: any) => {
                           </div>
                           {/* 最大回撤 */}
                           <div style={{
-                            background: '#FFFAF5', borderRadius: 8, padding: '10px 12px',
-                            border: '1px solid #FFE8D4',
+                            background: 'rgba(247,114,52,0.06)', borderRadius: 8, padding: '10px 12px',
+                            border: '1px solid rgba(247,114,52,0.18)',
                           }}>
                             <div style={{ fontSize: 10, color: 'var(--color-text-3)', marginBottom: 2 }}>最大回撤</div>
                             <div style={{ fontSize: 20, fontWeight: 700, color: '#F77234', fontFamily: 'monospace' }}>
@@ -1444,12 +1464,12 @@ fetchPredictionResult(code).then((r: any) => {
                           </div>
                           {/* 涨跌天数比 */}
                           <div style={{
-                            background: '#F7F8FA', borderRadius: 8, padding: '10px 12px',
+                            background: 'var(--color-fill-2)', borderRadius: 8, padding: '10px 12px',
                           }}>
                             <div style={{ fontSize: 10, color: 'var(--color-text-3)', marginBottom: 2 }}>涨跌比</div>
-                            <div style={{ fontSize: 20, fontWeight: 700, color: '#1D2129', fontFamily: 'monospace' }}>
+                            <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--color-text-1)', fontFamily: 'monospace' }}>
                               <span style={{ color: '#F53F3F' }}>{intervalStats.upDays}</span>
-                              <span style={{ color: '#C9CDD4', margin: '0 4px' }}>/</span>
+                              <span style={{ color: 'var(--color-text-3)', margin: '0 4px' }}>/</span>
                               <span style={{ color: '#00B42A' }}>{intervalStats.downDays}</span>
                             </div>
                             <div style={{ fontSize: 10, color: 'var(--color-text-3)', marginTop: 16 }}>
@@ -1459,13 +1479,13 @@ fetchPredictionResult(code).then((r: any) => {
                         </div>
                         {/* Divider + additional info */}
                         <div style={{
-                          borderTop: '1px solid #F2F3F5', padding: '10px 16px',
+                          borderTop: '1px solid var(--color-border-1)', padding: '10px 16px',
                           display: 'flex', justifyContent: 'space-between',
-                          background: '#FAFBFC', fontSize: 11, color: '#86909C',
+                          background: 'var(--color-fill-1)', fontSize: 11, color: 'var(--color-text-3)',
                         }}>
                           <span>最高 <b style={{ color: '#F53F3F', fontSize: 12 }}>{intervalStats.high?.toFixed(2)}</b></span>
                           <span>最低 <b style={{ color: '#00B42A', fontSize: 12 }}>{intervalStats.low?.toFixed(2)}</b></span>
-                          <span>收 <b style={{ color: '#1D2129', fontSize: 12 }}>{intervalStats.endPrice?.toFixed(2)}</b></span>
+                          <span>收 <b style={{ color: 'var(--color-text-1)', fontSize: 12 }}>{intervalStats.endPrice?.toFixed(2)}</b></span>
                         </div>
                         <div style={{
                           padding: '8px 16px', fontSize: 10, color: '#C9CDD4',
@@ -1497,7 +1517,7 @@ fetchPredictionResult(code).then((r: any) => {
             {safeKlines.length >= 10 ? (
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 700 }}>
                 <thead>
-                  <tr style={{ borderBottom: '1px solid #e5e6eb', background: 'var(--color-fill-2)' }}>
+                  <tr style={{ borderBottom: '1px solid var(--color-border-1)', background: 'var(--color-fill-2)' }}>
                     {['日期','开盘','最高','最低','收盘','涨跌幅','成交量(万手)','成交额(亿)','换手%'].map(h => (
                       <th key={h} style={{ padding: '8px 10px', textAlign: h === '日期' ? 'left' : 'right', color: 'var(--color-text-3)', fontWeight: 500, fontSize: 11, whiteSpace: 'nowrap' }}>{h}</th>
                     ))}
@@ -1508,7 +1528,7 @@ fetchPredictionResult(code).then((r: any) => {
                     const prev = safeKlines[safeKlines.length - 11 + i];
                     const chg = prev?.close ? ((k.close - prev.close) / prev.close) * 100 : 0;
                     return (
-                      <tr key={i} style={{ borderBottom: '1px solid #f5f5f5' }}>
+                      <tr key={i} style={{ borderBottom: '1px solid var(--color-table-row-border)' }}>
                         <td style={{ padding: '6px 10px', fontSize: 11 }}>{(k.tradeDate || k.date || '').slice(0, 10)}</td>
                         <td className="r num" style={{ padding: '6px 10px' }}>{k.open?.toFixed(2)}</td>
                         <td className="r num up" style={{ padding: '6px 10px' }}>{k.high?.toFixed(2)}</td>
@@ -1537,7 +1557,7 @@ fetchPredictionResult(code).then((r: any) => {
               <div className="card-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <span style={{ fontWeight: 600, fontSize: 14 }}><BarChart3 size={14} /> 季度营收 / 净利润（近{Math.min(financials.length, 8)}季）</span>
                 <button onClick={() => handleRefreshStockData('financial')} disabled={refreshingPhase !== ''}
-                  style={{ padding: '4px 10px', fontSize: 11, cursor: 'pointer', border: '1px solid #e5e6eb', borderRadius: 4, background: '#fff', color: 'var(--color-text-2)' }}>
+                  style={{ padding: '4px 10px', fontSize: 11, cursor: 'pointer', border: '1px solid var(--color-border-1)', borderRadius: 4, background: 'var(--color-bg-1)', color: 'var(--color-text-2)' }}>
                   <Repeat size={12} className={refreshingPhase === 'financial' ? 'spin' : ''} />更新
                 </button>
               </div>
@@ -1555,7 +1575,7 @@ fetchPredictionResult(code).then((r: any) => {
               const isProfit = (f.netProfit || 0) >= 0;
               const typeColors: Record<string, [string, string]> = {
                 '年报': ['#E8F3FF', '#165DFF'], '一季报': ['#E8FFEA', '#00B42A'],
-                '中报': ['#FFF7E8', '#FF7D00'], '三季报': ['#F2F3F5', '#86909C'],
+                '中报': ['rgba(255,125,0,0.10)', '#FF7D00'], '三季报': ['#F2F3F5', '#86909C'],
               };
               const [typeBg, typeColor] = typeColors[f.reportType] || ['#F2F3F5', '#86909C'];
               // Compute YoY / QoQ
@@ -1588,7 +1608,7 @@ fetchPredictionResult(code).then((r: any) => {
               <div className="card-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <span style={{ fontWeight: 600, fontSize: 14 }}><BarChart3 size={14} /> 财务数据</span>
                 <button onClick={() => handleRefreshStockData('financial')} disabled={refreshingPhase !== ''}
-                  style={{ padding: '4px 10px', fontSize: 11, cursor: 'pointer', border: '1px solid #e5e6eb', borderRadius: 4, background: '#fff', color: 'var(--color-text-2)' }}>
+                  style={{ padding: '4px 10px', fontSize: 11, cursor: 'pointer', border: '1px solid var(--color-border-1)', borderRadius: 4, background: 'var(--color-bg-1)', color: 'var(--color-text-2)' }}>
                   <Repeat size={12} className={refreshingPhase === 'financial' ? 'spin' : ''} />{refreshingPhase === 'financial' ? '更新中...' : '更新'}
                 </button>
               </div>
@@ -1614,7 +1634,7 @@ fetchPredictionResult(code).then((r: any) => {
         <div className="card">
           <div className="card-header"><span style={{ fontWeight: 600, fontSize: 14 }}><Users size={14} /> 股东数据</span>
               <button onClick={() => handleRefreshStockData('shareholder')} disabled={refreshingPhase !== ''}
-                style={{ marginLeft: 'auto', padding: '4px 10px', fontSize: 11, cursor: 'pointer', border: '1px solid #e5e6eb', borderRadius: 4, background: '#fff', color: 'var(--color-text-2)', display: 'flex', alignItems: 'center', gap: 4 }}>
+                style={{ marginLeft: 'auto', padding: '4px 10px', fontSize: 11, cursor: 'pointer', border: '1px solid var(--color-border-1)', borderRadius: 4, background: 'var(--color-bg-1)', color: 'var(--color-text-2)', display: 'flex', alignItems: 'center', gap: 4 }}>
                 <Repeat size={12} className={refreshingPhase === 'shareholder' ? 'spin' : ''} />{refreshingPhase === 'shareholder' ? '更新中...' : '更新'}
               </button></div>
           <div className="card-body" style={{ padding: 16 }}>
@@ -1676,8 +1696,8 @@ fetchPredictionResult(code).then((r: any) => {
                           const val = vMin + range * frac;
                           return (
                             <g key={'g'+gi}>
-                              <line x1={padL} y1={y} x2={padL + cw} y2={y} stroke="#f0f0f0" strokeWidth="1" />
-                              <text x={padL - 6} y={y + 3} textAnchor="end" fontSize="9" fill="#86909c">
+                              <line x1={padL} y1={y} x2={padL + cw} y2={y} stroke="var(--color-border-2)" strokeWidth="1" />
+                              <text x={padL - 6} y={y + 3} textAnchor="end" fontSize="9" fill="var(--color-text-3)">
                                 {(val / 10000).toFixed(1)}万
                               </text>
                             </g>
@@ -1714,15 +1734,15 @@ fetchPredictionResult(code).then((r: any) => {
                           const show = i % 2 === 0 || i === trendData.length - 1;
                           return show ? (
                             <text key={'xl'+i} x={padL + i * barGap + barGap / 2} y={H - 10}
-                              textAnchor="middle" fontSize="9" fill="#86909c">{label}</text>
+                              textAnchor="middle" fontSize="9" fill="var(--color-text-3)">{label}</text>
                           ) : null;
                         })}
                         
                         {/* Legend */}
                         <rect x={padL + cw - 150} y={padT} width={10} height={10} rx="2" fill="#F53F3F" opacity="0.65" />
-                        <text x={padL + cw - 136} y={padT + 8} fontSize="9" fill="#86909c">户数增加(分散)</text>
+                        <text x={padL + cw - 136} y={padT + 8} fontSize="9" fill="var(--color-text-3)">户数增加(分散)</text>
                         <rect x={padL + cw - 60} y={padT} width={10} height={10} rx="2" fill="#00B42A" opacity="0.65" />
-                        <text x={padL + cw - 46} y={padT + 8} fontSize="9" fill="#86909c">减少(集中)</text>
+                        <text x={padL + cw - 46} y={padT + 8} fontSize="9" fill="var(--color-text-3)">减少(集中)</text>
                       </svg>
                     </div>
                   );
@@ -1746,14 +1766,14 @@ fetchPredictionResult(code).then((r: any) => {
                             <th key={h} style={{
                               padding: '8px 12px', textAlign: hi === 0 ? 'left' : 'right',
                               color: 'var(--color-text-3)', fontWeight: 500, fontSize: 11,
-                              borderBottom: '1px solid #e5e6eb'
+                              borderBottom: '1px solid var(--color-border-1)'
                             }}>{h}</th>
                           ))}
                         </tr>
                       </thead>
                       <tbody>
                         {shList.map((row: any, i: number) => (
-                          <tr key={i} style={{ borderBottom: '1px solid #f5f5f5' }}>
+                          <tr key={i} style={{ borderBottom: '1px solid var(--color-table-row-border)' }}>
                             <td style={{ padding: '7px 12px', fontSize: 12, fontWeight: i === 0 ? 600 : 400, color: 'var(--color-text-1)', textAlign: 'left' }}>
                               {row.reportDate}
                             </td>
@@ -1773,7 +1793,7 @@ fetchPredictionResult(code).then((r: any) => {
                             <td style={{ padding: '7px 12px', fontSize: 11, textAlign: 'right' }}>
                               <span style={{
                                 padding: '2px 8px', borderRadius: 10, fontSize: 10,
-                                background: row.holderChange > 2 ? '#FFF1F0' : row.holderChange < -2 ? '#F0FFF4' : 'var(--color-fill-2)',
+                                background: row.holderChange > 2 ? 'rgba(245,63,63,0.10)' : row.holderChange < -2 ? 'rgba(0,180,42,0.10)' : 'var(--color-fill-2)',
                                 color: row.holderChange > 2 ? '#F53F3F' : row.holderChange < -2 ? '#00B42A' : 'var(--color-text-3)',
                                 fontWeight: 500
                               }}>
@@ -1807,9 +1827,9 @@ fetchPredictionResult(code).then((r: any) => {
                   const trendMap: Record<string, {bg:string, color:string, label:string}> = {
                     '新进': {bg:'#F0FFF4', color:'#00B42A', label:'新进'},
                     '增持': {bg:'#E8F3FF', color:'#165DFF', label:'增持'},
-                    '减持': {bg:'#FFF1F0', color:'#F53F3F', label:'减持'},
+                    '减持': {bg:'rgba(245,63,63,0.10)', color:'#F53F3F', label:'减持'},
                     '不变': {bg:'var(--color-fill-2)', color:'var(--color-text-3)', label:'不变'},
-                    '退出': {bg:'#FFF7E6', color:'#FF7D00', label:'退出'},
+                    '退出': {bg:'rgba(255,125,0,0.10)', color:'#FF7D00', label:'退出'},
                   };
                   return (
                     <div>
@@ -1838,7 +1858,7 @@ fetchPredictionResult(code).then((r: any) => {
                                   <col style={{ width: '18%' }} /><col style={{ width: '14%' }} /><col style={{ width: '12%' }} /><col style={{ width: '14%' }} />
                                 </colgroup>
                                 <thead>
-                                  <tr style={{ borderBottom: '2px solid #e5e6eb', background: '#fafafa' }}>
+                                  <tr style={{ borderBottom: '2px solid var(--color-border-1)', background: 'var(--color-fill-1)' }}>
                                     {['排名', '股东名称', '持股数', '持股比例', '变动', '环比'].map((h, hi) => (
                                       <th key={h} style={{
                                         padding: '7px 8px', textAlign: hi >= 2 ? 'right' : 'left',
@@ -1851,7 +1871,7 @@ fetchPredictionResult(code).then((r: any) => {
                                   {holders.map((h: any, i: number) => {
                                     const trend = t[h.trend] || t['不变'];
                                     return (
-                                      <tr key={i} style={{ borderBottom: '1px solid #f5f5f5' }}>
+                                      <tr key={i} style={{ borderBottom: '1px solid var(--color-table-row-border)' }}>
                                         <td style={{ padding: '6px 8px', fontSize: 11, color: 'var(--color-text-3)', textAlign: 'left' }}>{h.rank || i+1}</td>
                                         <td style={{ padding: '6px 8px', fontSize: 12, fontWeight: 500, color: 'var(--color-text-1)', textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={h.name}>{h.name}</td>
                                         <td style={{ padding: '6px 8px', fontSize: 11, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtVol(h.shares)}</td>
@@ -1859,7 +1879,7 @@ fetchPredictionResult(code).then((r: any) => {
                                         <td style={{ padding: '6px 8px', fontSize: 10, textAlign: 'right' }}>
                                           <span style={{
                                             padding: '1px 6px', borderRadius: 8, fontSize: 10,
-                                            background: h.change ? '#E8F3FF' : 'var(--color-fill-2)',
+                                            background: h.change ? 'rgba(22,93,255,0.10)' : 'var(--color-fill-2)',
                                             color: h.change ? '#165DFF' : 'var(--color-text-3)',
                                           }}>{h.change || '-'}</span>
                                         </td>
@@ -1886,11 +1906,11 @@ fetchPredictionResult(code).then((r: any) => {
                                     </colgroup>
                                     <tbody>
                                       {exited.map((h: any, i: number) => (
-                                        <tr key={'ex'+i} style={{ borderBottom: '1px solid #f5f5f5', background: '#FFF7E6' }}>
+                                        <tr key={'ex'+i} style={{ borderBottom: '1px solid var(--color-table-row-border)', background: 'var(--color-warning-bg)' }}>
                                           <td style={{ padding: '5px 8px', textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={h.name}>{h.name}</td>
                                           <td style={{ padding: '5px 8px', textAlign: 'right' }}>{fmtVol(h.shares)}</td>
                                           <td style={{ padding: '5px 8px', textAlign: 'right' }}>
-                                            <span style={{ padding: '1px 6px', borderRadius: 8, fontSize: 10, background: '#FFF7E6', color: '#FF7D00', fontWeight: 500 }}>退出</span>
+                                            <span style={{ padding: '1px 6px', borderRadius: 8, fontSize: 10, background: 'var(--color-warning-bg)', color: '#FF7D00', fontWeight: 500 }}>退出</span>
                                           </td>
                                         </tr>
                                       ))}
@@ -1921,7 +1941,7 @@ fetchPredictionResult(code).then((r: any) => {
         <div className="card">
           <div className="card-header"><span style={{ fontWeight: 600, fontSize: 14 }}><FileText size={14} /> 机构研报</span>
               <button onClick={() => handleRefreshStockData('reports')} disabled={refreshingPhase !== ''}
-                style={{ marginLeft: 'auto', padding: '4px 10px', fontSize: 11, cursor: 'pointer', border: '1px solid #e5e6eb', borderRadius: 4, background: '#fff', color: 'var(--color-text-2)', display: 'flex', alignItems: 'center', gap: 4 }}>
+                style={{ marginLeft: 'auto', padding: '4px 10px', fontSize: 11, cursor: 'pointer', border: '1px solid var(--color-border-1)', borderRadius: 4, background: 'var(--color-bg-1)', color: 'var(--color-text-2)', display: 'flex', alignItems: 'center', gap: 4 }}>
                 <Repeat size={12} className={refreshingPhase === 'reports' ? 'spin' : ''} />{refreshingPhase === 'reports' ? '更新中...' : '更新'}
               </button></div>
           <div className="card-body" style={{ padding: 0 }}>
@@ -1935,8 +1955,8 @@ fetchPredictionResult(code).then((r: any) => {
                   {refreshLogs.map((log, i) => (
                     <div key={i} style={{ opacity: i === refreshLogs.length - 1 ? 1 : 0.4 }}>
                       {log.startsWith('✅') ? <span style={{color:'#00ff88'}}>{log}</span> :
-                       log.startsWith('⚠') ? <span style={{color:'#ffaa00'}}>{log}</span> :
-                       log.includes('error') || log.includes('失败') ? <span style={{color:'#ff4444'}}>{log}</span> :
+                       log.startsWith('⚠') ? <span style={{color:'var(--color-warning-text)'}}>{log}</span> :
+                       log.includes('error') || log.includes('失败') ? <span style={{color:'var(--color-danger-text)'}}>{log}</span> :
                        <span>{log}</span>}
                     </div>
                   ))}
@@ -1952,7 +1972,7 @@ fetchPredictionResult(code).then((r: any) => {
                   };
                   const rc = ratingColor[r.rating] || 'var(--color-text-3)';
                   return (
-                    <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '12px 16px', borderBottom: '1px solid #f5f5f5' }}>
+                    <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '12px 16px', borderBottom: '1px solid var(--color-table-row-border)' }}>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
                           {r.rating && (
@@ -1980,11 +2000,11 @@ fetchPredictionResult(code).then((r: any) => {
                       {r.pdfUrl && (
                         <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
                           <a href={`https://data.eastmoney.com/report/info/${r.infoCode || ''}.html`} target="_blank" rel="noopener noreferrer"
-                            style={{ padding: '4px 8px', fontSize: 11, background: '#165DFF', color: '#fff', borderRadius: 4, textDecoration: 'none', whiteSpace: 'nowrap' }}>
+                            style={{ padding: '4px 8px', fontSize: 11, background: 'var(--color-primary)', color: '#fff', borderRadius: 4, textDecoration: 'none', whiteSpace: 'nowrap' }}>
                             详情
                           </a>
                           <a href={`https://pdf.dfcfw.com/pdf/H3_${r.infoCode || ''}_1.pdf`} target="_blank" rel="noopener noreferrer"
-                            style={{ padding: '4px 8px', fontSize: 11, background: '#00B42A', color: '#fff', borderRadius: 4, textDecoration: 'none', whiteSpace: 'nowrap' }}>
+                            style={{ padding: '4px 8px', fontSize: 11, background: 'var(--color-success)', color: '#fff', borderRadius: 4, textDecoration: 'none', whiteSpace: 'nowrap' }}>
                             PDF
                           </a>
                         </div>
@@ -2007,7 +2027,7 @@ fetchPredictionResult(code).then((r: any) => {
         <div className="card">
           <div className="card-header"><span style={{ fontWeight: 600, fontSize: 14 }}><Newspaper size={14} /> 相关资讯</span>
               <button onClick={() => handleRefreshStockData('news')} disabled={refreshingPhase !== ''}
-                style={{ marginLeft: 'auto', padding: '4px 10px', fontSize: 11, cursor: 'pointer', border: '1px solid #e5e6eb', borderRadius: 4, background: '#fff', color: 'var(--color-text-2)', display: 'flex', alignItems: 'center', gap: 4 }}>
+                style={{ marginLeft: 'auto', padding: '4px 10px', fontSize: 11, cursor: 'pointer', border: '1px solid var(--color-border-1)', borderRadius: 4, background: 'var(--color-bg-1)', color: 'var(--color-text-2)', display: 'flex', alignItems: 'center', gap: 4 }}>
                 <Repeat size={12} className={refreshingPhase === 'news' ? 'spin' : ''} />{refreshingPhase === 'news' ? '更新中...' : '更新'}
               </button></div>
           <div className="card-body" style={{ padding: 0 }}>
@@ -2015,7 +2035,7 @@ fetchPredictionResult(code).then((r: any) => {
               <div style={{ display: 'flex', flexDirection: 'column' }}>
                 {stockNews.map((n: any, i: number) => (
                   <a key={i} href={n.url || '#'} target="_blank" rel="noopener noreferrer"
-                    style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '10px 16px', borderBottom: '1px solid #f5f5f5', textDecoration: 'none', color: 'inherit' }}>
+                    style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '10px 16px', borderBottom: '1px solid var(--color-table-row-border)', textDecoration: 'none', color: 'inherit' }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {n.title}
@@ -2026,8 +2046,8 @@ fetchPredictionResult(code).then((r: any) => {
                       <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 3, background: n.newsType === 'announcement' ? '#E8F3FF' : '#E8FFEA', color: n.newsType === 'announcement' ? '#165DFF' : '#00B42A' }}>
                         {n.newsType === 'announcement' ? '公告' : '新闻'}
                       </span>
-                      <div style={{ fontSize: 10, color: '#c9cdd4', marginTop: 4 }}>{n.publishDate}</div>
-                      <div style={{ fontSize: 10, color: '#c9cdd4' }}>{n.source}</div>
+                      <div style={{ fontSize: 10, color: 'var(--color-text-3)', marginTop: 4 }}>{n.publishDate}</div>
+                      <div style={{ fontSize: 10, color: 'var(--color-text-3)' }}>{n.source}</div>
                     </div>
                   </a>
                 ))}

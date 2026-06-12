@@ -150,7 +150,7 @@ export default function AppLayout() {
                 </button>
                 <button
                   onClick={() => { setShowUserMenu(false); handleLogout(); }}
-                  style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '8px 12px', border: 'none', background: 'none', color: '#f53f3f', fontSize: 13, cursor: 'pointer', borderRadius: 6 }}
+                  style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '8px 12px', border: 'none', background: 'none', color: 'var(--stock-up)', fontSize: 13, cursor: 'pointer', borderRadius: 6 }}
                   onMouseEnter={e => e.currentTarget.style.background = 'var(--red-1)'}
                   onMouseLeave={e => e.currentTarget.style.background = 'none'}
                 >

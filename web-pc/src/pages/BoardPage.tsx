@@ -64,9 +64,9 @@ export default function BoardPage() {
       title: '#', dataIndex: 'rank', width: 48, align: 'center' as const,
       sorter: (a: BoardItem, b: BoardItem) => a.rank - b.rank,
       render: (v: number) => {
-        if (v === 1) return <span style={{ color: '#f53f3f', fontWeight: 700, fontSize: 16 }}>🥇</span>;
-        if (v === 2) return <span style={{ color: '#ff7d00', fontWeight: 700, fontSize: 16 }}>🥈</span>;
-        if (v === 3) return <span style={{ color: '#ffb400', fontWeight: 700, fontSize: 16 }}>🥉</span>;
+        if (v === 1) return <span style={{ color: 'var(--stock-up)', fontWeight: 700, fontSize: 16 }}>🥇</span>;
+        if (v === 2) return <span style={{ color: 'var(--color-warning-text)', fontWeight: 700, fontSize: 16 }}>🥈</span>;
+        if (v === 3) return <span style={{ color: 'var(--color-warning-text)', fontWeight: 700, fontSize: 16 }}>🥉</span>;
         return <span style={{ color: 'var(--color-text-3)', fontWeight: 500 }}>{v}</span>;
       },
     },
@@ -107,19 +107,19 @@ export default function BoardPage() {
       sorter: (a: BoardItem, b: BoardItem) => (a.score || 0) - (b.score || 0),
       render: (v: number) => {
         if (v === undefined || v === null) return <span className="muted">-</span>;
-        const color = v > 5 ? '#F53F3F' : v > 0 ? '#FF7D00' : v > -5 ? '#86909C' : '#00B42A';
+        const color = v > 5 ? 'var(--stock-up)' : v > 0 ? 'var(--color-warning-text)' : v > -5 ? 'var(--color-text-3)' : 'var(--stock-down)';
         return <span style={{ fontWeight: 600, fontSize: 13, color }}>{v > 0 ? '+' : ''}{v.toFixed(1)}</span>;
       },
     },
     {
       title: '上榜', dataIndex: 'appearanceCount', width: 55, align: 'center' as const,
       sorter: (a: BoardItem, b: BoardItem) => (a.appearanceCount || 0) - (b.appearanceCount || 0),
-      render: (v: number) => v > 0 ? <span style={{ fontSize: 11, color: '#7c3aed', fontWeight: 500 }}>{v}次</span> : <span style={{ color: '#c9cdd4' }}>-</span>,
+      render: (v: number) => v > 0 ? <span style={{ fontSize: 11, color: '#7c3aed', fontWeight: 500 }}>{v}次</span> : <span style={{ color: 'var(--color-text-3)' }}>-</span>,
     },
     {
       title: '连榜', dataIndex: 'streakCount', width: 55, align: 'center' as const,
       sorter: (a: BoardItem, b: BoardItem) => (a.streakCount || 0) - (b.streakCount || 0),
-      render: (v: number) => v > 0 ? <span style={{ fontSize: 11, color: '#cb272d', fontWeight: 500 }}>{v}天</span> : <span style={{ color: '#c9cdd4' }}>-</span>,
+      render: (v: number) => v > 0 ? <span style={{ fontSize: 11, color: '#cb272d', fontWeight: 500 }}>{v}天</span> : <span style={{ color: 'var(--color-text-3)' }}>-</span>,
     },
     {
       title: 'PE', dataIndex: 'pe', width: 65, align: 'right' as const,
@@ -135,7 +135,7 @@ export default function BoardPage() {
       title: '建议', dataIndex: 'suggestion', width: 85, align: 'center' as const,
       render: (v: string) => {
         if (!v) return <span style={{ color: 'var(--color-border-2)', fontSize: 12 }}>—</span>;
-        const color = SUGGEST_COLORS[v] || '#86909C';
+        const color = SUGGEST_COLORS[v] || 'var(--color-text-3)';
         const bg = SUGGEST_BG[v] || '#F2F3F5';
         return (
           <span style={{
@@ -150,7 +150,7 @@ export default function BoardPage() {
       title: '风险', dataIndex: 'riskLevel', width: 85, align: 'center' as const,
       render: (v: string) => {
         if (!v) return <span style={{ color: 'var(--color-border-2)', fontSize: 12 }}>—</span>;
-        const color = RISK_COLORS[v] || '#86909C';
+        const color = RISK_COLORS[v] || 'var(--color-text-3)';
         const bg = RISK_BG[v] || '#F2F3F5';
         return (
           <span style={{

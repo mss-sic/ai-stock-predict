@@ -17,10 +17,10 @@ interface BoardItem {
   cumuChgPct: number; streakCount: number; appearanceCount: number;
 }
 
-const SUGGEST_COLORS: Record<string,string>={'强烈买入':'#F53F3F','买入':'#F77234','增持':'#FF7D00','持有':'#86909C','减持':'#3491FA','卖出':'#00B42A','强烈卖出':'#009A29'};
-const SUGGEST_BG: Record<string,string>={'强烈买入':'#FFECE8','买入':'#FFF3E8','增持':'#FFF7E8','持有':'#F2F3F5','减持':'#E8F3FF','卖出':'#E8FFEA','强烈卖出':'#DBF5DF'};
-const RISK_COLORS: Record<string,string>={'高风险':'#F53F3F','中高风险':'#F77234','中风险':'#FF7D00','中低风险':'#3491FA','低风险':'#00B42A'};
-const RISK_BG: Record<string,string>={'高风险':'#FFECE8','中高风险':'#FFF3E8','中风险':'#FFF7E8','中低风险':'#E8F3FF','低风险':'#E8FFEA'};
+const SUGGEST_COLORS: Record<string,string>={'强烈买入':'var(--color-danger-text)','买入':'#F77234','增持':'var(--color-warning-text)','持有':'var(--color-text-3)','减持':'#3491FA','卖出':'var(--color-success-text)','强烈卖出':'#009A29'};
+const SUGGEST_BG: Record<string,string>={'强烈买入':'var(--color-danger-bg)','买入':'var(--color-warning-bg)','增持':'var(--color-warning-bg)','持有':'var(--color-disabled-border)','减持':'var(--color-info-bg)','卖出':'var(--color-success-bg)','强烈卖出':'var(--color-success-bg)'};
+const RISK_COLORS: Record<string,string>={'高风险':'var(--color-danger-text)','中高风险':'#F77234','中风险':'var(--color-warning-text)','中低风险':'#3491FA','低风险':'var(--color-success-text)'};
+const RISK_BG: Record<string,string>={'高风险':'var(--color-danger-bg)','中高风险':'var(--color-warning-bg)','中风险':'var(--color-warning-bg)','中低风险':'var(--color-info-bg)','低风险':'var(--color-success-bg)'};
 
 const fmtDateChip = (d: string) => {
   const dt = new Date(d + 'T00:00:00');
@@ -185,12 +185,12 @@ export default function HistoryBoardPage() {
     {
       title: '上榜', dataIndex: 'appearanceCount', width: 55, align: 'center' as const,
       sorter: (a: BoardItem, b: BoardItem) => (a.appearanceCount || 0) - (b.appearanceCount || 0),
-      render: (v: number) => v > 0 ? <span style={{ fontSize: 11, color: '#7c3aed', fontWeight: 500 }}>{v}次</span> : <span style={{ color: '#c9cdd4' }}>-</span>,
+      render: (v: number) => v > 0 ? <span style={{ fontSize: 11, color: 'var(--purple-6)', fontWeight: 500 }}>{v}次</span> : <span style={{ color: '#c9cdd4' }}>-</span>,
     },
     {
       title: '连榜', dataIndex: 'streakCount', width: 55, align: 'center' as const,
       sorter: (a: BoardItem, b: BoardItem) => (a.streakCount || 0) - (b.streakCount || 0),
-      render: (v: number) => v > 0 ? <span style={{ fontSize: 11, color: '#cb272d', fontWeight: 500 }}>{v}天</span> : <span style={{ color: '#c9cdd4' }}>-</span>,
+      render: (v: number) => v > 0 ? <span style={{ fontSize: 11, color: 'var(--red-7)', fontWeight: 500 }}>{v}天</span> : <span style={{ color: '#c9cdd4' }}>-</span>,
     },
     {
       title: 'PE', dataIndex: 'pe', width: 58, align: 'right' as const,
@@ -206,8 +206,8 @@ export default function HistoryBoardPage() {
       title: '建议', dataIndex: 'suggestion', width: 62, align: 'center' as const,
       render: (v: string) => {
         if (!v) return <span style={{ color: 'var(--color-border-2)', fontSize: 12 }}>—</span>;
-        const color = SUGGEST_COLORS[v] || '#86909C';
-        const bg = SUGGEST_BG[v] || '#F2F3F5';
+        const color = SUGGEST_COLORS[v] || 'var(--color-text-3)';
+        const bg = SUGGEST_BG[v] || 'var(--color-disabled-border)';
         return (
           <span style={{
             display: 'inline-block', padding: '2px 8px', borderRadius: 3,
@@ -221,8 +221,8 @@ export default function HistoryBoardPage() {
       title: '风险', dataIndex: 'riskLevel', width: 85, align: 'center' as const,
       render: (v: string) => {
         if (!v) return <span style={{ color: 'var(--color-border-2)', fontSize: 12 }}>—</span>;
-        const color = RISK_COLORS[v] || '#86909C';
-        const bg = RISK_BG[v] || '#F2F3F5';
+        const color = RISK_COLORS[v] || 'var(--color-text-3)';
+        const bg = RISK_BG[v] || 'var(--color-disabled-border)';
         return (
           <span style={{
             display: 'inline-block', padding: '1px 8px', borderRadius: 3,
@@ -243,14 +243,14 @@ export default function HistoryBoardPage() {
         style={{
           display: 'flex', alignItems: 'center', gap: 10,
           padding: '10px 16px', cursor: 'pointer',
-          borderBottom: '1px solid #f5f5f5', transition: 'background 0.12s',
+          borderBottom: '1px solid var(--color-table-row-border)', transition: 'background 0.12s',
         }}
         onMouseEnter={e => (e.currentTarget.style.background = 'var(--color-fill-2)')}
         onMouseLeave={e => (e.currentTarget.style.background = '')}
       >
         <div style={{
           width: 24, height: 24, borderRadius: 6,
-          background: type === 'new' ? '#ffece8' : '#f2f3f5',
+          background: type === 'new' ? '#ffece8' : 'var(--color-fill-2)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           fontSize: 11, fontWeight: 700, flexShrink: 0,
           color: type === 'new' ? '#f53f3f' : 'var(--color-text-3)',
@@ -283,7 +283,7 @@ export default function HistoryBoardPage() {
             <CalendarDays size={20} color="var(--arcoblue-6)" />
             <span style={{ fontSize: 16, fontWeight: 700 }}>历史榜单</span>
           </h2>
-          {selectedDate && <Tag color="blue" style={{ fontSize: 12 }}>{selectedDate}</Tag>}
+          {selectedDate && <Tag color="arcoblue" style={{ fontSize: 12 }}>{selectedDate}</Tag>}
           <span className="muted" style={{ fontSize: 13 }}>回看任一交易日的算法榜单与次日表现</span>
         </div>
       </div>
@@ -304,8 +304,8 @@ export default function HistoryBoardPage() {
                     flexShrink: 0, display: 'flex', flexDirection: 'column',
                     alignItems: 'center', gap: 0, padding: '5px 13px',
                     borderRadius: 8,
-                    border: isSelected ? '2px solid #165dff' : '1px solid #e5e6eb',
-                    background: isSelected ? '#e8f3ff' : '#fff',
+                    border: isSelected ? '2px solid var(--color-primary)' : '1px solid var(--color-border-1)',
+                    background: isSelected ? 'var(--color-info-bg)' : 'var(--color-bg-1)',
                     cursor: 'pointer', minWidth: 54, transition: 'all 0.15s',
                     color: isSelected ? 'var(--arcoblue-6)' : 'var(--color-text-1)', fontFamily: 'inherit',
                   }}
@@ -337,7 +337,7 @@ export default function HistoryBoardPage() {
             const Icon = card.icon;
             return (
               <div key={i} style={{
-                background: '#fff', borderRadius: 8, border: '1px solid #e5e6eb',
+                background: 'var(--color-bg-1)', borderRadius: 8, border: '1px solid var(--color-border-1)',
                 padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 10, minWidth: 130,
               }}>
                 <div style={{
@@ -379,7 +379,7 @@ export default function HistoryBoardPage() {
                   <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                     <Star size={14} color="var(--arcoblue-6)" />
                     <span style={{ fontSize: 14, fontWeight: 600 }}>{selectedDate} 榜单</span>
-                    <Tag color="blue" style={{ fontSize: 11 }}>{data.length} 只</Tag>
+                    <Tag color="arcoblue" style={{ fontSize: 11 }}>{data.length} 只</Tag>
                   </span>
                   {prevDate && <span className="muted" style={{ fontSize: 12 }}>对比 {prevDate}</span>}
                 </div>
@@ -397,7 +397,7 @@ export default function HistoryBoardPage() {
         <div style={{ width: 290, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div className="card">
             <div className="card-header" style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '12px 16px' }}>
-              <ArrowUpRight size={14} color="#f53f3f" />
+              <ArrowUpRight size={14} color="var(--color-danger-text)" />
               <span style={{ fontSize: 13, fontWeight: 600 }}>当日新晋</span>
               {newEntries.length > 0 && <Tag color="red" style={{ fontSize: 11, marginLeft: 4 }}>{newEntries.length}</Tag>}
             </div>
@@ -416,7 +416,7 @@ export default function HistoryBoardPage() {
 
           <div className="card">
             <div className="card-header" style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '12px 16px' }}>
-              <ArrowDownRight size={14} color="#86909c" />
+              <ArrowDownRight size={14} color="var(--color-text-3)" />
               <span style={{ fontSize: 13, fontWeight: 600 }}>当日剔除</span>
               {removedEntries.length > 0 && <Tag color="gray" style={{ fontSize: 11, marginLeft: 4 }}>{removedEntries.length}</Tag>}
             </div>

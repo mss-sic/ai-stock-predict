@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Card, Tag, Button, Spin, Empty, Table, Modal, Select, Typography, Space, Message, Input, InputNumber, DatePicker, Popconfirm } from '@arco-design/web-react';
-import { Trophy, Users, Calendar, ArrowLeft, Play, TrendingUp, BarChart3, Edit3, Power, StopCircle, Trash2 } from 'lucide-react';
+import { Trophy, Users, Calendar, ArrowLeft, Play, TrendingUp, BarChart3, Edit3, Power, StopCircle, Trash2, Medal } from 'lucide-react';
 import api from '../services/api';
 import { useAuth } from '../services/AuthContext';
 import dayjs from 'dayjs';
@@ -126,14 +126,21 @@ export default function PkDetailPage() {
   if (loading) return <div style={{ padding: 40, textAlign: 'center' }}><Spin size={30} /></div>;
   if (!event) return <Empty description="活动不存在" />;
 
-  const st = statusMap[event.status] || { color: 'gray', text: event.status };
-  const myEntry = entries.find((e) => e.userId === user?.id);
+  const st = statusMap[event.status] || statusMap.draft;
+  const myEntry = entries.find(e => e.userId === user?.id);
 
   const columns = [
-    { title: '排名', dataIndex: 'finalRank', width: 60, render: (v: number) => v > 0 ? `#${v}` : '-' },
-    { title: '选手', dataIndex: 'username', width: 100 },
-    { title: '策略', dataIndex: 'strategyName', ellipsis: true },
-    { title: '收益率', dataIndex: 'totalReturn', render: (v: number) => <span style={{ color: v >= 0 ? '#f5222d' : '#52c41a', fontWeight: 600 }}>{v > 0 ? '+' : ''}{v?.toFixed(2)}%</span> },
+    { title: '排名', dataIndex: 'finalRank', width: 60, render: (v: number) => <span style={{ fontWeight: 700, color: v <= 3 ? 'var(--color-warning-text)' : 'var(--color-text-2)' }}>#{v}</span> },
+    {
+      title: '选手 / 策略', width: 160,
+      render: (_: any, record: PkEntry) => (
+        <div>
+          <div style={{ fontWeight: 600 }}>{record.username || `选手 #${record.userId}`}</div>
+          <div style={{ fontSize: 11, color: 'var(--color-text-3)' }}>{record.strategyName || '未知'}</div>
+        </div>
+      ),
+    },
+    { title: '总收益', dataIndex: 'totalReturn', render: (v: number) => <span style={{ color: v >= 0 ? 'var(--stock-up)' : 'var(--stock-down)', fontWeight: 600 }}>{v > 0 ? '+' : ''}{v?.toFixed(2)}%</span> },
     { title: '夏普', dataIndex: 'sharpeRatio', render: (v: number) => v?.toFixed(2) },
     { title: '最大回撤', dataIndex: 'maxDrawdown', render: (v: number) => `${v?.toFixed(2)}%` },
     { title: '胜率', dataIndex: 'winRate', render: (v: number) => `${v?.toFixed(1)}%` },
@@ -147,6 +154,22 @@ export default function PkDetailPage() {
       )
     },
   ];
+
+  // ── Podium: top 3 ──
+  const displayedEntries = entries.map((e, i) => ({ ...e, finalRank: e.finalRank || i + 1 }));
+  const tableData = displayedEntries.slice(3, 100);
+
+  const podiumConfig = [
+    { label: '🥇', color: '#f5a623', bg: 'linear-gradient(135deg, #fffdf5 0%, #fef6e0 40%, #ffeaa7 100%)', border: '#e8b800', shadow: '0 4px 20px rgba(245,166,35,0.25)' },
+    { label: '🥈', color: '#a0aab4', bg: 'linear-gradient(135deg, #fafbfc 0%, #edf0f4 40%, #d5dbe3 100%)', border: '#b0b8c0', shadow: '0 4px 20px rgba(160,170,180,0.22)' },
+    { label: '🥉', color: '#d4884a', bg: 'linear-gradient(135deg, #fdf6f0 0%, #fae9d8 40%, #e8c99b 100%)', border: '#c07a30', shadow: '0 4px 20px rgba(212,136,74,0.22)' },
+  ];
+
+  // Order: 2nd (left) · 1st (center, tallest) · 3rd (right)
+  const podiumOrdered: { entry: PkEntry; place: number; cfg: typeof podiumConfig[0]; height: number }[] = [];
+  if (displayedEntries[1]) podiumOrdered.push({ entry: displayedEntries[1], place: 2, cfg: podiumConfig[1], height: 140 });
+  if (displayedEntries[0]) podiumOrdered.push({ entry: displayedEntries[0], place: 1, cfg: podiumConfig[0], height: 170 });
+  if (displayedEntries[2]) podiumOrdered.push({ entry: displayedEntries[2], place: 3, cfg: podiumConfig[2], height: 120 });
 
   return (
     <div style={{ padding: '24px 32px', maxWidth: 1200, margin: '0 auto' }}>
@@ -190,16 +213,85 @@ export default function PkDetailPage() {
         )}
       </Card>
 
+      {/* ── Podium: Top 3 ── */}
+      {podiumOrdered.length > 0 && (
+        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'flex-end', gap: 12, marginBottom: 20 }}>
+          {podiumOrdered.map(({ entry, place, cfg, height }) => (
+            <div
+              key={entry.id}
+              style={{
+                flex: '0 1 200px',
+                minHeight: height,
+                background: cfg.bg,
+                border: `1.5px solid ${cfg.border}`,
+                borderRadius: 14,
+                padding: '12px 10px',
+                boxShadow: cfg.shadow,
+                cursor: 'pointer',
+                transition: 'transform 0.2s, box-shadow 0.2s',
+                position: 'relative',
+                overflow: 'hidden',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'flex-start',
+              }}
+              onClick={() => navigate(`/pk/${id}/entry/${entry.id}`)}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.transform = 'translateY(-3px)';
+                e.currentTarget.style.boxShadow = cfg.shadow.replace('0.22)', '0.45)').replace('0.25)', '0.45)');
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.transform = 'translateY(0)';
+                e.currentTarget.style.boxShadow = cfg.shadow;
+              }}
+            >
+              <div style={{ fontSize: 22, textAlign: 'center', marginBottom: 2, lineHeight: 1 }}>{cfg.label}</div>
+              <div style={{ textAlign: 'center', marginBottom: 8 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#1d2129' }}>{entry.username || `选手 #${entry.userId}`}</div>
+                <div style={{ fontSize: 10, color: '#4e5969', marginTop: 1 }}>{entry.strategyName || '未知策略'}</div>
+              </div>
+              <div style={{ textAlign: 'center', marginBottom: 8 }}>
+                <div style={{ fontSize: 24, fontWeight: 900, color: entry.totalReturn >= 0 ? '#e0584c' : '#2ba471', lineHeight: 1.1 }}>
+                  {entry.totalReturn >= 0 ? '+' : ''}{entry.totalReturn?.toFixed(1)}%
+                </div>
+                <div style={{ fontSize: 10, color: '#86909c', marginTop: 2 }}>总收益率</div>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-around', borderTop: `1px solid ${cfg.border}44`, paddingTop: 8, marginTop: 'auto' }}>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: '#4e5969' }}>
+                    ¥{((entry.finalEquity || 0) / 10000).toFixed(1)}<span style={{ fontSize: 9, fontWeight: 400 }}>万</span>
+                  </div>
+                  <div style={{ fontSize: 9, color: '#86909c', marginTop: 1 }}>最终权益</div>
+                </div>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: '#c4564a' }}>
+                    {entry.maxDrawdown?.toFixed(1)}%
+                  </div>
+                  <div style={{ fontSize: 9, color: '#86909c', marginTop: 1 }}>最大回撤</div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
       {entries.length === 0 ? (
         <Empty description="暂无参赛者" />
       ) : (
-        <Table 
-          columns={columns} 
-          data={entries.map((e, i) => ({ ...e, finalRank: e.finalRank || i + 1 }))} 
-          rowKey="id"
-          pagination={false}
-          scroll={{ x: 700 }}
-        />
+        <>
+          {tableData.length > 0 && (
+            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-2)', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Medal size={14} /> 排行榜 <span style={{ fontSize: 11, color: 'var(--color-text-3)', fontWeight: 400 }}>(第4-{Math.min(displayedEntries.length, 100)}名)</span>
+            </div>
+          )}
+          <Table 
+            columns={columns} 
+            data={tableData}
+            rowKey="id"
+            pagination={false}
+            scroll={{ x: 700 }}
+          />
+        </>
       )}
 
       <Modal

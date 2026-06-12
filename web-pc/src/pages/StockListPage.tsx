@@ -85,12 +85,12 @@ export default function StockListPage() {
     {
       title: '名称', dataIndex: 'name', width: 160,
       render: (v: string, r: any) => (
-        <span style={{ cursor: 'pointer', color: '#165dff' }} onClick={() => navigate(`/stock/${r.code}`)}>{v}</span>
+        <span style={{ cursor: 'pointer', color: 'var(--color-primary)' }} onClick={() => navigate(`/stock/${r.code}`)}>{v}</span>
       ),
     },
     {
       title: '行业', dataIndex: 'industry', width: 120,
-      render: (v: string) => v ? <Tag size="small" style={{ background: '#f2f3f5', border: 'none' }}>{v}</Tag> : <span className="muted">—</span>,
+      render: (v: string) => v ? <Tag size="small" style={{ background: 'var(--color-fill-2)', border: 'none' }}>{v}</Tag> : <span className="muted">—</span>,
     },
     {
       title: '操作', width: 80,

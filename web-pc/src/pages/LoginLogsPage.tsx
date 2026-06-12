@@ -17,10 +17,10 @@ interface LogEntry {
 }
 
 const actionLabels: Record<string, { label: string; color: string; icon: any }> = {
-  login: { label: '登录', color: '#00b42a', icon: LogIn },
+  login: { label: '登录', color: 'var(--stock-down)', icon: LogIn },
   logout: { label: '退出', color: 'var(--color-text-3)', icon: LogOut },
-  failed: { label: '失败', color: '#f53f3f', icon: AlertCircle },
-  kicked: { label: '被踢', color: '#ff7d00', icon: UserX },
+  failed: { label: '失败', color: 'var(--stock-up)', icon: AlertCircle },
+  kicked: { label: '被踢', color: 'var(--color-warning-text)', icon: UserX },
 };
 
 export default function LoginLogsPage() {
@@ -48,7 +48,7 @@ export default function LoginLogsPage() {
   return (
     <div>
       <h2 style={{ color: 'var(--color-text-1)', fontSize: 18, fontWeight: 700, marginBottom: 20, display: 'flex', alignItems: 'center', gap: 8 }}>
-        <History size={20} color="#165dff" /> 登录日志
+        <History size={20} color="var(--color-primary)" /> 登录日志
       </h2>
 
       {/* Filters */}
@@ -73,11 +73,11 @@ export default function LoginLogsPage() {
             value={keyword}
             onChange={e => { setKeyword(e.target.value); setPage(1); }}
             style={{
-              padding: '6px 12px', borderRadius: 6, border: '1px solid #e5e6eb',
+              padding: '6px 12px', borderRadius: 6, border: '1px solid var(--color-border-1)',
               background: 'var(--color-fill-2)', color: 'var(--color-text-1)', fontSize: 13, width: 180,
               outline: 'none',
             }}
-            onFocus={e => { e.target.style.borderColor = '#165dff'; e.target.style.background = '#fff'; }}
+            onFocus={e => { e.target.style.borderColor = '#165dff'; e.target.style.background = 'var(--color-bg-1)'; }}
             onBlur={e => { e.target.style.borderColor = 'var(--color-border-1)'; e.target.style.background = 'var(--color-fill-2)'; }}
           />
           <span style={{ flex: 1 }} />
@@ -90,7 +90,7 @@ export default function LoginLogsPage() {
       </div>
 
       {/* Log table */}
-      <div style={{ borderRadius: 10, overflow: 'hidden', border: '1px solid #e5e6eb' }}>
+      <div style={{ borderRadius: 10, overflow: 'hidden', border: '1px solid var(--color-border-1)' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
           <thead>
             <tr style={{ background: 'var(--color-fill-2)' }}>
@@ -108,7 +108,7 @@ export default function LoginLogsPage() {
               const act = actionLabels[log.action] || { label: log.action, color: 'var(--color-text-3)', icon: AlertCircle };
               const ActIcon = act.icon;
               return (
-                <tr key={log.id} style={{ borderBottom: '1px solid #f2f3f5' }}>
+                <tr key={log.id} style={{ borderBottom: '1px solid var(--color-table-row-border)' }}>
                   <td style={{ ...td, color: 'var(--color-text-3)', whiteSpace: 'nowrap' }}>
                     {new Date(log.createdAt).toLocaleString('zh-CN')}
                   </td>
@@ -120,15 +120,15 @@ export default function LoginLogsPage() {
                   </td>
                   <td style={td}>
                     {log.success
-                      ? <span style={{ color: '#00b42a', display: 'flex', alignItems: 'center', gap: 4 }}><CheckCircle size={12} /> 成功</span>
-                      : <span style={{ color: '#f53f3f', display: 'flex', alignItems: 'center', gap: 4 }}><XCircle size={12} /> 失败</span>
+                      ? <span style={{ color: 'var(--stock-down)', display: 'flex', alignItems: 'center', gap: 4 }}><CheckCircle size={12} /> 成功</span>
+                      : <span style={{ color: 'var(--stock-up)', display: 'flex', alignItems: 'center', gap: 4 }}><XCircle size={12} /> 失败</span>
                     }
                   </td>
                   <td style={{ ...td, fontFamily: 'monospace', fontSize: 11, color: 'var(--color-text-3)' }}>{log.ipAddress}</td>
                   <td style={{ ...td, fontSize: 11, color: 'var(--color-text-3)', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {log.deviceInfo || '-'}
                   </td>
-                  <td style={{ ...td, color: '#f53f3f', fontSize: 12 }}>{log.failReason || '-'}</td>
+                  <td style={{ ...td, color: 'var(--stock-up)', fontSize: 12 }}>{log.failReason || '-'}</td>
                 </tr>
               );
             })}

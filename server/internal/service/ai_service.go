@@ -77,10 +77,11 @@ func (s *AIService) ChatCompletion(userID uint, prompt string, history []map[str
 	messages = append(messages, map[string]string{"role": "user", "content": prompt})
 
 	body := map[string]interface{}{
-		"model":       cfg.ModelName,
-		"messages":    messages,
-		"temperature": 0.7,
-		"max_tokens":  2048,
+		"model":         cfg.ModelName,
+		"messages":      messages,
+		"temperature":   0.7,
+		"max_tokens":    2048,
+		"enable_search": true,
 	}
 	b, _ := json.Marshal(body)
 	req, err := http.NewRequest("POST", cfg.BaseURL+"/v1/chat/completions", bytes.NewReader(b))
@@ -135,11 +136,12 @@ func (s *AIService) ChatCompletionStream(userID uint, prompt string, history []m
 	messages = append(messages, map[string]string{"role": "user", "content": prompt})
 
 	body := map[string]interface{}{
-		"model":       cfg.ModelName,
-		"messages":    messages,
-		"temperature": 0.7,
-		"max_tokens":  2048,
-		"stream":      true,
+		"model":         cfg.ModelName,
+		"messages":      messages,
+		"temperature":   0.7,
+		"max_tokens":    2048,
+		"stream":        true,
+		"enable_search": true,
 	}
 	b, _ := json.Marshal(body)
 	req, err := http.NewRequest("POST", cfg.BaseURL+"/v1/chat/completions", bytes.NewReader(b))

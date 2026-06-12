@@ -27,28 +27,56 @@
   --stock-down:var(--green-6);--stock-down-soft:#DBF5DF;
   --stock-flat:var(--gray-6);
   --sidebar-w:200px;--topbar-h:52px;--color-white:#fff;
+  /* 语义化颜色补充 */
+  --color-info-bg:#e8f3ff;--color-info-text:#165dff;--color-info-border:#b7d4ff;
+  --color-success-bg:#e8ffea;--color-success-text:#00b42a;--color-success-border:#b7eb8f;
+  --color-warning-bg:#fff7e8;--color-warning-text:#ff7d00;--color-warning-border:#ffe58f;
+  --color-danger-bg:#ffece8;--color-danger-text:#f53f3f;--color-danger-border:#ffccc7;
+  --color-disabled-text:var(--gray-4);--color-disabled-border:var(--gray-3);
+  --color-table-stripe:#fafafa;--color-table-row-border:var(--gray-2);
+  --color-input-bg:#fff;
 }
-/* ===== Dark Theme ===== */
+/* ===== Dark Theme — 淡雅石墨灰 ===== */
 [data-theme="dark"] {
-  --color-bg-1:#1a1a2e;--color-fill-1:#16213e;--color-fill-2:#0f3460;
-  --color-text-1:#e4e6eb;--color-text-2:#b0b3b8;--color-text-3:#8a8d91;
-  --color-border-1:#2d2d44;--color-border-2:#3d3d5c;
-  --gray-1:#1a1a2e;--gray-2:#16213e;--gray-3:#0f3460;
-  --gray-4:#3d3d5c;--gray-5:#5a5a7a;--gray-6:#8a8d91;
-  --gray-7:#b0b3b8;--gray-8:#d0d3d8;--gray-9:#e4e6eb;--gray-10:#f0f2f5;
-  --arcoblue-1:#1a2744;--arcoblue-2:#1e3a5f;--arcoblue-3:#2d5390;
-  --red-1:#3d1f1f;--red-5:#e06060;--red-6:#f87171;--red-7:#ef4444;
-  --green-1:#1a3d2a;--green-6:#4ade80;--green-7:#22c55e;
-  --orange-1:#3d2a1a;--orange-6:#fb923c;
-  --purple-1:#2a1a3d;--purple-6:#a78bfa;
-  --shadow-sm:0 1px 3px rgba(0,0,0,.3);--shadow-md:0 2px 8px rgba(0,0,0,.4);
-  --stock-up:#f87171;--stock-up-soft:#3d1f1f;
-  --stock-down:#4ade80;--stock-down-soft:#1a3d2a;
-  --stock-flat:#8a8d91;
-  --chart-bg:#1a1a2e;--chart-grid:#2d2d44;--chart-text:#8a8d91;--color-white:#e4e6eb;
-  --chart-crosshair:#b0b3b8;
-  --k-up:#f87171;--k-down:#4ade80;--k-up-fill:rgba(248,113,113,0.15);--k-down-fill:rgba(74,222,128,0.15);
-  --ma5:#fb923c;--ma10:#60a5fa;--ma20:#a78bfa;
+  --color-bg-1:#1c1c20;--color-fill-1:#121215;--color-fill-2:#25252a;
+  --color-text-1:#e4e4e7;--color-text-2:#a1a1aa;--color-text-3:#71717a;
+  --color-border-1:#27272a;--color-border-2:#3f3f46;
+  --gray-1:#121215;--gray-2:#1c1c20;--gray-3:#25252a;
+  --gray-4:#3f3f46;--gray-5:#52525b;--gray-6:#71717a;
+  --gray-7:#a1a1aa;--gray-8:#d4d4d8;--gray-9:#e4e4e7;--gray-10:#f4f4f5;
+  --arcoblue-1:#0d1b33;--arcoblue-2:#122544;--arcoblue-3:#1f3d6b;
+  --red-1:#2d1215;--red-5:#e5534b;--red-6:#f85149;--red-7:#da3633;
+  --green-1:#0d2b1a;--green-6:#3fb950;--green-7:#2ea043;
+  --orange-1:#2d1f0e;--orange-6:#d29922;
+  --purple-1:#1d1530;--purple-6:#a371f7;
+  --shadow-sm:0 1px 3px rgba(0,0,0,.4);--shadow-md:0 4px 12px rgba(0,0,0,.5);
+  --stock-up:#f85149;--stock-up-soft:#2d1215;
+  --stock-down:#3fb950;--stock-down-soft:#0d2b1a;
+  --stock-flat:#71717a;
+  --chart-bg:#121215;--chart-grid:#27272a;--chart-text:#71717a;--color-white:#e4e4e7;
+  --chart-crosshair:#a1a1aa;
+  --k-up:#f85149;--k-down:#3fb950;--k-up-fill:rgba(248,81,73,0.12);--k-down-fill:rgba(63,185,80,0.12);
+  --ma5:#d29922;--ma10:#58a6ff;--ma20:#a371f7;
+  /* 语义化颜色 - 暗色 */
+  --color-info-bg:#0d1b33;--color-info-text:#58a6ff;--color-info-border:#1f3d6b;
+  --color-success-bg:#0d2b1a;--color-success-text:#3fb950;--color-success-border:#1a3d2a;
+  --color-warning-bg:#2d1f0e;--color-warning-text:#d29922;--color-warning-border:#3d2a14;
+  --color-danger-bg:#2d1215;--color-danger-text:#f85149;--color-danger-border:#3d1a1d;
+  --color-disabled-text:#52525b;--color-disabled-border:#3f3f46;
+  --color-table-stripe:#1a1a1e;--color-table-row-border:var(--gray-3);
+  --color-input-bg:#1c1c20;
+}
+
+/* ===== 覆盖 Arco dark 变量（body[arco-theme] 优先级高于 html[data-theme]） ===== */
+body[arco-theme='dark'] {
+  --color-bg-1:#1c1c20;
+  --color-fill-1:#121215;
+  --color-fill-2:#25252a;
+  --color-text-1:#e4e4e7;
+  --color-text-2:#a1a1aa;
+  --color-text-3:#71717a;
+  --color-border-1:#27272a;
+  --color-border-2:#3f3f46;
 }
 
 
@@ -172,7 +200,7 @@ body{
 /* ===== Segmented ===== */
 .seg{display:inline-flex;background:var(--color-fill-2);padding:2px;border-radius:6px}
 .seg button{border:0;background:transparent;padding:5px 14px;font-size:13px;line-height:20px;color:var(--color-text-2);border-radius:4px;cursor:pointer;font-family:inherit;transition:all 100ms}
-.seg button.active{background:#fff;color:var(--color-text-1);box-shadow:var(--shadow-sm);font-weight:500}
+.seg button.active{background:var(--color-bg-1);color:var(--color-text-1);box-shadow:var(--shadow-sm);font-weight:500}
 .seg button:hover:not(.active){color:var(--color-text-1)}
 
 /* ===== Upload ===== */

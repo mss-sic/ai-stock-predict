@@ -22,10 +22,10 @@ interface LogEntry {
 }
 
 const actionLabels: Record<string, { label: string; color: string; icon: any }> = {
-  login: { label: '登录', color: '#00b42a', icon: LogIn },
+  login: { label: '登录', color: 'var(--stock-down)', icon: LogIn },
   logout: { label: '退出', color: 'var(--color-text-3)', icon: LogOut },
-  failed: { label: '失败', color: '#f53f3f', icon: AlertCircle },
-  kicked: { label: '被踢', color: '#ff7d00', icon: UserX },
+  failed: { label: '失败', color: 'var(--stock-up)', icon: AlertCircle },
+  kicked: { label: '被踢', color: 'var(--color-warning-text)', icon: UserX },
 };
 
 export default function AdminPage() {
@@ -135,8 +135,8 @@ export default function AdminPage() {
       {msg && (
         <div style={{
           marginBottom: 12, padding: '8px 16px', borderRadius: 6, fontSize: 13,
-          background: msg.startsWith('✓') ? '#e8ffea' : '#ffece8',
-          color: msg.startsWith('✓') ? '#00b42a' : '#f53f3f',
+          background: msg.startsWith('✓') ? 'var(--color-success-bg)' : 'var(--color-danger-bg)',
+          color: msg.startsWith('✓') ? 'var(--color-success)' : 'var(--color-danger)',
         }}>{msg}</div>
       )}
 
@@ -146,7 +146,7 @@ export default function AdminPage() {
         <div style={{ display: 'flex', gap: 10, marginBottom: 16, alignItems: 'center' }}>
           <button onClick={() => setShowCreate(true)} style={{
             display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 18px',
-            background: '#165dff', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, cursor: 'pointer',
+            background: 'var(--color-primary)', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, cursor: 'pointer',
           }}><Plus size={14} /> 新建用户</button>
           <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>共 {users.length} 个用户</span>
         </div>
@@ -158,7 +158,7 @@ export default function AdminPage() {
             display: 'flex', alignItems: 'center', justifyContent: 'center',
           }} onClick={() => setShowCreate(false)}>
             <div style={{
-              background: '#fff', borderRadius: 12, padding: 24, width: 380,
+              background: 'var(--color-bg-1)', borderRadius: 12, padding: 24, width: 380,
               boxShadow: '0 8px 30px rgba(0,0,0,0.12)',
             }} onClick={e => e.stopPropagation()}>
               <h3 style={{ margin: '0 0 16px', fontSize: 15, color: 'var(--color-text-1)' }}>新建用户</h3>
@@ -197,7 +197,7 @@ export default function AdminPage() {
             display: 'flex', alignItems: 'center', justifyContent: 'center',
           }} onClick={() => { setResetTarget(null); setNewPw(''); }}>
             <div style={{
-              background: '#fff', borderRadius: 12, padding: 24, width: 360,
+              background: 'var(--color-bg-1)', borderRadius: 12, padding: 24, width: 360,
               boxShadow: '0 8px 30px rgba(0,0,0,0.12)',
             }} onClick={e => e.stopPropagation()}>
               <h3 style={{ margin: '0 0 12px', fontSize: 15, color: 'var(--color-text-1)' }}>
@@ -218,7 +218,7 @@ export default function AdminPage() {
         )}
 
         {/* User table */}
-        <div style={{ borderRadius: 10, overflow: 'hidden', border: '1px solid #e5e6eb' }}>
+        <div style={{ borderRadius: 10, overflow: 'hidden', border: '1px solid var(--color-border-1)' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
               <tr style={{ background: 'var(--color-fill-2)' }}>
@@ -235,29 +235,29 @@ export default function AdminPage() {
             </thead>
             <tbody>
               {users.map(u => (
-                <tr key={u.id} style={{ borderBottom: '1px solid #f2f3f5' }}>
+                <tr key={u.id} style={{ borderBottom: '1px solid var(--color-table-row-border)' }}>
                   <td style={td}>{u.id}</td>
                   <td style={{ ...td, fontWeight: 600, color: 'var(--color-text-1)' }}>{u.username}</td>
                   <td style={td}>
                     <span style={{
                       padding: '2px 8px', borderRadius: 4, fontSize: 11,
-                      background: u.role === 'admin' ? '#e8f3ff' : '#f2f3f5',
+                      background: u.role === 'admin' ? '#e8f3ff' : 'var(--color-fill-2)',
                       color: u.role === 'admin' ? '#165dff' : 'var(--color-text-3)',
                     }}>{u.role === 'admin' ? '管理员' : '用户'}</span>
                   </td>
                   <td style={td}>
                     {u.isActive
-                      ? <span style={{ color: '#00b42a', display: 'flex', alignItems: 'center', gap: 4 }}><CheckCircle size={12} /> 正常</span>
-                      : <span style={{ color: '#f53f3f', display: 'flex', alignItems: 'center', gap: 4 }}><XCircle size={12} /> 停用</span>
+                      ? <span style={{ color: 'var(--stock-down)', display: 'flex', alignItems: 'center', gap: 4 }}><CheckCircle size={12} /> 正常</span>
+                      : <span style={{ color: 'var(--stock-up)', display: 'flex', alignItems: 'center', gap: 4 }}><XCircle size={12} /> 停用</span>
                     }
                   </td>
                   <td style={td}>
                     {u.isOnline
-                      ? <span style={{ color: '#00b42a', display: 'flex', alignItems: 'center', gap: 4 }}>
+                      ? <span style={{ color: 'var(--stock-down)', display: 'flex', alignItems: 'center', gap: 4 }}>
                           <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#00b42a', display: 'inline-block' }} /> 在线
                         </span>
-                      : <span style={{ color: '#c9cdd4', display: 'flex', alignItems: 'center', gap: 4 }}>
-                          <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#c9cdd4', display: 'inline-block' }} /> 离线
+                      : <span style={{ color: 'var(--color-text-3)', display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--color-text-3)', display: 'inline-block' }} /> 离线
                         </span>
                     }
                     {u.sessionCount > 0 && <span style={{ fontSize: 10, color: 'var(--color-text-3)', marginLeft: 4 }}>({u.sessionCount})</span>}
@@ -270,18 +270,18 @@ export default function AdminPage() {
                   <td style={td}>
                     <div style={{ display: 'flex', gap: 6 }}>
                       <button onClick={() => { setResetTarget({ id: u.id, name: u.username }); setNewPw(''); }}
-                        style={{ ...btnSm, background: '#fff7e8', color: '#ff7d00' }}>
+                        style={{ ...btnSm, background: 'var(--color-warning-bg)', color: 'var(--color-warning-text)' }}>
                         <Key size={11} /> 重置
                       </button>
                       <button onClick={() => handleKick(u.id, u.username)}
-                        style={{ ...btnSm, background: '#fff7e8', color: '#ff7d00' }}>
+                        style={{ ...btnSm, background: 'var(--color-warning-bg)', color: 'var(--color-warning-text)' }}>
                         <LogOut size={11} /> 踢下线
                       </button>
                       <button onClick={() => handleToggle(u.id, u.isActive)}
                         style={{
                           ...btnSm,
-                          background: u.isActive ? '#ffece8' : '#e8ffea',
-                          color: u.isActive ? '#f53f3f' : '#00b42a',
+                          background: u.isActive ? 'var(--color-danger-bg)' : 'var(--color-success-bg)',
+                          color: u.isActive ? 'var(--color-danger)' : 'var(--color-success)',
                         }}>
                         {u.isActive ? <><Ban size={11} /> 停用</> : <><CheckCircle size={11} /> 启用</>}
                       </button>
@@ -317,11 +317,11 @@ export default function AdminPage() {
               value={logKeyword}
               onChange={e => { setLogKeyword(e.target.value); setLogPage(1); }}
               style={{
-                padding: '6px 12px', borderRadius: 6, border: '1px solid #e5e6eb',
+                padding: '6px 12px', borderRadius: 6, border: '1px solid var(--color-border-1)',
                 background: 'var(--color-fill-2)', color: 'var(--color-text-1)', fontSize: 13, width: 180,
                 outline: 'none',
               }}
-              onFocus={e => { e.target.style.borderColor = '#165dff'; e.target.style.background = '#fff'; }}
+              onFocus={e => { e.target.style.borderColor = '#165dff'; e.target.style.background = 'var(--color-bg-1)'; }}
               onBlur={e => { e.target.style.borderColor = 'var(--color-border-1)'; e.target.style.background = 'var(--color-fill-2)'; }}
             />
             <span style={{ flex: 1 }} />
@@ -333,7 +333,7 @@ export default function AdminPage() {
           </div>
         </div>
 
-        <div style={{ borderRadius: 10, overflow: 'hidden', border: '1px solid #e5e6eb' }}>
+        <div style={{ borderRadius: 10, overflow: 'hidden', border: '1px solid var(--color-border-1)' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
               <tr style={{ background: 'var(--color-fill-2)' }}>
@@ -351,16 +351,16 @@ export default function AdminPage() {
                 const act = actionLabels[log.action] || { label: log.action, color: 'var(--color-text-3)', icon: AlertCircle };
                 const ActIcon = act.icon;
                 return (
-                  <tr key={log.id} style={{ borderBottom: '1px solid #f2f3f5' }}>
+                  <tr key={log.id} style={{ borderBottom: '1px solid var(--color-table-row-border)' }}>
                     <td style={{ ...td, color: 'var(--color-text-3)', whiteSpace: 'nowrap' }}>{new Date(log.createdAt).toLocaleString('zh-CN')}</td>
                     <td style={{ ...td, fontWeight: 600, color: 'var(--color-text-1)' }}>{log.username}</td>
                     <td style={td}><span style={{ display: 'flex', alignItems: 'center', gap: 4, color: act.color }}><ActIcon size={13} /> {act.label}</span></td>
                     <td style={td}>{log.success
-                      ? <span style={{ color: '#00b42a', display: 'flex', alignItems: 'center', gap: 4 }}><CheckCircle size={12} /> 成功</span>
-                      : <span style={{ color: '#f53f3f', display: 'flex', alignItems: 'center', gap: 4 }}><XCircle size={12} /> 失败</span>}</td>
+                      ? <span style={{ color: 'var(--stock-down)', display: 'flex', alignItems: 'center', gap: 4 }}><CheckCircle size={12} /> 成功</span>
+                      : <span style={{ color: 'var(--stock-up)', display: 'flex', alignItems: 'center', gap: 4 }}><XCircle size={12} /> 失败</span>}</td>
                     <td style={{ ...td, fontFamily: 'monospace', fontSize: 11, color: 'var(--color-text-3)' }}>{log.ipAddress}</td>
                     <td style={{ ...td, fontSize: 11, color: 'var(--color-text-3)', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{log.deviceInfo || '-'}</td>
-                    <td style={{ ...td, color: '#f53f3f', fontSize: 12 }}>{log.failReason || '-'}</td>
+                    <td style={{ ...td, color: 'var(--stock-up)', fontSize: 12 }}>{log.failReason || '-'}</td>
                   </tr>
                 );
               })}
@@ -375,6 +375,6 @@ export default function AdminPage() {
 const th: React.CSSProperties = { padding: '10px 14px', textAlign: 'left', color: 'var(--color-text-3)', fontWeight: 600, fontSize: 11, textTransform: 'uppercase' };
 const td: React.CSSProperties = { padding: '10px 14px', color: 'var(--color-text-2)' };
 const btnSm: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 10px', border: 'none', borderRadius: 4, fontSize: 11, cursor: 'pointer' };
-const inputStyle: React.CSSProperties = { width: '100%', padding: '8px 12px', borderRadius: 6, border: '1px solid #e5e6eb', fontSize: 13, outline: 'none', background: 'var(--color-fill-2)', color: 'var(--color-text-1)', boxSizing: 'border-box' };
-const cancelBtn: React.CSSProperties = { padding: '8px 18px', background: '#f2f3f5', color: 'var(--color-text-2)', border: 'none', borderRadius: 6, fontSize: 13, cursor: 'pointer' };
-const primaryBtn: React.CSSProperties = { padding: '8px 18px', background: '#165dff', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, cursor: 'pointer' };
+const inputStyle: React.CSSProperties = { width: '100%', padding: '8px 12px', borderRadius: 6, border: '1px solid var(--color-border-1)', fontSize: 13, outline: 'none', background: 'var(--color-fill-2)', color: 'var(--color-text-1)', boxSizing: 'border-box' };
+const cancelBtn: React.CSSProperties = { padding: '8px 18px', background: 'var(--color-fill-2)', color: 'var(--color-text-2)', border: 'none', borderRadius: 6, fontSize: 13, cursor: 'pointer' };
+const primaryBtn: React.CSSProperties = { padding: '8px 18px', background: 'var(--color-primary)', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, cursor: 'pointer' };

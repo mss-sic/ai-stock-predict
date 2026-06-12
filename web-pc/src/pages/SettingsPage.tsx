@@ -88,7 +88,7 @@ export default function SettingsPage() {
   };
 
   const inp: React.CSSProperties = {
-    width: '100%', padding: '8px 12px', borderRadius: 6, border: '1px solid #e5e6eb',
+    width: '100%', padding: '8px 12px', borderRadius: 6, border: '1px solid var(--color-border-1)',
     background: 'var(--color-fill-2)', color: 'var(--color-text-1)', fontSize: 14, outline: 'none', boxSizing: 'border-box',
   };
 
@@ -157,8 +157,8 @@ export default function SettingsPage() {
           {testResult && (
             <div style={{
               marginBottom: 16, padding: '10px 16px', borderRadius: 8, fontSize: 13,
-              background: testResult.ok ? '#e8ffea' : '#ffece8',
-              color: testResult.ok ? '#00b42a' : '#f53f3f',
+              background: testResult.ok ? 'var(--color-success-bg)' : 'var(--color-danger-bg)',
+              color: testResult.ok ? 'var(--color-success)' : 'var(--color-danger)',
               display: 'flex', alignItems: 'center', gap: 8,
             }}>
               {testResult.ok ? <CheckCircle size={16} /> : <XCircle size={16} />}

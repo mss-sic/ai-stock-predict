@@ -57,7 +57,7 @@ export default function PersonalSettingsPage() {
   };
 
   const inp: React.CSSProperties = {
-    width: '100%', padding: '8px 12px', borderRadius: 6, border: '1px solid #e5e6eb',
+    width: '100%', padding: '8px 12px', borderRadius: 6, border: '1px solid var(--color-border-1)',
     background: 'var(--color-fill-2)', color: 'var(--color-text-1)', fontSize: 14, outline: 'none', boxSizing: 'border-box',
   };
 
@@ -66,13 +66,13 @@ export default function PersonalSettingsPage() {
       {/* 个人信息 */}
       <div className="card" style={{ marginBottom: 16 }}>
         <div className="card-header" style={{ fontSize: 14, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
-          <User size={16} color="#165dff" /> 个人信息
+          <User size={16} color="var(--color-primary)" /> 个人信息
         </div>
         <div className="card-body">
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <div>
               <label style={{ fontSize: 12, color: 'var(--color-text-3)', marginBottom: 4, display: 'block' }}>用户名</label>
-              <input disabled value={user?.username || ''} style={{ ...inp, background: '#f2f3f5', color: 'var(--color-text-3)' }} />
+              <input disabled value={user?.username || ''} style={{ ...inp, background: 'var(--color-fill-2)', color: 'var(--color-text-3)' }} />
             </div>
             <div>
               <label style={{ fontSize: 12, color: 'var(--color-text-3)', marginBottom: 4, display: 'block' }}>昵称</label>
@@ -93,7 +93,7 @@ export default function PersonalSettingsPage() {
               <label style={{ fontSize: 12, color: 'var(--color-text-3)', marginBottom: 4, display: 'block' }}>角色</label>
               <span style={{
                 display: 'inline-block', padding: '2px 10px', borderRadius: 4, fontSize: 12,
-                background: user?.role === 'admin' ? '#e8f3ff' : '#f2f3f5',
+                background: user?.role === 'admin' ? '#e8f3ff' : 'var(--color-fill-2)',
                 color: user?.role === 'admin' ? '#165dff' : 'var(--color-text-3)',
               }}>{user?.role === 'admin' ? '管理员' : '普通用户'}</span>
             </div>
@@ -104,7 +104,7 @@ export default function PersonalSettingsPage() {
       {/* 修改密码 */}
       <div className="card" style={{ marginBottom: 16 }}>
         <div className="card-header" style={{ fontSize: 14, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
-          <Key size={16} color="#165dff" /> 修改密码
+          <Key size={16} color="var(--color-primary)" /> 修改密码
         </div>
         <div className="card-body">
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxWidth: 360 }}>
@@ -119,7 +119,7 @@ export default function PersonalSettingsPage() {
       {/* 登录设备 */}
       <div className="card">
         <div className="card-header" style={{ fontSize: 14, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
-          <Monitor size={16} color="#165dff" /> 登录设备
+          <Monitor size={16} color="var(--color-primary)" /> 登录设备
         </div>
         <div className="card-body" style={{ padding: 0 }}>
           {sessions.length === 0 ? (
@@ -138,13 +138,13 @@ export default function PersonalSettingsPage() {
               </thead>
               <tbody>
                 {sessions.map((s: any) => (
-                  <tr key={s.id} style={{ borderBottom: '1px solid #f2f3f5' }}>
+                  <tr key={s.id} style={{ borderBottom: '1px solid var(--color-table-row-border)' }}>
                     <td style={td}>
                       {s.isOnline
-                        ? <span style={{ color: '#00b42a', display: 'flex', alignItems: 'center', gap: 4 }}>
+                        ? <span style={{ color: 'var(--stock-down)', display: 'flex', alignItems: 'center', gap: 4 }}>
                             <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#00b42a', display: 'inline-block' }} /> 在线
                           </span>
-                        : <span style={{ color: '#c9cdd4' }}>离线</span>
+                        : <span style={{ color: 'var(--color-text-3)' }}>离线</span>
                       }
                     </td>
                     <td style={{ ...td, fontSize: 11, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.deviceInfo || '未知设备'}</td>
@@ -153,7 +153,7 @@ export default function PersonalSettingsPage() {
                     <td style={{ ...td, color: 'var(--color-text-3)', fontSize: 11 }}>{s.lastHeartbeat ? new Date(s.lastHeartbeat).toLocaleTimeString('zh-CN') : '-'}</td>
                     <td style={{ ...td, textAlign: 'center' }}>
                       <button onClick={() => handleRevoke(s.id)}
-                        style={{ ...btnSm, background: '#ffece8', color: '#f53f3f', cursor: 'pointer' }}>
+                        style={{ ...btnSm, background: 'var(--color-danger-bg)', color: 'var(--stock-up)', cursor: 'pointer' }}>
                         下线
                       </button>
                     </td>

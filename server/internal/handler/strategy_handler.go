@@ -331,15 +331,16 @@ func (h *StrategyHandler) OptimizePrompt(c *gin.Context) {
 // ═══════════════════════════════════════════════════════════════
 
 type backtestTrade struct {
-	Date     string  `json:"date"`
-	Code     string  `json:"code"`
-	Name     string  `json:"name"`
-	Action   string  `json:"action"`
-	Price    float64 `json:"price"`
-	Quantity int     `json:"quantity"`
-	Reason   string  `json:"reason"`
-	Pnl      float64 `json:"pnl"`
-	PnlPct   float64 `json:"pnlPct"`
+	Date       string  `json:"date"`
+	SignalDate string  `json:"signalDate"`
+	Code       string  `json:"code"`
+	Name       string  `json:"name"`
+	Action     string  `json:"action"`
+	Price      float64 `json:"price"`
+	Quantity   int     `json:"quantity"`
+	Reason     string  `json:"reason"`
+	Pnl        float64 `json:"pnl"`
+	PnlPct     float64 `json:"pnlPct"`
 }
 
 // map of running tasks per strategy: strategyID -> map[taskID]context.CancelFunc
@@ -844,6 +845,7 @@ type KlineCache struct {
 	dates    []string
 	dateIdx  map[string]int
 	closeMap map[string][]float64 // code -> []close per date (forward-filled)
+	openMap  map[string][]float64 // code -> []open per date (forward-filled)
 }
 
 // preloadKline loads all close prices for the given stock codes within date range.
@@ -852,6 +854,7 @@ func preloadKline(codes []string, startDate, endDate string) *KlineCache {
 	kc := &KlineCache{
 		dateIdx:  make(map[string]int),
 		closeMap: make(map[string][]float64, len(codes)),
+		openMap:  make(map[string][]float64, len(codes)),
 	}
 
 	// 1. Get all trading days
@@ -870,15 +873,16 @@ func preloadKline(codes []string, startDate, endDate string) *KlineCache {
 		return kc
 	}
 
-	// 2. Bulk load close prices in ONE query (use GORM builder for reliable IN clause)
+	// 2. Bulk load close + open prices in ONE query
 	type KCRow struct {
 		Code  string
 		Date  string
 		Close float64
+		Open  float64
 	}
 	var rows []KCRow
 	err := db.PG.Table("stocks_daily_k").
-		Select("code, TO_CHAR(trade_date, 'YYYY-MM-DD') as date, close").
+		Select("code, TO_CHAR(trade_date, 'YYYY-MM-DD') as date, close, open").
 		Where("code IN ?", codes).
 		Where("trade_date >= ?", startDate).
 		Where("trade_date <= ?", endDate).
@@ -893,16 +897,18 @@ func preloadKline(codes []string, startDate, endDate string) *KlineCache {
 	nDays := len(kc.dates)
 	for _, c := range codes {
 		kc.closeMap[c] = make([]float64, nDays)
+		kc.openMap[c] = make([]float64, nDays)
 	}
 
 	// 4. Fill prices
 	for _, r := range rows {
 		if idx, ok := kc.dateIdx[r.Date]; ok {
 			kc.closeMap[r.Code][idx] = r.Close
+			kc.openMap[r.Code][idx] = r.Open
 		}
 	}
 
-	// 5. Forward-fill: if a stock has 0 close on day i, use previous non-zero close
+	// 5. Forward-fill close prices (gaps → previous close)
 	for _, c := range codes {
 		arr := kc.closeMap[c]
 		var last float64
@@ -911,6 +917,16 @@ func preloadKline(codes []string, startDate, endDate string) *KlineCache {
 				last = arr[i]
 			} else {
 				arr[i] = last
+			}
+		}
+		// Forward-fill open prices too
+		arrO := kc.openMap[c]
+		var lastO float64
+		for i := 0; i < nDays; i++ {
+			if arrO[i] > 0 {
+				lastO = arrO[i]
+			} else {
+				arrO[i] = lastO
 			}
 		}
 	}
@@ -929,6 +945,52 @@ func (kc *KlineCache) GetClose(code, date string) float64 {
 		return 0
 	}
 	return arr[idx]
+}
+
+// GetOpen returns the open price for a stock on a given date (O(1) lookup).
+func (kc *KlineCache) GetOpen(code, date string) float64 {
+	arr, ok := kc.openMap[code]
+	if !ok {
+		return 0
+	}
+	idx, ok := kc.dateIdx[date]
+	if !ok {
+		return 0
+	}
+	return arr[idx]
+}
+
+// GetNextOpen returns the open price on the next trading day after the given date.
+// Returns 0 if date is the last in the cache (no next day).
+func (kc *KlineCache) GetNextOpen(code, date string) float64 {
+	idx, ok := kc.dateIdx[date]
+	if !ok || idx+1 >= len(kc.dates) {
+		return 0
+	}
+	nextDate := kc.dates[idx+1]
+	return kc.GetOpen(code, nextDate)
+}
+
+
+
+// getNextDate returns the next trading day after the given date.
+// Returns empty string if date is the last in cache.
+func getNextDate(kc *KlineCache, date string) string {
+	idx, ok := kc.dateIdx[date]
+	if !ok || idx+1 >= len(kc.dates) {
+		return ""
+	}
+	return kc.dates[idx+1]
+}
+
+// GetNextClose returns the close price on the next trading day after the given date.
+func (kc *KlineCache) GetNextClose(code, date string) float64 {
+	idx, ok := kc.dateIdx[date]
+	if !ok || idx+1 >= len(kc.dates) {
+		return 0
+	}
+	nextDate := kc.dates[idx+1]
+	return kc.GetClose(code, nextDate)
 }
 
 // checkOp evaluates a comparison between a float value and threshold.
@@ -1476,8 +1538,8 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 		}
 		return false
 	}
-	// evalSingleWithDetail returns (passed bool, detail string) for diagnostic logging.
-	evalSingleWithDetail := func(cond model.StrategyCondition, code, date string) (bool, string) {
+	// evalSingleWithDetail kept for diagnostic logging compatibility
+	_ = func(cond model.StrategyCondition, code, date string) (bool, string) {
 		ind := cond.Indicator
 		var val float64
 		found := false
@@ -1510,7 +1572,6 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 		return passed, fmt.Sprintf("%s %s=%.2f op=%s thr=%.2f", status, ind, val, cond.Operator, cond.Value)
 	}
 
-	_ = evalSingle
 	_ = evalConds
 
 	if len(allDates) == 0 {
@@ -1541,10 +1602,334 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 		}
 	}
 
-	positions := make(map[string]*dcPosition)
+
+	// ────────────────────────────────────────────────────────────
+	// Signal Generation & Execution helpers
+	// ────────────────────────────────────────────────────────────
+	var positions map[string]*dcPosition
+
+	// generateSignals evaluates conditions and creates pending BacktestSignal records.
+	// Called at T day close — signals will be executed at T+1 day open.
+	generateSignals := func(date string, cash float64) []model.BacktestSignal {
+		var signals []model.BacktestSignal
+
+		// --- Stop-profit / Stop-loss checks ---
+		for _, pos := range positions {
+			closePrice := kcache.GetClose(pos.Code, date)
+			if closePrice <= 0 {
+				continue
+			}
+			chgPct := (closePrice - pos.BuyPrice) / pos.BuyPrice * 100
+
+			// Stop-loss: T+1 check — cannot sell if bought today
+			if pos.BuyDate == date {
+				continue
+			}
+
+			if s.StopLoss < 0 && chgPct <= s.StopLoss {
+				signals = append(signals, model.BacktestSignal{
+					TaskID: task.ID, StrategyID: task.StrategyID, UserID: task.UserID,
+					SignalDate: date, ExecDate: getNextDate(kcache, date),
+					StockCode: pos.Code, StockName: pos.Name,
+					ActionType: "stop",
+					PlannedPrice: closePrice, PlannedQty: pos.Quantity,
+					PlannedAmount: closePrice * float64(pos.Quantity),
+					Status: "pending",
+					Reason: fmt.Sprintf("止损触发 %.1f%% ≤ %.1f%%", chgPct, s.StopLoss),
+				})
+				continue
+			}
+
+			if s.StopProfit > 0 && chgPct >= s.StopProfit {
+				signals = append(signals, model.BacktestSignal{
+					TaskID: task.ID, StrategyID: task.StrategyID, UserID: task.UserID,
+					SignalDate: date, ExecDate: getNextDate(kcache, date),
+					StockCode: pos.Code, StockName: pos.Name,
+					ActionType: "stop",
+					PlannedPrice: closePrice, PlannedQty: pos.Quantity,
+					PlannedAmount: closePrice * float64(pos.Quantity),
+					Status: "pending",
+					Reason: fmt.Sprintf("止盈触发 %.1f%% ≥ %.1f%%", chgPct, s.StopProfit),
+				})
+			}
+		}
+
+		// --- Sell/Reduce checks ---
+		for _, pos := range positions {
+			// T+1: cannot sell if bought today
+			if pos.BuyDate == date {
+				continue
+			}
+
+			if evalConds(sellConds, pos.Code, date) {
+				signals = append(signals, model.BacktestSignal{
+					TaskID: task.ID, StrategyID: task.StrategyID, UserID: task.UserID,
+					SignalDate: date, ExecDate: getNextDate(kcache, date),
+					StockCode: pos.Code, StockName: pos.Name,
+					ActionType: "sell",
+					PlannedPrice: kcache.GetClose(pos.Code, date),
+					PlannedQty: pos.Quantity,
+					PlannedAmount: kcache.GetClose(pos.Code, date) * float64(pos.Quantity),
+					Status: "pending",
+					Reason: "满足卖出条件",
+				})
+			} else if evalConds(reduceConds, pos.Code, date) {
+				reduceQty := int(float64(pos.Quantity) * reducePct / 100)
+				if reduceQty > 0 {
+					signals = append(signals, model.BacktestSignal{
+						TaskID: task.ID, StrategyID: task.StrategyID, UserID: task.UserID,
+						SignalDate: date, ExecDate: getNextDate(kcache, date),
+						StockCode: pos.Code, StockName: pos.Name,
+						ActionType: "reduce",
+						PlannedPrice: kcache.GetClose(pos.Code, date),
+						PlannedQty: reduceQty,
+						PlannedAmount: kcache.GetClose(pos.Code, date) * float64(reduceQty),
+						Status: "pending",
+						Reason: fmt.Sprintf("满足减仓条件 (%.0f%%)", reducePct),
+					})
+				}
+			}
+		}
+
+		// --- Buy checks ---
+		slotCount := maxHold - len(positions)
+		if slotCount > 0 && cash > 0 {
+			buyAmountPerStock := cash * buyPct / 100
+			boughtThisRound := 0
+
+			for _, si := range universe {
+				if boughtThisRound >= slotCount {
+					break
+				}
+				if _, held := positions[si.Code]; held {
+					continue
+				}
+				if !evalConds(buyConds, si.Code, date) {
+					continue
+				}
+
+				closePrice := kcache.GetClose(si.Code, date)
+				if closePrice <= 0 {
+					continue
+				}
+				plannedQty := int(buyAmountPerStock / closePrice / 100) * 100
+				if plannedQty <= 0 {
+					continue
+				}
+
+				signals = append(signals, model.BacktestSignal{
+					TaskID: task.ID, StrategyID: task.StrategyID, UserID: task.UserID,
+					SignalDate: date, ExecDate: getNextDate(kcache, date),
+					StockCode: si.Code, StockName: si.Name,
+					ActionType: "buy",
+					PlannedPrice: closePrice, PlannedQty: plannedQty,
+					PlannedAmount: closePrice * float64(plannedQty),
+					Status: "pending",
+					Reason: "满足买入条件",
+				})
+				boughtThisRound++
+			}
+		}
+
+		// --- Add checks ---
+		for _, pos := range positions {
+			if evalConds(addConds, pos.Code, date) {
+				closePrice := kcache.GetClose(pos.Code, date)
+				if closePrice <= 0 {
+					continue
+				}
+				addAmount := cash * addPct / 100
+				addQty := int(addAmount / closePrice / 100) * 100
+				if addQty <= 0 {
+					continue
+				}
+
+				signals = append(signals, model.BacktestSignal{
+					TaskID: task.ID, StrategyID: task.StrategyID, UserID: task.UserID,
+					SignalDate: date, ExecDate: getNextDate(kcache, date),
+					StockCode: pos.Code, StockName: pos.Name,
+					ActionType: "add",
+					PlannedPrice: closePrice, PlannedQty: addQty,
+					PlannedAmount: closePrice * float64(addQty),
+					Status: "pending",
+					Reason: "满足加仓条件",
+				})
+			}
+		}
+
+		return signals
+	}
+
+	// executeSignal executes a pending signal at the given open price.
+	// Updates positions, cash, and marks the signal as executed/skipped.
+	executeSignal := func(sig *model.BacktestSignal, openPrice float64, cash *float64) *backtestTrade {
+		if openPrice <= 0 {
+			sig.Status = "skipped"
+			sig.SkipReason = "停牌或无开盘价"
+			return nil
+		}
+
+		switch sig.ActionType {
+		case "buy":
+			// T+1 re-calc: actual qty based on open price
+			actualQty := int(sig.PlannedAmount / openPrice / 100) * 100
+			if actualQty <= 0 {
+				sig.Status = "skipped"
+				sig.SkipReason = "开盘价过高，可买数量不足1手"
+				return nil
+			}
+			actualAmount := openPrice * float64(actualQty)
+			if actualAmount > *cash {
+				actualQty = int(*cash / openPrice / 100) * 100
+				actualAmount = openPrice * float64(actualQty)
+			}
+			if actualQty <= 0 {
+				sig.Status = "skipped"
+				sig.SkipReason = "资金不足"
+				return nil
+			}
+
+			*cash -= actualAmount
+			positions[sig.StockCode] = &dcPosition{
+				Code: sig.StockCode, Name: sig.StockName,
+				BuyPrice: openPrice, Quantity: actualQty, BuyDate: sig.ExecDate,
+			}
+			sig.ExecPrice = openPrice
+			sig.ExecQty = actualQty
+			sig.ExecAmount = actualAmount
+			sig.Status = "executed"
+			return &backtestTrade{
+				Date: sig.ExecDate, SignalDate: sig.SignalDate,
+				Action: "buy", Code: sig.StockCode,
+				Name: sig.StockName, Price: openPrice, Quantity: actualQty,
+				Reason: sig.Reason,
+			}
+
+		case "add":
+			actualQty := int(sig.PlannedAmount / openPrice / 100) * 100
+			if actualQty <= 0 {
+				sig.Status = "skipped"
+				sig.SkipReason = "开盘价过高，加仓数量不足"
+				return nil
+			}
+			actualAmount := openPrice * float64(actualQty)
+			if actualAmount > *cash {
+				actualQty = int(*cash / openPrice / 100) * 100
+				actualAmount = openPrice * float64(actualQty)
+			}
+			if actualQty <= 0 {
+				sig.Status = "skipped"
+				sig.SkipReason = "资金不足"
+				return nil
+			}
+			*cash -= actualAmount
+			if pos, ok := positions[sig.StockCode]; ok {
+				totalCost := pos.BuyPrice*float64(pos.Quantity) + actualAmount
+				pos.Quantity += actualQty
+				if pos.Quantity > 0 {
+					pos.BuyPrice = totalCost / float64(pos.Quantity)
+				}
+			}
+			sig.ExecPrice = openPrice
+			sig.ExecQty = actualQty
+			sig.ExecAmount = actualAmount
+			sig.Status = "executed"
+			return &backtestTrade{
+				Date: sig.ExecDate, SignalDate: sig.SignalDate,
+				Action: "add", Code: sig.StockCode,
+				Name: sig.StockName, Price: openPrice, Quantity: actualQty,
+				Reason: sig.Reason,
+			}
+
+		case "sell", "stop":
+			pos, ok := positions[sig.StockCode]
+			if !ok {
+				sig.Status = "skipped"
+				sig.SkipReason = "无持仓"
+				return nil
+			}
+			// T+1 check: bought today, cannot sell
+			if pos.BuyDate == sig.ExecDate {
+				sig.Status = "skipped"
+				sig.SkipReason = "T+1限制：当日买入不可卖出"
+				return nil
+			}
+			sellQty := pos.Quantity
+			pnl := (openPrice - pos.BuyPrice) * float64(sellQty)
+			pnlPct := 0.0
+			if pos.BuyPrice > 0 {
+				pnlPct = (openPrice - pos.BuyPrice) / pos.BuyPrice * 100
+			}
+			*cash += openPrice * float64(sellQty)
+			delete(positions, sig.StockCode)
+
+			sig.ExecPrice = openPrice
+			sig.ExecQty = sellQty
+			sig.ExecAmount = openPrice * float64(sellQty)
+			sig.Pnl = math.Round(pnl*100) / 100
+			sig.PnlPct = math.Round(pnlPct*100) / 100
+			sig.Status = "executed"
+			return &backtestTrade{
+				Date: sig.ExecDate, SignalDate: sig.SignalDate,
+				Action: sig.ActionType, Code: sig.StockCode,
+				Name: sig.StockName, Price: openPrice, Quantity: sellQty,
+				Reason: sig.Reason, Pnl: sig.Pnl, PnlPct: sig.PnlPct,
+			}
+
+		case "reduce":
+			pos, ok := positions[sig.StockCode]
+			if !ok {
+				sig.Status = "skipped"
+				sig.SkipReason = "无持仓"
+				return nil
+			}
+			if pos.BuyDate == sig.ExecDate {
+				sig.Status = "skipped"
+				sig.SkipReason = "T+1限制：当日买入不可减持"
+				return nil
+			}
+			reduceQty := sig.PlannedQty
+			if reduceQty >= pos.Quantity {
+				reduceQty = pos.Quantity
+			}
+			pnl := (openPrice - pos.BuyPrice) * float64(reduceQty)
+			pnlPct := 0.0
+			if pos.BuyPrice > 0 {
+				pnlPct = (openPrice - pos.BuyPrice) / pos.BuyPrice * 100
+			}
+			*cash += openPrice * float64(reduceQty)
+			pos.Quantity -= reduceQty
+			if pos.Quantity <= 0 {
+				delete(positions, sig.StockCode)
+			}
+
+			sig.ExecPrice = openPrice
+			sig.ExecQty = reduceQty
+			sig.ExecAmount = openPrice * float64(reduceQty)
+			sig.Pnl = math.Round(pnl*100) / 100
+			sig.PnlPct = math.Round(pnlPct*100) / 100
+			sig.Status = "executed"
+			return &backtestTrade{
+				Date: sig.ExecDate, SignalDate: sig.SignalDate,
+				Action: "reduce", Code: sig.StockCode,
+				Name: sig.StockName, Price: openPrice, Quantity: reduceQty,
+				Reason: sig.Reason, Pnl: sig.Pnl, PnlPct: sig.PnlPct,
+			}
+		}
+
+		sig.Status = "skipped"
+		sig.SkipReason = fmt.Sprintf("未知操作类型: %s", sig.ActionType)
+		return nil
+	}
+
+	positions = make(map[string]*dcPosition)
 	var allTrades []backtestTrade
 	var equityPoints []map[string]interface{}
 	prevDayEquity := capital
+
+	// Pre-load pending signals from DB (for resumed tasks)
+	var pendingSignals []model.BacktestSignal
+	db.MySQL.Where("task_id = ? AND status = 'pending'", task.ID).Find(&pendingSignals)
 
 	for di, date := range allDates {
 		// Day start log
@@ -1568,51 +1953,75 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 			remainingCash += s.RegularAmount
 		}
 
-		// ── Decision Chain: run trading decision loop for this day ──
-		pm := NewPositionManager(
-			capital, maxHold,
-			buyPct, addPct, reducePct,
-			s.StopProfit, s.StopLoss,
-			NewPositionSizer(SizingFixedPct),
-		)
+		// ============================================================
+		// PHASE 1: Execute pending signals (T+1 open)
+		// ============================================================
+		var todayTrades []backtestTrade
+		logSeq := 100
 
-		// Convert universe to dcStockInfo for the decision chain
-		dcUniverse := make([]dcStockInfo, len(universe))
-		for i, s := range universe {
-			dcUniverse[i] = dcStockInfo{Code: s.Code, Name: s.Name}
-		}
-
-		dcGetPrice := func(code, d string) float64 {
-			return kcache.GetClose(code, d)
-		}
-
-		remainingCash, todayTrades, dayLogs := RunDailyDecisionLoop(
-			date, remainingCash, positions, dcUniverse,
-			buyConds, sellConds, addConds, reduceConds,
-			pm, dcGetPrice, evalConds, evalSingleWithDetail,
-		)
-
-		// Emit per-stock diagnostic logs for small universes (only when no buys hit)
-		hasBuyTrade := false
-		for _, t := range todayTrades {
-			if t.Action == "buy" {
-				hasBuyTrade = true
-				break
+		// Execute signals with exec_date == today
+		for i := 0; i < len(pendingSignals); i++ {
+			sig := &pendingSignals[i]
+			if sig.ExecDate != date {
+				continue
 			}
-		}
-		if !hasBuyTrade && len(buyConds) > 0 {
-			diagLogs := dcScanLog(date, buyConds, dcUniverse, positions, dcGetPrice, evalSingleWithDetail)
-			dayLogs = append(dayLogs, diagLogs...)
-		}
+			if sig.Status != "pending" {
+				continue
+			}
 
-		// Write all decision chain logs to DB
-		for _, log := range dayLogs {
-			insertBacktestLog(task.ID, task.StrategyID, task.UserID,
-				date, log.Seq, log.Type, log.Level,
-				log.Code, log.Name, log.Msg, log.Detail)
+			openPrice := kcache.GetOpen(sig.StockCode, date)
+			trade := executeSignal(sig, openPrice, &remainingCash)
+
+			// Save signal update to DB
+			db.MySQL.Save(sig)
+
+			if trade != nil {
+				todayTrades = append(todayTrades, *trade)
+				// Log the execution
+				insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, logSeq,
+					"trade", "info", sig.StockCode, sig.StockName,
+					fmt.Sprintf("📌 [%s] %s %s %d股 @¥%.2f %s (信号:%s)",
+						trade.Action, trade.Code, trade.Name, trade.Quantity, trade.Price, trade.Reason, sig.SignalDate),
+					map[string]interface{}{
+						"action": trade.Action, "price": trade.Price, "quantity": trade.Quantity,
+						"reason": trade.Reason, "pnl": trade.Pnl, "pnlPct": trade.PnlPct,
+						"signalDate": sig.SignalDate,
+					})
+				logSeq++
+			} else if sig.Status == "skipped" {
+				insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, logSeq,
+					"signal", "warn", sig.StockCode, sig.StockName,
+					fmt.Sprintf("⏭ [%s] %s 信号跳过: %s", sig.ActionType, sig.StockCode, sig.SkipReason),
+					nil)
+				logSeq++
+			}
 		}
 
 		allTrades = append(allTrades, todayTrades...)
+
+		// ============================================================
+		// PHASE 2: Generate new signals (T day close)
+		// ============================================================
+		newSignals := generateSignals(date, remainingCash)
+
+		// Batch save new signals
+		for i := range newSignals {
+			ns := &newSignals[i]
+			if ns.ExecDate == "" {
+				// Last day — no next day to execute, skip signal
+				continue
+			}
+			db.MySQL.Create(ns)
+			pendingSignals = append(pendingSignals, *ns)
+
+			// Log signal generation
+			insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, 70,
+				"signal", "info", ns.StockCode, ns.StockName,
+				fmt.Sprintf("🔔 [%s] %s %s %d股 预估¥%.2f → 计划%s执行 %s",
+					ns.ActionType, ns.StockCode, ns.StockName, ns.PlannedQty,
+					ns.PlannedPrice, ns.ExecDate, ns.Reason),
+				nil)
+		}
 
 		// ── Daily snapshot & progress update ──
 		posList := make([]map[string]interface{}, 0)
@@ -1671,19 +2080,6 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 		insertDailySnapshot(task.ID, task.StrategyID, task.UserID, date, di+1,
 			remainingCash, totalEquity, dailyRet, cumRet, currentDD, len(positions), posList)
 
-		// ── Log today's trades ──
-		logSeq := 100
-		for _, t := range todayTrades {
-			detail := map[string]interface{}{
-				"action": t.Action, "price": t.Price, "quantity": t.Quantity,
-				"reason": t.Reason, "pnl": t.Pnl, "pnlPct": t.PnlPct,
-			}
-			msg := fmt.Sprintf("📌 [%s] %s %s %d股 @¥%.2f %s",
-				t.Action, t.Code, t.Name, t.Quantity, t.Price, t.Reason)
-			insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, logSeq,
-				"trade", "info", t.Code, t.Name, msg, detail)
-			logSeq++
-		}
 
 		// Day end summary
 		dailyPnl := totalEquity - prevDayEquity

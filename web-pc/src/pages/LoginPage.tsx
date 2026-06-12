@@ -39,12 +39,12 @@ export default function LoginPage() {
   return (
     <div style={{
       minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
-      background: 'linear-gradient(135deg, #f0f4ff 0%, #f5f7fa 30%, #fafbfc 60%, #f0f4ff 100%)',
+      background: 'linear-gradient(135deg, var(--color-info-bg) 0%, var(--color-fill-1) 30%, var(--color-bg-1) 60%, var(--color-info-bg) 100%)',
       fontFamily: 'inherit',
     }}>
       <div style={{
         width: 420, padding: '44px 40px 36px', borderRadius: 16,
-        background: '#fff', border: '1px solid #e5e6eb',
+        background: 'var(--color-bg-1)', border: '1px solid var(--color-border-1)',
         boxShadow: '0 2px 12px rgba(0,0,0,0.04), 0 8px 40px rgba(0,0,0,0.06)',
       }}>
         {/* Logo */}
@@ -65,7 +65,7 @@ export default function LoginPage() {
               用户名
             </label>
             <div style={{ position: 'relative' }}>
-              <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: '#c9cdd4', display: 'flex' }}>
+              <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-3)', display: 'flex' }}>
                 <User size={16} />
               </span>
               <input
@@ -73,11 +73,11 @@ export default function LoginPage() {
                 autoFocus autoComplete="username"
                 style={{
                   width: '100%', padding: '10px 14px 10px 38px', borderRadius: 8,
-                  border: '1px solid #e5e6eb', background: 'var(--color-fill-2)', color: 'var(--color-text-1)',
+                  border: '1px solid var(--color-border-1)', background: 'var(--color-fill-2)', color: 'var(--color-text-1)',
                   fontSize: 15, outline: 'none', boxSizing: 'border-box',
                   transition: 'border-color 0.2s, box-shadow 0.2s',
                 }}
-                onFocus={e => { e.target.style.borderColor = '#165dff'; e.target.style.boxShadow = '0 0 0 2px rgba(22,93,255,0.1)'; e.target.style.background = '#fff'; }}
+                onFocus={e => { e.target.style.borderColor = '#165dff'; e.target.style.boxShadow = '0 0 0 2px rgba(22,93,255,0.1)'; e.target.style.background = 'var(--color-bg-1)'; }}
                 onBlur={e => { e.target.style.borderColor = 'var(--color-border-1)'; e.target.style.boxShadow = 'none'; e.target.style.background = 'var(--color-fill-2)'; }}
               />
             </div>
@@ -89,7 +89,7 @@ export default function LoginPage() {
               密码
             </label>
             <div style={{ position: 'relative' }}>
-              <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: '#c9cdd4', display: 'flex' }}>
+              <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-3)', display: 'flex' }}>
                 <Lock size={16} />
               </span>
               <input
@@ -97,11 +97,11 @@ export default function LoginPage() {
                 autoComplete="current-password"
                 style={{
                   width: '100%', padding: '10px 14px 10px 38px', borderRadius: 8,
-                  border: '1px solid #e5e6eb', background: 'var(--color-fill-2)', color: 'var(--color-text-1)',
+                  border: '1px solid var(--color-border-1)', background: 'var(--color-fill-2)', color: 'var(--color-text-1)',
                   fontSize: 15, outline: 'none', boxSizing: 'border-box',
                   transition: 'border-color 0.2s, box-shadow 0.2s',
                 }}
-                onFocus={e => { e.target.style.borderColor = '#165dff'; e.target.style.boxShadow = '0 0 0 2px rgba(22,93,255,0.1)'; e.target.style.background = '#fff'; }}
+                onFocus={e => { e.target.style.borderColor = '#165dff'; e.target.style.boxShadow = '0 0 0 2px rgba(22,93,255,0.1)'; e.target.style.background = 'var(--color-bg-1)'; }}
                 onBlur={e => { e.target.style.borderColor = 'var(--color-border-1)'; e.target.style.boxShadow = 'none'; e.target.style.background = 'var(--color-fill-2)'; }}
               />
             </div>
@@ -110,9 +110,9 @@ export default function LoginPage() {
           {/* Error */}
           {error && (
             <div style={{
-              color: '#f53f3f', fontSize: 13, marginBottom: 12,
-              padding: '8px 12px', background: '#ffece8', borderRadius: 6,
-              border: '1px solid #ffccc7',
+              color: 'var(--stock-up)', fontSize: 13, marginBottom: 12,
+              padding: '8px 12px', background: 'var(--color-danger-bg)', borderRadius: 6,
+              border: '1px solid var(--color-danger-border)',
             }}>
               {error}
             </div>
@@ -121,9 +121,9 @@ export default function LoginPage() {
           {/* Device warning */}
           {deviceWarning && (
             <div style={{
-              color: '#ff7d00', fontSize: 12, marginBottom: 12,
-              padding: '8px 12px', background: '#fff7e8', borderRadius: 6,
-              border: '1px solid #ffe4ba',
+              color: 'var(--color-warning-text)', fontSize: 12, marginBottom: 12,
+              padding: '8px 12px', background: 'var(--color-warning-bg)', borderRadius: 6,
+              border: '1px solid var(--color-warning-border)',
             }}>
               {deviceWarning}
             </div>
@@ -148,7 +148,7 @@ export default function LoginPage() {
         {/* Footer */}
         <div style={{
           display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-          marginTop: 24, color: '#c9cdd4', fontSize: 12,
+          marginTop: 24, color: 'var(--color-text-3)', fontSize: 12,
         }}>
           <Shield size={12} />
           <span>仅限团队内部使用 · 登录即表示同意保密协议</span>

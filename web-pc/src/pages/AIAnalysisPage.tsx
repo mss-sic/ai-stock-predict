@@ -174,7 +174,7 @@ export default function AIAnalysisPage() {
               <div className="row gap8" style={{ flexWrap: 'wrap' }}>
                 {SUGGESTIONS.map((s, i) => (
                   <button key={i} className="chip" onClick={() => send(s)}
-                    style={{ fontSize: 13, padding: '6px 16px', cursor: 'pointer', border: '1px solid #e5e6eb', borderRadius: 6, background: '#fff' }}>
+                    style={{ fontSize: 13, padding: '6px 16px', cursor: 'pointer', border: '1px solid var(--color-border-1)', borderRadius: 6, background: 'var(--color-bg-1)' }}>
                     {i === 0 ? <TrendingUp size={12} style={{ marginRight: 3 }} /> :
                      i === 1 ? <Lightbulb size={12} style={{ marginRight: 3 }} /> :
                      i === 2 ? <AlertTriangle size={12} style={{ marginRight: 3 }} /> :

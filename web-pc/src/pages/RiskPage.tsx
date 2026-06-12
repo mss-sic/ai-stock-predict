@@ -58,35 +58,35 @@ export default function RiskPage() {
         <div
           onClick={() => setFilterLevel(filterLevel === 'high' ? 'all' : 'high')}
           style={{
-            background: '#fff', borderRadius: 8, border: filterLevel === 'high' ? '2px solid #f53f3f' : '1px solid #e5e6eb',
+            background: 'var(--color-bg-1)', borderRadius: 8, border: filterLevel === 'high' ? '2px solid #f53f3f' : '1px solid var(--color-border-1)',
             padding: '16px 20px', cursor: 'pointer', transition: 'all 0.15s',
           }}
         >
           <div style={{ fontSize: 13, color: 'var(--color-text-3)', marginBottom: 6 }}>🔴 高风险</div>
-          <div style={{ fontSize: 28, fontWeight: 700, color: '#f53f3f' }}>{counts.high}</div>
+          <div style={{ fontSize: 28, fontWeight: 700, color: 'var(--stock-up)' }}>{counts.high}</div>
         </div>
         <div
           onClick={() => setFilterLevel(filterLevel === 'medium' ? 'all' : 'medium')}
           style={{
-            background: '#fff', borderRadius: 8, border: filterLevel === 'medium' ? '2px solid #ff7d00' : '1px solid #e5e6eb',
+            background: 'var(--color-bg-1)', borderRadius: 8, border: filterLevel === 'medium' ? '2px solid #ff7d00' : '1px solid var(--color-border-1)',
             padding: '16px 20px', cursor: 'pointer', transition: 'all 0.15s',
           }}
         >
           <div style={{ fontSize: 13, color: 'var(--color-text-3)', marginBottom: 6 }}>🟠 中风险</div>
-          <div style={{ fontSize: 28, fontWeight: 700, color: '#ff7d00' }}>{counts.medium}</div>
+          <div style={{ fontSize: 28, fontWeight: 700, color: 'var(--color-warning-text)' }}>{counts.medium}</div>
         </div>
         <div
           onClick={() => setFilterLevel(filterLevel === 'low' ? 'all' : 'low')}
           style={{
-            background: '#fff', borderRadius: 8, border: filterLevel === 'low' ? '2px solid #00b42a' : '1px solid #e5e6eb',
+            background: 'var(--color-bg-1)', borderRadius: 8, border: filterLevel === 'low' ? '2px solid #00b42a' : '1px solid var(--color-border-1)',
             padding: '16px 20px', cursor: 'pointer', transition: 'all 0.15s',
           }}
         >
           <div style={{ fontSize: 13, color: 'var(--color-text-3)', marginBottom: 6 }}>🟢 低风险</div>
-          <div style={{ fontSize: 28, fontWeight: 700, color: '#00b42a' }}>{counts.low}</div>
+          <div style={{ fontSize: 28, fontWeight: 700, color: 'var(--stock-down)' }}>{counts.low}</div>
         </div>
         <div style={{
-          background: '#fff', borderRadius: 8, border: '1px solid #e5e6eb', padding: '16px 20px',
+          background: 'var(--color-bg-1)', borderRadius: 8, border: '1px solid var(--color-border-1)', padding: '16px 20px',
         }}>
           <div style={{ fontSize: 13, color: 'var(--color-text-3)', marginBottom: 6 }}>总计预警</div>
           <div style={{ fontSize: 28, fontWeight: 700, color: 'var(--color-text-1)' }}>{alerts.length}</div>

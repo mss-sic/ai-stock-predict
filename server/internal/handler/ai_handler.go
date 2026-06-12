@@ -446,35 +446,31 @@ func (h *AIHandler) buildStockContext(code string) string {
 		Name     string
 		Industry string
 	}
-	type KLineInfo struct {
-		Close float64
-	}
-	type IndicatorInfo struct {
-		PE float64
-		PB float64
-	}
-
 	var stock StockInfo
-	if err := db.PG.Raw("SELECT name, industry FROM stocks_basic WHERE code = ?", code).Scan(&stock).Error; err != nil {
-		log.Printf("[ai_handler] stock info query failed for %s: %v", code, err)
-	}
-	var kline KLineInfo
-	if err := db.PG.Raw("SELECT close FROM stocks_daily_k WHERE code = ? ORDER BY trade_date DESC LIMIT 1", code).Scan(&kline).Error; err != nil {
-		log.Printf("[ai_handler] kline query failed for %s: %v", code, err)
-	}
-	var ind IndicatorInfo
-	if err := db.PG.Raw("SELECT pe, pb FROM stocks_daily_indicator WHERE code = ? ORDER BY trade_date DESC LIMIT 1", code).Scan(&ind).Error; err != nil {
-		log.Printf("[ai_handler] indicator query failed for %s: %v", code, err)
-	}
+	db.PG.Raw("SELECT name, industry FROM stocks_basic WHERE code = ?", code).Scan(&stock)
 
-	return fmt.Sprintf(`你是一个专业的A股投资分析助手。当前分析的股票信息：
-- 代码：%s
-- 名称：%s
-- 行业：%s
-- 最新收盘价：%.2f
-- 市盈率PE：%.2f
-- 市净率PB：%.2f
+	now := time.Now()
+	return fmt.Sprintf(`你是一个专业、严谨、深度的金融分析助手。
 
-请基于以上信息，用专业、简洁的语言回答用户的问题。涉及建议时请强调风险，不构成投资建议。`,
-		code, stock.Name, stock.Industry, kline.Close, ind.PE, ind.PB)
+当前分析的股票：%s（%s），行业：%s。
+
+回答问题时，必须遵循以下步骤：
+1. 明确分析的时间范围和依据。
+2. 分财务数据、战略动向、风险挑战三个维度展开。
+3. 每个维度至少列出3个要点，并使用数据支撑。
+4. 最终给出明确的总结与展望。
+5. 输出格式使用紧凑型 Markdown，关键数据用表格呈现。
+   格式约束：
+   - 段落间不留空行，标题上下最多空一行。
+   - 表格列数 ≤4，超出拆分为多个小表格，每个表格 ≤6 行。
+   - 不使用代码块包裹正文，仅代码/公式使用行内代码。
+   - 列表用短横线开头，紧凑排列无需额外空行。
+   - 数字右对齐、文字左对齐，百分比保留 1 位小数。
+   - 避免使用 > 引用块和 HTML。
+
+重要要求：
+- 请务必基于联网搜索的最新信息回答，确保数据时效性截止至%s。
+- 涉及操作建议时请强调风险，声明"不构成投资建议"。
+- 对不确定的信息请注明"待核实"。`,
+		code, stock.Name, stock.Industry, now.Format("2006年1月"))
 }

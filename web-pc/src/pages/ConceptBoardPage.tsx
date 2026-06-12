@@ -17,7 +17,7 @@ export default function ConceptBoardPage() {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       <div style={{
         padding: '12px 18px', display: 'flex', alignItems: 'center', gap: 14,
-        background: '#fff', borderRadius: 6, border: '1px solid #e5e6eb',
+        background: 'var(--color-bg-1)', borderRadius: 6, border: '1px solid var(--color-border-1)',
       }}>
         <Flame size={18} color="#f53f3f" />
         <span style={{ fontSize: 16, fontWeight: 600, color: 'var(--color-text-1)' }}>概念板块热力图</span>
@@ -31,7 +31,7 @@ export default function ConceptBoardPage() {
           const isDown = pct < -0.05;
           const bg = isUp ? `rgba(245,63,63,${(0.15 + t * 0.8).toFixed(3)})`
                    : isDown ? `rgba(0,180,42,${(0.15 + t * 0.8).toFixed(3)})`
-                   : '#f2f3f5';
+                   : 'var(--color-fill-2)';
           const fg = t > 0.5 ? '#fff' : isUp ? '#cb272d' : isDown ? '#008026' : 'var(--color-text-3)';
           return (
             <div key={idx} onClick={() => navigate('/concept/' + item.conceptCode)} style={{

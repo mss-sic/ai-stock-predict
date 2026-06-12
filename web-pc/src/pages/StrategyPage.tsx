@@ -12,7 +12,7 @@ import {
 
 type CondType = 'buy' | 'add' | 'sell' | 'reduce';
 const COND_LABELS: Record<CondType, string> = { buy: '买入条件', add: '加仓条件', sell: '卖出条件', reduce: '减仓条件' };
-const COND_COLORS: Record<CondType, string> = { buy: '#f53f3f', add: '#ff7d00', sell: '#00b42a', reduce: '#165dff' };
+const COND_COLORS: Record<CondType, string> = { buy: 'var(--stock-up)', add: 'var(--color-warning-text)', sell: 'var(--stock-down)', reduce: 'var(--color-primary)' };
 
 export default function StrategyPage() {
   const [strategies, setStrategies] = useState<any[]>([]);
@@ -440,7 +440,7 @@ export default function StrategyPage() {
   if (!strategies.length && !showAdd) {
     return (
       <div style={{ textAlign: 'center', padding: 80 }}>
-        <Target size={48} color="#c9cdd4" />
+        <Target size={48} color="var(--color-text-3)" />
         <p style={{ color: 'var(--color-text-3)', marginTop: 16 }}>还没有交易策略</p>
         <Button type="primary" icon={<Plus size={14} />} onClick={() => setShowAdd(true)} style={{ marginTop: 12 }}>创建第一个策略</Button>
       </div>
@@ -450,8 +450,8 @@ export default function StrategyPage() {
   return (
     <div style={{ display: 'flex', gap: 16, height: 'calc(100vh - 140px)' }}>
       {/* Left: Strategy List */}
-      <div style={{ width: 220, flexShrink: 0, background: '#fff', borderRadius: 8, padding: '12px 0', border: '1px solid #e5e6eb', display: 'flex', flexDirection: 'column' }}>
-        <div style={{ padding: '0 12px 8px', borderBottom: '1px solid #f2f3f5', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div style={{ width: 220, flexShrink: 0, background: 'var(--color-bg-1)', borderRadius: 8, padding: '12px 0', border: '1px solid var(--color-border-1)', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ padding: '0 12px 8px', borderBottom: '1px solid var(--color-border-1)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-1)' }}>我的策略</span>
           <Button size="mini" icon={<Plus size={12} />} type="text" onClick={() => { setShowAdd(true); setNewName(''); }} />
         </div>
@@ -460,11 +460,11 @@ export default function StrategyPage() {
             <div key={s.id} onClick={() => setActiveId(s.id)} style={{
               padding: '8px 12px', cursor: 'pointer', fontSize: 13,
               display: 'flex', alignItems: 'center', gap: 6,
-              background: activeId === s.id ? '#e8f3ff' : 'transparent',
-              borderLeft: activeId === s.id ? '3px solid #165dff' : '3px solid transparent',
+              background: activeId === s.id ? 'var(--color-info-bg)' : 'transparent',
+              borderLeft: activeId === s.id ? '3px solid var(--color-primary)' : '3px solid transparent',
               color: activeId === s.id ? '#165dff' : 'var(--color-text-2)',
             }}>
-              <GripVertical size={12} color="#c9cdd4" style={{ flexShrink: 0 }} />
+              <GripVertical size={12} color="var(--color-text-3)" style={{ flexShrink: 0 }} />
               <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {s.isDefault && '⭐ '}{s.name}
               </span>
@@ -477,7 +477,7 @@ export default function StrategyPage() {
       </div>
 
       {/* Right: Strategy Detail */}
-      <div style={{ flex: 1, overflow: 'auto', background: '#fff', borderRadius: 8, border: '1px solid #e5e6eb', padding: 20 }}>
+      <div style={{ flex: 1, overflow: 'auto', background: 'var(--color-bg-1)', borderRadius: 8, border: '1px solid var(--color-border-1)', padding: 20 }}>
         {activeStrategy ? (
           <>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
@@ -513,16 +513,16 @@ export default function StrategyPage() {
             </div>
 
             {/* Tab switcher */}
-            <div style={{ display: 'flex', gap: 2, marginBottom: 16, background: '#f2f3f5', borderRadius: 8, padding: 3, width: 'fit-content' }}>
+            <div style={{ display: 'flex', gap: 2, marginBottom: 16, background: 'var(--color-fill-2)', borderRadius: 8, padding: 3, width: 'fit-content' }}>
               <button onClick={() => setTab('conditions')} style={{
                 padding: '6px 16px', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600,
-                background: tab === 'conditions' ? '#fff' : 'transparent',
+                background: tab === 'conditions' ? 'var(--color-bg-1)' : 'transparent',
                 color: tab === 'conditions' ? '#165dff' : 'var(--color-text-3)',
                 boxShadow: tab === 'conditions' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
               }}><Target size={13} style={{ marginRight: 4 }} />策略条件</button>
               <button onClick={() => setTab('backtest')} style={{
                 padding: '6px 16px', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600,
-                background: tab === 'backtest' ? '#fff' : 'transparent',
+                background: tab === 'backtest' ? 'var(--color-bg-1)' : 'transparent',
                 color: tab === 'backtest' ? '#165dff' : 'var(--color-text-3)',
                 boxShadow: tab === 'backtest' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
               }}><BarChart4 size={13} style={{ marginRight: 4 }} />策略回测</button>
@@ -543,7 +543,7 @@ export default function StrategyPage() {
                       }}>
                         {isActive && <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, background: COND_COLORS[ct], borderRadius: '0 0 3px 3px' }} />}
                         <div style={{ fontSize: 12, fontWeight: isActive ? 700 : 500, color: isActive ? COND_COLORS[ct] : 'var(--color-text-3)' }}>{COND_LABELS[ct]}</div>
-                        <div style={{ fontSize: 20, fontWeight: 800, color: isActive ? COND_COLORS[ct] : '#c9cdd4', marginTop: 2 }}>{count}</div>
+                        <div style={{ fontSize: 20, fontWeight: 800, color: isActive ? COND_COLORS[ct] : 'var(--color-text-3)', marginTop: 2 }}>{count}</div>
                       </div>
                     );
                   })}
@@ -551,7 +551,7 @@ export default function StrategyPage() {
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
                   {filteredConds(condTab).length === 0 ? (
-                    <div style={{ padding: '40px 20px', textAlign: 'center', background: 'linear-gradient(135deg, #f7f8fa 0%, #f2f3f5 100%)', borderRadius: 12, border: '1.5px dashed #e5e6eb' }}>
+                    <div style={{ padding: '40px 20px', textAlign: 'center', background: 'linear-gradient(135deg, var(--color-fill-1) 0%, var(--color-fill-2) 100%)', borderRadius: 12, border: '1.5px dashed var(--color-border-1)' }}>
                       <div style={{ fontSize: 36, marginBottom: 8 }}>📋</div>
                       <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text-2)', marginBottom: 4 }}>暂无{COND_LABELS[condTab]}</div>
                       <div style={{ fontSize: 12, color: 'var(--color-text-3)', marginBottom: 12 }}>添加因子条件来定义何时触发{COND_LABELS[condTab]}</div>
@@ -564,9 +564,9 @@ export default function StrategyPage() {
                       const isCross = getOperators(c.indicator).includes('cross_up');
                       const safeTag = info?.backtestSafe ? '🟢' : (info?.dataNote?.startsWith('🚫') ? '🚫' : '🟡');
                       return (
-                        <div key={c.id || idx} style={{ padding: '12px 14px', background: '#fff', borderRadius: 10, border: '1px solid #f0f1f3', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
+                        <div key={c.id || idx} style={{ padding: '12px 14px', background: 'var(--color-bg-1)', borderRadius: 10, border: '1px solid var(--color-border-1)', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                            <div style={{ minWidth: 36, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 14, fontSize: 11, fontWeight: 700, background: idx === 0 ? '#e8f3ff' : '#f2f3f5', color: idx === 0 ? '#165dff' : 'var(--color-text-3)' }}>{idx === 0 ? 'IF' : 'AND'}</div>
+                            <div style={{ minWidth: 36, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 14, fontSize: 11, fontWeight: 700, background: idx === 0 ? '#e8f3ff' : 'var(--color-fill-2)', color: idx === 0 ? '#165dff' : 'var(--color-text-3)' }}>{idx === 0 ? 'IF' : 'AND'}</div>
                             <Select value={c.indicator} onChange={v => updateCondition(globalIdx, 'indicator', v)} style={{ width: 180 }} size="small" placeholder="选择指标"
                               options={indicators.map((ind: any) => ({ label: `${ind.backtestSafe ? '🟢' : (ind.dataNote?.startsWith('🚫') ? '🚫' : '🟡')} ${ind.label}`, value: ind.key }))} />
                             <Select value={c.operator} onChange={v => updateCondition(globalIdx, 'operator', v)} style={{ width: 72 }} size="small"
@@ -585,16 +585,16 @@ export default function StrategyPage() {
                             </Tooltip>
                             <div style={{ flex: 1 }} />
                             <Popconfirm title="移除该条件？" onOk={() => removeCondition(globalIdx)}>
-                              <Button size="mini" type="text" style={{ color: '#c9cdd4', padding: '0 4px' }} icon={<Trash2 size={13} />} />
+                              <Button size="mini" type="text" style={{ color: 'var(--color-text-3)', padding: '0 4px' }} icon={<Trash2 size={13} />} />
                             </Popconfirm>
                           </div>
                           {info && c.indicator && (
-                            <div style={{ marginTop: 10, padding: '8px 12px', background: 'var(--color-fill-2)', borderRadius: 6, borderLeft: '3px solid #165dff' }}>
+                            <div style={{ marginTop: 10, padding: '8px 12px', background: 'var(--color-fill-2)', borderRadius: 6, borderLeft: '3px solid var(--color-primary)' }}>
                               <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
                                 <span style={{ fontSize: 11, color: 'var(--color-text-3)', whiteSpace: 'nowrap', marginTop: 1 }}>{safeTag}</span>
                                 <div style={{ flex: 1 }}>
                                   <div style={{ fontSize: 12, color: 'var(--color-text-2)', lineHeight: 1.5 }}>{info.desc}</div>
-                                  {info.suggestion && <div style={{ marginTop: 4, fontSize: 11, color: '#165dff', lineHeight: 1.5 }}>💡 {info.suggestion}</div>}
+                                  {info.suggestion && <div style={{ marginTop: 4, fontSize: 11, color: 'var(--color-primary)', lineHeight: 1.5 }}>💡 {info.suggestion}</div>}
                                 </div>
                               </div>
                             </div>
@@ -652,7 +652,7 @@ export default function StrategyPage() {
 
                 {/* Live progress */}
                 {btPhase && (
-                  <div style={{ marginBottom: 12, padding: '8px 12px', background: '#e8f3ff', borderRadius: 6, fontSize: 12, color: '#165dff', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ marginBottom: 12, padding: '8px 12px', background: 'var(--color-info-bg)', borderRadius: 6, fontSize: 12, color: 'var(--color-primary)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span>{btPhase}</span>
                     {btProgress && <span style={{ color: 'var(--color-text-3)' }}>{btProgress}</span>}
                   </div>
@@ -663,7 +663,7 @@ export default function StrategyPage() {
                   <div style={{ marginBottom: 16, display: 'flex', gap: 12 }}>
                     {/* Left: Position snapshot (compact) */}
                     <div style={{
-                      flex: 1, background: '#fff', border: '1px solid #e5e6eb',
+                      flex: 1, background: 'var(--color-bg-1)', border: '1px solid var(--color-border-1)',
                       borderRadius: 10, padding: 14, maxHeight: 420, overflow: 'auto',
                     }}>
                       <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-text-1)', marginBottom: 10 }}>📊 持仓</div>
@@ -672,7 +672,7 @@ export default function StrategyPage() {
                           <div style={{
                             display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 12px',
                             fontSize: 12, marginBottom: 8, padding: '6px 8px',
-                            background: '#fafbfc', borderRadius: 6,
+                            background: 'var(--color-fill-1)', borderRadius: 6,
                           }}>
                             <div><span style={{ color: 'var(--color-text-3)' }}>日期</span> {(btPositions.date || '').slice(0, 10) || `第${btPositions.day}天`}</div>
                             <div><span style={{ color: 'var(--color-text-3)' }}>持仓</span> {btPositions.positionCount || 0}只</div>
@@ -684,7 +684,7 @@ export default function StrategyPage() {
                           </div>
                           {btPositions.positions?.length > 0 ? btPositions.positions.map((p: any, i: number) => (
                             <div key={i} style={{
-                              padding: '8px 0', borderBottom: '1px solid #f5f5f5', fontSize: 12,
+                              padding: '8px 0', borderBottom: '1px solid var(--color-table-row-border)', fontSize: 12,
                             }}>
                               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                 <span style={{ fontWeight: 600, fontSize: 12 }}>{p.name || p.code}</span>
@@ -697,10 +697,10 @@ export default function StrategyPage() {
                                 <span>{p.qty}股 × ¥{p.price?.toFixed(2)}</span>
                                 <span>¥{(p.marketVal || 0).toLocaleString()}</span>
                               </div>
-                              <div style={{ color: '#c9cdd4', fontSize: 10 }}>成本 ¥{p.costPrice?.toFixed(2)}</div>
+                              <div style={{ color: 'var(--color-text-3)', fontSize: 10 }}>成本 ¥{p.costPrice?.toFixed(2)}</div>
                             </div>
                           )) : (
-                            <div style={{ color: 'var(--color-text-3)', fontSize: 12, padding: 16, textAlign: 'center', background: '#fafbfc', borderRadius: 6 }}>
+                            <div style={{ color: 'var(--color-text-3)', fontSize: 12, padding: 16, textAlign: 'center', background: 'var(--color-fill-1)', borderRadius: 6 }}>
                               💰 空仓<br/><span style={{ fontSize: 10 }}>现金 ¥{(btPositions.cash || 0).toLocaleString()}</span>
                             </div>
                           )}
@@ -712,11 +712,11 @@ export default function StrategyPage() {
 
                     {/* Right: Console-style execution log */}
                     <div style={{
-                      flex: 1, minWidth: 0, background: '#1a1a2e', border: '1px solid #2a2a4a',
+                      flex: 1, minWidth: 0, background: '#121215', border: '1px solid #27272a',
                       borderRadius: 10, overflow: 'hidden', display: 'flex', flexDirection: 'column',
                     }}>
                       <div style={{
-                        padding: '8px 14px', background: '#16213e', borderBottom: '1px solid #2a2a4a',
+                        padding: '8px 14px', background: '#1c1c20', borderBottom: '1px solid #27272a',
                         display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                       }}>
                         <span style={{ fontSize: 12, fontWeight: 600, color: '#7ec8e3' }}>💻 策略执行控制台</span>
@@ -743,7 +743,7 @@ export default function StrategyPage() {
                           return (
                             <div key={i} style={{
                               padding: '1px 0', display: 'flex', gap: 6,
-                              borderBottom: l.logType === 'system' ? '1px solid #21262d' : 'none',
+                              borderBottom: l.logType === 'system' ? '1px solid var(--color-border-1)' : 'none',
                               paddingBottom: l.logType === 'system' ? 4 : 1,
                               marginBottom: l.logType === 'system' ? 4 : 0,
                               ...levelDim,
@@ -768,21 +768,21 @@ export default function StrategyPage() {
                 {/* Final metrics — always show after backtest */}
                 {btResult && (
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
-                    <div style={{ padding: '14px 16px', background: '#fff', borderRadius: 8, border: '1px solid #e5e6eb' }}>
+                    <div style={{ padding: '14px 16px', background: 'var(--color-bg-1)', borderRadius: 8, border: '1px solid var(--color-border-1)' }}>
                       <div style={{ fontSize: 11, color: 'var(--color-text-3)' }}>累计收益</div>
                       <div style={{ fontSize: 24, fontWeight: 700, color: btResult.totalReturn >= 0 ? '#f53f3f' : '#00b42a' }}>
                         {btResult.totalReturn >= 0 ? '+' : ''}{btResult.totalReturn}%
                       </div>
                     </div>
-                    <div style={{ padding: '14px 16px', background: '#fff', borderRadius: 8, border: '1px solid #e5e6eb' }}>
+                    <div style={{ padding: '14px 16px', background: 'var(--color-bg-1)', borderRadius: 8, border: '1px solid var(--color-border-1)' }}>
                       <div style={{ fontSize: 11, color: 'var(--color-text-3)' }}>夏普比率</div>
                       <div style={{ fontSize: 24, fontWeight: 700, color: 'var(--color-text-1)' }}>{btResult.sharpeRatio}</div>
                     </div>
-                    <div style={{ padding: '14px 16px', background: '#fff', borderRadius: 8, border: '1px solid #e5e6eb' }}>
+                    <div style={{ padding: '14px 16px', background: 'var(--color-bg-1)', borderRadius: 8, border: '1px solid var(--color-border-1)' }}>
                       <div style={{ fontSize: 11, color: 'var(--color-text-3)' }}>最大回撤</div>
                       <div style={{ fontSize: 24, fontWeight: 700, color: '#f53f3f' }}>-{btResult.maxDrawdown}%</div>
                     </div>
-                    <div style={{ padding: '14px 16px', background: '#fff', borderRadius: 8, border: '1px solid #e5e6eb' }}>
+                    <div style={{ padding: '14px 16px', background: 'var(--color-bg-1)', borderRadius: 8, border: '1px solid var(--color-border-1)' }}>
                       <div style={{ fontSize: 11, color: 'var(--color-text-3)' }}>胜率 / 交易</div>
                       <div style={{ fontSize: 24, fontWeight: 700, color: 'var(--color-text-1)' }}>{btResult.winRate}%
                         <span style={{ fontSize: 14, color: 'var(--color-text-3)', marginLeft: 8 }}>/ {btResult.tradeCount}次</span>
@@ -793,15 +793,15 @@ export default function StrategyPage() {
 
                 {/* History — always visible */}
                 <div style={{
-                  background: '#fff', borderRadius: 12, border: '1px solid #e5e6eb',
+                  background: 'var(--color-bg-1)', borderRadius: 12, border: '1px solid var(--color-border-1)',
                   boxShadow: '0 1px 3px rgba(0,0,0,0.04)', marginBottom: 16, overflow: 'hidden',
                 }}>
                   <div style={{
-                    padding: '14px 20px', borderBottom: btHistory.length > 0 ? '1px solid #f0f1f3' : 'none',
+                    padding: '14px 20px', borderBottom: btHistory.length > 0 ? '1px solid var(--color-border-1)' : 'none',
                     display: 'flex', alignItems: 'center', gap: 10,
                   }}>
-                    <div style={{ width: 36, height: 36, borderRadius: 10, background: '#e8f3ff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      <History size={18} color="#165DFF" />
+                    <div style={{ width: 36, height: 36, borderRadius: 10, background: 'var(--color-info-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <History size={18} color="var(--color-primary)" />
                     </div>
                     <div>
                       <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--color-text-1)' }}>历史回测记录</div>
@@ -827,7 +827,7 @@ export default function StrategyPage() {
                         { title: '操作', dataIndex: 'id', width: 120, render: (id: number, record: any) => (
                           <div style={{ display: 'flex', gap: 6 }}>
                             <Button size="mini" type="outline" onClick={() => handleViewBacktestDetail(record)}
-                              style={{ borderColor: '#165DFF', color: '#165DFF', fontSize: 11 }}>详情</Button>
+                              style={{ borderColor: 'var(--color-primary)', color: 'var(--color-primary)', fontSize: 11 }}>详情</Button>
                             <Popconfirm title="确定删除？" onOk={() => handleDeleteBacktestResult(id)}>
                               <Button size="mini" type="text" status="danger" style={{ fontSize: 11 }}>删除</Button>
                             </Popconfirm>
@@ -842,8 +842,8 @@ export default function StrategyPage() {
                     />
                   ) : (
                     <div style={{ padding: '40px 20px', textAlign: 'center' }}>
-                      <div style={{ width: 56, height: 56, borderRadius: 16, background: '#f5f6f8', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginBottom: 12 }}>
-                        <BarChart4 size={26} color="#c9cdd4" />
+                      <div style={{ width: 56, height: 56, borderRadius: 16, background: 'var(--color-fill-2)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginBottom: 12 }}>
+                        <BarChart4 size={26} color="var(--color-text-3)" />
                       </div>
                       <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text-2)', marginBottom: 4 }}>暂无回测记录</div>
                       <div style={{ fontSize: 12, color: 'var(--color-text-3)' }}>设置参数后点击「开始回测」，完成后记录将显示在此处</div>
@@ -854,14 +854,14 @@ export default function StrategyPage() {
                 {/* Task list — always visible if any tasks */}
                 {btTasks.length > 0 && (
                   <div style={{
-                    background: '#fff', borderRadius: 12, border: '1px solid #e5e6eb',
+                    background: 'var(--color-bg-1)', borderRadius: 12, border: '1px solid var(--color-border-1)',
                     boxShadow: '0 1px 3px rgba(0,0,0,0.04)', overflow: 'hidden',
                   }}>
                     <div style={{
-                      padding: '14px 20px', borderBottom: '1px solid #f0f1f3',
+                      padding: '14px 20px', borderBottom: '1px solid var(--color-border-1)',
                       display: 'flex', alignItems: 'center', gap: 10,
                     }}>
-                      <div style={{ width: 36, height: 36, borderRadius: 10, background: '#fff7e8', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <div style={{ width: 36, height: 36, borderRadius: 10, background: 'var(--color-warning-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                         <Activity size={18} color="#F77234" />
                       </div>
                       <div>
@@ -876,13 +876,13 @@ export default function StrategyPage() {
                         { title: '创建时间', dataIndex: 'createdAt', width: 140, render: (v: string) => <span style={{ fontSize: 12, color: 'var(--color-text-2)' }}>{v?.slice(0, 16)}</span> },
                         { title: '状态', dataIndex: 'status', width: 90, render: (v: string) => {
                           const statusMap: Record<string, { bg: string; color: string; label: string; icon: any }> = {
-                            pending: { bg: '#f2f3f5', color: 'var(--color-text-3)', label: '排队中', icon: <Clock size={11} /> },
-                            running: { bg: '#e8f3ff', color: '#165DFF', label: '运行中', icon: <Activity size={11} /> },
-                            completed: { bg: '#e8ffea', color: '#00B42A', label: '已完成', icon: <Shield size={11} /> },
-                            failed: { bg: '#ffece8', color: '#F53F3F', label: '失败', icon: <AlertCircle size={11} /> },
-                            cancelled: { bg: '#fff7e8', color: '#FF7D00', label: '已取消', icon: <AlertCircle size={11} /> },
+                            pending: { bg: 'var(--color-fill-2)', color: 'var(--color-text-3)', label: '排队中', icon: <Clock size={11} /> },
+                            running: { bg: '#e8f3ff', color: 'var(--color-primary)', label: '运行中', icon: <Activity size={11} /> },
+                            completed: { bg: 'var(--color-success-bg)', color: 'var(--stock-down)', label: '已完成', icon: <Shield size={11} /> },
+                            failed: { bg: 'var(--color-danger-bg)', color: 'var(--stock-up)', label: '失败', icon: <AlertCircle size={11} /> },
+                            cancelled: { bg: 'var(--color-warning-bg)', color: 'var(--color-warning-text)', label: '已取消', icon: <AlertCircle size={11} /> },
                           };
-                          const s = statusMap[v] || { bg: '#f2f3f5', color: 'var(--color-text-3)', label: v, icon: null };
+                          const s = statusMap[v] || { bg: 'var(--color-fill-2)', color: 'var(--color-text-3)', label: v, icon: null };
                           return (
                             <span style={{
                               display: 'inline-flex', alignItems: 'center', gap: 4,
@@ -893,7 +893,7 @@ export default function StrategyPage() {
                         }},
                         { title: '进度', dataIndex: 'progressPct', width: 100, render: (v: number, record: any) => (
                           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                            <div style={{ flex: 1, height: 4, background: '#f0f1f3', borderRadius: 2, overflow: 'hidden' }}>
+                            <div style={{ flex: 1, height: 4, background: 'var(--color-border-1)', borderRadius: 2, overflow: 'hidden' }}>
                               <div style={{
                                 height: '100%', borderRadius: 2,
                                 width: `${Math.min(100, v || 0)}%`,
@@ -910,7 +910,7 @@ export default function StrategyPage() {
                             return (
                               <div style={{ display: 'flex', gap: 4 }}>
                                 <Button size="mini" type="outline" onClick={() => handleReconnectTask(id)}
-                                  style={{ borderColor: '#165DFF', color: '#165DFF', fontSize: 11 }}>查看</Button>
+                                  style={{ borderColor: 'var(--color-primary)', color: 'var(--color-primary)', fontSize: 11 }}>查看</Button>
                                 <Popconfirm title="确定取消？" onOk={() => handleCancelTask(id)}>
                                   <Button size="mini" type="text" status="warning" style={{ fontSize: 11 }}>取消</Button>
                                 </Popconfirm>
@@ -958,7 +958,7 @@ export default function StrategyPage() {
             <div style={{ position: 'relative' }}>
               <Input.TextArea placeholder="例如：偏好低估值蓝筹，设置严格的止盈止损..." value={aiDesc} onChange={setAiDesc} rows={3} style={{ paddingRight: 32 }} />
               <button onClick={handleOptimizePrompt} disabled={aiOptimizing || !aiDesc.trim()} title="AI 优化描述"
-                style={{ position: 'absolute', bottom: 8, right: 8, background: aiOptimizing ? 'var(--color-border-1)' : '#e8f3ff', border: 'none', borderRadius: 4, cursor: aiOptimizing || !aiDesc.trim() ? 'not-allowed' : 'pointer', padding: '2px 8px', fontSize: 11, color: '#165dff' }}>
+                style={{ position: 'absolute', bottom: 8, right: 8, background: aiOptimizing ? 'var(--color-border-1)' : '#e8f3ff', border: 'none', borderRadius: 4, cursor: aiOptimizing || !aiDesc.trim() ? 'not-allowed' : 'pointer', padding: '2px 8px', fontSize: 11, color: 'var(--color-primary)' }}>
                 {aiOptimizing ? '优化中...' : '✨ 优化'}
               </button>
             </div>
@@ -971,9 +971,9 @@ export default function StrategyPage() {
         {testCond && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             <div style={{ padding: '10px 14px', background: 'var(--color-fill-2)', borderRadius: 8, fontSize: 13, color: 'var(--color-text-2)' }}>
-              测试指标: <b style={{ color: '#165dff' }}>{getIndicatorLabel(testCond.indicator)}</b>
+              测试指标: <b style={{ color: 'var(--color-primary)' }}>{getIndicatorLabel(testCond.indicator)}</b>
               {' '}({({ gte: '≥', lte: '≤', gt: '>', lt: '<', eq: '=', cross_up: '↑', cross_down: '↓' } as any)[testCond.operator]}) {' '}
-              <b style={{ color: '#165dff' }}>{testCond.value}</b>
+              <b style={{ color: 'var(--color-primary)' }}>{testCond.value}</b>
             </div>
             <div style={{ display: 'flex', gap: 12 }}>
               <Input placeholder="股票代码" value={testStock} onChange={setTestStock} style={{ flex: 1 }} size="small" />
@@ -981,7 +981,7 @@ export default function StrategyPage() {
               <Button size="small" type="primary" icon={<Beaker size={12} />} loading={testLoading} onClick={runTest} disabled={!testStock || !testDate}>测试</Button>
             </div>
             {testResult && (
-              <div style={{ padding: '16px 20px', background: testResult.hasData ? (testResult.conditionMet ? '#e8ffea' : '#fff7e8') : '#fff2f0', borderRadius: 10, border: `1px solid ${testResult.hasData ? (testResult.conditionMet ? '#b7eb8f' : '#ffe58f') : '#ffccc7'}` }}>
+              <div style={{ padding: '16px 20px', background: testResult.hasData ? (testResult.conditionMet ? 'var(--color-success-bg)' : 'var(--color-warning-bg)') : 'var(--color-danger-bg)', borderRadius: 10, border: `1px solid ${testResult.hasData ? (testResult.conditionMet ? 'var(--color-success-border)' : 'var(--color-warning-border)') : 'var(--color-danger-border)'}` }}>
                 {!testResult.hasData ? (
                   <div><span style={{ fontSize: 20 }}>⚠️</span> <span style={{ fontWeight: 600, color: '#f53f3f' }}>无数据</span>
                     <div style={{ fontSize: 13, color: 'var(--color-text-2)', marginTop: 4 }}>{testResult.error || '该股票在指定日期无对应数据'}</div>
@@ -996,7 +996,7 @@ export default function StrategyPage() {
                       <Tag color={testResult.conditionMet ? 'green' : 'orange'}>{testResult.conditionMet ? '✅ 条件满足' : '❌ 条件不满足'}</Tag>
                     </div>
                     <div style={{ display: 'flex', gap: 24 }}>
-                      <div><div style={{ fontSize: 11, color: 'var(--color-text-3)' }}>指标值</div><div style={{ fontSize: 22, fontWeight: 700, color: '#165dff', fontFamily: 'monospace' }}>{testResult.computedValue}</div></div>
+                      <div><div style={{ fontSize: 11, color: 'var(--color-text-3)' }}>指标值</div><div style={{ fontSize: 22, fontWeight: 700, color: 'var(--color-primary)', fontFamily: 'monospace' }}>{testResult.computedValue}</div></div>
                       <div><div style={{ fontSize: 11, color: 'var(--color-text-3)' }}>阈值</div><div style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text-2)', fontFamily: 'monospace' }}>{({ gte: '≥', lte: '≤', gt: '>', lt: '<', eq: '=', cross_up: '↑', cross_down: '↓' } as any)[testResult.operator]} {testResult.threshold}</div></div>
                     </div>
                   </>
@@ -1012,11 +1012,11 @@ export default function StrategyPage() {
       {btDetailVisible && btDetailResult && (
         <div style={{
           position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 1000,
-          background: '#f5f6f8', overflow: 'auto',
+          background: 'var(--color-fill-2)', overflow: 'auto',
         }}>
           {/* Header */}
           <div style={{
-            background: '#fff', borderBottom: '1px solid #e5e6eb',
+            background: 'var(--color-bg-1)', borderBottom: '1px solid var(--color-border-1)',
             padding: '12px 24px', display: 'flex', alignItems: 'center', gap: 16,
             position: 'sticky', top: 0, zIndex: 10, boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
           }}>
@@ -1038,8 +1038,8 @@ export default function StrategyPage() {
             {/* Summary Cards */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 24 }}>
               <div style={{
-                background: '#fff', borderRadius: 12, padding: '20px 16px', textAlign: 'center',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.04)', border: '1px solid #f0f1f3',
+                background: 'var(--color-bg-1)', borderRadius: 12, padding: '20px 16px', textAlign: 'center',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.04)', border: '1px solid var(--color-border-1)',
               }}>
                 <div style={{ fontSize: 12, color: 'var(--color-text-3)', marginBottom: 6 }}>累计收益</div>
                 <div style={{
@@ -1051,18 +1051,18 @@ export default function StrategyPage() {
                 </div>
               </div>
               <div style={{
-                background: '#fff', borderRadius: 12, padding: '20px 16px', textAlign: 'center',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.04)', border: '1px solid #f0f1f3',
+                background: 'var(--color-bg-1)', borderRadius: 12, padding: '20px 16px', textAlign: 'center',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.04)', border: '1px solid var(--color-border-1)',
               }}>
                 <div style={{ fontSize: 12, color: 'var(--color-text-3)', marginBottom: 6 }}>夏普比率 · 最大回撤</div>
                 <div style={{ fontSize: 24, fontWeight: 700, color: 'var(--color-text-1)', fontFamily: 'monospace' }}>
                   {btDetailResult.sharpeRatio}
-                  <span style={{ fontSize: 15, color: '#F53F3F', marginLeft: 8 }}>-{btDetailResult.maxDrawdown}%</span>
+                  <span style={{ fontSize: 15, color: 'var(--stock-up)', marginLeft: 8 }}>-{btDetailResult.maxDrawdown}%</span>
                 </div>
               </div>
               <div style={{
-                background: '#fff', borderRadius: 12, padding: '20px 16px', textAlign: 'center',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.04)', border: '1px solid #f0f1f3',
+                background: 'var(--color-bg-1)', borderRadius: 12, padding: '20px 16px', textAlign: 'center',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.04)', border: '1px solid var(--color-border-1)',
               }}>
                 <div style={{ fontSize: 12, color: 'var(--color-text-3)', marginBottom: 6 }}>胜率 · 交易次数</div>
                 <div style={{ fontSize: 24, fontWeight: 700, color: 'var(--color-text-1)', fontFamily: 'monospace' }}>
@@ -1071,14 +1071,14 @@ export default function StrategyPage() {
                 </div>
               </div>
               <div style={{
-                background: '#fff', borderRadius: 12, padding: '20px 16px', textAlign: 'center',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.04)', border: '1px solid #f0f1f3',
+                background: 'var(--color-bg-1)', borderRadius: 12, padding: '20px 16px', textAlign: 'center',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.04)', border: '1px solid var(--color-border-1)',
               }}>
                 <div style={{ fontSize: 12, color: 'var(--color-text-3)', marginBottom: 6 }}>回测区间</div>
                 <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-2)' }}>
                   {btDetailResult.startDate?.slice(0,10)}
                 </div>
-                <div style={{ fontSize: 12, color: '#c9cdd4' }}>→</div>
+                <div style={{ fontSize: 12, color: 'var(--color-text-3)' }}>→</div>
                 <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-2)' }}>
                   {btDetailResult.endDate?.slice(0,10)}
                 </div>
@@ -1087,8 +1087,8 @@ export default function StrategyPage() {
 
             {/* Equity Curve - larger */}
             <div style={{
-              background: '#fff', borderRadius: 12, padding: '20px 24px', marginBottom: 20,
-              boxShadow: '0 1px 3px rgba(0,0,0,0.04)', border: '1px solid #f0f1f3',
+              background: 'var(--color-bg-1)', borderRadius: 12, padding: '20px 24px', marginBottom: 20,
+              boxShadow: '0 1px 3px rgba(0,0,0,0.04)', border: '1px solid var(--color-border-1)',
             }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
                 <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--color-text-1)' }}>📈 收益曲线</div>
@@ -1101,7 +1101,7 @@ export default function StrategyPage() {
                 const eqValues = eqRaw.map((p: any) => p.equity);
                 const baseline = eqValues[0] || 100000;
                 return eqDates.length > 1 ? (
-                  <div style={{ background: '#1A1D23', borderRadius: 10, padding: '20px 16px 12px' }}>
+                  <div style={{ background: 'var(--color-bg-1)', borderRadius: 10, padding: '20px 16px 12px' }}>
                     <ProfitCurveChart data={{ dates: eqDates, values: eqValues, baseline }} />
                   </div>
                 ) : (
@@ -1112,8 +1112,8 @@ export default function StrategyPage() {
 
             {/* Trades & Logs */}
             <div style={{
-              background: '#fff', borderRadius: 12, overflow: 'hidden',
-              boxShadow: '0 1px 3px rgba(0,0,0,0.04)', border: '1px solid #f0f1f3',
+              background: 'var(--color-bg-1)', borderRadius: 12, overflow: 'hidden',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.04)', border: '1px solid var(--color-border-1)',
             }}>
               <Tabs
                 activeTab={btDetailTab}
@@ -1127,7 +1127,7 @@ export default function StrategyPage() {
                     {(() => {
                       const arr = btDetailResult.trades?.data || btDetailResult.trades || [];
                       const c = Array.isArray(arr) ? arr.length : 0;
-                      return c > 0 ? <span style={{ background: '#e8f3ff', color: '#165DFF', fontSize: 11, fontWeight: 600, padding: '1px 8px', borderRadius: 10 }}>{c}</span> : null;
+                      return c > 0 ? <span style={{ background: 'var(--color-info-bg)', color: 'var(--color-primary)', fontSize: 11, fontWeight: 600, padding: '1px 8px', borderRadius: 10 }}>{c}</span> : null;
                     })()}
                   </span>
                 }>
@@ -1140,12 +1140,13 @@ export default function StrategyPage() {
                       return (
                         <Table
                           columns={[
-                            { title: '日期', dataIndex: 'date', width: 100, render: (v: string) => <span style={{ fontSize: 11, fontFamily: 'monospace', color: 'var(--color-text-2)' }}>{v}</span> },
+                            { title: '信号日', dataIndex: 'signalDate', width: 100, render: (v: string, r: any) => v ? <span style={{ fontSize: 11, fontFamily: 'monospace', color: 'var(--color-text-3)' }}>{v}</span> : <span style={{ color: 'var(--color-text-3)' }}>—</span> },
+                            { title: '成交日', dataIndex: 'date', width: 100, render: (v: string) => <span style={{ fontSize: 11, fontFamily: 'monospace', color: 'var(--color-text-2)' }}>{v}</span> },
                             { title: '操作', dataIndex: 'action', width: 72, render: (v: string) => {
-                              const labels: Record<string, string> = { buy: '买入', add: '加仓', sell: '卖出', reduce: '减仓' };
-                              const colors: Record<string, string> = { buy: '#F53F3F', add: '#FF7D00', sell: '#00B42A', reduce: '#165DFF' };
-                              const bgs: Record<string, string> = { buy: '#ffece8', add: '#fff7e8', sell: '#e8ffea', reduce: '#e8f3ff' };
-                              return <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: 4, background: bgs[v] || '#f2f3f5', color: colors[v] || 'var(--color-text-3)', fontWeight: 700, fontSize: 11 }}>{labels[v] || v}</span>;
+                              const labels: Record<string, string> = { buy: '买入', add: '加仓', sell: '卖出', reduce: '减仓', stop: '止盈/止损' };
+                              const colors: Record<string, string> = { buy: 'var(--stock-up)', add: 'var(--color-warning-text)', sell: 'var(--stock-down)', reduce: 'var(--color-primary)', stop: 'var(--stock-up)' };
+                              const bgs: Record<string, string> = { buy: 'var(--color-danger-bg)', add: 'var(--color-warning-bg)', sell: 'var(--color-success-bg)', reduce: 'var(--color-info-bg)', stop: 'var(--color-danger-bg)' };
+                              return <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: 4, background: bgs[v] || 'var(--color-fill-2)', color: colors[v] || 'var(--color-text-3)', fontWeight: 700, fontSize: 11 }}>{labels[v] || v}</span>;
                             }},
                             { title: '股票', dataIndex: 'name', width: 100, render: (v: string, r: any) => (
                               <div><div style={{ fontWeight: 600, fontSize: 12 }}>{v || r.code}</div><div style={{ fontSize: 10, color: 'var(--color-text-3)', fontFamily: 'monospace' }}>{r.code}</div></div>
@@ -1153,7 +1154,7 @@ export default function StrategyPage() {
                             { title: '价格', dataIndex: 'price', width: 76, render: (v: number) => <span style={{ fontFamily: 'monospace', fontSize: 12 }}>¥{v?.toFixed(2)}</span> },
                             { title: '数量', dataIndex: 'quantity', width: 64, render: (v: number) => <span style={{ fontFamily: 'monospace', fontSize: 12 }}>{v}股</span> },
                             { title: '金额', dataIndex: 'quantity', width: 80, render: (v: number, r: any) => <span style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--color-text-2)' }}>¥{((r.price * v) || 0).toLocaleString('zh-CN', { maximumFractionDigits: 0 })}</span> },
-                            { title: '盈亏', dataIndex: 'pnlPct', width: 72, render: (v: number) => v ? <span style={{ color: v > 0 ? '#F53F3F' : '#00B42A', fontWeight: 600, fontSize: 12, fontFamily: 'monospace' }}>{v > 0 ? '+' : ''}{v?.toFixed(1)}%</span> : <span style={{ color: '#c9cdd4' }}>—</span> },
+                            { title: '盈亏', dataIndex: 'pnlPct', width: 72, render: (v: number) => v ? <span style={{ color: v > 0 ? '#F53F3F' : '#00B42A', fontWeight: 600, fontSize: 12, fontFamily: 'monospace' }}>{v > 0 ? '+' : ''}{v?.toFixed(1)}%</span> : <span style={{ color: 'var(--color-text-3)' }}>—</span> },
                             { title: '原因', dataIndex: 'reason', width: 120, render: (v: string) => <span style={{ fontSize: 11, color: 'var(--color-text-3)' }}>{v}</span> },
                           ]}
                           data={tradesArr}
@@ -1170,13 +1171,13 @@ export default function StrategyPage() {
                 <Tabs.TabPane key="logs" title={
                   <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                     🔍 执行日志
-                    {btDetailLogs.length > 0 && <span style={{ background: '#e8f3ff', color: '#165DFF', fontSize: 11, fontWeight: 600, padding: '1px 8px', borderRadius: 10 }}>{btDetailLogs.length}</span>}
+                    {btDetailLogs.length > 0 && <span style={{ background: 'var(--color-info-bg)', color: 'var(--color-primary)', fontSize: 11, fontWeight: 600, padding: '1px 8px', borderRadius: 10 }}>{btDetailLogs.length}</span>}
                   </span>
                 }>
                   <div style={{ padding: '0 0 16px' }}>
                     {btDetailLogs.length > 0 ? (
                       <div style={{
-                        background: '#1a1a2e', borderRadius: 8, padding: '12px 16px',
+                        background: '#121215', borderRadius: 8, padding: '12px 16px',
                         fontFamily: "'SF Mono', Monaco, Menlo, monospace",
                         fontSize: 11, lineHeight: '1.8', color: '#c9d1d9',
                         maxHeight: 500, overflow: 'auto',
@@ -1193,7 +1194,7 @@ export default function StrategyPage() {
                           return (
                             <div key={i} style={{
                               padding: '1px 0', display: 'flex', gap: 6,
-                              borderBottom: l.logType === 'system' ? '1px solid #21262d' : 'none',
+                              borderBottom: l.logType === 'system' ? '1px solid var(--color-border-1)' : 'none',
                               paddingBottom: l.logType === 'system' ? 4 : 1,
                               marginBottom: l.logType === 'system' ? 4 : 0,
                               opacity: l.level === 'debug' ? 0.6 : 1,
@@ -1242,18 +1243,18 @@ function useEquityMode() {
 function EquityModeToggle() {
   const { mode, toggle } = useEquityMode();
   return (
-    <div style={{ display: 'flex', background: '#f2f3f5', borderRadius: 6, padding: 2 }}>
+    <div style={{ display: 'flex', background: 'var(--color-fill-2)', borderRadius: 6, padding: 2 }}>
       <button onClick={() => toggle('asset')} style={{
         padding: '4px 12px', border: 'none', borderRadius: 4, cursor: 'pointer',
         fontSize: 12, fontWeight: mode === 'asset' ? 600 : 400,
-        background: mode === 'asset' ? '#fff' : 'transparent',
+        background: mode === 'asset' ? 'var(--color-bg-1)' : 'transparent',
         color: mode === 'asset' ? '#165dff' : 'var(--color-text-3)',
         boxShadow: mode === 'asset' ? '0 1px 2px rgba(0,0,0,0.08)' : 'none',
       }}>总资产</button>
       <button onClick={() => toggle('return')} style={{
         padding: '4px 12px', border: 'none', borderRadius: 4, cursor: 'pointer',
         fontSize: 12, fontWeight: mode === 'return' ? 600 : 400,
-        background: mode === 'return' ? '#fff' : 'transparent',
+        background: mode === 'return' ? 'var(--color-bg-1)' : 'transparent',
         color: mode === 'return' ? '#165dff' : 'var(--color-text-3)',
         boxShadow: mode === 'return' ? '0 1px 2px rgba(0,0,0,0.08)' : 'none',
       }}>收益率</button>
@@ -1320,7 +1321,7 @@ function ProfitCurveChart({ data }: { data: any }) {
   }
 
   const isUp = values[values.length - 1] >= values[0];
-  const lineColor = isUp ? '#F53F3F' : '#00B42A';
+  const lineColor = isUp ? 'var(--stock-up)' : 'var(--stock-down)';
   const areaColor = isUp ? 'rgba(245,63,63,0.15)' : 'rgba(0,180,42,0.15)';
 
   const handleMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
@@ -1354,8 +1355,8 @@ function ProfitCurveChart({ data }: { data: any }) {
         {/* Grid */}
         {gridLines.map((g, i) => (
           <g key={i}>
-            <line x1={padL} y1={g.y} x2={W - padR} y2={g.y} stroke={g.isZero ? '#444' : '#2a2d35'} strokeWidth={g.isZero ? '1' : '0.5'} strokeDasharray={g.isZero ? '' : '4 3'} />
-            <text x={padL - 8} y={g.y + 4} fontSize="10" fill="#86909C" textAnchor="end">{g.label}</text>
+            <line x1={padL} y1={g.y} x2={W - padR} y2={g.y} stroke={g.isZero ? 'var(--color-border-2)' : 'var(--color-border-1)'} strokeWidth={g.isZero ? '1' : '0.5'} strokeDasharray={g.isZero ? '' : '4 3'} />
+            <text x={padL - 8} y={g.y + 4} fontSize="10" fill="var(--color-text-3)" textAnchor="end">{g.label}</text>
           </g>
         ))}
         {/* Zero / Baseline line */}
@@ -1376,10 +1377,10 @@ function ProfitCurveChart({ data }: { data: any }) {
         )}
         {/* X labels */}
         {xLabels.map((xl, i) => (
-          <text key={i} x={px(xl.i)} y={H - 10} fontSize="10" fill="#86909C" textAnchor="middle">{xl.label}</text>
+          <text key={i} x={px(xl.i)} y={H - 10} fontSize="10" fill="var(--color-text-3)" textAnchor="middle">{xl.label}</text>
         ))}
         {/* Y axis label */}
-        <text x={12} y={padT + plotH/2} fontSize="10" fill="#86909C" textAnchor="middle" transform={'rotate(-90,12,' + (padT + plotH/2) + ')'}>
+        <text x={12} y={padT + plotH/2} fontSize="10" fill="var(--color-text-3)" textAnchor="middle" transform={'rotate(-90,12,' + (padT + plotH/2) + ')'}>
           {mode === 'return' ? '收益率' : '总资产'}
         </text>
       </svg>
@@ -1403,18 +1404,18 @@ function ProfitCurveChart({ data }: { data: any }) {
           borderRadius: 6, fontSize: 11, fontFamily: 'monospace', pointerEvents: 'none',
           whiteSpace: 'nowrap', zIndex: 20,
         }}>
-          <div style={{ color: '#C9CDD4', fontSize: 10 }}>{dates[hoverIdx]}</div>
+          <div style={{ color: 'var(--color-text-3)', fontSize: 10 }}>{dates[hoverIdx]}</div>
           <div style={{ fontWeight: 600, color: lineColor }}>{formatHoverVal(values[hoverIdx])}</div>
-          {mode === 'asset' && <div style={{ fontSize: 10, color: '#C9CDD4' }}>原始: {'¥' + rawValues[hoverIdx].toLocaleString()}</div>}
+          {mode === 'asset' && <div style={{ fontSize: 10, color: 'var(--color-text-3)' }}>原始: {'¥' + rawValues[hoverIdx].toLocaleString()}</div>}
         </div>
       )}
       {/* Summary stats */}
-      <div style={{ display: 'flex', gap: 20, marginTop: 8, paddingLeft: padL, fontSize: 11, color: '#86909C', flexWrap: 'wrap' }}>
-        <span>起点: <b style={{ color: '#C9CDD4' }}>{formatVal(startVal)}</b></span>
+      <div style={{ display: 'flex', gap: 20, marginTop: 8, paddingLeft: padL, fontSize: 11, color: 'var(--color-text-3)', flexWrap: 'wrap' }}>
+        <span>起点: <b style={{ color: 'var(--color-text-3)' }}>{formatVal(startVal)}</b></span>
         <span>终点: <b style={{ color: isUp ? '#F53F3F' : '#00B42A' }}>{formatVal(endVal)}</b></span>
         <span>变化: <b style={{ color: isUp ? '#F53F3F' : '#00B42A' }}>{chgPct >= 0 ? '+' : ''}{chgPct.toFixed(2)}%</b></span>
-        <span>最高: <b style={{ color: '#F53F3F' }}>{formatVal(maxVal)}</b></span>
-        <span>最低: <b style={{ color: '#00B42A' }}>{formatVal(minVal)}</b></span>
+        <span>最高: <b style={{ color: 'var(--stock-up)' }}>{formatVal(maxVal)}</b></span>
+        <span>最低: <b style={{ color: 'var(--stock-down)' }}>{formatVal(minVal)}</b></span>
       </div>
     </div>
   );

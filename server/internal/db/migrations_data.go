@@ -276,5 +276,52 @@ func init() {
 		},
 	})
 
+
+	// ============================================================
+	// v010: backtest_signals table
+	// ============================================================
+	Register(Migration{
+		Version:     10,
+		Description: "MySQL: backtest_signals for signal-execution decoupling",
+		Up: func() error {
+			gormAutoMigrate(MySQL, &model.BacktestSignal{})
+			return nil
+		},
+	})
+
+
+	// ============================================================
+	// v011: trading_accounts + trade_records + holding fields
+	// ============================================================
+	Register(Migration{
+		Version:     11,
+		Description: "MySQL: trading_accounts, trade_records, holding buy_date/total_cost",
+		Up: func() error {
+			gormAutoMigrate(MySQL, &model.TradingAccount{}, &model.TradeRecord{})
+			// Add columns to holdings — idempotent via information_schema check
+			safeExecMysql(`
+				SET @col_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS
+					WHERE TABLE_SCHEMA = 'stock_predict' AND TABLE_NAME = 'holdings' AND COLUMN_NAME = 'total_cost');
+				SET @sql = IF(@col_exists = 0, 'ALTER TABLE holdings ADD COLUMN total_cost DECIMAL(16,2) DEFAULT 0', 'SELECT 1');
+				PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+			`)
+			safeExecMysql(`
+				SET @col_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS
+					WHERE TABLE_SCHEMA = 'stock_predict' AND TABLE_NAME = 'holdings' AND COLUMN_NAME = 'buy_date');
+				SET @sql = IF(@col_exists = 0, "ALTER TABLE holdings ADD COLUMN buy_date VARCHAR(10) DEFAULT ''", 'SELECT 1');
+				PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+			`)
+			safeExecMysql(`
+				SET @col_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS
+					WHERE TABLE_SCHEMA = 'stock_predict' AND TABLE_NAME = 'holdings' AND COLUMN_NAME = 'updated_at');
+				SET @sql = IF(@col_exists = 0, 'ALTER TABLE holdings ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP', 'SELECT 1');
+				PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+			`)
+			return nil
+		},
+	})
+
 	log.Printf("[migrate] registered %d migrations", len(migrations))
 }
+
+

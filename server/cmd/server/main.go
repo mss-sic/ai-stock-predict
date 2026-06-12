@@ -131,12 +131,16 @@ func main() {
 		api.DELETE("/watchlist", watchH.Clear)
 		api.PUT("/watchlist/:code/move", watchH.MoveStock)
 
-		// Holdings
+		// Holdings + Account
 		holdingH := handler.NewHoldingHandler()
+		api.GET("/holdings/summary", holdingH.Summary)
 		api.GET("/holdings", holdingH.List)
 		api.POST("/holdings", holdingH.Create)
 		api.PUT("/holdings/:id", holdingH.Update)
 		api.DELETE("/holdings/:id", holdingH.Delete)
+		api.GET("/holdings/account", holdingH.Account)
+		api.PUT("/holdings/account", holdingH.UpdateAccount)
+		api.GET("/holdings/trades", holdingH.TradeRecords)
 
 		// Risk alerts
 		riskH := handler.NewRiskHandler()

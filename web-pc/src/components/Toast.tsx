@@ -41,10 +41,10 @@ export default function ToastContainer() {
   if (toasts.length === 0) return null;
 
   const colors: Record<string, { bg: string; border: string; icon: any; color: string }> = {
-    error: { bg: '#fff2f0', border: '#ffccc7', icon: AlertCircle, color: '#f53f3f' },
-    warning: { bg: '#fff7e6', border: '#ffe58f', icon: AlertCircle, color: '#fa8c16' },
-    success: { bg: '#f6ffed', border: '#b7eb8f', icon: CheckCircle, color: '#52c41a' },
-    info: { bg: '#e6f4ff', border: '#91caff', icon: Info, color: '#1677ff' },
+    error:   { bg: 'var(--color-danger-bg)',   border: 'var(--color-danger-border)',   icon: AlertCircle, color: 'var(--color-danger-text)' },
+    warning: { bg: 'var(--color-warning-bg)',   border: 'var(--color-warning-border)',   icon: AlertCircle, color: 'var(--color-warning-text)' },
+    success: { bg: 'var(--color-success-bg)',   border: 'var(--color-success-border)',   icon: CheckCircle,  color: 'var(--color-success-text)' },
+    info:    { bg: 'var(--color-info-bg)',      border: 'var(--color-info-border)',      icon: Info,         color: 'var(--color-primary)' },
   };
 
   return (
