@@ -9,7 +9,7 @@ import {
   Send, Trash2, Loader2, Check, X, Layers, FileText, Users, Newspaper, Star, StarOff, ChevronLeft, ChevronRight, ExternalLink,
 } from 'lucide-react';
 import { showToast } from '../components/Toast';
-import { authFetch, checkAPIError, fetchStockDetail, fetchKLine, fetchIndicator, fetchPredictionResult, fetchPredictionHitRate, fetchStockHeatmap, fetchSignal, fetchFinancials, fetchShareholders, fetchStockNews, fetchReports, fetchStockConceptTags, addToWatchlist, removeFromWatchlist, fetchWatchlist, fetchWatchlistGroups, createWatchlistGroup } from '../services/api';
+import { authFetch, checkAPIError, fetchStockDetail, fetchKLine, fetchIndicator, fetchPredictionResult, fetchPredictionHitRate, fetchStockHeatmap, fetchSignal, fetchFinancials, fetchShareholders, fetchStockNews, fetchReports, fetchStockConceptTags, addToWatchlist, removeFromWatchlist, fetchWatchlist, fetchWatchlistGroups, createWatchlistGroup, fetchHoldings } from '../services/api';
 import KLineChart from '../components/KLineChart';
 import BoardSidebar from '../components/BoardSidebar';
 
@@ -332,11 +332,21 @@ export default function StockDetailPage() {
   const [wlGroupId, setWlGroupId] = useState<number>(0);
   const [wlGroups, setWlGroups] = useState<any[]>([]);
   const [wlNewGroup, setWlNewGroup] = useState('');
+  const [holdingCost, setHoldingCost] = useState<number | null>(null);
 
   useEffect(() => {
     if (!code) return;
     fetchStockDetail(code).then((r: any) => setStock(r.data?.data ?? r.data));
     fetchKLine(code).then((r: any) => setKlines(r.data?.data || []));
+    fetchHoldings().then((r: any) => {
+      const items = r.data?.data || [];
+      const found = items.find((h: any) => h.stockCode === code);
+      if (found && found.costPrice > 0) {
+        setHoldingCost(found.costPrice);
+      } else {
+        setHoldingCost(null);
+      }
+    }).catch(() => setHoldingCost(null));
     fetchIndicator(code).then((r: any) => setIndicator(r.data?.data ?? r.data)).catch(() => {});
     fetchFinancials(code).then((r: any) => setFinancials(r.data?.data || [])).catch(() => {});
     fetchShareholders(code).then((r: any) => setShareholders(r.data?.data || [])).catch(() => {});
@@ -783,7 +793,7 @@ fetchPredictionResult(code).then((r: any) => {
                 })()}
               </div>
               <div style={{ padding: '0 4px 4px' }}>
-                <KLineChart data={klines} height={460} markers={markers} splitIdx={predOverlay.splitIdx} predictionLines={predOverlay.lines} predMarkers={predOverlay.markers} />
+                <KLineChart data={klines} height={460} markers={markers} splitIdx={predOverlay.splitIdx} predictionLines={predOverlay.lines} predMarkers={predOverlay.markers} costLine={holdingCost} />
               </div>
             </div>
           {/* ═══ Ensemble + Backtest ═══ */}
@@ -1419,7 +1429,7 @@ fetchPredictionResult(code).then((r: any) => {
                         enableRangeSelect={intervalMode}
                         selectedRange={intervalRange}
                         onRangeChange={handleRangeChange}
-                      />
+                      costLine={holdingCost} />
                     </div>
                     {/* Stats panel on the right */}
                     {intervalStats && (
@@ -1524,7 +1534,7 @@ fetchPredictionResult(code).then((r: any) => {
                     enableRangeSelect={intervalMode}
                     selectedRange={intervalRange}
                     onRangeChange={handleRangeChange}
-                  />
+                  costLine={holdingCost} />
                 )}
               </>
             ) : (<div className="muted" style={{ textAlign: 'center', padding: 40 }}>K线数据不足</div>)}

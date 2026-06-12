@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Table, Button, Modal, Input, InputNumber, Popconfirm, Tag } from '@arco-design/web-react';
 import { Briefcase, Plus, Edit, Trash2, Search, Wallet, TrendingUp } from 'lucide-react';
 import { fetchHoldingsSummary, fetchHoldings, createHolding, updateHolding, deleteHolding, fetchAccount, updateAccount } from '../services/api';
@@ -23,6 +24,7 @@ export default function HoldingsPage() {
   const [data, setData] = useState<Holding[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [loading, setLoading] = useState(false);
+  const navigate = useNavigate();
   const [modalOpen, setModalOpen] = useState(false);
   const [fundModalOpen, setFundModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -189,25 +191,25 @@ export default function HoldingsPage() {
         <Table
           columns={[
             { title: '股票', dataIndex: 'stockName', width: 140, render: (v: string, r: Holding) => (
-              <div>
-                <div style={{ fontWeight: 600, fontSize: 13 }}>{v || r.stockCode}</div>
+              <div style={{ cursor: 'pointer' }} onClick={() => navigate(`/stock/${r.stockCode}`)}>
+                <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--color-primary)' }}>{v || r.stockCode}</div>
                 <div style={{ fontSize: 11, color: 'var(--color-text-3)', fontFamily: 'monospace' }}>{r.stockCode}</div>
               </div>
             )},
-            { title: '成本', dataIndex: 'costPrice', width: 80, render: (v: number) => <span style={{ fontFamily: 'monospace', fontSize: 12 }}>¥{v?.toFixed(2)}</span> },
-            { title: '现价', dataIndex: 'curPrice', width: 90, render: (v: number, r: Holding) => (
+            { title: '成本', dataIndex: 'costPrice', width: 85, sorter: (a: any, b: any) => a.costPrice - b.costPrice, render: (v: number) => <span style={{ fontFamily: 'monospace', fontSize: 12 }}>¥{v?.toFixed(2)}</span> },
+            { title: '现价', dataIndex: 'curPrice', width: 95, sorter: (a: any, b: any) => (a.curPrice||0) - (b.curPrice||0), render: (v: number, r: Holding) => (
               <div>
                 <span style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--color-text-1)' }}>¥{(v || 0).toFixed(2)}</span>
                 {r.priceDate && <div style={{ fontSize: 10, color: 'var(--color-text-3)' }}>{r.priceDate.slice(5)}</div>}
               </div>
             )},
-            { title: '持仓', dataIndex: 'quantity', width: 64, render: (v: number) => `${v}股` },
-            { title: '市值', dataIndex: 'marketVal', width: 100, render: (v: number) => <span style={{ fontFamily: 'monospace' }}>¥{v?.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span> },
-            { title: '持有', dataIndex: 'holdDays', width: 64, render: (v: number) => v > 0 ? <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>{v}天</span> : <span style={{ color: 'var(--color-text-3)' }}>—</span> },
-            { title: '当日盈亏', dataIndex: 'dailyPnl', width: 100, render: (v: number) => <span style={{ color: v >= 0 ? 'var(--stock-up)' : 'var(--stock-down)', fontFamily: 'monospace', fontSize: 12 }}>{v > 0 ? '+' : ''}¥{Math.abs(v || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}</span> },
-            { title: '当日%', dataIndex: 'dailyPnlPct', width: 72, render: (v: number) => <span style={{ color: (v || 0) >= 0 ? 'var(--stock-up)' : 'var(--stock-down)', fontFamily: 'monospace', fontWeight: 600, fontSize: 12 }}>{(v || 0) >= 0 ? '+' : ''}{(v || 0).toFixed(2)}%</span> },
-            { title: '盈亏', dataIndex: 'pnl', width: 100, render: (v: number) => <span style={{ color: v >= 0 ? 'var(--stock-up)' : 'var(--stock-down)', fontFamily: 'monospace' }}>{v >= 0 ? '+' : ''}¥{Math.abs(v).toLocaleString(undefined, { maximumFractionDigits: 0 })}</span> },
-            { title: '盈亏%', dataIndex: 'pnlPct', width: 80, render: (v: number) => <span style={{ color: v >= 0 ? 'var(--stock-up)' : 'var(--stock-down)', fontFamily: 'monospace', fontWeight: 600 }}>{v >= 0 ? '+' : ''}{v?.toFixed(2)}%</span> },
+            { title: '持仓', dataIndex: 'quantity', width: 64, sorter: (a: any, b: any) => a.quantity - b.quantity, render: (v: number) => `${v}股` },
+            { title: '市值', dataIndex: 'marketVal', width: 100, sorter: (a: any, b: any) => a.marketVal - b.marketVal, render: (v: number) => <span style={{ fontFamily: 'monospace' }}>¥{v?.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span> },
+            { title: '持有', dataIndex: 'holdDays', width: 64, sorter: (a: any, b: any) => a.holdDays - b.holdDays, render: (v: number) => v > 0 ? <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>{v}天</span> : <span style={{ color: 'var(--color-text-3)' }}>—</span> },
+            { title: '当日盈亏', dataIndex: 'dailyPnl', width: 100, sorter: (a: any, b: any) => (a.dailyPnl||0) - (b.dailyPnl||0), render: (v: number) => <span style={{ color: v >= 0 ? 'var(--stock-up)' : 'var(--stock-down)', fontFamily: 'monospace', fontSize: 12 }}>{v > 0 ? '+' : ''}¥{Math.abs(v || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}</span> },
+            { title: '当日%', dataIndex: 'dailyPnlPct', width: 72, sorter: (a: any, b: any) => (a.dailyPnlPct||0) - (b.dailyPnlPct||0), render: (v: number) => <span style={{ color: (v || 0) >= 0 ? 'var(--stock-up)' : 'var(--stock-down)', fontFamily: 'monospace', fontWeight: 600, fontSize: 12 }}>{(v || 0) >= 0 ? '+' : ''}{(v || 0).toFixed(2)}%</span> },
+            { title: '盈亏', dataIndex: 'pnl', width: 100, sorter: (a: any, b: any) => a.pnl - b.pnl, render: (v: number) => <span style={{ color: v >= 0 ? 'var(--stock-up)' : 'var(--stock-down)', fontFamily: 'monospace' }}>{v >= 0 ? '+' : ''}¥{Math.abs(v).toLocaleString(undefined, { maximumFractionDigits: 0 })}</span> },
+            { title: '盈亏%', dataIndex: 'pnlPct', width: 80, sorter: (a: any, b: any) => a.pnlPct - b.pnlPct, render: (v: number) => <span style={{ color: v >= 0 ? 'var(--stock-up)' : 'var(--stock-down)', fontFamily: 'monospace', fontWeight: 600 }}>{v >= 0 ? '+' : ''}{v?.toFixed(2)}%</span> },
             {
               title: '操作', width: 100, render: (_: any, r: Holding) => (
                 <span style={{ display: 'flex', gap: 8 }}>

@@ -232,6 +232,7 @@ export const fetchBacktestTasks = (id: number) => api.get(`/strategies/${id}/bac
 export const deleteBacktestTask = (strategyId: number, taskId: number) => api.delete(`/strategies/${strategyId}/backtest/tasks/${taskId}`);
 export const fetchBacktestTaskLogs = (strategyId: number, taskId: number) => api.get(`/strategies/${strategyId}/backtest/tasks/${taskId}/logs`);
 export const fetchTaskSnapshots = (strategyId: number, taskId: number, limit?: number) => api.get(`/strategies/${strategyId}/backtest/tasks/${taskId}/snapshots`, { params: limit ? { limit } : {} });
+export const fetchStockAnalysis = (strategyId: number, taskId: number) => api.get(`/strategies/${strategyId}/backtest/tasks/${taskId}/stock-analysis`);
 export const deleteBacktestResult = (id: number) => api.delete(`/strategies/backtest-history/${id}`);
 export const fetchStockPool = () => api.get('/strategies/stock-pool');
 

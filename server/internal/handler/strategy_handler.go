@@ -7,6 +7,7 @@ import (
 	"log"
 	"math"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -758,6 +759,105 @@ func (h *StrategyHandler) DeleteBacktestTask(c *gin.Context) {
 	response.SuccessMsg(c, "已删除")
 }
 
+
+// BacktestStockAnalysis returns per-stock profit analysis for a backtest task.
+func (h *StrategyHandler) BacktestStockAnalysis(c *gin.Context) {
+	uid := getUID(c)
+	sid, _ := strconv.Atoi(c.Param("id"))
+	tid, _ := strconv.Atoi(c.Param("taskId"))
+
+	var task model.BacktestTask
+	if db.MySQL.Where("id = ? AND strategy_id = ? AND user_id = ?", tid, sid, uid).First(&task).Error != nil {
+		response.NotFound(c, "任务不存在")
+		return
+	}
+
+	// Query all executed signals for this task, grouped by stock
+	type StockTrade struct {
+		SignalDate string  `json:"signalDate"`
+		ExecDate   string  `json:"execDate"`
+		ActionType string  `json:"actionType"`
+		ExecPrice  float64 `json:"execPrice"`
+		ExecQty    int     `json:"execQty"`
+		ExecAmount float64 `json:"execAmount"`
+		Pnl        float64 `json:"pnl"`
+		PnlPct     float64 `json:"pnlPct"`
+		Reason     string  `json:"reason"`
+	}
+
+	type StockAnalysis struct {
+		StockCode  string       `json:"stockCode"`
+		StockName  string       `json:"stockName"`
+		TotalPnl   float64      `json:"totalPnl"`
+		TotalPnlPct float64     `json:"totalPnlPct"`
+		BuyCount   int          `json:"buyCount"`
+		SellCount  int          `json:"sellCount"`
+		Trades     []StockTrade `json:"trades"`
+	}
+
+	var signals []model.BacktestSignal
+	db.MySQL.Where("task_id = ? AND status = ?", tid, "executed").
+		Order("stock_code, signal_date ASC").
+		Find(&signals)
+
+	// Group by stock
+	stockMap := make(map[string]*StockAnalysis)
+	for _, s := range signals {
+		sa, ok := stockMap[s.StockCode]
+		if !ok {
+			sa = &StockAnalysis{
+				StockCode: s.StockCode,
+				StockName: s.StockName,
+			}
+			stockMap[s.StockCode] = sa
+		}
+		trade := StockTrade{
+			SignalDate: s.SignalDate,
+			ExecDate:   s.ExecDate,
+			ActionType: s.ActionType,
+			ExecPrice:  s.ExecPrice,
+			ExecQty:    s.ExecQty,
+			ExecAmount: s.ExecAmount,
+			Pnl:        s.Pnl,
+			PnlPct:     s.PnlPct,
+			Reason:     s.Reason,
+		}
+		sa.Trades = append(sa.Trades, trade)
+
+		switch s.ActionType {
+		case "buy", "add":
+			sa.BuyCount++
+		case "sell", "reduce", "stop":
+			sa.SellCount++
+			sa.TotalPnl += s.Pnl
+		}
+	}
+
+	// Calculate total PnlPct based on initial capital
+	initialCapital := task.InitialCapital
+	if initialCapital <= 0 {
+		initialCapital = 100000
+	}
+	for _, sa := range stockMap {
+		if sa.TotalPnl != 0 {
+			sa.TotalPnlPct = sa.TotalPnl / initialCapital * 100
+		}
+	}
+
+	// Convert to sorted slice (by abs totalPnl desc)
+	result := make([]StockAnalysis, 0, len(stockMap))
+	for _, sa := range stockMap {
+		result = append(result, *sa)
+	}
+	sort.Slice(result, func(i, j int) bool {
+		return math.Abs(result[i].TotalPnl) > math.Abs(result[j].TotalPnl)
+	})
+
+	response.Success(c, map[string]interface{}{
+		"stocks": result,
+		"total":  len(result),
+	})
+}
 // BacktestTaskLogs returns execution logs for a task.
 // Supports incremental polling: ?afterSeq=N returns only logs with seq > N.
 func (h *StrategyHandler) BacktestTaskLogs(c *gin.Context) {
@@ -1872,8 +1972,14 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 
 	// generateSignals evaluates conditions and creates pending BacktestSignal records.
 	// Called at T day close — signals will be executed at T+1 day open.
-	generateSignals := func(date string, cash float64) []model.BacktestSignal {
+	generateSignals := func(date string, cash float64, isLastDay bool) []model.BacktestSignal {
 		var signals []model.BacktestSignal
+
+		// --- Last day: skip all buy/add signals; forced liquidation handles sells ---
+		// Stop-loss signals are also skipped because all positions will be force-sold below.
+		if isLastDay {
+			return signals
+		}
 
 		// --- Stop-profit / Stop-loss checks ---
 		for _, pos := range positions {
@@ -2231,6 +2337,19 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 				continue
 			}
 
+			// Last day: skip pending buy/add signals (only execute sells)
+			if di == len(allDates)-1 && (sig.ActionType == "buy" || sig.ActionType == "add") {
+				sig.Status = "skipped"
+				sig.SkipReason = "最后交易日跳过买入"
+				db.MySQL.Save(sig)
+				insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, logSeq,
+					"signal", "warn", sig.StockCode, sig.StockName,
+					fmt.Sprintf("⏭ [%s] %s 信号跳过: 最后交易日不执行买入", sig.ActionType, sig.StockCode),
+					nil)
+				logSeq++
+				continue
+			}
+
 			openPrice := kcache.GetOpen(sig.StockCode, date)
 			trade := executeSignal(sig, openPrice, &remainingCash)
 
@@ -2262,9 +2381,77 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 		allTrades = append(allTrades, todayTrades...)
 
 		// ============================================================
+		// PHASE 2b: Last day — force liquidate all positions at close
+		// ============================================================
+		isLastDay := di == len(allDates)-1
+		if isLastDay {
+			// Force-sell all remaining holdings at today's close price
+			for code, pos := range positions {
+				closePrice := kcache.GetClose(code, date)
+				if closePrice <= 0 {
+					// No price data — sell at cost price as fallback
+					closePrice = pos.BuyPrice
+				}
+				sellAmount := closePrice * float64(pos.Quantity)
+				pnl := (closePrice - pos.BuyPrice) * float64(pos.Quantity)
+				pnlPct := 0.0
+				if pos.BuyPrice > 0 {
+					pnlPct = (closePrice - pos.BuyPrice) / pos.BuyPrice * 100
+				}
+
+				// Create executed signal for the forced sell
+				forceSig := model.BacktestSignal{
+					TaskID: task.ID, StrategyID: task.StrategyID, UserID: task.UserID,
+					SignalDate: date, ExecDate: date,
+					StockCode: pos.Code, StockName: pos.Name,
+					ActionType: "sell",
+					PlannedPrice: closePrice, PlannedQty: pos.Quantity,
+					PlannedAmount: sellAmount,
+					ExecPrice: closePrice, ExecQty: pos.Quantity, ExecAmount: sellAmount,
+					Pnl: math.Round(pnl*100)/100, PnlPct: math.Round(pnlPct*100)/100,
+					Status: "executed",
+					SkipReason: "最后交易日强制清仓",
+					Reason: "最后交易日强制清仓",
+				}
+				db.MySQL.Create(&forceSig)
+
+				trade := backtestTrade{
+					Date: date, SignalDate: date,
+					Code: pos.Code, Name: pos.Name,
+					Action: "sell", Price: closePrice, Quantity: pos.Quantity,
+					Reason: "最后交易日强制清仓",
+					Pnl: math.Round(pnl*100)/100,
+					PnlPct: math.Round(pnlPct*100)/100,
+				}
+				todayTrades = append(todayTrades, trade)
+				allTrades = append(allTrades, trade)
+
+				remainingCash += sellAmount
+
+				insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, logSeq,
+					"trade", "info", pos.Code, pos.Name,
+					fmt.Sprintf("🏁 [强制清仓] %s %s %d股 @¥%.2f 盈亏¥%.2f (%.2f%%)",
+						pos.Code, pos.Name, pos.Quantity, closePrice, pnl, pnlPct),
+					map[string]interface{}{
+						"action": "sell", "price": closePrice, "quantity": pos.Quantity,
+						"reason": "最后交易日强制清仓", "pnl": math.Round(pnl*100)/100,
+						"pnlPct": math.Round(pnlPct*100)/100, "signalDate": date,
+					})
+				logSeq++
+			}
+			// Clear all positions
+			positions = make(map[string]*dcPosition)
+
+			insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, logSeq,
+				"system", "info", "", "",
+				fmt.Sprintf("🏁 最后交易日强制清仓完成 剩余现金¥%.0f", remainingCash),
+				nil)
+		}
+
+		// ============================================================
 		// PHASE 2: Generate new signals (T day close)
 		// ============================================================
-		newSignals := generateSignals(date, remainingCash)
+		newSignals := generateSignals(date, remainingCash, isLastDay)
 
 		// Batch save new signals
 		for i := range newSignals {
@@ -2303,13 +2490,31 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 			totalEquity += mv
 		}
 
+		// Append today's sold stocks to posList for display
+		soldList := make([]map[string]interface{}, 0)
+		for _, t := range todayTrades {
+			if t.Action == "sell" || t.Action == "reduce" || t.Action == "stop" {
+				soldList = append(soldList, map[string]interface{}{
+					"code": t.Code, "name": t.Name, "qty": 0,
+					"soldQty": t.Quantity,
+					"price": t.Price, "costPrice": 0,
+					"marketVal": 0,
+					"pnl": math.Round(t.Pnl*100)/100,
+					"pnlPct": math.Round(t.PnlPct*100)/100,
+					"sold": true,
+				})
+			}
+		}
+		allPositions := append(posList, soldList...)
+
 		posData := map[string]interface{}{
 			"date": date, "day": di+1, "totalDays": totalDays,
 			"cash": math.Round(remainingCash*100)/100,
 			"totalEquity": math.Round(totalEquity*100)/100,
 			"totalReturn": math.Round((totalEquity-capital)/capital*10000)/100,
-			"positions": posList,
+			"positions": allPositions,
 			"positionCount": len(positions),
+			"soldCount": len(soldList),
 			"recentTrades": todayTrades,
 		}
 		posBytes, _ := json.Marshal(posData)

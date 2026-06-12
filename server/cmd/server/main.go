@@ -183,6 +183,7 @@ func main() {
 		api.DELETE("/strategies/:id/backtest/tasks/:taskId", strategyH.DeleteBacktestTask)
 		api.GET("/strategies/:id/backtest/tasks/:taskId/logs", strategyH.BacktestTaskLogs)
 		api.GET("/strategies/:id/backtest/tasks/:taskId/snapshots", strategyH.BacktestTaskSnapshots)
+		api.GET("/strategies/:id/backtest/tasks/:taskId/stock-analysis", strategyH.BacktestStockAnalysis)
 		api.GET("/strategies/backtest-history", strategyH.BacktestHistory)
 		api.DELETE("/strategies/backtest-history/:id", strategyH.DeleteBacktestResult)
 		api.GET("/strategies/stock-pool", strategyH.StockPool)

@@ -41,6 +41,7 @@ interface Props {
   enableRangeSelect?: boolean;
   selectedRange?: [number, number] | null;
   onRangeChange?: (startIdx: number, endIdx: number) => void;
+  costLine?: number | null;
 }
 
 export default function KLineChart({
@@ -53,6 +54,7 @@ export default function KLineChart({
   enableRangeSelect = false,
   selectedRange = null,
   onRangeChange,
+  costLine = null,
 }: Props) {
   const { isDark } = useTheme();
   const UP = isDark ? '#f85149' : '#F53F3F';
@@ -554,22 +556,60 @@ export default function KLineChart({
         {maPath(ma10, '#722ED1')}
         {maPath(ma20, '#3491FA')}
 
-        {/* Markers */}
+        {/* Cost line — horizontal dashed line at holding cost */}
+        {costLine != null && costLine > 0 && (() => {
+          const y = py(costLine);
+          return (
+            <g>
+              <line x1={padL} x2={W - padR} y1={y} y2={y}
+                stroke="#FF7D00" strokeWidth="1.5" strokeDasharray="6 4" opacity="0.7" />
+              <rect x={W - padR - 52} y={y - 9} width="52" height="18" rx="4"
+                fill="#FF7D00" opacity="0.85" />
+              <text x={W - padR - 4} y={y + 4} fontSize="10" fill="#fff"
+                textAnchor="end" fontWeight="600">成本 ¥{costLine.toFixed(2)}</text>
+            </g>
+          );
+        })()}
+
+        {/* Markers — buy below candle, sell above candle */}
         {markers.map((m, k) => {
           if (m.i < 0 || m.i >= safeData.length) return null;
           const x = fx(m.i);
+          const candleHigh = py(safeData[m.i].high);
+          const candleLow = py(safeData[m.i].low);
+          
           if (m.type === 'buy') {
-            const yTop = py(safeData[m.i].high) - 16;
-            return <g key={`mk${k}`}><polygon points={`${x},${yTop + 10} ${x - 6},${yTop} ${x + 6},${yTop}`} fill="#165DFF" /><text x={x} y={yTop - 4} fontSize="9" fill="#165DFF" textAnchor="middle" fontWeight="700">{m.label || 'B'}</text></g>;
+            // Buy: red arrow below candle pointing up, price label below arrow
+            const my = candleLow + 14;
+            return (
+              <g key={`mk${k}`}>
+                <line x1={x} y1={candleLow} x2={x} y2={my + 10} stroke="#F53F3F" strokeWidth="1.5" opacity="0.8" />
+                <circle cx={x} cy={my} r="7" fill="#F53F3F" stroke="#fff" strokeWidth="1.5" />
+                <text x={x} y={my + 3.5} fontSize="9" fill="#fff" textAnchor="middle" fontWeight="700">B</text>
+                <text x={x} y={my + 22} fontSize="10" fill="#F53F3F" textAnchor="middle" fontWeight="600">{m.label || ''}</text>
+              </g>
+            );
           }
+          if (m.type === 'sell') {
+            // Sell: green arrow above candle pointing down, price label above arrow
+            const my = candleHigh - 14;
+            return (
+              <g key={`mk${k}`}>
+                <line x1={x} y1={candleHigh} x2={x} y2={my - 10} stroke="#00B42A" strokeWidth="1.5" opacity="0.8" />
+                <circle cx={x} cy={my} r="7" fill="#00B42A" stroke="#fff" strokeWidth="1.5" />
+                <text x={x} y={my + 3.5} fontSize="9" fill="#fff" textAnchor="middle" fontWeight="700">S</text>
+                <text x={x} y={my - 10} fontSize="10" fill="#00B42A" textAnchor="middle" fontWeight="600">{m.label || ''}</text>
+              </g>
+            );
+          }
+          // Board markers
           const BOARD_PURPLE = '#9333ea';
-          const yHi = py(safeData[m.i].high);
-          const yTop = yHi - 10;
+          const bmy = candleHigh - 8;
           return (
             <g key={`mk${k}`}>
-              <line x1={x} y1={yTop + 2} x2={x} y2={yHi} stroke={BOARD_PURPLE} strokeWidth="1" strokeDasharray="2 3" opacity="0.8" />
-              <circle cx={x} cy={yTop - 8} r="10" fill={BOARD_PURPLE} stroke={chartBg} strokeWidth="1.5" opacity="0.92" />
-              <text x={x} y={yTop - 4} fontSize="10" fill="#fff" textAnchor="middle" fontWeight="700">榜</text>
+              <circle cx={x} cy={bmy - 12} r="8" fill={BOARD_PURPLE} stroke="#fff" strokeWidth="1.5" opacity="0.9" />
+              <text x={x} y={bmy - 8} fontSize="9" fill="#fff" textAnchor="middle" fontWeight="700">榜</text>
+              {m.rank && <text x={x} y={bmy + 4} fontSize="8" fill={BOARD_PURPLE} textAnchor="middle">#{m.rank}</text>}
             </g>
           );
         })}

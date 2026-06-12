@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Button, Input, InputNumber, Modal, Table, Select, Popconfirm, Tooltip, Message, Tag, Tabs } from '@arco-design/web-react';
-import { Target, Plus, Trash2, GripVertical, Play, Brain, BarChart4, TrendingUp, Shield, Settings, Sparkles, Beaker, Clock, History, Activity, AlertCircle } from 'lucide-react';
+import { Target, Plus, Trash2, GripVertical, Play, Brain, BarChart4, TrendingUp, Shield, Settings, Sparkles, Beaker, Clock, History, Activity, AlertCircle, ClipboardList, FileSearch, PieChart, Wallet, TrendingDown, LineChart, List, Code, Radio, Terminal, XCircle, Zap } from 'lucide-react';
 import {
   fetchStrategies, createStrategy, updateStrategy, deleteStrategy, reorderStrategies,
   fetchStrategyConditions, saveStrategyConditions, aiGenerateStrategy, optimizePrompt,
@@ -8,7 +8,10 @@ import {
   startBacktest, getBacktestStatus, cancelBacktest, fetchBacktestTasks,
   deleteBacktestResult, deleteBacktestTask, fetchStockPool,
   fetchBacktestTaskLogs, fetchTaskSnapshots,
+  fetchStockAnalysis,
+  fetchKLine,
 } from '../services/api';
+import KLineChart from '../components/KLineChart';
 
 type CondType = 'buy' | 'add' | 'sell' | 'reduce';
 const COND_LABELS: Record<CondType, string> = { buy: '买入条件', add: '加仓条件', sell: '卖出条件', reduce: '减仓条件' };
@@ -48,6 +51,12 @@ export default function StrategyPage() {
   const [btTasks, setBtTasks] = useState<any[]>([]);
   const [btPollTimer, setBtPollTimer] = useState<any>(null);
   const [btStockPool, setBtStockPool] = useState('all');
+  // Stock analysis states
+  const [stockAnalysis, setStockAnalysis] = useState<any[]>([]);
+  const [stockDetailVisible, setStockDetailVisible] = useState(false);
+  const [selectedStock, setSelectedStock] = useState<any>(null);
+  const [stockKline, setStockKline] = useState<any[]>([]);
+  const [stockMarkers, setStockMarkers] = useState<any[]>([]);
   const [stockPools, setStockPools] = useState<any[]>([]);
   const [btDetailVisible, setBtDetailVisible] = useState(false);
   const [btDetailResult, setBtDetailResult] = useState<any>(null);
@@ -219,7 +228,20 @@ export default function StrategyPage() {
               case 'trades': setBtLogs(Array.isArray(payload) ? payload : []); break;
               case 'equity': setBtResult(prev => ({ ...prev, equityCurve: { dates: payload.map((p: any) => p.date), values: payload.map((p: any) => p.equity) } })); break;
               case 'error': toast('error', payload.message); break;
-              case 'done': setBtRunning(false); fetchBacktestHistory(activeId).then(({ data: rh }: any) => setBtHistory(rh.data || [])).catch(() => {}); break;
+              case 'done': setBtRunning(false); fetchBacktestHistory(activeId).then(({ data: rh }: any) => setBtHistory(rh.data || [])).catch(() => {});
+                // Fetch final snapshot for last-day display
+                fetchTaskSnapshots(activeId, 0, 0).then(({ data: sr }: any) => {
+                  if (sr.data?.length > 0) {
+                    const last = sr.data[sr.data.length - 1];
+                    setBtPositions({
+                      date: last.date, day: last.dayIndex, totalDays: last.dayIndex,
+                      cash: last.cash, totalEquity: last.totalEquity, totalReturn: last.cumulativeReturn,
+                      positions: last.positionsData || [], positionCount: last.positionCount,
+                      recentTrades: [],
+                    });
+                  }
+                }).catch(() => {});
+                break;
             }
           } catch {}
         }
@@ -277,13 +299,13 @@ export default function StrategyPage() {
           fetchBacktestTaskLogs(activeId, taskId).then(({ data: lr }: any) => {
             if (lr.data?.logs) setBtExecLogs(lr.data.logs);
           }).catch(() => {});
-          fetchTaskSnapshots(activeId, taskId, 1).then(({ data: sr }: any) => {
+          fetchTaskSnapshots(activeId, taskId, 0).then(({ data: sr }: any) => {
             if (sr.data?.length > 0) {
-              const s = sr.data[0];
+              const last = sr.data[sr.data.length - 1];
               setBtPositions({
-                date: s.date, day: s.dayIndex, totalDays: t.totalDays,
-                cash: s.cash, totalEquity: s.totalEquity, totalReturn: s.cumulativeReturn,
-                positions: s.positionsData || [], positionCount: s.positionCount,
+                date: last.date, day: last.dayIndex, totalDays: t.totalDays,
+                cash: last.cash, totalEquity: last.totalEquity, totalReturn: last.cumulativeReturn,
+                positions: last.positionsData || [], positionCount: last.positionCount,
                 recentTrades: [],
               });
             }
@@ -370,12 +392,64 @@ export default function StrategyPage() {
               case 'done': setBtRunning(false); setBtOfflineMode(false); setBtTaskId(null); setBtPhase('回测完成');
                 fetchBacktestHistory(activeId).then(({ data: rh }: any) => setBtHistory(rh.data || [])).catch(() => {});
                 fetchBacktestTasks(activeId).then(({ data: rt }: any) => setBtTasks(rt.data || [])).catch(() => {});
+                // Fetch final snapshot for last-day position display
+                if (taskId) {
+                  fetchTaskSnapshots(activeId, taskId, 0).then(({ data: sr }: any) => {
+                    if (sr.data?.length > 0) {
+                      const last = sr.data[sr.data.length - 1];
+                      setBtPositions({
+                        date: last.date, day: last.dayIndex, totalDays: last.dayIndex,
+                        cash: last.cash, totalEquity: last.totalEquity, totalReturn: last.cumulativeReturn,
+                        positions: last.positionsData || [], positionCount: last.positionCount,
+                        recentTrades: [],
+                      });
+                    }
+                  }).catch(() => {});
+                }
                 break;
             }
           } catch {}
         }
       }
     } catch { pollTaskStatus(taskId); }
+  };
+
+  const fetchBtStockAnalysis = async () => {
+    if (!activeId || !btDetailResult?.taskId) return;
+    try {
+      const { data: r }: any = await fetchStockAnalysis(activeId, btDetailResult.taskId);
+      setStockAnalysis(r.data?.stocks || []);
+    } catch {}
+  };
+
+  const handleViewStockDetail = async (stock: any) => {
+    setSelectedStock(stock);
+    setStockKline([]);
+    setStockMarkers([]);
+    setStockDetailVisible(true);
+    // Fetch K-line for this stock
+    try {
+      const { data: r }: any = await fetchKLine(stock.stockCode);
+      const kl = r.data || r || [];
+      const cleaned = Array.isArray(kl) ? kl : [];
+      setStockKline(cleaned);
+      // Build markers from trades
+      const markers: any[] = [];
+      stock.trades.forEach((t: any) => {
+        const execDate = (t.execDate || '').slice(0, 10);
+        const idx = cleaned.findIndex((k: any) => {
+          const d = (k.tradeDate || k.date || '').slice(0, 10);
+          return d === execDate;
+        });
+        if (idx >= 0 && (t.actionType === 'buy' || t.actionType === 'add')) {
+          markers.push({ i: idx, type: 'buy', label: `¥${t.execPrice?.toFixed(1)}` });
+        } else if (idx >= 0 && (t.actionType === 'sell' || t.actionType === 'reduce' || t.actionType === 'stop')) {
+          const pnlLabel = t.pnlPct ? `${t.pnlPct > 0 ? '+' : ''}${t.pnlPct?.toFixed(1)}%` : '';
+          markers.push({ i: idx, type: 'sell', label: `¥${t.execPrice?.toFixed(1)} ${pnlLabel}` });
+        }
+      });
+      setStockMarkers(markers);
+    } catch {}
   };
 
   const handleViewBacktestDetail = (result: any) => {
@@ -390,6 +464,13 @@ export default function StrategyPage() {
       }).catch(() => {});
     }
   };
+
+  // Load stock analysis when tab changes
+  useEffect(() => {
+    if (btDetailTab === 'analysis' && btDetailResult?.taskId) {
+      fetchBtStockAnalysis();
+    }
+  }, [btDetailTab]);
 
   const handleDeleteTask = async (taskId: number) => {
     if (!activeId) return;
@@ -552,7 +633,7 @@ export default function StrategyPage() {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
                   {filteredConds(condTab).length === 0 ? (
                     <div style={{ padding: '40px 20px', textAlign: 'center', background: 'linear-gradient(135deg, var(--color-fill-1) 0%, var(--color-fill-2) 100%)', borderRadius: 12, border: '1.5px dashed var(--color-border-1)' }}>
-                      <div style={{ fontSize: 36, marginBottom: 8 }}>📋</div>
+                      <div style={{ fontSize: 36, marginBottom: 8, opacity: 0.3 }}><ClipboardList size={36} /></div>
                       <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text-2)', marginBottom: 4 }}>暂无{COND_LABELS[condTab]}</div>
                       <div style={{ fontSize: 12, color: 'var(--color-text-3)', marginBottom: 12 }}>添加因子条件来定义何时触发{COND_LABELS[condTab]}</div>
                       <Button size="small" type="outline" icon={<Plus size={12} />} onClick={() => addCondition(condTab)}>添加条件</Button>
@@ -666,7 +747,7 @@ export default function StrategyPage() {
                       flex: 1, background: 'var(--color-bg-1)', border: '1px solid var(--color-border-1)',
                       borderRadius: 10, padding: 14, maxHeight: 420, overflow: 'auto',
                     }}>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-text-1)', marginBottom: 10 }}>📊 持仓</div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-text-1)', marginBottom: 10 }}><Wallet size={14} style={{ marginRight: 6 }} />持仓</div>
                       {btPositions ? (
                         <>
                           <div style={{
@@ -675,7 +756,7 @@ export default function StrategyPage() {
                             background: 'var(--color-fill-1)', borderRadius: 6,
                           }}>
                             <div><span style={{ color: 'var(--color-text-3)' }}>日期</span> {(btPositions.date || '').slice(0, 10) || `第${btPositions.day}天`}</div>
-                            <div><span style={{ color: 'var(--color-text-3)' }}>持仓</span> {btPositions.positionCount || 0}只</div>
+                            <div><span style={{ color: 'var(--color-text-3)' }}>持仓</span> {btPositions.positionCount || 0}只{(btPositions.soldCount || 0) > 0 ? <span style={{ color: 'var(--color-text-3)', marginLeft: 4 }}>(今日卖出 {btPositions.soldCount})</span> : ''}</div>
                             <div><span style={{ color: 'var(--color-text-3)' }}>现金</span> ¥{(btPositions.cash || 0).toLocaleString()}</div>
                             <div><span style={{ color: 'var(--color-text-3)' }}>总权益</span> <b style={{ color: (btPositions.totalReturn || 0) >= 0 ? '#f53f3f' : '#00b42a' }}>¥{(btPositions.totalEquity || 0).toLocaleString()}</b></div>
                             <div style={{ gridColumn: '1 / -1' }}>
@@ -685,23 +766,31 @@ export default function StrategyPage() {
                           {btPositions.positions?.length > 0 ? btPositions.positions.map((p: any, i: number) => (
                             <div key={i} style={{
                               padding: '8px 0', borderBottom: '1px solid var(--color-table-row-border)', fontSize: 12,
+                              opacity: p.sold ? 0.65 : 1,
+                              background: p.sold ? 'var(--color-fill-1)' : 'transparent',
+                              borderRadius: p.sold ? 4 : 0,
+                              paddingLeft: p.sold ? 8 : 0,
+                              paddingRight: p.sold ? 8 : 0,
                             }}>
                               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                <span style={{ fontWeight: 600, fontSize: 12 }}>{p.name || p.code}</span>
+                                <span style={{ fontWeight: 600, fontSize: 12, textDecoration: p.sold ? 'line-through' : 'none' }}>
+                                  {p.name || p.code}
+                                  {p.sold && <span style={{ fontSize: 10, color: '#00B42A', marginLeft: 4, textDecoration: 'none', display: 'inline-block' }}>已卖出</span>}
+                                </span>
                                 <span style={{
                                   fontWeight: 600, fontSize: 11,
                                   color: (p.pnlPct || 0) >= 0 ? '#f53f3f' : '#00b42a',
                                 }}>{(p.pnlPct || 0) >= 0 ? '+' : ''}{p.pnlPct?.toFixed(1)}%</span>
                               </div>
                               <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 2, color: 'var(--color-text-3)', fontSize: 11 }}>
-                                <span>{p.qty}股 × ¥{p.price?.toFixed(2)}</span>
-                                <span>¥{(p.marketVal || 0).toLocaleString()}</span>
+                                <span>{p.sold ? <><span style={{ color: '#00B42A' }}>卖出</span> {p.soldQty}股</> : <>{p.qty}股</>} × ¥{p.price?.toFixed(2)}</span>
+                                <span>{p.sold ? <span style={{ color: (p.pnl || 0) >= 0 ? '#f53f3f' : '#00b42a' }}>盈亏 ¥{Math.abs(p.pnl || 0).toLocaleString()}</span> : <>¥{(p.marketVal || 0).toLocaleString()}</>}</span>
                               </div>
-                              <div style={{ color: 'var(--color-text-3)', fontSize: 10 }}>成本 ¥{p.costPrice?.toFixed(2)}</div>
+                              {!p.sold && <div style={{ color: 'var(--color-text-3)', fontSize: 10 }}>成本 ¥{p.costPrice?.toFixed(2)}</div>}
                             </div>
                           )) : (
                             <div style={{ color: 'var(--color-text-3)', fontSize: 12, padding: 16, textAlign: 'center', background: 'var(--color-fill-1)', borderRadius: 6 }}>
-                              💰 空仓<br/><span style={{ fontSize: 10 }}>现金 ¥{(btPositions.cash || 0).toLocaleString()}</span>
+                              <Wallet size={14} style={{ marginRight: 4, opacity: 0.5 }} />空仓<br/><span style={{ fontSize: 10 }}>现金 ¥{(btPositions.cash || 0).toLocaleString()}</span>
                             </div>
                           )}
                         </>
@@ -757,7 +846,7 @@ export default function StrategyPage() {
                           );
                         }) : (
                           <div style={{ color: '#484f58', padding: 32, textAlign: 'center' }}>
-                            {btRunning ? '⏳ 等待扫描开始...' : '暂无执行日志'}
+                            {btRunning ? '等待扫描开始...' : '暂无执行日志'}
                           </div>
                         )}
                       </div>
@@ -1091,7 +1180,7 @@ export default function StrategyPage() {
               boxShadow: '0 1px 3px rgba(0,0,0,0.04)', border: '1px solid var(--color-border-1)',
             }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-                <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--color-text-1)' }}>📈 收益曲线</div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--color-text-1)' }}><TrendingUp size={14} style={{ marginRight: 6 }} />收益曲线</div>
                 <EquityModeToggle />
               </div>
               {(() => {
@@ -1123,7 +1212,7 @@ export default function StrategyPage() {
               >
                 <Tabs.TabPane key="trades" title={
                   <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    📋 操作记录
+                    <ClipboardList size={14} style={{ marginRight: 4 }} />操作记录
                     {(() => {
                       const arr = btDetailResult.trades?.data || btDetailResult.trades || [];
                       const c = Array.isArray(arr) ? arr.length : 0;
@@ -1135,7 +1224,7 @@ export default function StrategyPage() {
                     {(() => {
                       const tradesArr = btDetailResult.trades?.data || btDetailResult.trades || [];
                       if (!Array.isArray(tradesArr) || tradesArr.length === 0) {
-                        return <div style={{ padding: 48, textAlign: 'center', color: 'var(--color-text-3)', fontSize: 13 }}>📭 暂无交易记录</div>;
+                        return <div style={{ padding: 48, textAlign: 'center', color: 'var(--color-text-3)', fontSize: 13 }}>暂无交易记录</div>;
                       }
                       return (
                         <Table
@@ -1170,7 +1259,7 @@ export default function StrategyPage() {
 
                 <Tabs.TabPane key="logs" title={
                   <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    🔍 执行日志
+                    <FileSearch size={14} style={{ marginRight: 4 }} />执行日志
                     {btDetailLogs.length > 0 && <span style={{ background: 'var(--color-info-bg)', color: 'var(--color-primary)', fontSize: 11, fontWeight: 600, padding: '1px 8px', borderRadius: 10 }}>{btDetailLogs.length}</span>}
                   </span>
                 }>
@@ -1210,7 +1299,60 @@ export default function StrategyPage() {
                       </div>
                     ) : (
                       <div style={{ padding: 48, textAlign: 'center', color: 'var(--color-text-3)', fontSize: 13 }}>
-                        {btDetailResult.taskId ? '该回测无执行日志（可能是旧版本运行）' : '📭 暂无执行日志'}
+                        {btDetailResult.taskId ? '该回测无执行日志（可能是旧版本运行）' : '暂无执行日志'}
+                      </div>
+                    )}
+                  </div>
+                </Tabs.TabPane>
+
+                <Tabs.TabPane key="analysis" title={
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <PieChart size={14} style={{ marginRight: 4 }} />收益分析
+                    {stockAnalysis.length > 0 && <span style={{ background: 'var(--color-info-bg)', color: 'var(--color-primary)', fontSize: 11, fontWeight: 600, padding: '1px 8px', borderRadius: 10 }}>{stockAnalysis.length}</span>}
+                  </span>
+                }>
+                  <div style={{ padding: '0 0 16px' }}>
+                    {stockAnalysis.length > 0 ? (
+                      <Table
+                        columns={[
+                          { title: '#', width: 40, render: (_: any, __: any, i: number) => <span style={{ fontSize: 11, color: 'var(--color-text-3)' }}>{i + 1}</span> },
+                          { title: '股票', dataIndex: 'stockName', width: 110, render: (v: string, r: any) => (
+                            <div>
+                              <div style={{ fontWeight: 600, fontSize: 12 }}>{v || r.stockCode}</div>
+                              <div style={{ fontSize: 10, color: 'var(--color-text-3)', fontFamily: 'monospace' }}>{r.stockCode}</div>
+                            </div>
+                          )},
+                          { title: '总盈亏', dataIndex: 'totalPnl', width: 100, sorter: (a: any, b: any) => a.totalPnl - b.totalPnl, render: (v: number) => (
+                            <span style={{ 
+                              color: v >= 0 ? '#F53F3F' : '#00B42A', fontWeight: 700, fontSize: 13, fontFamily: 'monospace' 
+                            }}>
+                              {v >= 0 ? '+' : ''}{v?.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </span>
+                          )},
+                          { title: '收益率', dataIndex: 'totalPnlPct', width: 85, sorter: (a: any, b: any) => a.totalPnlPct - b.totalPnlPct, render: (v: number) => (
+                            <span style={{ 
+                              color: v >= 0 ? '#F53F3F' : '#00B42A', fontWeight: 600, fontSize: 12, fontFamily: 'monospace' 
+                            }}>
+                              {v >= 0 ? '+' : ''}{v?.toFixed(2)}%
+                            </span>
+                          )},
+                          { title: '买入', dataIndex: 'buyCount', width: 55, sorter: (a: any, b: any) => a.buyCount - b.buyCount, render: (v: number) => <span style={{ fontSize: 12, color: 'var(--color-text-2)', fontFamily: 'monospace' }}>{v}次</span> },
+                          { title: '卖出', dataIndex: 'sellCount', width: 55, sorter: (a: any, b: any) => a.sellCount - b.sellCount, render: (v: number) => <span style={{ fontSize: 12, color: 'var(--color-text-2)', fontFamily: 'monospace' }}>{v}次</span> },
+                          { title: '操作', width: 70, render: (_: any, r: any) => (
+                            <Button size="mini" type="text" onClick={() => handleViewStockDetail(r)}>
+                              详情 →
+                            </Button>
+                          )},
+                        ]}
+                        data={stockAnalysis}
+                        rowKey="stockCode"
+                        pagination={{ pageSize: 15, sizeCanChange: true, showTotal: true }}
+                        size="small"
+                        stripe
+                      />
+                    ) : (
+                      <div style={{ padding: 48, textAlign: 'center', color: 'var(--color-text-3)', fontSize: 13 }}>
+                        暂无收益分析数据
                       </div>
                     )}
                   </div>
@@ -1220,9 +1362,146 @@ export default function StrategyPage() {
           </div>
         </div>
       )}
+      {/* ── Stock Detail Modal ── */}
+      {stockDetailVisible && selectedStock && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 1100,
+          background: 'var(--color-fill-2)', overflow: 'auto',
+        }}>
+          {/* Header */}
+          <div style={{
+            background: 'var(--color-bg-1)', borderBottom: '1px solid var(--color-border-1)',
+            padding: '12px 24px', display: 'flex', alignItems: 'center', gap: 16,
+            position: 'sticky', top: 0, zIndex: 10, boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
+          }}>
+            <Button type="text" icon={<span style={{ fontSize: 18 }}>←</span>} onClick={() => setStockDetailVisible(false)}>
+              返回
+            </Button>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--color-text-1)' }}>
+                {selectedStock.stockName} <span style={{ fontSize: 12, color: 'var(--color-text-3)', fontFamily: 'monospace' }}>{selectedStock.stockCode}</span>
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--color-text-3)', marginTop: 2 }}>
+                累计盈亏: <span style={{ color: selectedStock.totalPnl >= 0 ? '#F53F3F' : '#00B42A', fontWeight: 600 }}>
+                  {selectedStock.totalPnl >= 0 ? '+' : ''}{selectedStock.totalPnl?.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+                {' · '}
+                买入 {selectedStock.buyCount} 次 · 卖出 {selectedStock.sellCount} 次
+              </div>
+            </div>
+          </div>
+
+          {/* Body */}
+          <div style={{ maxWidth: 1200, margin: '0 auto', padding: '20px 24px' }}>
+            {/* Performance Summary */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 24 }}>
+              <div style={{
+                background: 'var(--color-bg-1)', borderRadius: 12, padding: '20px 16px', textAlign: 'center',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.04)', border: '1px solid var(--color-border-1)',
+              }}>
+                <div style={{ fontSize: 12, color: 'var(--color-text-3)', marginBottom: 6 }}>总盈亏</div>
+                <div style={{
+                  fontSize: 24, fontWeight: 800,
+                  color: selectedStock.totalPnl >= 0 ? '#F53F3F' : '#00B42A',
+                  fontFamily: 'monospace',
+                }}>
+                  {selectedStock.totalPnl >= 0 ? '+' : ''}{selectedStock.totalPnl?.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </div>
+              </div>
+              <div style={{
+                background: 'var(--color-bg-1)', borderRadius: 12, padding: '20px 16px', textAlign: 'center',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.04)', border: '1px solid var(--color-border-1)',
+              }}>
+                <div style={{ fontSize: 12, color: 'var(--color-text-3)', marginBottom: 6 }}>收益率</div>
+                <div style={{
+                  fontSize: 24, fontWeight: 800,
+                  color: selectedStock.totalPnlPct >= 0 ? '#F53F3F' : '#00B42A',
+                  fontFamily: 'monospace',
+                }}>
+                  {selectedStock.totalPnlPct >= 0 ? '+' : ''}{selectedStock.totalPnlPct?.toFixed(2)}%
+                </div>
+              </div>
+              <div style={{
+                background: 'var(--color-bg-1)', borderRadius: 12, padding: '20px 16px', textAlign: 'center',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.04)', border: '1px solid var(--color-border-1)',
+              }}>
+                <div style={{ fontSize: 12, color: 'var(--color-text-3)', marginBottom: 6 }}>买入次数</div>
+                <div style={{ fontSize: 24, fontWeight: 700, color: 'var(--stock-up)', fontFamily: 'monospace' }}>
+                  {selectedStock.buyCount}
+                </div>
+              </div>
+              <div style={{
+                background: 'var(--color-bg-1)', borderRadius: 12, padding: '20px 16px', textAlign: 'center',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.04)', border: '1px solid var(--color-border-1)',
+              }}>
+                <div style={{ fontSize: 12, color: 'var(--color-text-3)', marginBottom: 6 }}>卖出次数</div>
+                <div style={{ fontSize: 24, fontWeight: 700, color: 'var(--stock-down)', fontFamily: 'monospace' }}>
+                  {selectedStock.sellCount}
+                </div>
+              </div>
+            </div>
+
+            {/* K-Line Chart with Markers */}
+            <div style={{
+              background: 'var(--color-bg-1)', borderRadius: 12, padding: '20px 24px', marginBottom: 20,
+              boxShadow: '0 1px 3px rgba(0,0,0,0.04)', border: '1px solid var(--color-border-1)',
+            }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--color-text-1)', marginBottom: 14 }}>
+                📈 K线图 · 交易标记
+              </div>
+              {stockKline.length > 0 ? (
+                <KLineChart data={stockKline} markers={stockMarkers} height={420} />
+              ) : (
+                <div style={{ padding: 60, textAlign: 'center', color: 'var(--color-text-3)', fontSize: 13 }}>
+                  加载K线数据中...
+                </div>
+              )}
+            </div>
+
+            {/* Trade Records Table */}
+            <div style={{
+              background: 'var(--color-bg-1)', borderRadius: 12, padding: '20px 24px',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.04)', border: '1px solid var(--color-border-1)',
+            }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--color-text-1)', marginBottom: 14 }}>
+                <List size={14} style={{ marginRight: 6 }} />交易记录
+              </div>
+              <Table
+                columns={[
+                  { title: '信号日', dataIndex: 'signalDate', width: 100, render: (v: string) => <span style={{ fontSize: 11, fontFamily: 'monospace', color: 'var(--color-text-3)' }}>{v}</span> },
+                  { title: '成交日', dataIndex: 'execDate', width: 100, render: (v: string) => <span style={{ fontSize: 11, fontFamily: 'monospace', color: 'var(--color-text-2)' }}>{v}</span> },
+                  { title: '操作', dataIndex: 'actionType', width: 68, render: (v: string) => {
+                    const labels: Record<string, string> = { buy: '买入', add: '加仓', sell: '卖出', reduce: '减仓', stop: '止盈/止损' };
+                    const colors: Record<string, string> = { buy: 'var(--stock-up)', add: 'var(--color-warning-text)', sell: 'var(--stock-down)', reduce: 'var(--color-primary)', stop: 'var(--stock-up)' };
+                    const bgs: Record<string, string> = { buy: 'var(--color-danger-bg)', add: 'var(--color-warning-bg)', sell: 'var(--color-success-bg)', reduce: 'var(--color-info-bg)', stop: 'var(--color-danger-bg)' };
+                    return <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: 4, background: bgs[v] || 'var(--color-fill-2)', color: colors[v] || 'var(--color-text-3)', fontWeight: 700, fontSize: 11 }}>{labels[v] || v}</span>;
+                  }},
+                  { title: '价格', dataIndex: 'execPrice', width: 76, render: (v: number) => <span style={{ fontFamily: 'monospace', fontSize: 12 }}>¥{v?.toFixed(2)}</span> },
+                  { title: '数量', dataIndex: 'execQty', width: 64, render: (v: number) => <span style={{ fontFamily: 'monospace', fontSize: 12 }}>{v}股</span> },
+                  { title: '金额', dataIndex: 'execAmount', width: 90, render: (v: number) => <span style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--color-text-2)' }}>¥{v?.toLocaleString('zh-CN', { maximumFractionDigits: 0 })}</span> },
+                  { title: '盈亏', dataIndex: 'pnl', width: 80, render: (v: number, r: any) => {
+                    if (v === 0 && r.actionType === 'buy') return <span style={{ color: 'var(--color-text-3)', fontSize: 11 }}>—</span>;
+                    return <span style={{ color: v > 0 ? '#F53F3F' : '#00B42A', fontWeight: 600, fontSize: 12, fontFamily: 'monospace' }}>{v > 0 ? '+' : ''}{v?.toFixed(2)}</span>;
+                  }},
+                  { title: '盈亏%', dataIndex: 'pnlPct', width: 72, render: (v: number) => v ? <span style={{ color: v > 0 ? '#F53F3F' : '#00B42A', fontWeight: 600, fontSize: 12, fontFamily: 'monospace' }}>{v > 0 ? '+' : ''}{v?.toFixed(1)}%</span> : <span style={{ color: 'var(--color-text-3)', fontSize: 11 }}>—</span> },
+                  { title: '原因', dataIndex: 'reason', width: 120, render: (v: string) => <span style={{ fontSize: 11, color: 'var(--color-text-3)' }}>{v || '—'}</span> },
+                ]}
+                data={selectedStock.trades || []}
+                rowKey={(_, i: number) => i}
+                pagination={{ pageSize: 20, sizeCanChange: true, showTotal: true }}
+                size="small"
+                stripe
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
+
+
 
 // Equity curve mode toggle (shared state via a simple global var)
 let equityModeGlobal: 'asset' | 'return' = 'asset';
