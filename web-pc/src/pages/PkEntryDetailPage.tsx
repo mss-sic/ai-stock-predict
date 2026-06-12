@@ -160,7 +160,7 @@ export default function PkEntryDetailPage() {
           </Card>
           <Card style={{ background: 'var(--color-bg-1)', boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }}>
             <div style={{ fontSize: 12, color: 'var(--color-text-3)', marginBottom: 6 }}>胜率</div>
-            <div style={{ fontSize: 24, fontWeight: 700, fontFamily: 'monospace' }}>{(result.winRate * 100).toFixed(1)}%</div>
+            <div style={{ fontSize: 24, fontWeight: 700, fontFamily: 'monospace' }}>{result.winRate?.toFixed(1)}%</div>
             <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginTop: 2 }}>{result.tradeCount} 笔交易</div>
           </Card>
           <Card style={{ background: 'var(--color-bg-1)', boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }}>
