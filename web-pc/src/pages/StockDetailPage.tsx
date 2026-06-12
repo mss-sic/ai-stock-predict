@@ -1080,12 +1080,20 @@ fetchPredictionResult(code).then((r: any) => {
                   <div className="muted" style={{ marginBottom: 14, fontSize: 12 }}>基于多维数据为 {stock?.name || code} 提供深度分析</div>
                   <div className="row gap8" style={{ justifyContent: 'center', flexWrap: 'wrap' }}>
                     {['分析近期走势和风险', '当前估值是否合理？', '机构持仓变化', '写一份建仓计划'].map((s, i) => (
-                      <button key={i} onClick={() => handleChatSend(s)} className="chip" style={{ fontSize: 12, padding: '5px 14px' }}>{s}</button>
+                      <button key={i} onClick={() => handleChatSend(s)} style={{
+                        fontSize: 12, padding: '6px 16px', borderRadius: 20,
+                        border: '1px solid var(--color-border-2)', background: 'var(--color-bg-1)',
+                        color: 'var(--color-text-2)', cursor: 'pointer',
+                        transition: 'all 0.2s',
+                      }}
+                        onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--color-primary)'; e.currentTarget.style.color = 'var(--color-primary)'; }}
+                        onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--color-border-2)'; e.currentTarget.style.color = 'var(--color-text-2)'; }}
+                      >{s}</button>
                     ))}
                   </div>
                 </div>
               ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
                   {msgs.map((m, i) => (
                     <div key={i} style={{ display: 'flex', gap: 10, flexDirection: m.role === 'user' ? 'row-reverse' : 'row' }}>
                       <div style={{
@@ -1099,29 +1107,34 @@ fetchPredictionResult(code).then((r: any) => {
                         const sections = m.role === 'ai' && m.text ? parseStreamSections(m.text, 0) : [];
                         const hasWidgets = sections.some((s: any) => s.type === 'widget');
                         return <div style={{
-                          maxWidth: hasWidgets ? '100%' : '78%',
-                          padding: hasWidgets ? '0' : '9px 14px',
-                          borderRadius: 8, fontSize: 13, lineHeight: '22px',
+                          maxWidth: hasWidgets ? '100%' : '80%',
+                          padding: hasWidgets ? '0' : '10px 16px',
+                          borderRadius: m.role === 'ai' ? '4px 12px 12px 12px' : '12px 4px 12px 12px',
+                          fontSize: 13, lineHeight: '24px',
                           background: m.role === 'ai' ? (hasWidgets ? 'transparent' : 'var(--color-bg-2)') : 'var(--color-primary)',
                           color: m.role === 'ai' ? 'var(--color-text-1)' : '#fff',
-                          border: m.role === 'ai' ? (hasWidgets ? 'none' : '1px solid var(--color-border-1)') : 'none',
+                          border: m.role === 'ai' ? (hasWidgets ? 'none' : '1px solid var(--color-border-2)') : 'none',
+                          boxShadow: m.role === 'ai' && !hasWidgets ? '0 1px 3px rgba(0,0,0,0.04)' : 'none',
                           whiteSpace: hasWidgets ? 'normal' : 'pre-wrap',
                           wordBreak: 'break-word',
                         }}>
                           {m.status && <div style={{ 
                             display: 'flex', alignItems: 'center', gap: 8, 
-                            padding: '6px 0', color: 'var(--color-text-3)', fontSize: 12,
-                            animation: 'pulse 1.5s ease-in-out infinite'
+                            padding: '8px 12px', color: 'var(--color-text-2)', fontSize: 12,
+                            background: 'var(--color-fill-1)', borderRadius: 6,
+                            border: '1px solid var(--color-border-1)',
+                            marginBottom: 8,
                           }}>
                             <span style={{ 
-                              display: 'inline-block', width: 6, height: 6, borderRadius: '50%',
-                              background: 'var(--arcoblue-6)', animation: 'pulse 1s ease-in-out infinite'
+                              display: 'inline-block', width: 8, height: 8, borderRadius: '50%',
+                              background: 'var(--arcoblue-6)', animation: 'pulse 1s ease-in-out infinite',
+                              flexShrink: 0,
                             }} />
-                            {m.status}
+                            <span style={{ animation: 'pulse 1.5s ease-in-out infinite' }}>{m.status}</span>
                           </div>}
                           {m.text ? (m.role === 'ai' ? (
                             sections.length > 0 ? (
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
                                 {sections.map((s: any) => (
                                   s.type === 'widget' ? (() => {
                                     const w = tryParseWidget(s.content);
@@ -1130,8 +1143,12 @@ fetchPredictionResult(code).then((r: any) => {
                                     <ReactMarkdown key={s.key}
                                       components={{
                                         p: ({ children }: any) => <p style={{ margin: 0 }}>{children}</p>,
-                                        strong: ({ children }: any) => <strong style={{ color: 'var(--color-text-1)' }}>{children}</strong>,
-                                        code: ({ children }: any) => <code style={{ background: 'var(--color-fill-2)', padding: '1px 4px', borderRadius: 3, fontSize: 11 }}>{children}</code>,
+                                        strong: ({ children }: any) => <strong style={{ color: 'var(--color-text-1)', fontWeight: 700 }}>{children}</strong>,
+                                        code: ({ children }: any) => <code style={{ background: 'var(--color-fill-2)', padding: '1px 5px', borderRadius: 4, fontSize: 11, fontFamily: "'SF Mono',Menlo,Monaco,monospace" }}>{children}</code>,
+                                        a: ({ children, href }: any) => <a href={href} target="_blank" style={{ color: 'var(--arcoblue-6)', textDecoration: 'underline' }}>{children}</a>,
+                                        blockquote: ({ children }: any) => <blockquote style={{ borderLeft: '3px solid var(--color-border-2)', paddingLeft: 12, margin: '8px 0', color: 'var(--color-text-3)' }}>{children}</blockquote>,
+                                        h3: ({ children }: any) => <h3 style={{ fontSize: 14, fontWeight: 700, color: 'var(--color-text-1)', margin: '8px 0 4px' }}>{children}</h3>,
+                                        h4: ({ children }: any) => <h4 style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-2)', margin: '6px 0 2px' }}>{children}</h4>,
                                       }}
                                     >{s.content}</ReactMarkdown>
                                   )
@@ -1140,18 +1157,27 @@ fetchPredictionResult(code).then((r: any) => {
                             ) : (
                               <ReactMarkdown
                                 components={{
-                                  p: ({ children }: any) => <p style={{ margin: '4px 0' }}>{children}</p>,
-                                  ul: ({ children }: any) => <ul style={{ margin: '4px 0', paddingLeft: 18 }}>{children}</ul>,
-                                  ol: ({ children }: any) => <ol style={{ margin: '4px 0', paddingLeft: 18 }}>{children}</ol>,
-                                  strong: ({ children }: any) => <strong style={{ color: 'var(--color-text-1)' }}>{children}</strong>,
-                                  code: ({ children }: any) => <code style={{ background: 'var(--color-fill-2)', padding: '1px 4px', borderRadius: 3, fontSize: 11 }}>{children}</code>,
+                                  p: ({ children }: any) => <p style={{ margin: '0 0 6px', lineHeight: '24px' }}>{children}</p>,
+                                  ul: ({ children }: any) => <ul style={{ margin: '6px 0', paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 2 }}>{children}</ul>,
+                                  ol: ({ children }: any) => <ol style={{ margin: '6px 0', paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 2 }}>{children}</ol>,
+                                  li: ({ children }: any) => <li style={{ margin: 0, lineHeight: '22px' }}>{children}</li>,
+                                  strong: ({ children }: any) => <strong style={{ color: 'var(--color-text-1)', fontWeight: 700 }}>{children}</strong>,
+                                  code: ({ children }: any) => <code style={{ background: 'var(--color-fill-2)', padding: '1px 5px', borderRadius: 4, fontSize: 11, fontFamily: "'SF Mono',Menlo,Monaco,monospace" }}>{children}</code>,
+                                  a: ({ children, href }: any) => <a href={href} target="_blank" style={{ color: 'var(--arcoblue-6)', textDecoration: 'underline' }}>{children}</a>,
+                                  blockquote: ({ children }: any) => <blockquote style={{ borderLeft: '3px solid var(--color-border-2)', paddingLeft: 12, margin: '8px 0', color: 'var(--color-text-3)' }}>{children}</blockquote>,
+                                  h3: ({ children }: any) => <h3 style={{ fontSize: 14, fontWeight: 700, color: 'var(--color-text-1)', margin: '10px 0 4px' }}>{children}</h3>,
+                                  h4: ({ children }: any) => <h4 style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-2)', margin: '8px 0 2px' }}>{children}</h4>,
+                                  hr: () => <hr style={{ border: 'none', borderTop: '1px solid var(--color-border-1)', margin: '12px 0' }} />,
+                                  table: ({ children }: any) => <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, margin: '8px 0' }}>{children}</table>,
+                                  th: ({ children }: any) => <th style={{ borderBottom: '2px solid var(--color-border-2)', padding: '6px 10px', textAlign: 'left', color: 'var(--color-text-2)', fontWeight: 600 }}>{children}</th>,
+                                  td: ({ children }: any) => <td style={{ borderBottom: '1px solid var(--color-border-1)', padding: '6px 10px', color: 'var(--color-text-1)' }}>{children}</td>,
                                 }}
                               >{m.text}</ReactMarkdown>
                             )
                           ) : m.text) : (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--color-text-3)', fontSize: 12 }}>
-                              <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} />
-                              分析中...
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--color-text-3)', fontSize: 12, padding: '8px 0' }}>
+                              <span style={{ width: 16, height: 16, borderRadius: '50%', border: '2px solid var(--color-border-2)', borderTopColor: 'var(--color-primary)', animation: 'spin 0.8s linear infinite' }} />
+                              <span style={{ animation: 'pulse 1.5s ease-in-out infinite' }}>AI 思考中...</span>
                             </div>
                           )}
                         </div>;
