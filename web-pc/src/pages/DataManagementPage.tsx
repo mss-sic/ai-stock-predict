@@ -54,8 +54,8 @@ function Toast({ type, msg, onClose }: { type: 'success' | 'error' | 'info'; msg
   useEffect(() => { const t = setTimeout(onClose, 3000); return () => clearTimeout(t); }, [onClose]);
   return (
     <div style={{ position: 'fixed', top: 20, right: 20, zIndex: 9999, padding: '10px 16px', borderRadius: 6, fontSize: 13, background: colors[type], border: `1px solid ${borders[type]}`, display: 'flex', alignItems: 'center', gap: 8, boxShadow: '0 2px 8px rgba(0,0,0,0.1)', maxWidth: 400 }}>
-      {icons[type]}<span style={{ flex: 1, color: '#1d2129' }}>{msg}</span>
-      <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: '#86909c' }}><X size={12} /></button>
+      {icons[type]}<span style={{ flex: 1, color: 'var(--color-text-1)' }}>{msg}</span>
+      <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: 'var(--color-text-3)' }}><X size={12} /></button>
     </div>
   );
 }
@@ -169,8 +169,8 @@ export default function DataManagementPage() {
   const formatDuration = (ms: number) => { if (ms < 1000) return `${ms}ms`; if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`; return `${Math.floor(ms / 60000)}m ${Math.round((ms % 60000) / 1000)}s`; };
 
   const renderConsoleLine = (line: { text: string; level: string; time: string }, i: number) => {
-    const cm: Record<string, string> = { info: '#e5e6eb', stderr: '#f76965', success: '#00b42a', phase: '#4080ff', system: '#ffb400' };
-    return <div key={i} style={{ fontFamily: '"JetBrains Mono","Fira Code","SF Mono",monospace', fontSize: 12, lineHeight: '18px', color: cm[line.level] || '#e5e6eb', whiteSpace: 'pre-wrap', wordBreak: 'break-all', padding: line.level === 'phase' ? '4px 0' : '0', fontWeight: line.level === 'phase' ? 600 : 400 }}><span style={{ color: '#666', marginRight: 8, userSelect: 'none' }}>{line.time}</span>{line.text}</div>;
+    const cm: Record<string, string> = { info: 'var(--color-border-1)', stderr: '#f76965', success: '#00b42a', phase: '#4080ff', system: '#ffb400' };
+    return <div key={i} style={{ fontFamily: '"JetBrains Mono","Fira Code","SF Mono",monospace', fontSize: 12, lineHeight: '18px', color: cm[line.level] || 'var(--color-border-1)', whiteSpace: 'pre-wrap', wordBreak: 'break-all', padding: line.level === 'phase' ? '4px 0' : '0', fontWeight: line.level === 'phase' ? 600 : 400 }}><span style={{ color: '#666', marginRight: 8, userSelect: 'none' }}>{line.time}</span>{line.text}</div>;
   };
 
   // ── Tab effects ──
@@ -218,7 +218,7 @@ export default function DataManagementPage() {
           { key: 'collect', label: '采集控制台', icon: <Terminal size={14} /> },
           { key: 'history', label: '采集记录', icon: <History size={14} /> },
         ].map(t => (
-          <button key={t.key} onClick={() => setTab(t.key as any)} style={{ padding: '10px 20px', border: 'none', cursor: 'pointer', fontSize: 13, background: tab === t.key ? '#e8f3ff' : 'transparent', color: tab === t.key ? '#165dff' : '#4e5969', fontWeight: tab === t.key ? 500 : 400, display: 'flex', alignItems: 'center', gap: 6, borderRight: '1px solid #e5e6eb' }}>{t.icon}{t.label}</button>
+          <button key={t.key} onClick={() => setTab(t.key as any)} style={{ padding: '10px 20px', border: 'none', cursor: 'pointer', fontSize: 13, background: tab === t.key ? '#e8f3ff' : 'transparent', color: tab === t.key ? '#165dff' : 'var(--color-text-2)', fontWeight: tab === t.key ? 500 : 400, display: 'flex', alignItems: 'center', gap: 6, borderRight: '1px solid #e5e6eb' }}>{t.icon}{t.label}</button>
         ))}
       </div>
 
@@ -232,7 +232,7 @@ export default function DataManagementPage() {
             </div>
             <div className="card-body" style={{ padding: '16px 20px' }}>
               {dataStats.length === 0 && !statsLoading ? (
-                <div style={{ padding: 40, textAlign: 'center', color: '#86909c', fontSize: 13 }}>暂无统计数据，请先采集数据</div>
+                <div style={{ padding: 40, textAlign: 'center', color: 'var(--color-text-3)', fontSize: 13 }}>暂无统计数据，请先采集数据</div>
               ) : (
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 12 }}>
                   {dataStats.map((stat: DataStat) => {
@@ -245,15 +245,15 @@ export default function DataManagementPage() {
                       board_picks: { icon: <FileSpreadsheet size={18} />, color: '#722ed1' }, board_details: { icon: <FileSpreadsheet size={18} />, color: '#722ed1' },
                       signals: { icon: <Activity size={18} />, color: '#ffb400' },
                     };
-                    const def = iconDefs[stat.key] || { icon: <Database size={18} />, color: '#86909c' };
+                    const def = iconDefs[stat.key] || { icon: <Database size={18} />, color: 'var(--color-text-3)' };
                     const isSelected = selectedStat === stat.key;
                     return (
                       <div key={stat.key} onClick={() => loadDetail(stat.key)} style={{ border: isSelected ? `2px solid ${def.color}` : '1px solid #e5e6eb', borderRadius: 8, padding: isSelected ? '13px 15px' : '14px 16px', background: isSelected ? `${def.color}08` : '#fff', cursor: 'pointer', transition: 'all 0.15s' }}
                         onMouseEnter={e => { if (!isSelected) { (e.currentTarget as HTMLElement).style.borderColor = def.color; (e.currentTarget as HTMLElement).style.boxShadow = '0 2px 8px rgba(0,0,0,0.08)'; } }}
-                        onMouseLeave={e => { if (!isSelected) { (e.currentTarget as HTMLElement).style.borderColor = '#e5e6eb'; (e.currentTarget as HTMLElement).style.boxShadow = 'none'; } }}>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}><span style={{ fontSize: 13, color: '#4e5969', fontWeight: 500 }}>{stat.label}</span><span style={{ color: def.color }}>{def.icon}</span></div>
+                        onMouseLeave={e => { if (!isSelected) { (e.currentTarget as HTMLElement).style.borderColor = 'var(--color-border-1)'; (e.currentTarget as HTMLElement).style.boxShadow = 'none'; } }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}><span style={{ fontSize: 13, color: 'var(--color-text-2)', fontWeight: 500 }}>{stat.label}</span><span style={{ color: def.color }}>{def.icon}</span></div>
                         <div style={{ fontSize: 28, fontWeight: 700, color: def.color, lineHeight: 1.2 }}>{stat.count.toLocaleString()}</div>
-                        {stat.updatedAt && <div style={{ fontSize: 11, color: '#86909c', marginTop: 8 }}>最近更新: {new Date(stat.updatedAt).toLocaleDateString('zh-CN')}</div>}
+                        {stat.updatedAt && <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginTop: 8 }}>最近更新: {new Date(stat.updatedAt).toLocaleDateString('zh-CN')}</div>}
                       </div>
                     );
                   })}
@@ -274,14 +274,14 @@ export default function DataManagementPage() {
                 </div>
               </div>
               <div className="card-body" style={{ padding: 0, maxHeight: 500, overflow: 'auto' }}>
-                {detailLoading ? <div style={{ padding: 40, textAlign: 'center', color: '#86909c', fontSize: 13 }}>加载中...</div> : (
+                {detailLoading ? <div style={{ padding: 40, textAlign: 'center', color: 'var(--color-text-3)', fontSize: 13 }}>加载中...</div> : (
                   <Table data={detailData.filter((d: any) => { if (!detailSearch) return true; const s = detailSearch.toLowerCase(); return (d.code || '').toLowerCase().includes(s) || (d.name || '').toLowerCase().includes(s); })} rowKey={(r: any) => r.code || r.name || Math.random().toString()} size="small" pagination={{ pageSize: 50, sizeCanChange: true }}
                     columns={[
                       { title: '代码', dataIndex: 'code', width: 90, render: (v: string) => <span style={{ fontFamily: 'monospace', fontSize: 12 }}>{v || '-'}</span> },
                       { title: '名称', dataIndex: 'name', width: 120, ellipsis: true },
-                      { title: '记录数', dataIndex: 'count', width: 80, render: (v: number) => <span style={{ fontWeight: 600, color: v === 0 ? '#f53f3f' : v > 0 ? '#00b42a' : '#86909c' }}>{v.toLocaleString()}</span> },
-                      { title: '最早', dataIndex: 'firstDate', width: 100, render: (v: string) => v ? <span style={{ fontSize: 12, color: '#4e5969' }}>{new Date(v).toLocaleDateString('zh-CN')}</span> : <span style={{ color: '#c9cdd4' }}>-</span> },
-                      { title: '最晚', dataIndex: 'lastDate', width: 100, render: (v: string) => v ? <span style={{ fontSize: 12, color: '#4e5969' }}>{new Date(v).toLocaleDateString('zh-CN')}</span> : <span style={{ color: '#c9cdd4' }}>-</span> },
+                      { title: '记录数', dataIndex: 'count', width: 80, render: (v: number) => <span style={{ fontWeight: 600, color: v === 0 ? '#f53f3f' : v > 0 ? '#00b42a' : 'var(--color-text-3)' }}>{v.toLocaleString()}</span> },
+                      { title: '最早', dataIndex: 'firstDate', width: 100, render: (v: string) => v ? <span style={{ fontSize: 12, color: 'var(--color-text-2)' }}>{new Date(v).toLocaleDateString('zh-CN')}</span> : <span style={{ color: '#c9cdd4' }}>-</span> },
+                      { title: '最晚', dataIndex: 'lastDate', width: 100, render: (v: string) => v ? <span style={{ fontSize: 12, color: 'var(--color-text-2)' }}>{new Date(v).toLocaleDateString('zh-CN')}</span> : <span style={{ color: '#c9cdd4' }}>-</span> },
                     ]} border={false} stripe />
                 )}
               </div>
@@ -289,14 +289,14 @@ export default function DataManagementPage() {
           )}
           <div className="card">
             <div className="card-header">
-              <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Activity size={16} color={progress?.running ? '#f53f3f' : '#86909c'} /><span style={{ fontSize: 15, fontWeight: 600 }}>采集状态</span></span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Activity size={16} color={progress?.running ? '#f53f3f' : 'var(--color-text-3)'} /><span style={{ fontSize: 15, fontWeight: 600 }}>采集状态</span></span>
               {progress?.running ? <Tag color="blue">采集中</Tag> : progress?.lastRun ? <Tag color="green">就绪</Tag> : <Tag>待采集</Tag>}
             </div>
             <div className="card-body" style={{ padding: '16px 20px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 32, flexWrap: 'wrap' }}>
-                <div><div style={{ fontSize: 12, color: '#86909c' }}>上次采集</div><div style={{ fontSize: 14, fontWeight: 500, color: '#1d2129' }}>{progress?.lastRun ? new Date(progress.lastRun).toLocaleString('zh-CN') : '尚未采集'}</div></div>
-                <div><div style={{ fontSize: 12, color: '#86909c' }}>当前状态</div><div style={{ fontSize: 14, fontWeight: 500, color: progress?.running ? '#f53f3f' : '#00b42a' }}>{progress?.running ? '正在运行' : '空闲'}</div></div>
-                <div><div style={{ fontSize: 12, color: '#86909c' }}>采集记录数</div><div style={{ fontSize: 14, fontWeight: 500, color: '#1d2129' }}>{colHistory.length} 条</div></div>
+                <div><div style={{ fontSize: 12, color: 'var(--color-text-3)' }}>上次采集</div><div style={{ fontSize: 14, fontWeight: 500, color: 'var(--color-text-1)' }}>{progress?.lastRun ? new Date(progress.lastRun).toLocaleString('zh-CN') : '尚未采集'}</div></div>
+                <div><div style={{ fontSize: 12, color: 'var(--color-text-3)' }}>当前状态</div><div style={{ fontSize: 14, fontWeight: 500, color: progress?.running ? '#f53f3f' : '#00b42a' }}>{progress?.running ? '正在运行' : '空闲'}</div></div>
+                <div><div style={{ fontSize: 12, color: 'var(--color-text-3)' }}>采集记录数</div><div style={{ fontSize: 14, fontWeight: 500, color: 'var(--color-text-1)' }}>{colHistory.length} 条</div></div>
               </div>
             </div>
           </div>
@@ -312,7 +312,7 @@ export default function DataManagementPage() {
               <div style={{ display: 'flex', gap: 6 }}><Button size="small" icon={<RefreshCw size={12} />} loading={tasksLoading} onClick={loadTasks}>刷新</Button><Button size="small" icon={<Zap size={12} />} onClick={handleInitDefaults}>初始化默认任务</Button></div>
             </div>
             <div className="card-body" style={{ padding: 0 }}>
-              {scheduledTasks.length === 0 ? <div style={{ padding: 40, textAlign: 'center', color: '#86909c', fontSize: 13 }}>暂无定时任务，点击「初始化默认任务」创建</div> : (
+              {scheduledTasks.length === 0 ? <div style={{ padding: 40, textAlign: 'center', color: 'var(--color-text-3)', fontSize: 13 }}>暂无定时任务，点击「初始化默认任务」创建</div> : (
                 <Table data={scheduledTasks} rowKey="id" size="small"
                   columns={[
                     { title: '启用', dataIndex: 'enabled', width: 55, render: (v: boolean, record: any) => (
@@ -328,7 +328,7 @@ export default function DataManagementPage() {
                     </Popconfirm>
                   ) },
                     { title: '任务名称', dataIndex: 'name', width: 130, ellipsis: true },
-                    { title: '类型', dataIndex: 'phase', width: 100, render: (v: string) => <span style={{ fontSize: 12, fontFamily: 'monospace', color: '#4e5969' }}>{v}</span> },
+                    { title: '类型', dataIndex: 'phase', width: 100, render: (v: string) => <span style={{ fontSize: 12, fontFamily: 'monospace', color: 'var(--color-text-2)' }}>{v}</span> },
                     { title: 'Cron', dataIndex: 'cronExpr', width: 140, render: (v: string) => <span style={{ fontSize: 12, fontFamily: 'monospace' }}>{v}</span> },
                     { title: '上次状态', dataIndex: 'lastStatus', width: 75, render: (v: string, record: any) => {
                       if (v === 'success') return <Tag color="green">成功</Tag>;
@@ -341,8 +341,8 @@ export default function DataManagementPage() {
                       }
                       return <span style={{ color: '#c9cdd4', fontSize: 12 }}>-</span>;
                     } },
-                    { title: '上次运行', dataIndex: 'lastRun', width: 125, render: (v: string) => <span style={{ fontSize: 12, color: '#4e5969' }}>{v ? new Date(v).toLocaleString('zh-CN') : '-'}</span> },
-                    { title: '下次运行', dataIndex: 'nextRun', width: 125, render: (v: string) => <span style={{ fontSize: 12, color: '#86909c' }}>{v ? new Date(v).toLocaleString('zh-CN') : '-'}</span> },
+                    { title: '上次运行', dataIndex: 'lastRun', width: 125, render: (v: string) => <span style={{ fontSize: 12, color: 'var(--color-text-2)' }}>{v ? new Date(v).toLocaleString('zh-CN') : '-'}</span> },
+                    { title: '下次运行', dataIndex: 'nextRun', width: 125, render: (v: string) => <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>{v ? new Date(v).toLocaleString('zh-CN') : '-'}</span> },
                     { title: '操作', width: 160, render: (_: any, record: any) => {
                       const isStuck = record.lastStatus === 'running' && record.lastRun && (Date.now() - new Date(record.lastRun).getTime()) > 10 * 60 * 1000;
                       return (
@@ -364,15 +364,15 @@ export default function DataManagementPage() {
           </div>
           <Modal title={<span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Activity size={16} color="#165dff" />运行日志 — {logModalTaskName}</span>} visible={logModalVisible} onCancel={() => { setLogModalVisible(false); setTaskLogs([]); }} footer={null} style={{ width: 800 }} unmountOnExit>
             <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><span className="muted">最近 30 条记录</span><Button size="small" type="text" icon={<RefreshCw size={12} />} loading={taskLogsLoading} onClick={() => selectedTaskId && openTaskLogs(selectedTaskId, logModalTaskName)}>刷新</Button></div>
-            {taskLogs.length === 0 && !taskLogsLoading ? <div style={{ padding: 40, textAlign: 'center', color: '#86909c', fontSize: 13 }}>暂无运行日志</div> : (
+            {taskLogs.length === 0 && !taskLogsLoading ? <div style={{ padding: 40, textAlign: 'center', color: 'var(--color-text-3)', fontSize: 13 }}>暂无运行日志</div> : (
               <Table data={taskLogs} rowKey="id" size="small"
                 columns={[
                   { title: '状态', dataIndex: 'status', width: 70, render: (v: string) => v === 'success' ? <Tag color="green">成功</Tag> : v === 'failed' ? <Tag color="red">失败</Tag> : <Tag color="blue">运行中</Tag> },
                   { title: '新增', dataIndex: 'totalNew', width: 55, render: (v: number) => <span style={{ fontWeight: 600, color: '#165dff' }}>{v}</span> },
-                  { title: '跳过', dataIndex: 'totalSkip', width: 55, render: (v: number) => <span style={{ color: '#86909c' }}>{v}</span> },
-                  { title: '错误', dataIndex: 'totalErr', width: 50, render: (v: number) => v > 0 ? <span style={{ color: '#f53f3f', fontWeight: 600 }}>{v}</span> : <span style={{ color: '#86909c' }}>0</span> },
-                  { title: '耗时', dataIndex: 'durationMs', width: 65, render: (v: number) => <span style={{ fontSize: 12, color: '#4e5969' }}>{v < 1000 ? v + 'ms' : (v / 1000).toFixed(1) + 's'}</span> },
-                  { title: '时间', dataIndex: 'startedAt', width: 135, render: (v: string) => <span style={{ fontSize: 11, color: '#86909c' }}>{v ? new Date(v).toLocaleString('zh-CN') : '-'}</span> },
+                  { title: '跳过', dataIndex: 'totalSkip', width: 55, render: (v: number) => <span style={{ color: 'var(--color-text-3)' }}>{v}</span> },
+                  { title: '错误', dataIndex: 'totalErr', width: 50, render: (v: number) => v > 0 ? <span style={{ color: '#f53f3f', fontWeight: 600 }}>{v}</span> : <span style={{ color: 'var(--color-text-3)' }}>0</span> },
+                  { title: '耗时', dataIndex: 'durationMs', width: 65, render: (v: number) => <span style={{ fontSize: 12, color: 'var(--color-text-2)' }}>{v < 1000 ? v + 'ms' : (v / 1000).toFixed(1) + 's'}</span> },
+                  { title: '时间', dataIndex: 'startedAt', width: 135, render: (v: string) => <span style={{ fontSize: 11, color: 'var(--color-text-3)' }}>{v ? new Date(v).toLocaleString('zh-CN') : '-'}</span> },
                   { title: '详情', dataIndex: 'errorMsg', ellipsis: true, render: (v: string) => v ? <span style={{ fontSize: 11, color: '#f53f3f' }}>{v}</span> : <span style={{ color: '#c9cdd4', fontSize: 11 }}>-</span> },
                 ]} pagination={{ pageSize: 15, sizeCanChange: true }} border={false} stripe />
             )}
@@ -402,7 +402,7 @@ export default function DataManagementPage() {
                         borderRadius: 20, cursor: 'pointer', fontSize: 12,
                         fontWeight: isActive ? 600 : isSelected ? 600 : 400,
                         background: isActive ? '#fff3e0' : isSelected ? '#e8f3ff' : '#fff',
-                        color: isActive ? '#e65100' : isSelected ? '#165dff' : '#4e5969',
+                        color: isActive ? '#e65100' : isSelected ? '#165dff' : 'var(--color-text-2)',
                         display: 'flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap',
                         transition: 'all 0.15s',
                         animation: isActive ? 'collectBgPulse 2s ease-in-out infinite' : 'none',
@@ -425,12 +425,12 @@ export default function DataManagementPage() {
               <div style={{ border: '1px solid #e5e6eb', borderRadius: 8, overflow: 'hidden', background: '#fafbfc' }}>
                 <div style={{ padding: '12px 16px', borderBottom: '1px solid #e5e6eb', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#fff' }}>
                   <div>
-                    <div style={{ fontSize: 14, fontWeight: 600, color: '#1d2129' }}>{PHASE_LABELS[selectedCollectPhase]}</div>
-                    <div style={{ fontSize: 12, color: '#86909c', marginTop: 2 }}>{PHASE_DESCRIPTIONS[selectedCollectPhase] || ''}</div>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text-1)' }}>{PHASE_LABELS[selectedCollectPhase]}</div>
+                    <div style={{ fontSize: 12, color: 'var(--color-text-3)', marginTop: 2 }}>{PHASE_DESCRIPTIONS[selectedCollectPhase] || ''}</div>
                     {(() => { const st = scheduledTasks.find((t: any) => t.phase === selectedCollectPhase && t.enabled); if (!st || collecting) return null; return (
-                      <div style={{ fontSize: 11, color: '#4e5969', marginTop: 4 }}>
+                      <div style={{ fontSize: 11, color: 'var(--color-text-2)', marginTop: 4 }}>
                         <span style={{ color: '#00b42a' }}>⏱ {cronToText(st.cronExpr)}</span>
-                        {st.nextRun && <span style={{ marginLeft: 8, color: '#86909c' }}>· 下次: {new Date(st.nextRun).toLocaleString('zh-CN')}</span>}
+                        {st.nextRun && <span style={{ marginLeft: 8, color: 'var(--color-text-3)' }}>· 下次: {new Date(st.nextRun).toLocaleString('zh-CN')}</span>}
                       </div>
                     ); })()}
                   </div>
@@ -438,7 +438,7 @@ export default function DataManagementPage() {
                     {(() => { const st = scheduledTasks.find((t: any) => t.phase === selectedCollectPhase && t.enabled); if (!st) return null; return (
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                         <Tag color="green" style={{ fontSize: 11 }}>{cronToText(st.cronExpr)}</Tag>
-                        {!collecting && st.nextRun && <span style={{ fontSize: 11, color: '#86909c' }}>下次 {new Date(st.nextRun).toLocaleString('zh-CN')}</span>}
+                        {!collecting && st.nextRun && <span style={{ fontSize: 11, color: 'var(--color-text-3)' }}>下次 {new Date(st.nextRun).toLocaleString('zh-CN')}</span>}
                       </div>
                     ); })()}
                     {collecting && progress?.phase === selectedCollectPhase ? (
@@ -454,16 +454,16 @@ export default function DataManagementPage() {
                     <div style={{ marginBottom: 12 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 6 }}>
                         <Progress percent={Math.round((progress.current / Math.max(progress.total, 1)) * 100)} style={{ flex: 1 }} status="normal" />
-                        <span style={{ fontSize: 12, color: '#86909c', whiteSpace: 'nowrap' }}>{progress.current}/{progress.total}</span>
+                        <span style={{ fontSize: 12, color: 'var(--color-text-3)', whiteSpace: 'nowrap' }}>{progress.current}/{progress.total}</span>
                       </div>
-                      <div style={{ fontSize: 12, color: '#4e5969' }}>{progress.message || '正在采集...'}</div>
+                      <div style={{ fontSize: 12, color: 'var(--color-text-2)' }}>{progress.message || '正在采集...'}</div>
                     </div>
                   )}
 
                   {/* 采集结果统计 */}
                   {phaseResults.filter((r: any) => r.phase === selectedCollectPhase).map((r: any) => (
-                    <div key={r.phase} style={{ border: `1px solid ${r.errors > 0 ? '#f53f3f' : '#e5e6eb'}`, borderRadius: 6, padding: '8px 12px', marginBottom: 8, background: r.errors > 0 ? '#ffece8' : '#f0fff4', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, fontSize: 12 }}>
-                      <div>总计 <b>{r.total}</b></div><div>新增 <b style={{ color: '#165dff' }}>{r.new}</b></div><div>跳过 <span style={{ color: '#86909c' }}>{r.skipped}</span></div><div>耗时 <span>{(r.durationMs / 1000).toFixed(1)}s</span></div>
+                    <div key={r.phase} style={{ border: `1px solid ${r.errors > 0 ? '#f53f3f' : 'var(--color-border-1)'}`, borderRadius: 6, padding: '8px 12px', marginBottom: 8, background: r.errors > 0 ? '#ffece8' : '#f0fff4', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, fontSize: 12 }}>
+                      <div>总计 <b>{r.total}</b></div><div>新增 <b style={{ color: '#165dff' }}>{r.new}</b></div><div>跳过 <span style={{ color: 'var(--color-text-3)' }}>{r.skipped}</span></div><div>耗时 <span>{(r.durationMs / 1000).toFixed(1)}s</span></div>
                     </div>
                   ))}
 
@@ -485,7 +485,7 @@ export default function DataManagementPage() {
 
                   {/* 无日志时显示提示 */}
                   {consoleLines.length === 0 && !collecting && (
-                    <div style={{ padding: 32, textAlign: 'center', color: '#86909c', fontSize: 13 }}>点击右上角「采集」按钮开始采集</div>
+                    <div style={{ padding: 32, textAlign: 'center', color: 'var(--color-text-3)', fontSize: 13 }}>点击右上角「采集」按钮开始采集</div>
                   )}
                 </div>
               </div>
@@ -504,16 +504,16 @@ export default function DataManagementPage() {
                     try { const phases = JSON.parse(l.phases || '[]'); return Array.isArray(phases) && phases.some((p: any) => (p.phase || p) === selectedCollectPhase); }
                     catch { return false; }
                   });
-                  if (phaseLogs.length === 0) return <div style={{ padding: 32, textAlign: 'center', color: '#86909c', fontSize: 13 }}>暂无该类型的采集记录</div>;
+                  if (phaseLogs.length === 0) return <div style={{ padding: 32, textAlign: 'center', color: 'var(--color-text-3)', fontSize: 13 }}>暂无该类型的采集记录</div>;
                   return (
                     <Table data={phaseLogs.slice(0, 10)} rowKey="id" size="small"
                       columns={[
                         { title: '状态', dataIndex: 'status', width: 70, render: (v: string) => v === 'success' ? <Tag color="green">成功</Tag> : v === 'partial' ? <Tag color="orange">部分</Tag> : v === 'running' ? <Tag color="blue">运行中</Tag> : <Tag color="red">失败</Tag> },
                         { title: '新增', dataIndex: 'totalNew', width: 60, render: (v: number) => <span style={{ fontWeight: 600, color: '#165dff' }}>{v}</span> },
-                        { title: '跳过', dataIndex: 'totalSkipped', width: 60, render: (v: number) => <span style={{ color: '#86909c' }}>{v}</span> },
-                        { title: '错误', dataIndex: 'totalErrors', width: 55, render: (v: number) => v > 0 ? <span style={{ color: '#f53f3f', fontWeight: 600 }}>{v}</span> : <span style={{ color: '#86909c' }}>0</span> },
-                        { title: '耗时', dataIndex: 'durationMs', width: 70, render: (v: number) => <span style={{ color: '#4e5969', fontSize: 12 }}>{formatDuration(v)}</span> },
-                        { title: '时间', dataIndex: 'startedAt', width: 140, render: (v: string) => <span style={{ fontSize: 11, color: '#86909c' }}>{v ? new Date(v).toLocaleString('zh-CN') : '-'}</span> },
+                        { title: '跳过', dataIndex: 'totalSkipped', width: 60, render: (v: number) => <span style={{ color: 'var(--color-text-3)' }}>{v}</span> },
+                        { title: '错误', dataIndex: 'totalErrors', width: 55, render: (v: number) => v > 0 ? <span style={{ color: '#f53f3f', fontWeight: 600 }}>{v}</span> : <span style={{ color: 'var(--color-text-3)' }}>0</span> },
+                        { title: '耗时', dataIndex: 'durationMs', width: 70, render: (v: number) => <span style={{ color: 'var(--color-text-2)', fontSize: 12 }}>{formatDuration(v)}</span> },
+                        { title: '时间', dataIndex: 'startedAt', width: 140, render: (v: string) => <span style={{ fontSize: 11, color: 'var(--color-text-3)' }}>{v ? new Date(v).toLocaleString('zh-CN') : '-'}</span> },
                       ]} pagination={false} border={false} stripe />
                   );
                 })()}
@@ -553,11 +553,11 @@ export default function DataManagementPage() {
               <div className="card-header"><span style={{ fontSize: 15, fontWeight: 600 }}>导入结果</span><span className="muted" style={{ fontSize: 12 }}>{result.fileName}{result.type === 'kline' ? ' (K线)' : result.type === 'prediction' ? ' (预测)' : ''}</span></div>
               <div className="card-body">
                 <div style={{ display: 'grid', gridTemplateColumns: result.type === 'prediction' ? 'repeat(3, 1fr)' : 'repeat(4, 1fr)', gap: 16, marginBottom: 16 }}>
-                  {(result.type === 'kline' ? [{ label: '导入成功', value: result.imported || 0, color: '#00b42a' }, { label: '跳过', value: result.skipped || 0, color: '#86909c' }, { label: '总行数', value: result.totalRows || 0, color: '#165dff' }, { label: '交易日期', value: result.tradeDate || '-', color: '#722ed1' }] : result.type === 'prediction' ? [{ label: '预测记录', value: result.imported || 0, color: '#722ed1' }, { label: '跳过', value: result.skipped || 0, color: '#86909c' }, { label: '股票数', value: result.total || 0, color: '#165dff' }] : [{ label: '交易日数', value: result.datesImported, color: '#165dff' }, { label: '上榜记录', value: result.picksImported, color: '#f53f3f' }, { label: '信号数据', value: result.signalsImported, color: '#00b42a' }, { label: '新增个股', value: result.stocksCreated, color: '#ff7d00' }]).map(item => (
-                    <div key={item.label} style={{ textAlign: 'center', padding: '12px', background: '#f7f8fa', borderRadius: 6 }}><div style={{ fontSize: 24, fontWeight: 700, color: item.color, fontFamily: 'var(--font-family-mono, monospace)' }}>{item.value}</div><div style={{ fontSize: 12, color: '#86909c', marginTop: 4 }}>{item.label}</div></div>
+                  {(result.type === 'kline' ? [{ label: '导入成功', value: result.imported || 0, color: '#00b42a' }, { label: '跳过', value: result.skipped || 0, color: 'var(--color-text-3)' }, { label: '总行数', value: result.totalRows || 0, color: '#165dff' }, { label: '交易日期', value: result.tradeDate || '-', color: '#722ed1' }] : result.type === 'prediction' ? [{ label: '预测记录', value: result.imported || 0, color: '#722ed1' }, { label: '跳过', value: result.skipped || 0, color: 'var(--color-text-3)' }, { label: '股票数', value: result.total || 0, color: '#165dff' }] : [{ label: '交易日数', value: result.datesImported, color: '#165dff' }, { label: '上榜记录', value: result.picksImported, color: '#f53f3f' }, { label: '信号数据', value: result.signalsImported, color: '#00b42a' }, { label: '新增个股', value: result.stocksCreated, color: '#ff7d00' }]).map(item => (
+                    <div key={item.label} style={{ textAlign: 'center', padding: '12px', background: 'var(--color-fill-2)', borderRadius: 6 }}><div style={{ fontSize: 24, fontWeight: 700, color: item.color, fontFamily: 'var(--font-family-mono, monospace)' }}>{item.value}</div><div style={{ fontSize: 12, color: 'var(--color-text-3)', marginTop: 4 }}>{item.label}</div></div>
                   ))}
                 </div>
-                {result.previews?.map((p: string, i: number) => <div key={i} style={{ padding: '8px 12px', background: '#f7f8fa', borderRadius: 4, fontSize: 13, color: '#4e5969', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}><CheckCircle size={12} color="#00b42a" />{p}</div>)}
+                {result.previews?.map((p: string, i: number) => <div key={i} style={{ padding: '8px 12px', background: 'var(--color-fill-2)', borderRadius: 4, fontSize: 13, color: 'var(--color-text-2)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}><CheckCircle size={12} color="#00b42a" />{p}</div>)}
                 {result.errors?.map((e: string, i: number) => <div key={i} style={{ padding: '8px 12px', background: '#ffece8', borderRadius: 4, fontSize: 12, color: '#cb272d', marginBottom: 4 }}><XCircle size={12} style={{ marginRight: 6 }} />{e}</div>)}
               </div>
             </div>
@@ -569,11 +569,11 @@ export default function DataManagementPage() {
               <Button size="small" type="text" icon={<RefreshCw size={12} />} onClick={loadHistory}>刷新</Button>
             </div>
             <div className="card-body" style={{ padding: 0 }}>
-              {history.length === 0 ? <div style={{ padding: 40, textAlign: 'center', color: '#86909c', fontSize: 13 }}>暂无导入记录</div> : (
+              {history.length === 0 ? <div style={{ padding: 40, textAlign: 'center', color: 'var(--color-text-3)', fontSize: 13 }}>暂无导入记录</div> : (
                 <Table data={history} rowKey="id" size="small" columns={[
                   { title: '文件名', dataIndex: 'fileName', width: 200 }, { title: '导入条数', dataIndex: 'rowsImported', width: 100, render: (v: number) => <span style={{ fontWeight: 600 }}>{v}</span> },
                   { title: '状态', dataIndex: 'status', width: 100, render: (v: string) => v === 'success' ? <Tag color="green">成功</Tag> : v === 'partial' ? <Tag color="orange">部分</Tag> : <Tag color="red">失败</Tag> },
-                  { title: '时间', dataIndex: 'importedAt', width: 180, render: (v: string) => <span style={{ color: '#86909c', fontSize: 12 }}>{v ? new Date(v).toLocaleString('zh-CN') : '-'}</span> },
+                  { title: '时间', dataIndex: 'importedAt', width: 180, render: (v: string) => <span style={{ color: 'var(--color-text-3)', fontSize: 12 }}>{v ? new Date(v).toLocaleString('zh-CN') : '-'}</span> },
                 ]} pagination={false} border={false} stripe />
               )}
             </div>
@@ -587,15 +587,15 @@ export default function DataManagementPage() {
           <div className="card">
             <div className="card-header"><span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Activity size={16} color="#165dff" /><span style={{ fontSize: 15, fontWeight: 600 }}>采集记录</span></span><div style={{ display: 'flex', gap: 8 }}><Popconfirm title="清除超过30分钟仍处于运行中的异常记录？" onOk={() => handleClearStuck('stuck')}><Button size="small" type="text" status="warning" icon={<X size={12} />}>清除卡住</Button></Popconfirm><Popconfirm title="清除超过24小时的错误采集记录？" onOk={() => handleClearStuck('errors')}><Button size="small" type="text" status="danger" icon={<X size={12} />}>清除错误</Button></Popconfirm><Button size="small" type="text" icon={<RefreshCw size={12} />} onClick={loadColHistory}>刷新</Button></div></div>
             <div className="card-body" style={{ padding: 0 }}>
-              {colHistory.length === 0 ? <div style={{ padding: 40, textAlign: 'center', color: '#86909c', fontSize: 13 }}>暂无采集记录</div> : (
+              {colHistory.length === 0 ? <div style={{ padding: 40, textAlign: 'center', color: 'var(--color-text-3)', fontSize: 13 }}>暂无采集记录</div> : (
                 <Table data={colHistory} rowKey="id" size="small"
                   columns={[
                     { title: '状态', dataIndex: 'status', width: 70, render: (v: string) => v === 'success' ? <Tag color="green">成功</Tag> : v === 'partial' ? <Tag color="orange">部分</Tag> : v === 'running' ? <Tag color="blue">运行中</Tag> : <Tag color="red">失败</Tag> },
-                    { title: '采集类型', dataIndex: 'phases', width: 170, render: (v: string) => { if (!v) return <span style={{ color: '#c9cdd4', fontSize: 12 }}>-</span>; try { const phases: any[] = JSON.parse(v); if (!Array.isArray(phases) || phases.length === 0) return <span style={{ fontSize: 12 }}>全量</span>; return (<div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>{phases.slice(0, 5).map((p: any, i: number) => <Tag key={i} color={p.errors > 0 ? 'red' : 'blue'} style={{ fontSize: 11, lineHeight: '18px', padding: '0 6px' }}>{PHASE_LABELS[p.phase] || p.phase}</Tag>)}{phases.length > 5 && <span style={{ fontSize: 11, color: '#86909c' }}>+{phases.length - 5}</span>}</div>); } catch { return <span style={{ fontSize: 12 }}>全量</span>; } } },
+                    { title: '采集类型', dataIndex: 'phases', width: 170, render: (v: string) => { if (!v) return <span style={{ color: '#c9cdd4', fontSize: 12 }}>-</span>; try { const phases: any[] = JSON.parse(v); if (!Array.isArray(phases) || phases.length === 0) return <span style={{ fontSize: 12 }}>全量</span>; return (<div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>{phases.slice(0, 5).map((p: any, i: number) => <Tag key={i} color={p.errors > 0 ? 'red' : 'blue'} style={{ fontSize: 11, lineHeight: '18px', padding: '0 6px' }}>{PHASE_LABELS[p.phase] || p.phase}</Tag>)}{phases.length > 5 && <span style={{ fontSize: 11, color: 'var(--color-text-3)' }}>+{phases.length - 5}</span>}</div>); } catch { return <span style={{ fontSize: 12 }}>全量</span>; } } },
                     { title: '新增', dataIndex: 'totalNew', width: 60, render: (v: number) => <span style={{ fontWeight: 600, color: '#165dff' }}>{v}</span> },
-                    { title: '跳过', dataIndex: 'totalSkipped', width: 60, render: (v: number) => <span style={{ color: '#86909c' }}>{v}</span> },
-                    { title: '错误', dataIndex: 'totalErrors', width: 55, render: (v: number) => v > 0 ? <span style={{ color: '#f53f3f', fontWeight: 600 }}>{v}</span> : <span style={{ color: '#86909c' }}>0</span> },
-                    { title: '耗时', dataIndex: 'durationMs', width: 70, render: (v: number) => <span style={{ color: '#4e5969', fontSize: 12 }}>{formatDuration(v)}</span> },
+                    { title: '跳过', dataIndex: 'totalSkipped', width: 60, render: (v: number) => <span style={{ color: 'var(--color-text-3)' }}>{v}</span> },
+                    { title: '错误', dataIndex: 'totalErrors', width: 55, render: (v: number) => v > 0 ? <span style={{ color: '#f53f3f', fontWeight: 600 }}>{v}</span> : <span style={{ color: 'var(--color-text-3)' }}>0</span> },
+                    { title: '耗时', dataIndex: 'durationMs', width: 70, render: (v: number) => <span style={{ color: 'var(--color-text-2)', fontSize: 12 }}>{formatDuration(v)}</span> },
                     { title: '时间', dataIndex: 'startedAt', width: 140, render: (v: string) => <span style={{ fontSize: 11 }}>{v ? new Date(v).toLocaleString('zh-CN') : '-'}</span> },
                   ]} pagination={false} border={false} stripe />
               )}
@@ -604,11 +604,11 @@ export default function DataManagementPage() {
           <div className="card">
             <div className="card-header"><span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><FileSpreadsheet size={16} color="#165dff" /><span style={{ fontSize: 15, fontWeight: 600 }}>Excel 导入记录</span></span><Button size="small" type="text" icon={<RefreshCw size={12} />} onClick={loadHistory}>刷新</Button></div>
             <div className="card-body" style={{ padding: 0 }}>
-              {history.length === 0 ? <div style={{ padding: 40, textAlign: 'center', color: '#86909c', fontSize: 13 }}>暂无导入记录</div> : (
+              {history.length === 0 ? <div style={{ padding: 40, textAlign: 'center', color: 'var(--color-text-3)', fontSize: 13 }}>暂无导入记录</div> : (
                 <Table data={history} rowKey="id" size="small" columns={[
                   { title: '文件名', dataIndex: 'fileName', width: 200 }, { title: '导入条数', dataIndex: 'rowsImported', width: 100, render: (v: number) => <span style={{ fontWeight: 600 }}>{v}</span> },
                   { title: '状态', dataIndex: 'status', width: 100, render: (v: string) => v === 'success' ? <Tag color="green">成功</Tag> : v === 'partial' ? <Tag color="orange">部分</Tag> : <Tag color="red">失败</Tag> },
-                  { title: '时间', dataIndex: 'importedAt', width: 180, render: (v: string) => <span style={{ color: '#86909c', fontSize: 12 }}>{v ? new Date(v).toLocaleString('zh-CN') : '-'}</span> },
+                  { title: '时间', dataIndex: 'importedAt', width: 180, render: (v: string) => <span style={{ color: 'var(--color-text-3)', fontSize: 12 }}>{v ? new Date(v).toLocaleString('zh-CN') : '-'}</span> },
                 ]} pagination={false} border={false} stripe />
               )}
             </div>

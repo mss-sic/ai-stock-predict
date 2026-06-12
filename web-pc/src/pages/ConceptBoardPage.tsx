@@ -20,8 +20,8 @@ export default function ConceptBoardPage() {
         background: '#fff', borderRadius: 6, border: '1px solid #e5e6eb',
       }}>
         <Flame size={18} color="#f53f3f" />
-        <span style={{ fontSize: 16, fontWeight: 600, color: '#1d2129' }}>概念板块热力图</span>
-        <span style={{ fontSize: 12, color: '#86909c' }}>行业板块涨跌分布 · 按成分股数量排序</span>
+        <span style={{ fontSize: 16, fontWeight: 600, color: 'var(--color-text-1)' }}>概念板块热力图</span>
+        <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>行业板块涨跌分布 · 按成分股数量排序</span>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 8 }}>
         {conceptData.map((item: any, idx: number) => {
@@ -32,12 +32,12 @@ export default function ConceptBoardPage() {
           const bg = isUp ? `rgba(245,63,63,${(0.15 + t * 0.8).toFixed(3)})`
                    : isDown ? `rgba(0,180,42,${(0.15 + t * 0.8).toFixed(3)})`
                    : '#f2f3f5';
-          const fg = t > 0.5 ? '#fff' : isUp ? '#cb272d' : isDown ? '#008026' : '#86909c';
+          const fg = t > 0.5 ? '#fff' : isUp ? '#cb272d' : isDown ? '#008026' : 'var(--color-text-3)';
           return (
             <div key={idx} onClick={() => navigate('/concept/' + item.conceptCode)} style={{
               background: bg, color: fg, borderRadius: 6, padding: '8px 10px',
               cursor: 'pointer', fontSize: 12, transition: 'transform .15s',
-              border: `1px solid ${t > 0.3 ? 'transparent' : '#e5e6eb'}`,
+              border: `1px solid ${t > 0.3 ? 'transparent' : 'var(--color-border-1)'}`,
             }}
               onMouseEnter={e => (e.currentTarget.style.transform = 'scale(1.03)')}
               onMouseLeave={e => (e.currentTarget.style.transform = 'scale(1)')}>

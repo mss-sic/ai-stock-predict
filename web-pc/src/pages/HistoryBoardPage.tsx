@@ -119,7 +119,7 @@ export default function HistoryBoardPage() {
       sorter: (a: BoardItem, b: BoardItem) => a.rank - b.rank,
       render: (v: number) => {
         if (v <= 3) return <span style={{ fontSize: 18 }}>{['🥇', '🥈', '🥉'][v - 1]}</span>;
-        return <span style={{ color: '#86909c', fontWeight: 500 }}>{v}</span>;
+        return <span style={{ color: 'var(--color-text-3)', fontWeight: 500 }}>{v}</span>;
       },
     },
     {
@@ -127,7 +127,7 @@ export default function HistoryBoardPage() {
       render: (_: string, r: BoardItem) => (
         <div style={{ cursor: 'pointer' }} onClick={() => navigate(`/stock/${r.stockCode}`)}>
           <div style={{ fontWeight: 600, fontSize: 14 }}>{r.stockName || r.stockCode}</div>
-          <div style={{ fontSize: 11, color: '#86909c' }}>{r.stockCode}{r.industry ? ` · ${r.industry}` : ''}</div>
+          <div style={{ fontSize: 11, color: 'var(--color-text-3)' }}>{r.stockCode}{r.industry ? ` · ${r.industry}` : ''}</div>
         </div>
       ),
     },
@@ -141,7 +141,7 @@ export default function HistoryBoardPage() {
       sorter: (a: BoardItem, b: BoardItem) => (a.chgPct || 0) - (b.chgPct || 0),
       render: (v: number) => {
         if (v === undefined || v === null) return <span className="muted">-</span>;
-        const color = v > 0 ? '#f53f3f' : v < 0 ? '#00b42a' : '#86909c';
+        const color = v > 0 ? '#f53f3f' : v < 0 ? '#00b42a' : 'var(--color-text-3)';
         const icon = v > 0 ? <TrendingUp size={12} /> : v < 0 ? <TrendingDown size={12} /> : <Minus size={12} />;
         return (
           <span style={{ color, fontWeight: 600, fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 2 }}>
@@ -155,7 +155,7 @@ export default function HistoryBoardPage() {
       sorter: (a: BoardItem, b: BoardItem) => (a.nextChgPct || 0) - (b.nextChgPct || 0),
       render: (v: number, r: BoardItem) => {
         if (!r.nextDate) return <span className="muted" style={{ fontSize: 12 }}>-</span>;
-        const color = v > 0 ? '#f53f3f' : v < 0 ? '#00b42a' : '#86909c';
+        const color = v > 0 ? '#f53f3f' : v < 0 ? '#00b42a' : 'var(--color-text-3)';
         const icon = v > 0 ? <TrendingUp size={12} /> : v < 0 ? <TrendingDown size={12} /> : <Minus size={12} />;
         return (
           <Tooltip content={`${r.nextDate} 开 ${r.nextOpen?.toFixed(2) ?? '-'} 收 ${r.nextClose?.toFixed(2) ?? '-'}`}>
@@ -171,7 +171,7 @@ export default function HistoryBoardPage() {
       sorter: (a: BoardItem, b: BoardItem) => (a.cumuChgPct || 0) - (b.cumuChgPct || 0),
       render: (v: number) => {
         if (v === undefined || v === null) return <span className="muted" style={{ fontSize: 12 }}>-</span>;
-        const color = v > 0 ? '#f53f3f' : v < 0 ? '#00b42a' : '#86909c';
+        const color = v > 0 ? '#f53f3f' : v < 0 ? '#00b42a' : 'var(--color-text-3)';
         const icon = v > 0 ? <TrendingUp size={12} /> : v < 0 ? <TrendingDown size={12} /> : <Minus size={12} />;
         return (
           <Tooltip content="从上榜日收盘至今的累计涨跌幅">
@@ -235,7 +235,7 @@ export default function HistoryBoardPage() {
   ];
 
   const renderStockCard = (item: BoardItem, type: 'new' | 'removed') => {
-    const chgColor = (item.chgPct ?? 0) > 0 ? '#f53f3f' : (item.chgPct ?? 0) < 0 ? '#00b42a' : '#86909c';
+    const chgColor = (item.chgPct ?? 0) > 0 ? '#f53f3f' : (item.chgPct ?? 0) < 0 ? '#00b42a' : 'var(--color-text-3)';
     return (
       <div
         key={item.id}
@@ -245,7 +245,7 @@ export default function HistoryBoardPage() {
           padding: '10px 16px', cursor: 'pointer',
           borderBottom: '1px solid #f5f5f5', transition: 'background 0.12s',
         }}
-        onMouseEnter={e => (e.currentTarget.style.background = '#f7f8fa')}
+        onMouseEnter={e => (e.currentTarget.style.background = 'var(--color-fill-2)')}
         onMouseLeave={e => (e.currentTarget.style.background = '')}
       >
         <div style={{
@@ -253,7 +253,7 @@ export default function HistoryBoardPage() {
           background: type === 'new' ? '#ffece8' : '#f2f3f5',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           fontSize: 11, fontWeight: 700, flexShrink: 0,
-          color: type === 'new' ? '#f53f3f' : '#86909c',
+          color: type === 'new' ? '#f53f3f' : 'var(--color-text-3)',
         }}>
           {item.rank}
         </div>
@@ -261,13 +261,13 @@ export default function HistoryBoardPage() {
           <div style={{ fontWeight: 600, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {item.stockName || item.stockCode}
           </div>
-          <div style={{ fontSize: 11, color: '#86909c' }}>{item.stockCode}</div>
+          <div style={{ fontSize: 11, color: 'var(--color-text-3)' }}>{item.stockCode}</div>
         </div>
         <div style={{ textAlign: 'right', flexShrink: 0 }}>
           <div style={{ fontWeight: 600, fontSize: 13, color: chgColor }}>
             {item.chgPct != null ? `${item.chgPct > 0 ? '+' : ''}${item.chgPct.toFixed(1)}%` : '-'}
           </div>
-          <div style={{ fontSize: 11, color: '#86909c' }}>
+          <div style={{ fontSize: 11, color: 'var(--color-text-3)' }}>
             {item.close > 0 ? item.close.toFixed(2) : '-'}
           </div>
         </div>
@@ -291,7 +291,7 @@ export default function HistoryBoardPage() {
       {/* Date chips */}
       <div style={{ marginBottom: 20 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', padding: '4px 0' }}>
-          <span style={{ fontSize: 12, color: '#86909c', marginRight: 4, flexShrink: 0 }}>交易日</span>
+          <span style={{ fontSize: 12, color: 'var(--color-text-3)', marginRight: 4, flexShrink: 0 }}>交易日</span>
           {dates.map((d) => {
             const { md, day } = fmtDateChip(d);
             const isSelected = d === selectedDate;
@@ -307,13 +307,13 @@ export default function HistoryBoardPage() {
                     border: isSelected ? '2px solid #165dff' : '1px solid #e5e6eb',
                     background: isSelected ? '#e8f3ff' : '#fff',
                     cursor: 'pointer', minWidth: 54, transition: 'all 0.15s',
-                    color: isSelected ? '#165dff' : '#1d2129', fontFamily: 'inherit',
+                    color: isSelected ? '#165dff' : 'var(--color-text-1)', fontFamily: 'inherit',
                   }}
                 >
                   <span style={{ fontSize: 12, fontWeight: isSelected ? 700 : 500, lineHeight: '18px' }}>
                     {isToday ? '今' : md}
                   </span>
-                  <span style={{ fontSize: 10, color: isSelected ? '#165dff' : '#86909c', lineHeight: '16px' }}>
+                  <span style={{ fontSize: 10, color: isSelected ? '#165dff' : 'var(--color-text-3)', lineHeight: '16px' }}>
                     {isToday ? '今天' : day}
                   </span>
                 </button>
@@ -347,11 +347,11 @@ export default function HistoryBoardPage() {
                   <Icon size={17} color={card.color} />
                 </div>
                 <div>
-                  <div style={{ fontSize: 11, color: '#86909c', marginBottom: 1 }}>{card.label}</div>
-                  <div style={{ fontSize: 19, fontWeight: 700, color: '#1d2129', lineHeight: 1.2 }}>
-                    {card.value}<span style={{ fontSize: 11, fontWeight: 400, color: '#86909c', marginLeft: 2 }}>{card.unit}</span>
+                  <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 1 }}>{card.label}</div>
+                  <div style={{ fontSize: 19, fontWeight: 700, color: 'var(--color-text-1)', lineHeight: 1.2 }}>
+                    {card.value}<span style={{ fontSize: 11, fontWeight: 400, color: 'var(--color-text-3)', marginLeft: 2 }}>{card.unit}</span>
                   </div>
-                  {card.sub && <div style={{ fontSize: 10, color: '#86909c' }}>{card.sub}</div>}
+                  {card.sub && <div style={{ fontSize: 10, color: 'var(--color-text-3)' }}>{card.sub}</div>}
                 </div>
               </div>
             );
@@ -365,13 +365,13 @@ export default function HistoryBoardPage() {
           <div className="card" style={{ overflow: 'hidden' }}>
             {loading ? (
               <div style={{ padding: 60, textAlign: 'center' }}>
-                <Spin size={20} /><div style={{ marginTop: 10, color: '#86909c', fontSize: 13 }}>加载中...</div>
+                <Spin size={20} /><div style={{ marginTop: 10, color: 'var(--color-text-3)', fontSize: 13 }}>加载中...</div>
               </div>
             ) : data.length === 0 ? (
               <div style={{ padding: 80, textAlign: 'center' }}>
                 <div style={{ fontSize: 40, marginBottom: 12 }}>📅</div>
-                <div style={{ fontSize: 15, fontWeight: 600, color: '#1d2129' }}>暂无数据</div>
-                <div style={{ fontSize: 13, color: '#86909c', marginTop: 4 }}>选择上方日期查看历史榜单</div>
+                <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--color-text-1)' }}>暂无数据</div>
+                <div style={{ fontSize: 13, color: 'var(--color-text-3)', marginTop: 4 }}>选择上方日期查看历史榜单</div>
               </div>
             ) : (
               <>
@@ -403,7 +403,7 @@ export default function HistoryBoardPage() {
             </div>
             <div className="card-body" style={{ padding: 0 }}>
               {newEntries.length === 0 ? (
-                <div style={{ padding: 24, textAlign: 'center', color: '#86909c', fontSize: 13 }}>
+                <div style={{ padding: 24, textAlign: 'center', color: 'var(--color-text-3)', fontSize: 13 }}>
                   {prevDate ? `相比 ${prevDate} 无新增` : '暂无对比数据'}
                 </div>
               ) : (
@@ -422,7 +422,7 @@ export default function HistoryBoardPage() {
             </div>
             <div className="card-body" style={{ padding: 0 }}>
               {removedEntries.length === 0 ? (
-                <div style={{ padding: 24, textAlign: 'center', color: '#86909c', fontSize: 13 }}>
+                <div style={{ padding: 24, textAlign: 'center', color: 'var(--color-text-3)', fontSize: 13 }}>
                   {prevDate ? `相比 ${prevDate} 无剔除` : '暂无对比数据'}
                 </div>
               ) : (

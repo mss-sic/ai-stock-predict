@@ -86,7 +86,7 @@ export default function WatchlistPage() {
   };
 
   const fmtPct = (v: number) => {
-    if (!v || v === 0) return <span style={{ color: '#86909c' }}>0.00%</span>;
+    if (!v || v === 0) return <span style={{ color: 'var(--color-text-3)' }}>0.00%</span>;
     const positive = v > 0;
     return (
       <span style={{ color: positive ? '#f53f3f' : '#00b42a', display: 'flex', alignItems: 'center', gap: 2 }}>
@@ -96,13 +96,13 @@ export default function WatchlistPage() {
     );
   };
 
-  const th: React.CSSProperties = { padding: '10px 14px', textAlign: 'left', color: '#86909c', fontWeight: 600, fontSize: 11 };
-  const td: React.CSSProperties = { padding: '10px 14px', color: '#4e5969' };
+  const th: React.CSSProperties = { padding: '10px 14px', textAlign: 'left', color: 'var(--color-text-3)', fontWeight: 600, fontSize: 11 };
+  const td: React.CSSProperties = { padding: '10px 14px', color: 'var(--color-text-2)' };
 
   return (
     <div style={{ padding: '0 0 40px' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-        <h2 style={{ color: '#1d2129', fontSize: 18, fontWeight: 700, margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+        <h2 style={{ color: 'var(--color-text-1)', fontSize: 18, fontWeight: 700, margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
           <Star size={18} color="#f7ba1e" /> 自选股
         </h2>
         <div style={{ display: 'flex', gap: 8 }}>
@@ -120,7 +120,7 @@ export default function WatchlistPage() {
           style={{
             padding: '6px 14px', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 13,
             background: activeGroup === 'all' ? '#165dff' : '#f2f3f5',
-            color: activeGroup === 'all' ? '#fff' : '#4e5969',
+            color: activeGroup === 'all' ? '#fff' : 'var(--color-text-2)',
             fontWeight: activeGroup === 'all' ? 600 : 400,
             transition: 'all 0.15s',
           }}
@@ -132,7 +132,7 @@ export default function WatchlistPage() {
               style={{
                 padding: '6px 14px', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 13,
                 background: activeGroup === String(g.id) ? '#165dff' : '#f2f3f5',
-                color: activeGroup === String(g.id) ? '#fff' : '#4e5969',
+                color: activeGroup === String(g.id) ? '#fff' : 'var(--color-text-2)',
                 fontWeight: activeGroup === String(g.id) ? 600 : 400,
                 transition: 'all 0.15s',
               }}
@@ -171,7 +171,7 @@ export default function WatchlistPage() {
       <div style={{ borderRadius: 10, overflow: 'hidden', border: '1px solid #e5e6eb' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
           <thead>
-            <tr style={{ background: '#f7f8fa' }}>
+            <tr style={{ background: 'var(--color-fill-2)' }}>
               <th style={th}>股票</th>
               <th style={th}>现价</th>
               <th style={th}>自选价</th>
@@ -189,14 +189,14 @@ export default function WatchlistPage() {
             {stocks.map(s => (
               <tr key={s.stockCode} style={{ borderBottom: '1px solid #f2f3f5', cursor: 'pointer' }}
                 onClick={() => navigate(`/stock/${s.stockCode}`)}>
-                <td style={{ ...td, fontWeight: 600, color: '#1d2129' }}>
+                <td style={{ ...td, fontWeight: 600, color: 'var(--color-text-1)' }}>
                   {s.stockName}
-                  <span style={{ fontSize: 11, color: '#86909c', marginLeft: 6, fontFamily: 'monospace' }}>{s.stockCode}</span>
+                  <span style={{ fontSize: 11, color: 'var(--color-text-3)', marginLeft: 6, fontFamily: 'monospace' }}>{s.stockCode}</span>
                 </td>
                 <td style={{ ...td, fontFamily: 'monospace' }}>{s.close > 0 ? s.close.toFixed(2) : '-'}</td>
                 <td style={{ ...td, fontFamily: 'monospace' }}>{s.addedPrice > 0 ? s.addedPrice.toFixed(2) : '-'}</td>
                 <td style={td}>{fmtPct(s.yield)}</td>
-                <td style={{ ...td, color: '#86909c' }}>{s.addedAt}</td>
+                <td style={{ ...td, color: 'var(--color-text-3)' }}>{s.addedAt}</td>
                 <td style={{ ...td, textAlign: 'center' }}>
                   <Popconfirm
                     title={`确认将「${s.stockName}」移出自选？`}
@@ -231,7 +231,7 @@ export default function WatchlistPage() {
           maxLength={20}
           onKeyDown={e => { if (e.key === 'Enter') handleAddGroup(); }}
         />
-        <div style={{ color: '#86909c', fontSize: 11, marginTop: 6 }}>最多 20 个分组（当前 {groups.length} 个）</div>
+        <div style={{ color: 'var(--color-text-3)', fontSize: 11, marginTop: 6 }}>最多 20 个分组（当前 {groups.length} 个）</div>
       </Modal>
     </div>
   );

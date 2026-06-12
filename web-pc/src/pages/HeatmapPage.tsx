@@ -26,11 +26,11 @@ function chgCell(chg: number): { bg: string; fg: string } {
     const a = 0.16 + t * 0.78;
     return { bg: `rgba(0, 180, 42, ${a.toFixed(3)})`, fg: a > 0.5 ? '#fff' : 'rgb(0,128,38)' };
   }
-  return { bg: '#f2f3f5', fg: '#86909c' };
+  return { bg: '#f2f3f5', fg: 'var(--color-text-3)' };
 }
 
 function scoreBg(score: number): { bg: string; fg: string } {
-  if (score <= 0) return { bg: '#f2f3f5', fg: '#86909c' };
+  if (score <= 0) return { bg: '#f2f3f5', fg: 'var(--color-text-3)' };
   const t = Math.min(1, (score - 60) / 39);
   const a = 0.22 + t * 0.74;
   return { bg: `rgba(22, 93, 255, ${a.toFixed(3)})`, fg: t > 0.55 ? '#fff' : 'rgb(15,65,200)' };
@@ -120,19 +120,19 @@ export default function HeatmapPage() {
           padding: '12px 18px', display: 'flex', alignItems: 'center', gap: 14,
           background: '#fff', borderRadius: 6, border: '1px solid #e5e6eb',
         }}>
-          <span style={{ fontSize: 16, fontWeight: 600, color: '#1d2129' }}>20 交易日上榜热力图</span>
-          <span style={{ fontSize: 12, color: '#86909c' }}>按日成列 · 单元格颜色 = 当日涨跌幅</span>
+          <span style={{ fontSize: 16, fontWeight: 600, color: 'var(--color-text-1)' }}>20 交易日上榜热力图</span>
+          <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>按日成列 · 单元格颜色 = 当日涨跌幅</span>
           <div style={{ flex: 1 }} />
           <div style={{ display: 'flex', borderRadius: 4, overflow: 'hidden', border: '1px solid #e5e6eb' }}>
             <button onClick={() => setView('calendar')} style={{
               padding: '5px 14px', fontSize: 12, border: 'none', cursor: 'pointer',
               background: view === 'calendar' ? '#e8f3ff' : '#fff',
-              color: view === 'calendar' ? '#165dff' : '#4e5969', fontWeight: view === 'calendar' ? 500 : 400,
+              color: view === 'calendar' ? '#165dff' : 'var(--color-text-2)', fontWeight: view === 'calendar' ? 500 : 400,
             }}>榜单日历</button>
             <button onClick={() => setView('matrix')} style={{
               padding: '5px 14px', fontSize: 12, border: 'none', cursor: 'pointer',
               background: view === 'matrix' ? '#e8f3ff' : '#fff',
-              color: view === 'matrix' ? '#165dff' : '#4e5969', fontWeight: view === 'matrix' ? 500 : 400,
+              color: view === 'matrix' ? '#165dff' : 'var(--color-text-2)', fontWeight: view === 'matrix' ? 500 : 400,
               borderLeft: '1px solid #e5e6eb',
             }}>矩阵热力</button>
           </div>
@@ -156,10 +156,10 @@ export default function HeatmapPage() {
                     }}>
                       <div style={{
                         fontSize: 13, fontWeight: 600,
-                        color: isToday ? '#165dff' : '#1d2129',
+                        color: isToday ? '#165dff' : 'var(--color-text-1)',
                         fontFamily: 'var(--font-family-mono, monospace)',
                       }}>{c.date}</div>
-                      <div style={{ fontSize: 11, color: '#86909c', marginTop: 2 }}>
+                      <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginTop: 2 }}>
                         <span style={{ color: '#f53f3f', fontWeight: 500 }}>涨{c.upN}</span>
                         <span style={{ margin: '0 4px', color: '#c9cdd4' }}>/</span>
                         <span style={{ color: '#00b42a', fontWeight: 500 }}>跌{c.members.length - c.upN}</span>
@@ -203,7 +203,7 @@ export default function HeatmapPage() {
         <div style={{
           padding: '10px 18px', display: 'flex', alignItems: 'center', gap: 16,
           background: '#fff', borderRadius: 6, border: '1px solid #e5e6eb',
-          fontSize: 12, color: '#4e5969',
+          fontSize: 12, color: 'var(--color-text-2)',
         }}>
           <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
             <span style={{ width: 14, height: 14, borderRadius: 3, background: 'rgba(245,63,63,0.94)' }} />
@@ -238,7 +238,7 @@ export default function HeatmapPage() {
             <span style={{ width: 14, height: 14, borderRadius: 3, background: 'rgba(22,93,255,0.40)' }} />
             评分70+
           </span>
-          <span style={{ color: '#86909c' }}>红色越深涨幅越大 · 绿色越深跌幅越大</span>
+          <span style={{ color: 'var(--color-text-3)' }}>红色越深涨幅越大 · 绿色越深跌幅越大</span>
         </div>
       </div>
     );
@@ -257,8 +257,8 @@ export default function HeatmapPage() {
         padding: '12px 18px', display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap',
         background: '#fff', borderRadius: 6, border: '1px solid #e5e6eb',
       }}>
-        <span style={{ fontSize: 16, fontWeight: 600, color: '#1d2129' }}>20 交易日上榜热力图</span>
-        <span style={{ fontSize: 12, color: '#86909c' }}>
+        <span style={{ fontSize: 16, fontWeight: 600, color: 'var(--color-text-1)' }}>20 交易日上榜热力图</span>
+        <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>
           {colorBy === 'chg' ? '单元格颜色 = 当日涨跌幅' : '单元格颜色 = 当日算法评分'}
         </span>
         <div style={{ flex: 1 }} />
@@ -266,12 +266,12 @@ export default function HeatmapPage() {
           <button onClick={() => setView('calendar')} style={{
             padding: '5px 14px', fontSize: 12, border: 'none', cursor: 'pointer',
             background: view === 'calendar' ? '#e8f3ff' : '#fff',
-            color: view === 'calendar' ? '#165dff' : '#4e5969',
+            color: view === 'calendar' ? '#165dff' : 'var(--color-text-2)',
           }}>榜单日历</button>
           <button onClick={() => setView('matrix')} style={{
             padding: '5px 14px', fontSize: 12, border: 'none', cursor: 'pointer',
             background: view === 'matrix' ? '#e8f3ff' : '#fff',
-            color: view === 'matrix' ? '#165dff' : '#4e5969', fontWeight: view === 'matrix' ? 500 : 400,
+            color: view === 'matrix' ? '#165dff' : 'var(--color-text-2)', fontWeight: view === 'matrix' ? 500 : 400,
             borderLeft: '1px solid #e5e6eb',
           }}>矩阵热力</button>
         </div>
@@ -279,12 +279,12 @@ export default function HeatmapPage() {
           <button onClick={() => setColorBy('chg')} style={{
             padding: '5px 14px', fontSize: 12, border: 'none', cursor: 'pointer',
             background: colorBy === 'chg' ? '#e8f3ff' : '#fff',
-            color: colorBy === 'chg' ? '#165dff' : '#4e5969', fontWeight: colorBy === 'chg' ? 500 : 400,
+            color: colorBy === 'chg' ? '#165dff' : 'var(--color-text-2)', fontWeight: colorBy === 'chg' ? 500 : 400,
           }}>按涨跌幅</button>
           <button onClick={() => setColorBy('score')} style={{
             padding: '5px 14px', fontSize: 12, border: 'none', cursor: 'pointer',
             background: colorBy === 'score' ? '#e8f3ff' : '#fff',
-            color: colorBy === 'score' ? '#165dff' : '#4e5969', fontWeight: colorBy === 'score' ? 500 : 400,
+            color: colorBy === 'score' ? '#165dff' : 'var(--color-text-2)', fontWeight: colorBy === 'score' ? 500 : 400,
             borderLeft: '1px solid #e5e6eb',
           }}>按评分</button>
         </div>
@@ -292,18 +292,18 @@ export default function HeatmapPage() {
           <button onClick={() => setSortKey('appearances')} style={{
             padding: '5px 14px', fontSize: 12, border: 'none', cursor: 'pointer',
             background: sortKey === 'appearances' ? '#e8f3ff' : '#fff',
-            color: sortKey === 'appearances' ? '#165dff' : '#4e5969', fontWeight: sortKey === 'appearances' ? 500 : 400,
+            color: sortKey === 'appearances' ? '#165dff' : 'var(--color-text-2)', fontWeight: sortKey === 'appearances' ? 500 : 400,
           }}>排:上榜</button>
           <button onClick={() => setSortKey('streak')} style={{
             padding: '5px 14px', fontSize: 12, border: 'none', cursor: 'pointer',
             background: sortKey === 'streak' ? '#e8f3ff' : '#fff',
-            color: sortKey === 'streak' ? '#165dff' : '#4e5969', fontWeight: sortKey === 'streak' ? 500 : 400,
+            color: sortKey === 'streak' ? '#165dff' : 'var(--color-text-2)', fontWeight: sortKey === 'streak' ? 500 : 400,
             borderLeft: '1px solid #e5e6eb',
           }}>排:连榜</button>
           <button onClick={() => setSortKey('score')} style={{
             padding: '5px 14px', fontSize: 12, border: 'none', cursor: 'pointer',
             background: sortKey === 'score' ? '#e8f3ff' : '#fff',
-            color: sortKey === 'score' ? '#165dff' : '#4e5969', fontWeight: sortKey === 'score' ? 500 : 400,
+            color: sortKey === 'score' ? '#165dff' : 'var(--color-text-2)', fontWeight: sortKey === 'score' ? 500 : 400,
             borderLeft: '1px solid #e5e6eb',
           }}>排:评分</button>
         </div>
@@ -319,16 +319,16 @@ export default function HeatmapPage() {
           {/* header row: stock name + date columns */}
           <div style={{
             display: 'flex', borderBottom: '2px solid #e5e6eb',
-            background: '#f7f8fa', position: 'sticky', top: 0, zIndex: 2,
+            background: 'var(--color-fill-2)', position: 'sticky', top: 0, zIndex: 2,
           }}>
             {/* stock name header */}
             <div style={{
               width: 120, flex: 'none', padding: '8px 12px',
-              fontSize: 12, fontWeight: 600, color: '#4e5969',
+              fontSize: 12, fontWeight: 600, color: 'var(--color-text-2)',
               borderRight: '1px solid #e5e6eb', display: 'flex', alignItems: 'center', gap: 4,
             }}>
               <span>{sortedStocks.length} 股</span>
-              <span style={{ fontSize: 10, color: '#86909c', fontWeight: 400 }}>
+              <span style={{ fontSize: 10, color: 'var(--color-text-3)', fontWeight: 400 }}>
                 (上榜{maxAppear}/{dates.length})
               </span>
             </div>
@@ -338,7 +338,7 @@ export default function HeatmapPage() {
                 <div key={d} style={{
                   width: 40, flex: 'none', padding: '8px 0', textAlign: 'center',
                   fontSize: 11, fontWeight: isToday ? 600 : 400,
-                  color: isToday ? '#165dff' : '#86909c',
+                  color: isToday ? '#165dff' : 'var(--color-text-3)',
                   borderLeft: '1px solid #f2f3f5',
                   fontFamily: 'var(--font-family-mono, monospace)',
                 }}>
@@ -360,13 +360,13 @@ export default function HeatmapPage() {
                 {/* stock name */}
                 <div style={{
                   width: 120, flex: 'none', padding: '6px 12px',
-                  fontSize: 12, color: '#1d2129',
+                  fontSize: 12, color: 'var(--color-text-1)',
                   borderRight: '1px solid #f2f3f5',
                   display: 'flex', alignItems: 'center', gap: 6,
                   cursor: 'pointer',
                 }} onClick={() => navigate(`/stock/${s.code}`)}>
                   <span style={{ fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.name}</span>
-                  <span style={{ fontSize: 10, color: '#86909c', fontFamily: 'var(--font-family-mono, monospace)', whiteSpace: 'nowrap' }}>{s.code}</span>
+                  <span style={{ fontSize: 10, color: 'var(--color-text-3)', fontFamily: 'var(--font-family-mono, monospace)', whiteSpace: 'nowrap' }}>{s.code}</span>
                 </div>
 
                 {/* cells */}
@@ -379,7 +379,7 @@ export default function HeatmapPage() {
                       }}>
                         <div style={{
                           width: 30, height: 22, margin: '0 auto',
-                          borderRadius: 3, background: '#f7f8fa',
+                          borderRadius: 3, background: 'var(--color-fill-2)',
                           display: 'flex', alignItems: 'center', justifyContent: 'center',
                         }}>
                           <span style={{ fontSize: 9, color: '#c9cdd4' }}>—</span>
@@ -427,39 +427,39 @@ export default function HeatmapPage() {
           <div style={{ background: '#fff', borderRadius: 6, border: '1px solid #e5e6eb' }}>
             <div style={{
               padding: '10px 14px', borderBottom: '1px solid #e5e6eb',
-              fontSize: 13, fontWeight: 600, color: '#1d2129',
+              fontSize: 13, fontWeight: 600, color: 'var(--color-text-1)',
             }}>
               {hover ? hover.cell.stockName : '悬停查看明细'}
             </div>
             <div style={{ padding: '12px 14px' }}>
               {hover ? (
                 <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', rowGap: 8, columnGap: 12, fontSize: 13 }}>
-                  <span style={{ color: '#86909c' }}>日期</span>
-                  <span style={{ fontFamily: 'var(--font-family-mono, monospace)', color: '#1d2129' }}>{dates[hover.colIdx]}</span>
-                  <span style={{ color: '#86909c' }}>状态</span>
+                  <span style={{ color: 'var(--color-text-3)' }}>日期</span>
+                  <span style={{ fontFamily: 'var(--font-family-mono, monospace)', color: 'var(--color-text-1)' }}>{dates[hover.colIdx]}</span>
+                  <span style={{ color: 'var(--color-text-3)' }}>状态</span>
                   <span style={{ color: '#f53f3f', fontWeight: 500 }}>在榜 #{hover.cell.rank}</span>
-                  <span style={{ color: '#86909c' }}>涨跌</span>
+                  <span style={{ color: 'var(--color-text-3)' }}>涨跌</span>
                   <span style={{
                     fontFamily: 'var(--font-family-mono, monospace)',
                     color: hover.cell.chgPct >= 0 ? '#f53f3f' : '#00b42a', fontWeight: 500,
                   }}>
                     {hover.cell.chgPct >= 0 ? '+' : ''}{hover.cell.chgPct.toFixed(2)}%
                   </span>
-                  <span style={{ color: '#86909c' }}>评分</span>
-                  <span style={{ fontFamily: 'var(--font-family-mono, monospace)', color: '#1d2129' }}>
+                  <span style={{ color: 'var(--color-text-3)' }}>评分</span>
+                  <span style={{ fontFamily: 'var(--font-family-mono, monospace)', color: 'var(--color-text-1)' }}>
                     {(hover.cell.score || (100 - (hover.cell.rank - 1) * 2)).toFixed(0)}
                   </span>
-                  <span style={{ color: '#86909c' }}>累计上榜</span>
-                  <span style={{ fontWeight: 500, color: '#1d2129' }}>{hover.row.appearances} / {dates.length} 日</span>
-                  <span style={{ color: '#86909c' }}>当前连榜</span>
-                  <span style={{ fontWeight: 600, color: hover.row.latestStreak >= 5 ? '#f53f3f' : '#1d2129' }}>
+                  <span style={{ color: 'var(--color-text-3)' }}>累计上榜</span>
+                  <span style={{ fontWeight: 500, color: 'var(--color-text-1)' }}>{hover.row.appearances} / {dates.length} 日</span>
+                  <span style={{ color: 'var(--color-text-3)' }}>当前连榜</span>
+                  <span style={{ fontWeight: 600, color: hover.row.latestStreak >= 5 ? '#f53f3f' : 'var(--color-text-1)' }}>
                     {hover.row.latestStreak} 日
                   </span>
-                  <span style={{ color: '#86909c' }}>历史最长</span>
-                  <span style={{ fontWeight: 500, color: '#1d2129' }}>{hover.row.maxStreak} 日</span>
+                  <span style={{ color: 'var(--color-text-3)' }}>历史最长</span>
+                  <span style={{ fontWeight: 500, color: 'var(--color-text-1)' }}>{hover.row.maxStreak} 日</span>
                 </div>
               ) : (
-                <p style={{ fontSize: 12, color: '#86909c', margin: 0, lineHeight: '20px' }}>
+                <p style={{ fontSize: 12, color: 'var(--color-text-3)', margin: 0, lineHeight: '20px' }}>
                   将鼠标移到任意单元格，查看该股在某交易日的上榜状态、涨跌幅与算法评分。
                 </p>
               )}
@@ -472,8 +472,8 @@ export default function HeatmapPage() {
               padding: '10px 14px', borderBottom: '1px solid #e5e6eb',
               display: 'flex', alignItems: 'center', gap: 8,
             }}>
-              <span style={{ fontSize: 13, fontWeight: 600, color: '#1d2129' }}>上榜次数分布</span>
-              <span style={{ fontSize: 11, color: '#86909c' }}>{dates.length}个交易日</span>
+              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-1)' }}>上榜次数分布</span>
+              <span style={{ fontSize: 11, color: 'var(--color-text-3)' }}>{dates.length}个交易日</span>
             </div>
             <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 7 }}>
               {Object.entries(dist)
@@ -486,7 +486,7 @@ export default function HeatmapPage() {
                       display: 'grid', gridTemplateColumns: '40px 1fr 24px',
                       alignItems: 'center', gap: 8, fontSize: 12,
                     }}>
-                      <span style={{ color: '#4e5969' }}>
+                      <span style={{ color: 'var(--color-text-2)' }}>
                         <b style={{ fontFamily: 'var(--font-family-mono, monospace)' }}>{k}</b> 次
                       </span>
                       <div style={{ height: 10, background: '#f2f3f5', borderRadius: 2, overflow: 'hidden' }}>
@@ -495,7 +495,7 @@ export default function HeatmapPage() {
                           background: `rgba(22, 93, 255, ${0.3 + (k / 20) * 0.6})`, borderRadius: 2,
                         }} />
                       </div>
-                      <span style={{ textAlign: 'right', color: '#86909c', fontSize: 11, fontFamily: 'var(--font-family-mono, monospace)' }}>
+                      <span style={{ textAlign: 'right', color: 'var(--color-text-3)', fontSize: 11, fontFamily: 'var(--font-family-mono, monospace)' }}>
                         {v}
                       </span>
                     </div>
@@ -508,7 +508,7 @@ export default function HeatmapPage() {
           <div style={{ background: '#fff', borderRadius: 6, border: '1px solid #e5e6eb' }}>
             <div style={{
               padding: '10px 14px', borderBottom: '1px solid #e5e6eb',
-              fontSize: 13, fontWeight: 600, color: '#1d2129',
+              fontSize: 13, fontWeight: 600, color: 'var(--color-text-1)',
             }}>
               连榜王 Top 8
             </div>
@@ -522,10 +522,10 @@ export default function HeatmapPage() {
                     borderBottom: i === streakLeaders.length - 1 ? 'none' : '1px solid #f2f3f5',
                     fontSize: 13, transition: 'background 100ms',
                   }}
-                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#f7f8fa'; }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'var(--color-fill-2)'; }}
                   onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = ''; }}
                 >
-                  <span style={{ width: 16, fontSize: 11, color: '#86909c' }}>{i + 1}</span>
+                  <span style={{ width: 16, fontSize: 11, color: 'var(--color-text-3)' }}>{i + 1}</span>
                   <span style={{ flex: 1, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.name}</span>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
                     <Flame size={12} color={s.latestStreak >= 5 ? '#f53f3f' : '#ff7d00'} />
@@ -533,7 +533,7 @@ export default function HeatmapPage() {
                       fontWeight: 600, fontSize: 12, fontFamily: 'var(--font-family-mono, monospace)',
                       color: s.latestStreak >= 5 ? '#f53f3f' : '#ff7d00',
                     }}>{s.latestStreak}</span>
-                    <span style={{ fontSize: 11, color: '#86909c' }}>连榜</span>
+                    <span style={{ fontSize: 11, color: 'var(--color-text-3)' }}>连榜</span>
                   </div>
                 </div>
               ))}
@@ -546,7 +546,7 @@ export default function HeatmapPage() {
       <div style={{
         padding: '10px 18px', display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap',
         background: '#fff', borderRadius: 6, border: '1px solid #e5e6eb',
-        fontSize: 12, color: '#4e5969',
+        fontSize: 12, color: 'var(--color-text-2)',
       }}>
         {colorBy === 'chg' ? (
           <>
@@ -562,9 +562,9 @@ export default function HeatmapPage() {
             <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
               <span style={{ width: 14, height: 14, borderRadius: 3, background: 'rgba(0,180,42,0.94)' }} />跌≥9%
             </span>
-            <span style={{ width: 1, height: 18, background: '#e5e6eb' }} />
+            <span style={{ width: 1, height: 18, background: 'var(--color-border-1)' }} />
             <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <span style={{ width: 14, height: 14, borderRadius: 3, background: '#f7f8fa', border: '1px solid #e5e6eb' }} />未上榜
+              <span style={{ width: 14, height: 14, borderRadius: 3, background: 'var(--color-fill-2)', border: '1px solid #e5e6eb' }} />未上榜
             </span>
           </>
         ) : (
@@ -578,14 +578,14 @@ export default function HeatmapPage() {
             <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
               <span style={{ width: 14, height: 14, borderRadius: 3, background: 'rgba(22,93,255,0.25)' }} />低评分
             </span>
-            <span style={{ width: 1, height: 18, background: '#e5e6eb' }} />
+            <span style={{ width: 1, height: 18, background: 'var(--color-border-1)' }} />
             <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <span style={{ width: 14, height: 14, borderRadius: 3, background: '#f7f8fa', border: '1px solid #e5e6eb' }} />未上榜
+              <span style={{ width: 14, height: 14, borderRadius: 3, background: 'var(--color-fill-2)', border: '1px solid #e5e6eb' }} />未上榜
             </span>
           </>
         )}
         <span style={{ flex: 1 }} />
-        <span style={{ color: '#86909c' }}>
+        <span style={{ color: 'var(--color-text-3)' }}>
           {colorBy === 'chg' ? '红色越深涨幅越大 · 绿色越深跌幅越大' : '蓝色越深评分越高'}
         </span>
       </div>

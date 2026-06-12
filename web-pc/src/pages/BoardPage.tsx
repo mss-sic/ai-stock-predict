@@ -67,21 +67,21 @@ export default function BoardPage() {
         if (v === 1) return <span style={{ color: '#f53f3f', fontWeight: 700, fontSize: 16 }}>🥇</span>;
         if (v === 2) return <span style={{ color: '#ff7d00', fontWeight: 700, fontSize: 16 }}>🥈</span>;
         if (v === 3) return <span style={{ color: '#ffb400', fontWeight: 700, fontSize: 16 }}>🥉</span>;
-        return <span style={{ color: '#86909c', fontWeight: 500 }}>{v}</span>;
+        return <span style={{ color: 'var(--color-text-3)', fontWeight: 500 }}>{v}</span>;
       },
     },
     {
       title: '股票', dataIndex: 'stockCode', width: 160,
       render: (_: string, record: BoardItem) => (
         <div style={{ cursor: 'pointer' }} onClick={() => navigate(`/stock/${record.stockCode}`)}>
-          <div style={{ fontWeight: 600, fontSize: 14, color: '#1d2129' }}>{record.stockName || record.stockCode}</div>
-          <div style={{ fontSize: 11, color: '#86909c', marginTop: 1 }}>{record.stockCode}</div>
+          <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--color-text-1)' }}>{record.stockName || record.stockCode}</div>
+          <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginTop: 1 }}>{record.stockCode}</div>
         </div>
       ),
     },
     {
       title: '行业', dataIndex: 'industry', width: 90,
-      render: (v: string) => v ? <span style={{ fontSize: 12, color: '#4e5969' }}>{v}</span> : <span className="muted">-</span>,
+      render: (v: string) => v ? <span style={{ fontSize: 12, color: 'var(--color-text-2)' }}>{v}</span> : <span className="muted">-</span>,
     },
     {
       title: '收盘', dataIndex: 'close', width: 80, align: 'right' as const,
@@ -93,7 +93,7 @@ export default function BoardPage() {
       sorter: (a: BoardItem, b: BoardItem) => (a.chgPct || 0) - (b.chgPct || 0),
       render: (v: number) => {
         if (v === undefined || v === null) return <span className="muted">-</span>;
-        const color = v > 0 ? '#f53f3f' : v < 0 ? '#00b42a' : '#86909c';
+        const color = v > 0 ? '#f53f3f' : v < 0 ? '#00b42a' : 'var(--color-text-3)';
         const icon = v > 0 ? <TrendingUp size={12} /> : v < 0 ? <TrendingDown size={12} /> : <Minus size={12} />;
         return (
           <span style={{ color, fontWeight: 600, fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 2 }}>
@@ -200,7 +200,7 @@ export default function BoardPage() {
           {missingStats.name > 0 && <span><b>{missingStats.name}</b> 只缺名称（需运行股票列表同步）</span>}
           {missingStats.pe > 0 && <span>· <b>{missingStats.pe}</b> 只缺 PE/PB（需运行指标采集）</span>}
           {missingStats.industry > 0 && <span>· <b>{missingStats.industry}</b> 只缺行业（需运行行业采集）</span>}
-          <span style={{ marginLeft: 'auto', color: '#86909c', fontSize: 12 }}>
+          <span style={{ marginLeft: 'auto', color: 'var(--color-text-3)', fontSize: 12 }}>
             去 <Link to="/data" style={{ color: 'var(--arcoblue-6)' }}>数据管理</Link> 执行采集补全
           </span>
         </div>
@@ -222,8 +222,8 @@ export default function BoardPage() {
           empty={() => (
             <div style={{ padding: 64, textAlign: 'center' }}>
               <div style={{ fontSize: 40, marginBottom: 12 }}>📊</div>
-              <div style={{ fontSize: 15, fontWeight: 600, color: '#1d2129', marginBottom: 6 }}>暂无榜单数据</div>
-              <div style={{ fontSize: 13, color: '#86909c', lineHeight: 1.8 }}>
+              <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--color-text-1)', marginBottom: 6 }}>暂无榜单数据</div>
+              <div style={{ fontSize: 13, color: 'var(--color-text-3)', lineHeight: 1.8 }}>
                 请先通过 <Link to="/data" style={{ color: 'var(--arcoblue-6)' }}>数据管理</Link> 导入 Excel 文件<br/>
                 或触发数据采集后生成算法榜单
               </div>

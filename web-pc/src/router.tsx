@@ -26,10 +26,10 @@ import PkAdminPage from './pages/PkAdminPage';
 function ErrorBoundary() {
   const error = useRouteError() as any;
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#f0f4ff', gap: 12 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100vh', background: 'var(--color-fill-2)', gap: 12 }}>
       <span style={{ fontSize: 48 }}>😵</span>
-      <h2 style={{ color: '#1d2129', margin: 0 }}>页面出错了</h2>
-      <p style={{ color: '#86909c', fontSize: 13, maxWidth: 400, textAlign: 'center' }}>
+      <h2 style={{ color: 'var(--color-text-1)', margin: 0 }}>页面出错了</h2>
+      <p style={{ color: 'var(--color-text-3)', fontSize: 13, maxWidth: 400, textAlign: 'center' }}>
         {error?.status === 404 ? '页面不存在' : error?.message || '未知错误'}
       </p>
       <a href="/" style={{ color: '#165dff', fontSize: 13 }}>返回首页</a>
@@ -43,8 +43,8 @@ function ProtectedRoute() {
 
   if (loading) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#f0f4ff' }}>
-        <span style={{ color: '#86909c', fontSize: 14 }}>加载中...</span>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: 'var(--color-fill-2)' }}>
+        <span style={{ color: 'var(--color-text-3)', fontSize: 14 }}>加载中...</span>
       </div>
     );
   }

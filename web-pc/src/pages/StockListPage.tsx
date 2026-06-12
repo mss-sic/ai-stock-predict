@@ -80,7 +80,7 @@ export default function StockListPage() {
   const columns = [
     {
       title: '代码', dataIndex: 'code', width: 100,
-      render: (v: string) => <span style={{ fontFamily: 'monospace', fontWeight: 600, color: '#1d2129' }}>{v}</span>,
+      render: (v: string) => <span style={{ fontFamily: 'monospace', fontWeight: 600, color: 'var(--color-text-1)' }}>{v}</span>,
     },
     {
       title: '名称', dataIndex: 'name', width: 160,

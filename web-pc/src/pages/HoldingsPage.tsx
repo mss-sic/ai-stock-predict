@@ -107,7 +107,7 @@ export default function HoldingsPage() {
 
   const inp: React.CSSProperties = {
     width: '100%', padding: '8px 12px', borderRadius: 6, border: '1px solid #e5e6eb',
-    background: '#f7f8fa', color: '#1d2129', fontSize: 14, outline: 'none', boxSizing: 'border-box',
+    background: 'var(--color-fill-2)', color: 'var(--color-text-1)', fontSize: 14, outline: 'none', boxSizing: 'border-box',
   };
 
   return (
@@ -120,7 +120,7 @@ export default function HoldingsPage() {
       <div className="stat-grid mb16">
         <div className="stat-card">
           <div className="stat-label">总市值</div>
-          <div className="stat-value">{totalValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}<span style={{ fontSize: 14, color: '#86909c' }}> 元</span></div>
+          <div className="stat-value">{totalValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}<span style={{ fontSize: 14, color: 'var(--color-text-3)' }}> 元</span></div>
         </div>
         <div className="stat-card">
           <div className="stat-label">总盈亏</div>
@@ -133,14 +133,14 @@ export default function HoldingsPage() {
         </div>
         <div className="stat-card">
           <div className="stat-label">持仓数</div>
-          <div className="stat-value">{data.length}<span style={{ fontSize: 14, color: '#86909c' }}> 只</span></div>
+          <div className="stat-value">{data.length}<span style={{ fontSize: 14, color: 'var(--color-text-3)' }}> 只</span></div>
           <div className="stat-sub">
             <span style={{ color: '#f53f3f' }}>{upCount}盈</span> / <span style={{ color: '#00b42a' }}>{data.length - upCount}亏</span>
           </div>
         </div>
         <div className="stat-card">
           <div className="stat-label">持仓成本</div>
-          <div className="stat-value">{totalCost.toLocaleString(undefined, { maximumFractionDigits: 0 })}<span style={{ fontSize: 14, color: '#86909c' }}> 元</span></div>
+          <div className="stat-value">{totalCost.toLocaleString(undefined, { maximumFractionDigits: 0 })}<span style={{ fontSize: 14, color: 'var(--color-text-3)' }}> 元</span></div>
         </div>
       </div>
 
@@ -189,7 +189,7 @@ export default function HoldingsPage() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           {!editingId && (
             <div style={{ position: 'relative' }}>
-              <div style={{ fontSize: 12, color: '#86909c', marginBottom: 4 }}>股票代码/名称</div>
+              <div style={{ fontSize: 12, color: 'var(--color-text-3)', marginBottom: 4 }}>股票代码/名称</div>
               <Input
                 prefix={<Search size={14} color="#86909c" />}
                 placeholder="输入代码或名称搜索..."
@@ -226,12 +226,12 @@ export default function HoldingsPage() {
           )}
           {editingId && (
             <div>
-              <div style={{ fontSize: 12, color: '#86909c', marginBottom: 4 }}>股票</div>
+              <div style={{ fontSize: 12, color: 'var(--color-text-3)', marginBottom: 4 }}>股票</div>
               <div style={{ fontSize: 14, fontWeight: 600 }}>{formCode} {formName}</div>
             </div>
           )}
           <div>
-            <div style={{ fontSize: 12, color: '#86909c', marginBottom: 4 }}>成本价格 (元)</div>
+            <div style={{ fontSize: 12, color: 'var(--color-text-3)', marginBottom: 4 }}>成本价格 (元)</div>
             <InputNumber
               value={formCost}
               onChange={v => setFormCost(v || 0)}
@@ -243,7 +243,7 @@ export default function HoldingsPage() {
             />
           </div>
           <div>
-            <div style={{ fontSize: 12, color: '#86909c', marginBottom: 4 }}>持股数量 (股)</div>
+            <div style={{ fontSize: 12, color: 'var(--color-text-3)', marginBottom: 4 }}>持股数量 (股)</div>
             <InputNumber
               value={formQty}
               onChange={v => setFormQty(v || 0)}

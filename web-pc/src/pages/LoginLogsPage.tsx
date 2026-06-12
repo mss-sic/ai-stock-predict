@@ -18,7 +18,7 @@ interface LogEntry {
 
 const actionLabels: Record<string, { label: string; color: string; icon: any }> = {
   login: { label: '登录', color: '#00b42a', icon: LogIn },
-  logout: { label: '退出', color: '#86909c', icon: LogOut },
+  logout: { label: '退出', color: 'var(--color-text-3)', icon: LogOut },
   failed: { label: '失败', color: '#f53f3f', icon: AlertCircle },
   kicked: { label: '被踢', color: '#ff7d00', icon: UserX },
 };
@@ -42,12 +42,12 @@ export default function LoginLogsPage() {
   useEffect(() => { load(); }, [load]);
 
   if (!isAdmin) {
-    return <div style={{ padding: 40, color: '#86909c', textAlign: 'center' }}>仅管理员可访问</div>;
+    return <div style={{ padding: 40, color: 'var(--color-text-3)', textAlign: 'center' }}>仅管理员可访问</div>;
   }
 
   return (
     <div>
-      <h2 style={{ color: '#1d2129', fontSize: 18, fontWeight: 700, marginBottom: 20, display: 'flex', alignItems: 'center', gap: 8 }}>
+      <h2 style={{ color: 'var(--color-text-1)', fontSize: 18, fontWeight: 700, marginBottom: 20, display: 'flex', alignItems: 'center', gap: 8 }}>
         <History size={20} color="#165dff" /> 登录日志
       </h2>
 
@@ -74,14 +74,14 @@ export default function LoginLogsPage() {
             onChange={e => { setKeyword(e.target.value); setPage(1); }}
             style={{
               padding: '6px 12px', borderRadius: 6, border: '1px solid #e5e6eb',
-              background: '#f7f8fa', color: '#1d2129', fontSize: 13, width: 180,
+              background: 'var(--color-fill-2)', color: 'var(--color-text-1)', fontSize: 13, width: 180,
               outline: 'none',
             }}
             onFocus={e => { e.target.style.borderColor = '#165dff'; e.target.style.background = '#fff'; }}
-            onBlur={e => { e.target.style.borderColor = '#e5e6eb'; e.target.style.background = '#f7f8fa'; }}
+            onBlur={e => { e.target.style.borderColor = 'var(--color-border-1)'; e.target.style.background = 'var(--color-fill-2)'; }}
           />
           <span style={{ flex: 1 }} />
-          <span style={{ color: '#86909c', fontSize: 12 }}>共 {total} 条</span>
+          <span style={{ color: 'var(--color-text-3)', fontSize: 12 }}>共 {total} 条</span>
           <Pagination
             current={page} total={total} pageSize={30} size="small" simple
             onChange={(p) => setPage(p)}
@@ -93,7 +93,7 @@ export default function LoginLogsPage() {
       <div style={{ borderRadius: 10, overflow: 'hidden', border: '1px solid #e5e6eb' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
           <thead>
-            <tr style={{ background: '#f7f8fa' }}>
+            <tr style={{ background: 'var(--color-fill-2)' }}>
               <th style={th}>时间</th>
               <th style={th}>用户</th>
               <th style={th}>操作</th>
@@ -105,14 +105,14 @@ export default function LoginLogsPage() {
           </thead>
           <tbody>
             {logs.map(log => {
-              const act = actionLabels[log.action] || { label: log.action, color: '#86909c', icon: AlertCircle };
+              const act = actionLabels[log.action] || { label: log.action, color: 'var(--color-text-3)', icon: AlertCircle };
               const ActIcon = act.icon;
               return (
                 <tr key={log.id} style={{ borderBottom: '1px solid #f2f3f5' }}>
-                  <td style={{ ...td, color: '#86909c', whiteSpace: 'nowrap' }}>
+                  <td style={{ ...td, color: 'var(--color-text-3)', whiteSpace: 'nowrap' }}>
                     {new Date(log.createdAt).toLocaleString('zh-CN')}
                   </td>
-                  <td style={{ ...td, fontWeight: 600, color: '#1d2129' }}>{log.username}</td>
+                  <td style={{ ...td, fontWeight: 600, color: 'var(--color-text-1)' }}>{log.username}</td>
                   <td style={td}>
                     <span style={{ display: 'flex', alignItems: 'center', gap: 4, color: act.color }}>
                       <ActIcon size={13} /> {act.label}
@@ -124,8 +124,8 @@ export default function LoginLogsPage() {
                       : <span style={{ color: '#f53f3f', display: 'flex', alignItems: 'center', gap: 4 }}><XCircle size={12} /> 失败</span>
                     }
                   </td>
-                  <td style={{ ...td, fontFamily: 'monospace', fontSize: 11, color: '#86909c' }}>{log.ipAddress}</td>
-                  <td style={{ ...td, fontSize: 11, color: '#86909c', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <td style={{ ...td, fontFamily: 'monospace', fontSize: 11, color: 'var(--color-text-3)' }}>{log.ipAddress}</td>
+                  <td style={{ ...td, fontSize: 11, color: 'var(--color-text-3)', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {log.deviceInfo || '-'}
                   </td>
                   <td style={{ ...td, color: '#f53f3f', fontSize: 12 }}>{log.failReason || '-'}</td>
@@ -139,5 +139,5 @@ export default function LoginLogsPage() {
   );
 }
 
-const th: React.CSSProperties = { padding: '10px 14px', textAlign: 'left', color: '#86909c', fontWeight: 600, fontSize: 11, textTransform: 'uppercase' };
-const td: React.CSSProperties = { padding: '10px 14px', color: '#4e5969' };
+const th: React.CSSProperties = { padding: '10px 14px', textAlign: 'left', color: 'var(--color-text-3)', fontWeight: 600, fontSize: 11, textTransform: 'uppercase' };
+const td: React.CSSProperties = { padding: '10px 14px', color: 'var(--color-text-2)' };

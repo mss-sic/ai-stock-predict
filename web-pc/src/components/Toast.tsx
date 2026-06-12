@@ -62,7 +62,7 @@ export default function ToastContainer() {
             padding: '10px 16px', borderRadius: 8,
             background: c.bg, border: `1px solid ${c.border}`,
             boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
-            fontSize: 13, color: '#1d2129',
+            fontSize: 13, color: 'var(--color-text-1)',
             pointerEvents: 'auto',
             animation: 'toastSlideIn 0.3s ease',
             maxWidth: 480,
@@ -71,7 +71,7 @@ export default function ToastContainer() {
             <span style={{ flex: 1, lineHeight: 1.4 }}>{t.message}</span>
             <button onClick={() => remove(t.id)} style={{
               background: 'none', border: 'none', cursor: 'pointer', padding: 2,
-              color: '#86909c', flexShrink: 0,
+              color: 'var(--color-text-3)', flexShrink: 0,
             }}><X size={14} /></button>
           </div>
         );

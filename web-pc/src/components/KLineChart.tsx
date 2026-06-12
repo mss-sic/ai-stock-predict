@@ -97,7 +97,7 @@ export default function KLineChart({
   // Theme colors
   const chartBg = isDark ? '#1a1a2e' : '#fff';
   const gridColor = isDark ? '#2d2d44' : '#F2F3F5';
-  const textColor = isDark ? '#8a8d91' : '#86909c';
+  const textColor = isDark ? '#8a8d91' : 'var(--color-text-3)';
   const axisColor = isDark ? '#b0b3b8' : '#4E5969';
   const crosshairColor = isDark ? '#b0b3b8' : '#C9CDD4';
   const predBg = isDark ? '#16213e' : '#F7F8FA';
@@ -764,21 +764,21 @@ export default function KLineChart({
         <div style={{
           position: 'absolute', left: tooltipPos.x + 16, top: Math.min(tooltipPos.y - 80, height - 160),
           background: isDark ? 'rgba(0,0,0,0.94)' : 'rgba(255,255,255,0.96)',
-          color: isDark ? '#e5e6eb' : '#1d2129',
+          color: isDark ? 'var(--color-border-1)' : 'var(--color-text-1)',
           padding: '10px 14px', borderRadius: 8, fontSize: 12, lineHeight: '20px',
           pointerEvents: 'none', zIndex: 100, fontFamily: 'monospace', whiteSpace: 'nowrap',
           boxShadow: isDark ? '0 2px 12px rgba(0,0,0,0.3)' : '0 2px 12px rgba(0,0,0,0.12)',
           border: isDark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.06)',
         }}>
-          <div style={{ fontWeight: 600, marginBottom: 4, color: isDark ? '#a0a4a8' : '#4e5969' }}>{dateLabel(hoverIdx!)}</div>
+          <div style={{ fontWeight: 600, marginBottom: 4, color: isDark ? '#a0a4a8' : 'var(--color-text-2)' }}>{dateLabel(hoverIdx!)}</div>
           {hoverData ? (
             <>
-              <div>开 <span style={{ color: isDark ? '#e5e6eb' : '#1d2129', fontWeight: 500 }}>{hoverData?.open?.toFixed(2) ?? '-'}</span></div>
+              <div>开 <span style={{ color: isDark ? 'var(--color-border-1)' : 'var(--color-text-1)', fontWeight: 500 }}>{hoverData?.open?.toFixed(2) ?? '-'}</span></div>
               <div>高 <span style={{ color: UP, fontWeight: 500 }}>{hoverData?.high?.toFixed(2) ?? '-'}</span></div>
               <div>低 <span style={{ color: DOWN, fontWeight: 500 }}>{hoverData?.low?.toFixed(2) ?? '-'}</span></div>
               <div>收 <span style={{ color: (hoverData?.close ?? 0) >= (hoverData?.open ?? 0) ? UP : DOWN, fontWeight: 600, fontSize: 13 }}>{hoverData?.close?.toFixed(2) ?? '-'}</span></div>
-              <div style={{ marginTop: 4, color: isDark ? '#a0a4a8' : '#86909c' }}>量 {(hoverData?.volume || 0) >= 1e8 ? ((hoverData?.volume || 0) / 1e8).toFixed(2) + '亿' : ((hoverData?.volume || 0) / 1e4).toFixed(0) + '万手'}</div>
-              <div style={{ color: isDark ? '#a0a4a8' : '#86909c' }}>换手 {(hoverData?.turnoverRate || 0) > 0 ? ((hoverData?.turnoverRate || 0) * 100).toFixed(2) + '%' : '-'}</div>
+              <div style={{ marginTop: 4, color: isDark ? '#a0a4a8' : 'var(--color-text-3)' }}>量 {(hoverData?.volume || 0) >= 1e8 ? ((hoverData?.volume || 0) / 1e8).toFixed(2) + '亿' : ((hoverData?.volume || 0) / 1e4).toFixed(0) + '万手'}</div>
+              <div style={{ color: isDark ? '#a0a4a8' : 'var(--color-text-3)' }}>换手 {(hoverData?.turnoverRate || 0) > 0 ? ((hoverData?.turnoverRate || 0) * 100).toFixed(2) + '%' : '-'}</div>
             </>
           ) : (
             <>
@@ -786,7 +786,7 @@ export default function KLineChart({
               {hoverPreds.map((p, i) => (
                 <div key={i}>
                   <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: 3, background: p.color, marginRight: 6 }} />
-                  {p.name} <span style={{ color: isDark ? '#fff' : '#1d2129', fontWeight: 600 }}>{p.price!.toFixed(2)}</span>
+                  {p.name} <span style={{ color: isDark ? '#fff' : 'var(--color-text-1)', fontWeight: 600 }}>{p.price!.toFixed(2)}</span>
                 </div>
               ))}
             </>

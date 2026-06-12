@@ -50,10 +50,10 @@ export default function LoginPage() {
         {/* Logo */}
         <div style={{ textAlign: 'center', marginBottom: 28 }}>
           <LogoLarge />
-          <h1 style={{ color: '#1d2129', fontSize: 22, fontWeight: 700, marginTop: 12, marginBottom: 0 }}>
+          <h1 style={{ color: 'var(--color-text-1)', fontSize: 22, fontWeight: 700, marginTop: 12, marginBottom: 0 }}>
             智策投研
           </h1>
-          <p style={{ color: '#86909c', fontSize: 13, marginTop: 6 }}>
+          <p style={{ color: 'var(--color-text-3)', fontSize: 13, marginTop: 6 }}>
             股票数据分析平台 · 团队版
           </p>
         </div>
@@ -61,7 +61,7 @@ export default function LoginPage() {
         <form onSubmit={handleSubmit}>
           {/* Username */}
           <div style={{ marginBottom: 16 }}>
-            <label style={{ color: '#4e5969', fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 6 }}>
+            <label style={{ color: 'var(--color-text-2)', fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 6 }}>
               用户名
             </label>
             <div style={{ position: 'relative' }}>
@@ -73,19 +73,19 @@ export default function LoginPage() {
                 autoFocus autoComplete="username"
                 style={{
                   width: '100%', padding: '10px 14px 10px 38px', borderRadius: 8,
-                  border: '1px solid #e5e6eb', background: '#f7f8fa', color: '#1d2129',
+                  border: '1px solid #e5e6eb', background: 'var(--color-fill-2)', color: 'var(--color-text-1)',
                   fontSize: 15, outline: 'none', boxSizing: 'border-box',
                   transition: 'border-color 0.2s, box-shadow 0.2s',
                 }}
                 onFocus={e => { e.target.style.borderColor = '#165dff'; e.target.style.boxShadow = '0 0 0 2px rgba(22,93,255,0.1)'; e.target.style.background = '#fff'; }}
-                onBlur={e => { e.target.style.borderColor = '#e5e6eb'; e.target.style.boxShadow = 'none'; e.target.style.background = '#f7f8fa'; }}
+                onBlur={e => { e.target.style.borderColor = 'var(--color-border-1)'; e.target.style.boxShadow = 'none'; e.target.style.background = 'var(--color-fill-2)'; }}
               />
             </div>
           </div>
 
           {/* Password */}
           <div style={{ marginBottom: 8 }}>
-            <label style={{ color: '#4e5969', fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 6 }}>
+            <label style={{ color: 'var(--color-text-2)', fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 6 }}>
               密码
             </label>
             <div style={{ position: 'relative' }}>
@@ -97,12 +97,12 @@ export default function LoginPage() {
                 autoComplete="current-password"
                 style={{
                   width: '100%', padding: '10px 14px 10px 38px', borderRadius: 8,
-                  border: '1px solid #e5e6eb', background: '#f7f8fa', color: '#1d2129',
+                  border: '1px solid #e5e6eb', background: 'var(--color-fill-2)', color: 'var(--color-text-1)',
                   fontSize: 15, outline: 'none', boxSizing: 'border-box',
                   transition: 'border-color 0.2s, box-shadow 0.2s',
                 }}
                 onFocus={e => { e.target.style.borderColor = '#165dff'; e.target.style.boxShadow = '0 0 0 2px rgba(22,93,255,0.1)'; e.target.style.background = '#fff'; }}
-                onBlur={e => { e.target.style.borderColor = '#e5e6eb'; e.target.style.boxShadow = 'none'; e.target.style.background = '#f7f8fa'; }}
+                onBlur={e => { e.target.style.borderColor = 'var(--color-border-1)'; e.target.style.boxShadow = 'none'; e.target.style.background = 'var(--color-fill-2)'; }}
               />
             </div>
           </div>

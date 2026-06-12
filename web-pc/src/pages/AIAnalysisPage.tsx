@@ -148,7 +148,7 @@ export default function AIAnalysisPage() {
                 icon={<Trash2 size={14} />}
                 onClick={handleClear}
                 loading={clearing}
-                style={{ color: '#86909c' }}
+                style={{ color: 'var(--color-text-3)' }}
               />
             </Tooltip>
           )}

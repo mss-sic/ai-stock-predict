@@ -142,7 +142,7 @@ export default function AppLayout() {
               }}>
                 <button
                   onClick={() => { setShowUserMenu(false); navigate('/profile'); }}
-                  style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '8px 12px', border: 'none', background: 'none', color: '#4e5969', fontSize: 13, cursor: 'pointer', borderRadius: 6 }}
+                  style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '8px 12px', border: 'none', background: 'none', color: 'var(--color-text-2)', fontSize: 13, cursor: 'pointer', borderRadius: 6 }}
                   onMouseEnter={e => e.currentTarget.style.background = 'var(--color-fill-2)'}
                   onMouseLeave={e => e.currentTarget.style.background = 'none'}
                 >

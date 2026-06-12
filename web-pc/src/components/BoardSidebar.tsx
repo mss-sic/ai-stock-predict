@@ -108,8 +108,8 @@ export default function BoardSidebar({ stockCode, stockName }: BoardSidebarProps
                     style={{
                       width: 26, height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center',
                       border: 'none', borderRadius: 4, cursor: 'pointer',
-                      background: sortBy === opt.key ? '#f0f4ff' : 'transparent',
-                      color: sortBy === opt.key ? '#165dff' : '#86909c',
+                      background: sortBy === opt.key ? 'var(--arcoblue-1)' : 'transparent',
+                      color: sortBy === opt.key ? 'var(--arcoblue-6)' : 'var(--color-text-3)',
                       transition: 'all 0.15s',
                     }}
                   >
@@ -120,7 +120,7 @@ export default function BoardSidebar({ stockCode, stockName }: BoardSidebarProps
             </div>
           </>
         ) : (
-          <div style={{ fontSize: 12, color: '#86909c', textAlign: 'center', padding: '8px 0', flex: 1 }}>
+          <div style={{ fontSize: 12, color: 'var(--color-text-3)', textAlign: 'center', padding: '8px 0', flex: 1 }}>
             该股票近期未上榜
           </div>
         )}
@@ -129,13 +129,13 @@ export default function BoardSidebar({ stockCode, stockName }: BoardSidebarProps
       {/* Current stock rank summary */}
       {currentStockItem && (
         <div style={{
-          padding: '8px 14px', background: 'linear-gradient(135deg, #f3e8ff, #ede9fe)',
+          padding: '8px 14px', background: 'linear-gradient(135deg, var(--purple-1), #ede9fe)',
           borderBottom: '1px solid #e9d5ff', flexShrink: 0,
         }}>
-          <div style={{ fontSize: 11, color: '#7c3aed', marginBottom: 2 }}>当前排名</div>
+          <div style={{ fontSize: 11, color: 'var(--purple-6)', marginBottom: 2 }}>当前排名</div>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-            <span style={{ fontSize: 22, fontWeight: 700, color: '#6d28d9' }}>#{currentStockItem.rank}</span>
-            <span style={{ fontSize: 12, color: '#7c3aed' }}>评分 {currentStockItem.score?.toFixed(1)}</span>
+            <span style={{ fontSize: 22, fontWeight: 700, color: 'var(--purple-7)' }}>#{currentStockItem.rank}</span>
+            <span style={{ fontSize: 12, color: 'var(--purple-6)' }}>评分 {currentStockItem.score?.toFixed(1)}</span>
           </div>
           <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
             {currentStockItem.suggestion && (
@@ -144,10 +144,10 @@ export default function BoardSidebar({ stockCode, stockName }: BoardSidebarProps
                 {currentStockItem.suggestion}
               </Tag>
             )}
-            <span style={{ fontSize: 10, color: '#7c3aed' }}>
+            <span style={{ fontSize: 10, color: 'var(--purple-6)' }}>
               近20日上榜 <b>{currentStockItem.appearanceCount}</b> 次
             </span>
-            <span style={{ fontSize: 10, color: '#7c3aed' }}>
+            <span style={{ fontSize: 10, color: 'var(--purple-6)' }}>
               连续 <b>{currentStockItem.streakCount}</b> 天
             </span>
           </div>
@@ -159,14 +159,14 @@ export default function BoardSidebar({ stockCode, stockName }: BoardSidebarProps
         {loading ? (
           <div style={{ textAlign: 'center', padding: 24 }}><Spin /></div>
         ) : sortedItems.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: 20, color: '#86909c', fontSize: 12 }}>
+          <div style={{ textAlign: 'center', padding: 20, color: 'var(--color-text-3)', fontSize: 12 }}>
             {hasDates ? '暂无数据' : '该股票近期未上榜'}
           </div>
         ) : (
           <div style={{ padding: '4px 0' }}>
             {sortedItems.map((item) => {
               const isCurrent = item.stockCode === stockCode;
-              const chgColor = item.chgPct > 0 ? '#f53f3f' : item.chgPct < 0 ? '#00b42a' : '#86909c';
+              const chgColor = item.chgPct > 0 ? '#f53f3f' : item.chgPct < 0 ? '#00b42a' : 'var(--color-text-3)';
               const ChgIcon = item.chgPct > 0 ? TrendingUp : item.chgPct < 0 ? TrendingDown : Minus;
               return (
                 <div
@@ -175,12 +175,12 @@ export default function BoardSidebar({ stockCode, stockName }: BoardSidebarProps
                   style={{
                     display: 'flex', alignItems: 'center', gap: 6,
                     padding: '6px 14px', cursor: 'pointer',
-                    background: isCurrent ? '#f0f4ff' : 'transparent',
+                    background: isCurrent ? 'var(--arcoblue-1)' : 'transparent',
                     borderLeft: isCurrent ? '3px solid #165dff' : '3px solid transparent',
                     transition: 'background 0.15s',
                     fontSize: 12,
                   }}
-                  onMouseEnter={e => { if (!isCurrent) e.currentTarget.style.background = '#f7f8fa'; }}
+                  onMouseEnter={e => { if (!isCurrent) e.currentTarget.style.background = 'var(--color-fill-2)'; }}
                   onMouseLeave={e => { if (!isCurrent) e.currentTarget.style.background = 'transparent'; }}
                 >
                   {/* Rank badge */}
@@ -188,8 +188,8 @@ export default function BoardSidebar({ stockCode, stockName }: BoardSidebarProps
                     width: 22, height: 22, borderRadius: 4,
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     fontSize: 10, fontWeight: 700, flexShrink: 0,
-                    background: item.rank <= 3 ? '#f53f3f' : item.rank <= 10 ? '#ff7d00' : '#e5e6eb',
-                    color: item.rank <= 10 ? '#fff' : '#86909c',
+                    background: item.rank <= 3 ? '#f53f3f' : item.rank <= 10 ? 'var(--orange-6)' : 'var(--color-border-1)',
+                    color: item.rank <= 10 ? 'var(--color-white)' : 'var(--color-text-3)',
                   }}>
                     {item.rank}
                   </span>
@@ -197,20 +197,20 @@ export default function BoardSidebar({ stockCode, stockName }: BoardSidebarProps
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{
                       fontWeight: isCurrent ? 600 : 400,
-                      color: isCurrent ? '#165dff' : '#1d2129',
+                      color: isCurrent ? 'var(--arcoblue-6)' : 'var(--color-text-1)',
                       overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                     }}>
                       {item.stockName || item.stockCode}
                     </div>
-                    <div style={{ fontSize: 10, color: '#86909c', display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <div style={{ fontSize: 10, color: 'var(--color-text-3)', display: 'flex', alignItems: 'center', gap: 4 }}>
                       <span>{item.stockCode}</span>
                       {item.appearanceCount > 0 && (
-                        <span style={{ fontSize: 9, padding: '0 4px', borderRadius: 3, background: '#f3e8ff', color: '#7c3aed', fontWeight: 500, lineHeight: '16px' }}>
+                        <span style={{ fontSize: 9, padding: '0 4px', borderRadius: 3, background: 'var(--purple-1)', color: 'var(--purple-6)', fontWeight: 500, lineHeight: '16px' }}>
                           {item.appearanceCount}次
                         </span>
                       )}
                       {item.streakCount > 0 && (
-                        <span style={{ fontSize: 9, padding: '0 4px', borderRadius: 3, background: '#ffece8', color: '#cb272d', fontWeight: 500, lineHeight: '16px' }}>
+                        <span style={{ fontSize: 9, padding: '0 4px', borderRadius: 3, background: 'var(--red-1)', color: 'var(--red-7)', fontWeight: 500, lineHeight: '16px' }}>
                           {item.streakCount}天
                         </span>
                       )}

@@ -62,7 +62,7 @@ export default function RiskPage() {
             padding: '16px 20px', cursor: 'pointer', transition: 'all 0.15s',
           }}
         >
-          <div style={{ fontSize: 13, color: '#86909c', marginBottom: 6 }}>🔴 高风险</div>
+          <div style={{ fontSize: 13, color: 'var(--color-text-3)', marginBottom: 6 }}>🔴 高风险</div>
           <div style={{ fontSize: 28, fontWeight: 700, color: '#f53f3f' }}>{counts.high}</div>
         </div>
         <div
@@ -72,7 +72,7 @@ export default function RiskPage() {
             padding: '16px 20px', cursor: 'pointer', transition: 'all 0.15s',
           }}
         >
-          <div style={{ fontSize: 13, color: '#86909c', marginBottom: 6 }}>🟠 中风险</div>
+          <div style={{ fontSize: 13, color: 'var(--color-text-3)', marginBottom: 6 }}>🟠 中风险</div>
           <div style={{ fontSize: 28, fontWeight: 700, color: '#ff7d00' }}>{counts.medium}</div>
         </div>
         <div
@@ -82,14 +82,14 @@ export default function RiskPage() {
             padding: '16px 20px', cursor: 'pointer', transition: 'all 0.15s',
           }}
         >
-          <div style={{ fontSize: 13, color: '#86909c', marginBottom: 6 }}>🟢 低风险</div>
+          <div style={{ fontSize: 13, color: 'var(--color-text-3)', marginBottom: 6 }}>🟢 低风险</div>
           <div style={{ fontSize: 28, fontWeight: 700, color: '#00b42a' }}>{counts.low}</div>
         </div>
         <div style={{
           background: '#fff', borderRadius: 8, border: '1px solid #e5e6eb', padding: '16px 20px',
         }}>
-          <div style={{ fontSize: 13, color: '#86909c', marginBottom: 6 }}>总计预警</div>
-          <div style={{ fontSize: 28, fontWeight: 700, color: '#1d2129' }}>{alerts.length}</div>
+          <div style={{ fontSize: 13, color: 'var(--color-text-3)', marginBottom: 6 }}>总计预警</div>
+          <div style={{ fontSize: 28, fontWeight: 700, color: 'var(--color-text-1)' }}>{alerts.length}</div>
         </div>
       </div>
 
@@ -111,7 +111,7 @@ export default function RiskPage() {
         </div>
         <div className="card-body" style={{ padding: 0 }}>
           {filtered.length === 0 ? (
-            <div style={{ padding: 48, textAlign: 'center', color: '#86909c', fontSize: 13 }}>
+            <div style={{ padding: 48, textAlign: 'center', color: 'var(--color-text-3)', fontSize: 13 }}>
               {alerts.length === 0 ? '暂无风险预警，持仓安全 🎉' : '该筛选条件下暂无风险预警'}
             </div>
           ) : (
@@ -126,7 +126,7 @@ export default function RiskPage() {
                 },
                 {
                   title: '代码', dataIndex: 'stockCode', width: 85,
-                  render: (v: string) => <span style={{ fontFamily: 'monospace', fontWeight: 600, fontSize: 12, color: '#4e5969' }}>{v}</span>
+                  render: (v: string) => <span style={{ fontFamily: 'monospace', fontWeight: 600, fontSize: 12, color: 'var(--color-text-2)' }}>{v}</span>
                 },
                 {
                   title: '等级', dataIndex: 'level', width: 100,
@@ -139,7 +139,7 @@ export default function RiskPage() {
                 { title: '说明', dataIndex: 'description', ellipsis: true },
                 {
                   title: '触发时间', dataIndex: 'hitDate', width: 160,
-                  render: (v: string) => <span style={{ fontSize: 12, color: '#86909c' }}>{v ? new Date(v).toLocaleString('zh-CN') : '-'}</span>
+                  render: (v: string) => <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>{v ? new Date(v).toLocaleString('zh-CN') : '-'}</span>
                 },
                 {
                   title: '操作', width: 70,

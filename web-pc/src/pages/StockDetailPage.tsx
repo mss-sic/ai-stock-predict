@@ -74,12 +74,12 @@ const MODEL_COLORS = ['#165DFF', '#F53F3F', '#722ED1', '#FF7D00', '#00B42A', '#3
 // ─── Financial metric card helper ───
 function FinCard({ label, value, color, prefix, extra, extraLabel }: { label: string; value: string; color?: string; prefix?: string; extra?: string; extraLabel?: string }) {
   return (
-    <div style={{ background: '#f7f8fa', borderRadius: 8, padding: '10px 14px' }}>
-      <div style={{ fontSize: 10, color: '#86909c', marginBottom: 4 }}>{label}</div>
-      <div style={{ fontSize: 17, fontWeight: 600, color: color || '#1d2129', fontFamily: "'SF Mono', 'Menlo', monospace" }}>
+    <div style={{ background: 'var(--color-fill-2)', borderRadius: 8, padding: '10px 14px' }}>
+      <div style={{ fontSize: 10, color: 'var(--color-text-3)', marginBottom: 4 }}>{label}</div>
+      <div style={{ fontSize: 17, fontWeight: 600, color: color || 'var(--color-text-1)', fontFamily: "'SF Mono', 'Menlo', monospace" }}>
         {prefix || ''}{value}
       </div>
-      {extra && <div style={{ fontSize: 10, color: '#86909c', marginTop: 16 }}>{extraLabel || '环比'}: <span style={{ fontWeight: 500, color: color || '#4e5969' }}>{extra}</span></div>}
+      {extra && <div style={{ fontSize: 10, color: 'var(--color-text-3)', marginTop: 16 }}>{extraLabel || '环比'}: <span style={{ fontWeight: 500, color: color || 'var(--color-text-2)' }}>{extra}</span></div>}
     </div>
   );
 }
@@ -119,8 +119,8 @@ function FinSummaryTable({ data }: { data: any[] }) {
     <div style={{ flex: '0 1 360px', minWidth: 300, maxWidth: 400 }}>
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 12 }}>
-        <span style={{ fontSize: 15, fontWeight: 700, color: '#1d2129' }}>关键指标</span>
-        <span style={{ fontSize: 13, fontWeight: 500, color: '#4e5969' }}>{periodLabel}</span>
+        <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--color-text-1)' }}>关键指标</span>
+        <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--color-text-2)' }}>{periodLabel}</span>
       </div>
       {/* Column headers */}
       <div style={{
@@ -128,10 +128,10 @@ function FinSummaryTable({ data }: { data: any[] }) {
         alignItems: 'center', gap: 8, padding: '6px 12px',
         borderBottom: '2px solid #e5e6eb', marginBottom: 0,
       }}>
-        <span style={{ fontSize: 11, color: '#86909c', fontWeight: 500 }}>指标</span>
-        <span style={{ textAlign: 'right', fontSize: 11, color: '#86909c', fontWeight: 500 }}>数值</span>
-        <span style={{ textAlign: 'center', fontSize: 11, color: '#86909c', fontWeight: 500 }}>同比</span>
-        <span style={{ textAlign: 'center', fontSize: 11, color: '#86909c', fontWeight: 500 }}>环比</span>
+        <span style={{ fontSize: 11, color: 'var(--color-text-3)', fontWeight: 500 }}>指标</span>
+        <span style={{ textAlign: 'right', fontSize: 11, color: 'var(--color-text-3)', fontWeight: 500 }}>数值</span>
+        <span style={{ textAlign: 'center', fontSize: 11, color: 'var(--color-text-3)', fontWeight: 500 }}>同比</span>
+        <span style={{ textAlign: 'center', fontSize: 11, color: 'var(--color-text-3)', fontWeight: 500 }}>环比</span>
       </div>
       {/* Metric rows */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
@@ -145,7 +145,7 @@ function FinSummaryTable({ data }: { data: any[] }) {
           const yoyStr = yoy && r.yoyVal ? fmtChg(yoyChg, r.isPct ? 'pp' : '') : '—';
           const qoqStr = prev && r.prevVal ? fmtChg(qoqChg, r.isPct ? 'pp' : '') : '—';
           const isUp = r.val >= 0;
-          const valColor = r.val === 0 ? '#86909c' : (r.primary ? (isUp ? '#F53F3F' : '#00B42A') : '#1d2129');
+          const valColor = r.val === 0 ? 'var(--color-text-3)' : (r.primary ? (isUp ? '#F53F3F' : '#00B42A') : 'var(--color-text-1)');
           
           return (
             <div key={i} style={{
@@ -157,7 +157,7 @@ function FinSummaryTable({ data }: { data: any[] }) {
               borderLeft: r.primary ? '3px solid #165DFF' : '3px solid transparent',
             }}>
               {/* Label */}
-              <span style={{ fontSize: 13, color: r.primary ? '#1d2129' : '#4e5969', fontWeight: r.primary ? 600 : 400 }}>
+              <span style={{ fontSize: 13, color: r.primary ? 'var(--color-text-1)' : 'var(--color-text-2)', fontWeight: r.primary ? 600 : 400 }}>
                 {r.label}
               </span>
               {/* Value */}
@@ -688,14 +688,14 @@ fetchPredictionResult(code).then((r: any) => {
             <div style={{ flex: 1 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
                 <h2 style={{ fontSize: 22, fontWeight: 600, margin: 0 }}>{stock.name}</h2>
-                <span style={{ fontSize: 13, color: '#86909c', fontFamily: 'monospace' }}>{stock.code}</span>
-                <button onClick={toggleWL} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 10px', borderRadius: 4, border: 'none', cursor: 'pointer', fontSize: 12, background: isWatched ? '#fff7e6' : '#f2f3f5', color: isWatched ? '#f7ba1e' : '#86909c' }}>{isWatched ? <><StarOff size={13} /> 已自选</> : <><Star size={13} /> 加自选</>}</button>
+                <span style={{ fontSize: 13, color: 'var(--color-text-3)', fontFamily: 'monospace' }}>{stock.code}</span>
+                <button onClick={toggleWL} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 10px', borderRadius: 4, border: 'none', cursor: 'pointer', fontSize: 12, background: isWatched ? '#fff7e6' : '#f2f3f5', color: isWatched ? '#f7ba1e' : 'var(--color-text-3)' }}>{isWatched ? <><StarOff size={13} /> 已自选</> : <><Star size={13} /> 加自选</>}</button>
                 {stock.industry && <Tag color="blue" style={{ fontSize: 11 }}>{stock.industry}</Tag>}
                 {conceptTags.map((ct: any, i: number) => (
                   <Tag key={i} color="arcoblue" style={{ fontSize: 10, padding: '1px 6px', lineHeight: '16px' }}>{ct.conceptName}</Tag>
                 ))}
-                {sug && <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 4, background: SUGGEST_BG[sug] || '#f2f3f5', color: SUGGEST_COLORS[sug] || '#86909c', border: '1px solid ' + (SUGGEST_COLORS[sug] || '#e5e6eb') }}>{sug}</span>}
-                {risk && <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 4, background: RISK_BG[risk] || '#f2f3f5', color: RISK_COLORS[risk] || '#86909c', border: '1px solid ' + (RISK_COLORS[risk] || '#e5e6eb') }}>{risk}</span>}
+                {sug && <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 4, background: SUGGEST_BG[sug] || '#f2f3f5', color: SUGGEST_COLORS[sug] || 'var(--color-text-3)', border: '1px solid ' + (SUGGEST_COLORS[sug] || 'var(--color-border-1)') }}>{sug}</span>}
+                {risk && <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 4, background: RISK_BG[risk] || '#f2f3f5', color: RISK_COLORS[risk] || 'var(--color-text-3)', border: '1px solid ' + (RISK_COLORS[risk] || 'var(--color-border-1)') }}>{risk}</span>}
 
               </div>
               {priceStats && (
@@ -705,16 +705,16 @@ fetchPredictionResult(code).then((r: any) => {
                     <span className={`price-chg ${upClass}`}>{sign}{priceStats.chg.toFixed(2)}</span>
                     <span className={`price-chg ${upClass}`}>{sign}{priceStats.chgPct.toFixed(2)}%</span>
                   </div>
-                  <div style={{ display: 'flex', gap: 14, marginTop: 8, fontSize: 12, color: '#86909c', flexWrap: 'wrap' }}>
-                    <span>今开 <b style={{ color: '#1d2129', fontWeight: 500 }}>{priceStats.open.toFixed(2)}</b></span>
-                    <span>昨收 <b style={{ color: '#1d2129', fontWeight: 500 }}>{priceStats.prevClose.toFixed(2)}</b></span>
+                  <div style={{ display: 'flex', gap: 14, marginTop: 8, fontSize: 12, color: 'var(--color-text-3)', flexWrap: 'wrap' }}>
+                    <span>今开 <b style={{ color: 'var(--color-text-1)', fontWeight: 500 }}>{priceStats.open.toFixed(2)}</b></span>
+                    <span>昨收 <b style={{ color: 'var(--color-text-1)', fontWeight: 500 }}>{priceStats.prevClose.toFixed(2)}</b></span>
                     <span>最高 <b className="up">{priceStats.high.toFixed(2)}</b></span>
                     <span>最低 <b className="down">{priceStats.low.toFixed(2)}</b></span>
-                    <span>成交量 <b style={{ color: '#1d2129', fontWeight: 500 }}>{fmtVol(priceStats.vol)}</b></span>
-                    <span>成交额 <b style={{ color: '#1d2129', fontWeight: 500 }}>{fmtMoney(priceStats.amount)}</b></span>
-                    <span>振幅 <b style={{ color: '#1d2129', fontWeight: 500 }}>{priceStats.amplitude.toFixed(2)}%</b></span>
-                    <span>换手 <b style={{ color: '#1d2129', fontWeight: 500 }}>{priceStats.turnover > 0 ? priceStats.turnover.toFixed(2) + '%' : '-'}</b></span>
-                    {indicator && <><span>市盈率 <b style={{ color: '#1d2129', fontWeight: 500 }}>{indicator.pe > 0 ? indicator.pe.toFixed(2) : '-'}</b></span><span>市值 <b style={{ color: '#1d2129', fontWeight: 500 }}>{indicator.totalMarketCap > 0 ? fmtMoney(indicator.totalMarketCap) : '-'}</b></span></>}
+                    <span>成交量 <b style={{ color: 'var(--color-text-1)', fontWeight: 500 }}>{fmtVol(priceStats.vol)}</b></span>
+                    <span>成交额 <b style={{ color: 'var(--color-text-1)', fontWeight: 500 }}>{fmtMoney(priceStats.amount)}</b></span>
+                    <span>振幅 <b style={{ color: 'var(--color-text-1)', fontWeight: 500 }}>{priceStats.amplitude.toFixed(2)}%</b></span>
+                    <span>换手 <b style={{ color: 'var(--color-text-1)', fontWeight: 500 }}>{priceStats.turnover > 0 ? priceStats.turnover.toFixed(2) + '%' : '-'}</b></span>
+                    {indicator && <><span>市盈率 <b style={{ color: 'var(--color-text-1)', fontWeight: 500 }}>{indicator.pe > 0 ? indicator.pe.toFixed(2) : '-'}</b></span><span>市值 <b style={{ color: 'var(--color-text-1)', fontWeight: 500 }}>{indicator.totalMarketCap > 0 ? fmtMoney(indicator.totalMarketCap) : '-'}</b></span></>}
 
                   </div>
                 </>
@@ -796,11 +796,11 @@ fetchPredictionResult(code).then((r: any) => {
                 {ensemble ? (
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                     <thead>
-                      <tr style={{ borderBottom: '1px solid #e5e6eb', background: '#f7f8fa' }}>
-                        <th style={{ padding: '6px 10px', textAlign: 'left', fontWeight: 500, color: '#86909c', fontSize: 11 }}>模型</th>
-                        <th style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 500, color: '#86909c', fontSize: 11 }}>命中率</th>
-                        <th style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 500, color: '#86909c', fontSize: 11 }}>权重</th>
-                        <th style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 500, color: '#86909c', fontSize: 11 }}>方向</th>
+                      <tr style={{ borderBottom: '1px solid #e5e6eb', background: 'var(--color-fill-2)' }}>
+                        <th style={{ padding: '6px 10px', textAlign: 'left', fontWeight: 500, color: 'var(--color-text-3)', fontSize: 11 }}>模型</th>
+                        <th style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 500, color: 'var(--color-text-3)', fontSize: 11 }}>命中率</th>
+                        <th style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 500, color: 'var(--color-text-3)', fontSize: 11 }}>权重</th>
+                        <th style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 500, color: 'var(--color-text-3)', fontSize: 11 }}>方向</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -813,7 +813,7 @@ fetchPredictionResult(code).then((r: any) => {
                           <td style={{ padding: '7px 8px', textAlign: 'right', fontWeight: 600, color: r.hitRate >= 0.55 ? '#00b42a' : r.hitRate >= 0.45 ? '#ff7d00' : '#f53f3f' }}>
                             {(r.hitRate * 100).toFixed(1)}% <span style={{ fontSize: 10, color: "#86909c", fontWeight: 400 }}>{r.total > 0 ? `(${r.hits||0}/${r.total})` : "(无回测数据)"}</span>
                           </td>
-                          <td style={{ padding: '7px 8px', textAlign: 'right', color: '#4e5969' }}>
+                          <td style={{ padding: '7px 8px', textAlign: 'right', color: 'var(--color-text-2)' }}>
                             {(r.weight * 100).toFixed(1)}%
                           </td>
                           <td style={{ padding: '7px 8px', textAlign: 'right' }}>
@@ -827,7 +827,7 @@ fetchPredictionResult(code).then((r: any) => {
                       ))}
                     </tbody>
                     <tfoot>
-                      <tr style={{ background: '#f7f8fa', fontWeight: 600 }}>
+                      <tr style={{ background: 'var(--color-fill-2)', fontWeight: 600 }}>
                         <td style={{ padding: '7px 10px', fontSize: 12 }}>集成结果</td>
                         <td style={{ padding: '7px 8px', textAlign: 'right', fontSize: 12, color: '#165dff' }}>
                           {(ensemble.avgHitRate * 100).toFixed(1)}%
@@ -857,19 +857,19 @@ fetchPredictionResult(code).then((r: any) => {
                 {ensemble ? (
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px 10px' }}>
                     <div>
-                      <div style={{ fontSize: 10, color: '#86909c', marginBottom: 2 }}>方向命中率</div>
+                      <div style={{ fontSize: 10, color: 'var(--color-text-3)', marginBottom: 2 }}>方向命中率</div>
                       <div style={{ fontSize: 18, fontWeight: 700, color: '#00b42a' }}>{(ensemble.avgHitRate * 100).toFixed(1)}%</div>
                     </div>
                     <div>
-                      <div style={{ fontSize: 10, color: '#86909c', marginBottom: 2 }}>夏普比率</div>
+                      <div style={{ fontSize: 10, color: 'var(--color-text-3)', marginBottom: 2 }}>夏普比率</div>
                       <div style={{ fontSize: 18, fontWeight: 700, color: ensemble.sharpe >= 0 ? '#00b42a' : '#f53f3f' }}>{ensemble.sharpe.toFixed(2)}</div>
                     </div>
                     <div>
-                      <div style={{ fontSize: 10, color: '#86909c', marginBottom: 2 }}>平均误差(MAE)</div>
-                      <div style={{ fontSize: 18, fontWeight: 700, color: '#4e5969' }}>{(Math.abs(ensemble.ensembleChg) * 0.3).toFixed(2)}%</div>
+                      <div style={{ fontSize: 10, color: 'var(--color-text-3)', marginBottom: 2 }}>平均误差(MAE)</div>
+                      <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--color-text-2)' }}>{(Math.abs(ensemble.ensembleChg) * 0.3).toFixed(2)}%</div>
                     </div>
                     <div>
-                      <div style={{ fontSize: 10, color: '#86909c', marginBottom: 2 }}>最大回撤</div>
+                      <div style={{ fontSize: 10, color: 'var(--color-text-3)', marginBottom: 2 }}>最大回撤</div>
                       <div style={{ fontSize: 18, fontWeight: 700, color: '#f53f3f' }}>{Math.abs(ensemble.maxdd).toFixed(1)}%</div>
                     </div>
                   </div>
@@ -913,15 +913,15 @@ fetchPredictionResult(code).then((r: any) => {
                       <div style={{ marginLeft: 24, textAlign: 'center' }}>
                         <span style={{
                           padding: '4px 14px', borderRadius: 4, fontWeight: 700, fontSize: 13,
-                          color: SUGGEST_COLORS[aiScore.suggestion] || '#86909c',
+                          color: SUGGEST_COLORS[aiScore.suggestion] || 'var(--color-text-3)',
                           background: SUGGEST_BG[aiScore.suggestion] || '#F2F3F5',
-                          border: '1px solid ' + (SUGGEST_COLORS[aiScore.suggestion] || '#e5e6eb'),
+                          border: '1px solid ' + (SUGGEST_COLORS[aiScore.suggestion] || 'var(--color-border-1)'),
                         }}>{aiScore.suggestion || '-'}</span>
                         <span style={{
                           marginLeft: 8, padding: '4px 14px', borderRadius: 4, fontWeight: 700, fontSize: 13,
-                          color: RISK_COLORS[aiScore.riskLevel] || '#86909c',
+                          color: RISK_COLORS[aiScore.riskLevel] || 'var(--color-text-3)',
                           background: RISK_BG[aiScore.riskLevel] || '#F2F3F5',
-                          border: '1px solid ' + (RISK_COLORS[aiScore.riskLevel] || '#e5e6eb'),
+                          border: '1px solid ' + (RISK_COLORS[aiScore.riskLevel] || 'var(--color-border-1)'),
                         }}>{aiScore.riskLevel || '-'}</span>
                       </div>
                     </div>
@@ -1058,7 +1058,7 @@ fetchPredictionResult(code).then((r: any) => {
           <div className="card" style={{ flex: '2 1 440px', display: 'flex', flexDirection: 'column', minHeight: 480, maxHeight: 640 }}>
             <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between' }}>
               <span style={{ fontWeight: 600, fontSize: 14 }}><Brain size={14} /> AI对话分析</span>
-              {msgs.length > 0 && <Button size="mini" type="text" icon={<Trash2 size={12} />} onClick={handleClearChat} style={{ color: '#86909c', fontSize: 11 }}>清除</Button>}
+              {msgs.length > 0 && <Button size="mini" type="text" icon={<Trash2 size={12} />} onClick={handleClearChat} style={{ color: 'var(--color-text-3)', fontSize: 11 }}>清除</Button>}
             </div>
             <div className="card-body" style={{ flex: 1, overflow: 'auto', padding: '12px 16px', background: '#fafbfc' }}>
               {msgs.length === 0 ? (
@@ -1343,15 +1343,15 @@ fetchPredictionResult(code).then((r: any) => {
                   ].map((r, i) => {
                     const bias = getBiasInfo(r.up, Math.round(r.strength));
                     return (
-                      <div key={i} style={{ padding: '10px 12px', background: '#f7f8fa', borderRadius: 4, borderLeft: `3px solid ${bias.color}`, cursor: 'help', transition: 'box-shadow 0.15s' }}
+                      <div key={i} style={{ padding: '10px 12px', background: 'var(--color-fill-2)', borderRadius: 4, borderLeft: `3px solid ${bias.color}`, cursor: 'help', transition: 'box-shadow 0.15s' }}
                         title={INDICATOR_DESC[r.name] || ''}
                         onMouseEnter={e => (e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)')}
                         onMouseLeave={e => (e.currentTarget.style.boxShadow = 'none')}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                          <span style={{ fontSize: 12, fontWeight: 600, color: '#4e5969' }}>{r.name}</span>
+                          <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text-2)' }}>{r.name}</span>
                           <span style={{ fontSize: 10, fontWeight: 600, color: bias.color, background: bias.bg, padding: '1px 5px', borderRadius: 3 }}>{bias.label}</span>
                         </div>
-                        <div style={{ fontSize: 14, fontWeight: 600, color: '#1d2129' }}>{r.val}</div>
+                        <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text-1)' }}>{r.val}</div>
                         <div style={{ fontSize: 10, color: bias.color, marginTop: 3 }}>{r.sig}</div>
                       </div>
                     );
@@ -1407,7 +1407,7 @@ fetchPredictionResult(code).then((r: any) => {
                             borderRadius: 8, padding: '10px 12px',
                             border: `1px solid ${intervalStats.changePct >= 0 ? '#FFDBD4' : '#D4FFE0'}`,
                           }}>
-                            <div style={{ fontSize: 10, color: '#86909c', marginBottom: 2 }}>涨跌幅</div>
+                            <div style={{ fontSize: 10, color: 'var(--color-text-3)', marginBottom: 2 }}>涨跌幅</div>
                             <div style={{
                               fontSize: 20, fontWeight: 700,
                               color: intervalStats.changePct >= 0 ? '#F53F3F' : '#00B42A',
@@ -1415,7 +1415,7 @@ fetchPredictionResult(code).then((r: any) => {
                             }}>
                               {intervalStats.changePct >= 0 ? '+' : ''}{intervalStats.changePct.toFixed(2)}%
                             </div>
-                            <div style={{ fontSize: 10, color: '#86909c', marginTop: 16 }}>
+                            <div style={{ fontSize: 10, color: 'var(--color-text-3)', marginTop: 16 }}>
                               {intervalStats.startPrice?.toFixed(2)} → {intervalStats.endPrice?.toFixed(2)}
                             </div>
                           </div>
@@ -1423,11 +1423,11 @@ fetchPredictionResult(code).then((r: any) => {
                           <div style={{
                             background: '#F7F8FA', borderRadius: 8, padding: '10px 12px',
                           }}>
-                            <div style={{ fontSize: 10, color: '#86909c', marginBottom: 2 }}>振幅</div>
+                            <div style={{ fontSize: 10, color: 'var(--color-text-3)', marginBottom: 2 }}>振幅</div>
                             <div style={{ fontSize: 20, fontWeight: 700, color: '#1D2129', fontFamily: 'monospace' }}>
                               {intervalStats.amplitude.toFixed(2)}%
                             </div>
-                            <div style={{ fontSize: 10, color: '#86909c', marginTop: 16 }}>
+                            <div style={{ fontSize: 10, color: 'var(--color-text-3)', marginTop: 16 }}>
                               {intervalStats.high?.toFixed(2)} / {intervalStats.low?.toFixed(2)}
                             </div>
                           </div>
@@ -1436,23 +1436,23 @@ fetchPredictionResult(code).then((r: any) => {
                             background: '#FFFAF5', borderRadius: 8, padding: '10px 12px',
                             border: '1px solid #FFE8D4',
                           }}>
-                            <div style={{ fontSize: 10, color: '#86909c', marginBottom: 2 }}>最大回撤</div>
+                            <div style={{ fontSize: 10, color: 'var(--color-text-3)', marginBottom: 2 }}>最大回撤</div>
                             <div style={{ fontSize: 20, fontWeight: 700, color: '#F77234', fontFamily: 'monospace' }}>
                               -{intervalStats.maxDrawdown.toFixed(2)}%
                             </div>
-                            <div style={{ fontSize: 10, color: '#86909c', marginTop: 16 }}>区间内峰值回落</div>
+                            <div style={{ fontSize: 10, color: 'var(--color-text-3)', marginTop: 16 }}>区间内峰值回落</div>
                           </div>
                           {/* 涨跌天数比 */}
                           <div style={{
                             background: '#F7F8FA', borderRadius: 8, padding: '10px 12px',
                           }}>
-                            <div style={{ fontSize: 10, color: '#86909c', marginBottom: 2 }}>涨跌比</div>
+                            <div style={{ fontSize: 10, color: 'var(--color-text-3)', marginBottom: 2 }}>涨跌比</div>
                             <div style={{ fontSize: 20, fontWeight: 700, color: '#1D2129', fontFamily: 'monospace' }}>
                               <span style={{ color: '#F53F3F' }}>{intervalStats.upDays}</span>
                               <span style={{ color: '#C9CDD4', margin: '0 4px' }}>/</span>
                               <span style={{ color: '#00B42A' }}>{intervalStats.downDays}</span>
                             </div>
-                            <div style={{ fontSize: 10, color: '#86909c', marginTop: 16 }}>
+                            <div style={{ fontSize: 10, color: 'var(--color-text-3)', marginTop: 16 }}>
                               阳{intervalStats.upDays}天 · 阴{intervalStats.downDays}天
                             </div>
                           </div>
@@ -1497,9 +1497,9 @@ fetchPredictionResult(code).then((r: any) => {
             {safeKlines.length >= 10 ? (
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 700 }}>
                 <thead>
-                  <tr style={{ borderBottom: '1px solid #e5e6eb', background: '#f7f8fa' }}>
+                  <tr style={{ borderBottom: '1px solid #e5e6eb', background: 'var(--color-fill-2)' }}>
                     {['日期','开盘','最高','最低','收盘','涨跌幅','成交量(万手)','成交额(亿)','换手%'].map(h => (
-                      <th key={h} style={{ padding: '8px 10px', textAlign: h === '日期' ? 'left' : 'right', color: '#86909c', fontWeight: 500, fontSize: 11, whiteSpace: 'nowrap' }}>{h}</th>
+                      <th key={h} style={{ padding: '8px 10px', textAlign: h === '日期' ? 'left' : 'right', color: 'var(--color-text-3)', fontWeight: 500, fontSize: 11, whiteSpace: 'nowrap' }}>{h}</th>
                     ))}
                   </tr>
                 </thead>
@@ -1537,7 +1537,7 @@ fetchPredictionResult(code).then((r: any) => {
               <div className="card-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <span style={{ fontWeight: 600, fontSize: 14 }}><BarChart3 size={14} /> 季度营收 / 净利润（近{Math.min(financials.length, 8)}季）</span>
                 <button onClick={() => handleRefreshStockData('financial')} disabled={refreshingPhase !== ''}
-                  style={{ padding: '4px 10px', fontSize: 11, cursor: 'pointer', border: '1px solid #e5e6eb', borderRadius: 4, background: '#fff', color: '#4e5969' }}>
+                  style={{ padding: '4px 10px', fontSize: 11, cursor: 'pointer', border: '1px solid #e5e6eb', borderRadius: 4, background: '#fff', color: 'var(--color-text-2)' }}>
                   <Repeat size={12} className={refreshingPhase === 'financial' ? 'spin' : ''} />更新
                 </button>
               </div>
@@ -1576,7 +1576,7 @@ fetchPredictionResult(code).then((r: any) => {
                       <FinCard label="ROE" value={f.roe !== 0 ? f.roe.toFixed(2) + '%' : '-'} extra={prev?.roe ? ((f.roe - prev.roe) >= 0 ? '+' : '') + (f.roe - prev.roe).toFixed(2) + 'pp' : undefined} extraLabel="环比" color={f.roe >= 0 ? '#F53F3F' : '#00B42A'} />
                       <FinCard label="EPS" value={f.eps !== 0 ? f.eps.toFixed(3) : '-'} extra={yoy?.eps ? ((f.eps - yoy.eps) >= 0 ? '+' : '') + (f.eps - yoy.eps).toFixed(3) : undefined} extraLabel="同比" color={f.eps >= 0 ? '#F53F3F' : '#00B42A'} />
                       <FinCard label="毛利率" value={f.grossMargin !== 0 ? f.grossMargin.toFixed(1) + '%' : '-'} />
-                      <FinCard label="净利率" value={f.netMargin !== 0 ? f.netMargin.toFixed(1) + '%' : '-'} color={f.netMargin >= 0 ? '#1d2129' : '#00B42A'} />
+                      <FinCard label="净利率" value={f.netMargin !== 0 ? f.netMargin.toFixed(1) + '%' : '-'} color={f.netMargin >= 0 ? 'var(--color-text-1)' : '#00B42A'} />
                       <FinCard label="资产负债率" value={f.debtRatio > 0 ? f.debtRatio.toFixed(1) + '%' : '-'} extra={prev?.debtRatio ? ((f.debtRatio - prev.debtRatio) >= 0 ? '+' : '') + (f.debtRatio - prev.debtRatio).toFixed(2) + 'pp' : undefined} extraLabel="环比" />
                     </div>
                   </div>
@@ -1588,7 +1588,7 @@ fetchPredictionResult(code).then((r: any) => {
               <div className="card-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <span style={{ fontWeight: 600, fontSize: 14 }}><BarChart3 size={14} /> 财务数据</span>
                 <button onClick={() => handleRefreshStockData('financial')} disabled={refreshingPhase !== ''}
-                  style={{ padding: '4px 10px', fontSize: 11, cursor: 'pointer', border: '1px solid #e5e6eb', borderRadius: 4, background: '#fff', color: '#4e5969' }}>
+                  style={{ padding: '4px 10px', fontSize: 11, cursor: 'pointer', border: '1px solid #e5e6eb', borderRadius: 4, background: '#fff', color: 'var(--color-text-2)' }}>
                   <Repeat size={12} className={refreshingPhase === 'financial' ? 'spin' : ''} />{refreshingPhase === 'financial' ? '更新中...' : '更新'}
                 </button>
               </div>
@@ -1614,7 +1614,7 @@ fetchPredictionResult(code).then((r: any) => {
         <div className="card">
           <div className="card-header"><span style={{ fontWeight: 600, fontSize: 14 }}><Users size={14} /> 股东数据</span>
               <button onClick={() => handleRefreshStockData('shareholder')} disabled={refreshingPhase !== ''}
-                style={{ marginLeft: 'auto', padding: '4px 10px', fontSize: 11, cursor: 'pointer', border: '1px solid #e5e6eb', borderRadius: 4, background: '#fff', color: '#4e5969', display: 'flex', alignItems: 'center', gap: 4 }}>
+                style={{ marginLeft: 'auto', padding: '4px 10px', fontSize: 11, cursor: 'pointer', border: '1px solid #e5e6eb', borderRadius: 4, background: '#fff', color: 'var(--color-text-2)', display: 'flex', alignItems: 'center', gap: 4 }}>
                 <Repeat size={12} className={refreshingPhase === 'shareholder' ? 'spin' : ''} />{refreshingPhase === 'shareholder' ? '更新中...' : '更新'}
               </button></div>
           <div className="card-body" style={{ padding: 16 }}>
@@ -1622,35 +1622,35 @@ fetchPredictionResult(code).then((r: any) => {
               <>
                 {/* Summary cards */}
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
-                  <div style={{ background: '#f7f8fa', borderRadius: 8, padding: '12px 14px' }}>
-                    <div style={{ fontSize: 11, color: '#86909c', marginBottom: 4 }}>股东总户数</div>
-                    <div style={{ fontSize: 20, fontWeight: 700, color: '#1d2129' }}>
-                      {(latestSH.totalHolders / 10000).toFixed(2)}<span style={{ fontSize: 12, fontWeight: 400, color: '#86909c' }}>万户</span>
+                  <div style={{ background: 'var(--color-fill-2)', borderRadius: 8, padding: '12px 14px' }}>
+                    <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 4 }}>股东总户数</div>
+                    <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--color-text-1)' }}>
+                      {(latestSH.totalHolders / 10000).toFixed(2)}<span style={{ fontSize: 12, fontWeight: 400, color: 'var(--color-text-3)' }}>万户</span>
                     </div>
-                    <div style={{ fontSize: 11, color: '#86909c', marginTop: 16 }}>截至 {latestSH.reportDate}</div>
+                    <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginTop: 16 }}>截至 {latestSH.reportDate}</div>
                   </div>
-                  <div style={{ background: '#f7f8fa', borderRadius: 8, padding: '12px 14px' }}>
-                    <div style={{ fontSize: 11, color: '#86909c', marginBottom: 4 }}>环比变化</div>
-                    <div style={{ fontSize: 20, fontWeight: 700, color: latestSH.holderChange > 0 ? '#00B42A' : latestSH.holderChange < 0 ? '#F53F3F' : '#86909c' }}>
+                  <div style={{ background: 'var(--color-fill-2)', borderRadius: 8, padding: '12px 14px' }}>
+                    <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 4 }}>环比变化</div>
+                    <div style={{ fontSize: 20, fontWeight: 700, color: latestSH.holderChange > 0 ? '#00B42A' : latestSH.holderChange < 0 ? '#F53F3F' : 'var(--color-text-3)' }}>
                       {latestSH.holderChange > 0 ? '+' : ''}{latestSH.holderChange?.toFixed(2)}%
                     </div>
-                    <div style={{ fontSize: 11, color: latestSH.holderChange > 0 ? '#00B42A' : latestSH.holderChange < 0 ? '#F53F3F' : '#86909c', marginTop: 16 }}>
+                    <div style={{ fontSize: 11, color: latestSH.holderChange > 0 ? '#00B42A' : latestSH.holderChange < 0 ? '#F53F3F' : 'var(--color-text-3)', marginTop: 16 }}>
                       {latestSH.holderChange > 0 ? '筹码分散 ↑' : latestSH.holderChange < 0 ? '筹码集中 ↓' : '持平'}
                     </div>
                   </div>
-                  <div style={{ background: '#f7f8fa', borderRadius: 8, padding: '12px 14px' }}>
-                    <div style={{ fontSize: 11, color: '#86909c', marginBottom: 4 }}>户均持股</div>
-                    <div style={{ fontSize: 20, fontWeight: 700, color: '#1d2129' }}>
-                      {fmtVol(latestSH.avgHolding)}<span style={{ fontSize: 12, fontWeight: 400, color: '#86909c' }}>股</span>
+                  <div style={{ background: 'var(--color-fill-2)', borderRadius: 8, padding: '12px 14px' }}>
+                    <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 4 }}>户均持股</div>
+                    <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--color-text-1)' }}>
+                      {fmtVol(latestSH.avgHolding)}<span style={{ fontSize: 12, fontWeight: 400, color: 'var(--color-text-3)' }}>股</span>
                     </div>
-                    <div style={{ fontSize: 11, color: '#86909c', marginTop: 16 }}>人均持股市值</div>
+                    <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginTop: 16 }}>人均持股市值</div>
                   </div>
-                  <div style={{ background: '#f7f8fa', borderRadius: 8, padding: '12px 14px' }}>
-                    <div style={{ fontSize: 11, color: '#86909c', marginBottom: 4 }}>机构持股比例</div>
-                    <div style={{ fontSize: 20, fontWeight: 700, color: '#1d2129' }}>
+                  <div style={{ background: 'var(--color-fill-2)', borderRadius: 8, padding: '12px 14px' }}>
+                    <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 4 }}>机构持股比例</div>
+                    <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--color-text-1)' }}>
                       {latestSH.instHoldRatio > 0 ? latestSH.instHoldRatio.toFixed(2) + '%' : '-'}
                     </div>
-                    <div style={{ fontSize: 11, color: '#86909c', marginTop: 16 }}>数据期数 {shList.length} 期</div>
+                    <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginTop: 16 }}>数据期数 {shList.length} 期</div>
                   </div>
                 </div>
 
@@ -1668,7 +1668,7 @@ fetchPredictionResult(code).then((r: any) => {
                   
                   return (
                     <div style={{ marginBottom: 20 }}>
-                      <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 10, color: '#1d2129' }}>股东户数变化趋势（近{trendData.length}期）</div>
+                      <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 10, color: 'var(--color-text-1)' }}>股东户数变化趋势（近{trendData.length}期）</div>
                       <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 'auto', maxWidth: 730 }}>
                         {/* Y axis grid lines */}
                         {[0, 0.25, 0.5, 0.75, 1].map((frac, gi) => {
@@ -1730,7 +1730,7 @@ fetchPredictionResult(code).then((r: any) => {
 
                 {/* History table */}
                 <div style={{ marginBottom: 20 }}>
-                  <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 10, color: '#1d2129' }}>历史数据明细</div>
+                  <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 10, color: 'var(--color-text-1)' }}>历史数据明细</div>
                   <div style={{ overflow: 'auto', maxHeight: 360 }}>
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, tableLayout: 'fixed' }}>
                       <colgroup>
@@ -1741,11 +1741,11 @@ fetchPredictionResult(code).then((r: any) => {
                         <col style={{ width: '20%' }} />
                       </colgroup>
                       <thead>
-                        <tr style={{ background: '#f7f8fa', position: 'sticky', top: 0, zIndex: 1 }}>
+                        <tr style={{ background: 'var(--color-fill-2)', position: 'sticky', top: 0, zIndex: 1 }}>
                           {['报告期', '股东户数', '环比变化', '户均持股', '筹码趋势'].map((h, hi) => (
                             <th key={h} style={{
                               padding: '8px 12px', textAlign: hi === 0 ? 'left' : 'right',
-                              color: '#86909c', fontWeight: 500, fontSize: 11,
+                              color: 'var(--color-text-3)', fontWeight: 500, fontSize: 11,
                               borderBottom: '1px solid #e5e6eb'
                             }}>{h}</th>
                           ))}
@@ -1754,7 +1754,7 @@ fetchPredictionResult(code).then((r: any) => {
                       <tbody>
                         {shList.map((row: any, i: number) => (
                           <tr key={i} style={{ borderBottom: '1px solid #f5f5f5' }}>
-                            <td style={{ padding: '7px 12px', fontSize: 12, fontWeight: i === 0 ? 600 : 400, color: '#1d2129', textAlign: 'left' }}>
+                            <td style={{ padding: '7px 12px', fontSize: 12, fontWeight: i === 0 ? 600 : 400, color: 'var(--color-text-1)', textAlign: 'left' }}>
                               {row.reportDate}
                             </td>
                             <td style={{ padding: '7px 12px', fontSize: 12, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
@@ -1762,7 +1762,7 @@ fetchPredictionResult(code).then((r: any) => {
                             </td>
                             <td style={{
                               padding: '7px 12px', fontSize: 12, textAlign: 'right', fontVariantNumeric: 'tabular-nums',
-                              color: row.holderChange > 0 ? '#00B42A' : row.holderChange < 0 ? '#F53F3F' : '#86909c',
+                              color: row.holderChange > 0 ? '#00B42A' : row.holderChange < 0 ? '#F53F3F' : 'var(--color-text-3)',
                               fontWeight: 500
                             }}>
                               {row.holderChange > 0 ? '+' : ''}{row.holderChange?.toFixed(2)}%
@@ -1773,8 +1773,8 @@ fetchPredictionResult(code).then((r: any) => {
                             <td style={{ padding: '7px 12px', fontSize: 11, textAlign: 'right' }}>
                               <span style={{
                                 padding: '2px 8px', borderRadius: 10, fontSize: 10,
-                                background: row.holderChange > 2 ? '#FFF1F0' : row.holderChange < -2 ? '#F0FFF4' : '#f7f8fa',
-                                color: row.holderChange > 2 ? '#F53F3F' : row.holderChange < -2 ? '#00B42A' : '#86909c',
+                                background: row.holderChange > 2 ? '#FFF1F0' : row.holderChange < -2 ? '#F0FFF4' : 'var(--color-fill-2)',
+                                color: row.holderChange > 2 ? '#F53F3F' : row.holderChange < -2 ? '#00B42A' : 'var(--color-text-3)',
                                 fontWeight: 500
                               }}>
                                 {row.holderChange > 2 ? '分散' : row.holderChange < -2 ? '集中' : '平稳'}
@@ -1808,12 +1808,12 @@ fetchPredictionResult(code).then((r: any) => {
                     '新进': {bg:'#F0FFF4', color:'#00B42A', label:'新进'},
                     '增持': {bg:'#E8F3FF', color:'#165DFF', label:'增持'},
                     '减持': {bg:'#FFF1F0', color:'#F53F3F', label:'减持'},
-                    '不变': {bg:'#f7f8fa', color:'#86909c', label:'不变'},
+                    '不变': {bg:'var(--color-fill-2)', color:'var(--color-text-3)', label:'不变'},
                     '退出': {bg:'#FFF7E6', color:'#FF7D00', label:'退出'},
                   };
                   return (
                     <div>
-                      <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 12, color: '#1d2129' }}>十大股东（按报告期）</div>
+                      <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 12, color: 'var(--color-text-1)' }}>十大股东（按报告期）</div>
                       {top10Periods.map((row: any, ri: number) => {
                         const holders = Array.isArray(row.top10Holders) ? row.top10Holders : [];
                         const exited = Array.isArray(row.top10Float) ? row.top10Float : [];
@@ -1822,12 +1822,12 @@ fetchPredictionResult(code).then((r: any) => {
                         return (
                           <details key={ri} open={ri === 0} style={{ marginBottom: 12 }}>
                             <summary style={{
-                              cursor: 'pointer', padding: '8px 12px', background: '#f7f8fa', borderRadius: 6,
-                              fontSize: 13, fontWeight: 600, color: '#1d2129', display: 'flex', alignItems: 'center',
+                              cursor: 'pointer', padding: '8px 12px', background: 'var(--color-fill-2)', borderRadius: 6,
+                              fontSize: 13, fontWeight: 600, color: 'var(--color-text-1)', display: 'flex', alignItems: 'center',
                               justifyContent: 'space-between'
                             }}>
                               <span>{row.reportDate} 报告期</span>
-                              <span style={{ fontSize: 11, fontWeight: 400, color: '#86909c' }}>
+                              <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--color-text-3)' }}>
                                 {holders.length}位股东{exited.length > 0 ? ` · ${exited.length}位退出` : ''}
                               </span>
                             </summary>
@@ -1842,7 +1842,7 @@ fetchPredictionResult(code).then((r: any) => {
                                     {['排名', '股东名称', '持股数', '持股比例', '变动', '环比'].map((h, hi) => (
                                       <th key={h} style={{
                                         padding: '7px 8px', textAlign: hi >= 2 ? 'right' : 'left',
-                                        color: '#86909c', fontWeight: 500, fontSize: 11
+                                        color: 'var(--color-text-3)', fontWeight: 500, fontSize: 11
                                       }}>{h}</th>
                                     ))}
                                   </tr>
@@ -1852,15 +1852,15 @@ fetchPredictionResult(code).then((r: any) => {
                                     const trend = t[h.trend] || t['不变'];
                                     return (
                                       <tr key={i} style={{ borderBottom: '1px solid #f5f5f5' }}>
-                                        <td style={{ padding: '6px 8px', fontSize: 11, color: '#86909c', textAlign: 'left' }}>{h.rank || i+1}</td>
-                                        <td style={{ padding: '6px 8px', fontSize: 12, fontWeight: 500, color: '#1d2129', textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={h.name}>{h.name}</td>
+                                        <td style={{ padding: '6px 8px', fontSize: 11, color: 'var(--color-text-3)', textAlign: 'left' }}>{h.rank || i+1}</td>
+                                        <td style={{ padding: '6px 8px', fontSize: 12, fontWeight: 500, color: 'var(--color-text-1)', textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={h.name}>{h.name}</td>
                                         <td style={{ padding: '6px 8px', fontSize: 11, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtVol(h.shares)}</td>
                                         <td style={{ padding: '6px 8px', fontSize: 11, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{h.ratio?.toFixed(2)}%</td>
                                         <td style={{ padding: '6px 8px', fontSize: 10, textAlign: 'right' }}>
                                           <span style={{
                                             padding: '1px 6px', borderRadius: 8, fontSize: 10,
-                                            background: h.change ? '#E8F3FF' : '#f7f8fa',
-                                            color: h.change ? '#165DFF' : '#86909c',
+                                            background: h.change ? '#E8F3FF' : 'var(--color-fill-2)',
+                                            color: h.change ? '#165DFF' : 'var(--color-text-3)',
                                           }}>{h.change || '-'}</span>
                                         </td>
                                         <td style={{ padding: '6px 8px', fontSize: 10, textAlign: 'right' }}>
@@ -1921,14 +1921,14 @@ fetchPredictionResult(code).then((r: any) => {
         <div className="card">
           <div className="card-header"><span style={{ fontWeight: 600, fontSize: 14 }}><FileText size={14} /> 机构研报</span>
               <button onClick={() => handleRefreshStockData('reports')} disabled={refreshingPhase !== ''}
-                style={{ marginLeft: 'auto', padding: '4px 10px', fontSize: 11, cursor: 'pointer', border: '1px solid #e5e6eb', borderRadius: 4, background: '#fff', color: '#4e5969', display: 'flex', alignItems: 'center', gap: 4 }}>
+                style={{ marginLeft: 'auto', padding: '4px 10px', fontSize: 11, cursor: 'pointer', border: '1px solid #e5e6eb', borderRadius: 4, background: '#fff', color: 'var(--color-text-2)', display: 'flex', alignItems: 'center', gap: 4 }}>
                 <Repeat size={12} className={refreshingPhase === 'reports' ? 'spin' : ''} />{refreshingPhase === 'reports' ? '更新中...' : '更新'}
               </button></div>
           <div className="card-body" style={{ padding: 0 }}>
             {refreshingPhase === 'reports' && refreshLogs.length > 0 && (
                 <div style={{
                   margin: '0 0 12px 0', padding: '10px 14px',
-                  background: '#1d2129', borderRadius: 6, color: '#00ff88',
+                  background: 'var(--color-text-1)', borderRadius: 6, color: '#00ff88',
                   fontFamily: 'monospace', fontSize: 11, maxHeight: 200, overflow: 'auto',
                   lineHeight: 1.6
                 }}>
@@ -1947,10 +1947,10 @@ fetchPredictionResult(code).then((r: any) => {
                 {reports.map((r: any, i: number) => {
                   const ratingColor: Record<string, string> = {
                     '买入': '#F53F3F', '增持': '#FF7D00', '强烈推荐': '#F53F3F',
-                    '推荐': '#FF7D00', '谨慎推荐': '#165DFF', '中性': '#86909c',
+                    '推荐': '#FF7D00', '谨慎推荐': '#165DFF', '中性': 'var(--color-text-3)',
                     '减持': '#00B42A', '卖出': '#00B42A',
                   };
-                  const rc = ratingColor[r.rating] || '#86909c';
+                  const rc = ratingColor[r.rating] || 'var(--color-text-3)';
                   return (
                     <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '12px 16px', borderBottom: '1px solid #f5f5f5' }}>
                       <div style={{ flex: 1, minWidth: 0 }}>
@@ -1965,12 +1965,12 @@ fetchPredictionResult(code).then((r: any) => {
                             {r.title}
                           </span>
                         </div>
-                        <div style={{ display: 'flex', gap: 16, fontSize: 11, color: '#86909c', flexWrap: 'wrap' }}>
+                        <div style={{ display: 'flex', gap: 16, fontSize: 11, color: 'var(--color-text-3)', flexWrap: 'wrap' }}>
                           <span>{r.orgSname || r.orgName}</span>
                           {r.researcher && <span>分析师: {r.researcher}</span>}
                           <span>{r.publishDate}</span>
                           {r.predictThisYearEps > 0 && (
-                            <span style={{ color: '#1d2129' }}>
+                            <span style={{ color: 'var(--color-text-1)' }}>
                               EPS预测: {r.predictThisYearEps}({r.predictThisYearPe}x)
                             </span>
                           )}
@@ -2007,7 +2007,7 @@ fetchPredictionResult(code).then((r: any) => {
         <div className="card">
           <div className="card-header"><span style={{ fontWeight: 600, fontSize: 14 }}><Newspaper size={14} /> 相关资讯</span>
               <button onClick={() => handleRefreshStockData('news')} disabled={refreshingPhase !== ''}
-                style={{ marginLeft: 'auto', padding: '4px 10px', fontSize: 11, cursor: 'pointer', border: '1px solid #e5e6eb', borderRadius: 4, background: '#fff', color: '#4e5969', display: 'flex', alignItems: 'center', gap: 4 }}>
+                style={{ marginLeft: 'auto', padding: '4px 10px', fontSize: 11, cursor: 'pointer', border: '1px solid #e5e6eb', borderRadius: 4, background: '#fff', color: 'var(--color-text-2)', display: 'flex', alignItems: 'center', gap: 4 }}>
                 <Repeat size={12} className={refreshingPhase === 'news' ? 'spin' : ''} />{refreshingPhase === 'news' ? '更新中...' : '更新'}
               </button></div>
           <div className="card-body" style={{ padding: 0 }}>
@@ -2020,7 +2020,7 @@ fetchPredictionResult(code).then((r: any) => {
                       <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {n.title}
                       </div>
-                      {n.summary && <div style={{ fontSize: 11, color: '#86909c', lineHeight: 1.4 }}>{n.summary.slice(0, 120)}</div>}
+                      {n.summary && <div style={{ fontSize: 11, color: 'var(--color-text-3)', lineHeight: 1.4 }}>{n.summary.slice(0, 120)}</div>}
                     </div>
                     <div style={{ flexShrink: 0, textAlign: 'right' }}>
                       <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 3, background: n.newsType === 'announcement' ? '#E8F3FF' : '#E8FFEA', color: n.newsType === 'announcement' ? '#165DFF' : '#00B42A' }}>
@@ -2039,10 +2039,10 @@ fetchPredictionResult(code).then((r: any) => {
       {/* Watchlist group selector */}
       <Modal visible={showWLModal} title="添加到自选股" onCancel={() => { setShowWLModal(false); setWlNewGroup(''); }} onOk={handleWLConfirm} okText="确认添加">
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <div><div style={{ fontSize: 12, color: '#86909c', marginBottom: 4 }}>选择分组</div>
+          <div><div style={{ fontSize: 12, color: 'var(--color-text-3)', marginBottom: 4 }}>选择分组</div>
             <Select value={wlGroupId || undefined} onChange={(v: number) => setWlGroupId(v || 0)} placeholder="默认分组" style={{ width: '100%' }} allowClear options={[{ label: '默认分组', value: 0 }, ...wlGroups.map((g: any) => ({ label: g.name, value: g.id }))]} />
           </div>
-          <div><div style={{ fontSize: 12, color: '#86909c', marginBottom: 4 }}>或新建分组</div>
+          <div><div style={{ fontSize: 12, color: 'var(--color-text-3)', marginBottom: 4 }}>或新建分组</div>
             <Input placeholder="输入新分组名称" value={wlNewGroup} onChange={setWlNewGroup} maxLength={20} />
           </div>
         </div>

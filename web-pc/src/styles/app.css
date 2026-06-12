@@ -9,7 +9,7 @@
   --red-1:#FFECE8;--red-5:#F76560;--red-6:#F53F3F;--red-7:#CB272D;
   --orange-1:#FFF7E8;--orange-6:#FF7D00;
   --green-1:#E8FFEA;--green-6:#00B42A;--green-7:#009A29;
-  --purple-1:#F5E8FF;--purple-6:#722ED1;
+  --purple-1:#F5E8FF;--purple-6:#722ED1;--purple-7:#531dab;
   --gray-1:#F7F8FA;--gray-2:#F2F3F5;--gray-3:#E5E6EB;
   --gray-4:#C9CDD4;--gray-5:#A9AEB8;--gray-6:#86909C;
   --gray-7:#6B7785;--gray-8:#4E5969;--gray-9:#272E3B;--gray-10:#1D2129;
@@ -26,7 +26,7 @@
   --stock-up:var(--red-6);--stock-up-soft:#FDE7E6;
   --stock-down:var(--green-6);--stock-down-soft:#DBF5DF;
   --stock-flat:var(--gray-6);
-  --sidebar-w:200px;--topbar-h:52px;
+  --sidebar-w:200px;--topbar-h:52px;--color-white:#fff;
 }
 /* ===== Dark Theme ===== */
 [data-theme="dark"] {
@@ -45,7 +45,7 @@
   --stock-up:#f87171;--stock-up-soft:#3d1f1f;
   --stock-down:#4ade80;--stock-down-soft:#1a3d2a;
   --stock-flat:#8a8d91;
-  --chart-bg:#1a1a2e;--chart-grid:#2d2d44;--chart-text:#8a8d91;
+  --chart-bg:#1a1a2e;--chart-grid:#2d2d44;--chart-text:#8a8d91;--color-white:#e4e6eb;
   --chart-crosshair:#b0b3b8;
   --k-up:#f87171;--k-down:#4ade80;--k-up-fill:rgba(248,113,113,0.15);--k-down-fill:rgba(74,222,128,0.15);
   --ma5:#fb923c;--ma10:#60a5fa;--ma20:#a78bfa;

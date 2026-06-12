@@ -89,14 +89,14 @@ export default function SettingsPage() {
 
   const inp: React.CSSProperties = {
     width: '100%', padding: '8px 12px', borderRadius: 6, border: '1px solid #e5e6eb',
-    background: '#f7f8fa', color: '#1d2129', fontSize: 14, outline: 'none', boxSizing: 'border-box',
+    background: 'var(--color-fill-2)', color: 'var(--color-text-1)', fontSize: 14, outline: 'none', boxSizing: 'border-box',
   };
 
   const sel: React.CSSProperties = { ...inp, cursor: 'pointer' };
 
   return (
     <div style={{ padding: '0 0 40px', maxWidth: 720 }}>
-      <h2 style={{ color: '#1d2129', fontSize: 18, fontWeight: 700, marginBottom: 20, display: 'flex', alignItems: 'center', gap: 8 }}>
+      <h2 style={{ color: 'var(--color-text-1)', fontSize: 18, fontWeight: 700, marginBottom: 20, display: 'flex', alignItems: 'center', gap: 8 }}>
         <Settings size={20} color="#165dff" /> AI 模型配置
       </h2>
 
@@ -181,11 +181,11 @@ export default function SettingsPage() {
       {/* Guide */}
       <div className="card" style={{ marginTop: 16 }}>
         <div className="card-header" style={{ fontSize: 14, fontWeight: 600 }}>使用说明</div>
-        <div className="card-body" style={{ fontSize: 13, color: '#86909c', lineHeight: 1.8 }}>
+        <div className="card-body" style={{ fontSize: 13, color: 'var(--color-text-3)', lineHeight: 1.8 }}>
           <p>1. 填写 API 地址和 Key，点击「从上游拉取」获取可用模型</p>
           <p>2. 选择合适的模型后点击「测试连通」验证</p>
           <p>3. 测试通过后保存配置，系统将在 AI 分析时使用你的个人 Key</p>
-          <p style={{ color: '#86909c', marginTop: 8, fontSize: 12 }}>
+          <p style={{ color: 'var(--color-text-3)', marginTop: 8, fontSize: 12 }}>
             支持 OpenAI / DeepSeek / Moonshot 等兼容接口。每个用户独立配置，互不影响。
           </p>
         </div>
@@ -194,4 +194,4 @@ export default function SettingsPage() {
   );
 }
 
-const label: React.CSSProperties = { fontSize: 12, color: '#86909c', marginBottom: 4, display: 'block', fontWeight: 500 };
+const label: React.CSSProperties = { fontSize: 12, color: 'var(--color-text-3)', marginBottom: 4, display: 'block', fontWeight: 500 };

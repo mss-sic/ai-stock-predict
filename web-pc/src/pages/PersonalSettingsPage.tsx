@@ -58,7 +58,7 @@ export default function PersonalSettingsPage() {
 
   const inp: React.CSSProperties = {
     width: '100%', padding: '8px 12px', borderRadius: 6, border: '1px solid #e5e6eb',
-    background: '#f7f8fa', color: '#1d2129', fontSize: 14, outline: 'none', boxSizing: 'border-box',
+    background: 'var(--color-fill-2)', color: 'var(--color-text-1)', fontSize: 14, outline: 'none', boxSizing: 'border-box',
   };
 
   return (
@@ -71,11 +71,11 @@ export default function PersonalSettingsPage() {
         <div className="card-body">
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <div>
-              <label style={{ fontSize: 12, color: '#86909c', marginBottom: 4, display: 'block' }}>用户名</label>
-              <input disabled value={user?.username || ''} style={{ ...inp, background: '#f2f3f5', color: '#86909c' }} />
+              <label style={{ fontSize: 12, color: 'var(--color-text-3)', marginBottom: 4, display: 'block' }}>用户名</label>
+              <input disabled value={user?.username || ''} style={{ ...inp, background: '#f2f3f5', color: 'var(--color-text-3)' }} />
             </div>
             <div>
-              <label style={{ fontSize: 12, color: '#86909c', marginBottom: 4, display: 'block' }}>昵称</label>
+              <label style={{ fontSize: 12, color: 'var(--color-text-3)', marginBottom: 4, display: 'block' }}>昵称</label>
               <div style={{ display: 'flex', gap: 8 }}>
                 <input
                   value={nickname}
@@ -90,11 +90,11 @@ export default function PersonalSettingsPage() {
               )}
             </div>
             <div>
-              <label style={{ fontSize: 12, color: '#86909c', marginBottom: 4, display: 'block' }}>角色</label>
+              <label style={{ fontSize: 12, color: 'var(--color-text-3)', marginBottom: 4, display: 'block' }}>角色</label>
               <span style={{
                 display: 'inline-block', padding: '2px 10px', borderRadius: 4, fontSize: 12,
                 background: user?.role === 'admin' ? '#e8f3ff' : '#f2f3f5',
-                color: user?.role === 'admin' ? '#165dff' : '#86909c',
+                color: user?.role === 'admin' ? '#165dff' : 'var(--color-text-3)',
               }}>{user?.role === 'admin' ? '管理员' : '普通用户'}</span>
             </div>
           </div>
@@ -123,11 +123,11 @@ export default function PersonalSettingsPage() {
         </div>
         <div className="card-body" style={{ padding: 0 }}>
           {sessions.length === 0 ? (
-            <div style={{ padding: 20, color: '#86909c', fontSize: 13, textAlign: 'center' }}>暂无活跃会话</div>
+            <div style={{ padding: 20, color: 'var(--color-text-3)', fontSize: 13, textAlign: 'center' }}>暂无活跃会话</div>
           ) : (
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
-                <tr style={{ background: '#f7f8fa' }}>
+                <tr style={{ background: 'var(--color-fill-2)' }}>
                   <th style={th}>状态</th>
                   <th style={th}>设备信息</th>
                   <th style={th}>IP 地址</th>
@@ -149,8 +149,8 @@ export default function PersonalSettingsPage() {
                     </td>
                     <td style={{ ...td, fontSize: 11, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.deviceInfo || '未知设备'}</td>
                     <td style={{ ...td, fontFamily: 'monospace', fontSize: 11 }}>{s.ipAddress}</td>
-                    <td style={{ ...td, color: '#86909c' }}>{new Date(s.createdAt).toLocaleString('zh-CN')}</td>
-                    <td style={{ ...td, color: '#86909c', fontSize: 11 }}>{s.lastHeartbeat ? new Date(s.lastHeartbeat).toLocaleTimeString('zh-CN') : '-'}</td>
+                    <td style={{ ...td, color: 'var(--color-text-3)' }}>{new Date(s.createdAt).toLocaleString('zh-CN')}</td>
+                    <td style={{ ...td, color: 'var(--color-text-3)', fontSize: 11 }}>{s.lastHeartbeat ? new Date(s.lastHeartbeat).toLocaleTimeString('zh-CN') : '-'}</td>
                     <td style={{ ...td, textAlign: 'center' }}>
                       <button onClick={() => handleRevoke(s.id)}
                         style={{ ...btnSm, background: '#ffece8', color: '#f53f3f', cursor: 'pointer' }}>
@@ -168,6 +168,6 @@ export default function PersonalSettingsPage() {
   );
 }
 
-const th: React.CSSProperties = { padding: '10px 14px', textAlign: 'left', color: '#86909c', fontWeight: 600, fontSize: 11 };
-const td: React.CSSProperties = { padding: '10px 14px', color: '#4e5969' };
+const th: React.CSSProperties = { padding: '10px 14px', textAlign: 'left', color: 'var(--color-text-3)', fontWeight: 600, fontSize: 11 };
+const td: React.CSSProperties = { padding: '10px 14px', color: 'var(--color-text-2)' };
 const btnSm: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 10px', border: 'none', borderRadius: 4, fontSize: 11 };
