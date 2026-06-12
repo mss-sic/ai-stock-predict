@@ -175,12 +175,34 @@ interface Section {
 export function parseStreamSections(text: string, _prev: number): Section[] {
   const sections: Section[] = [];
   // Match all widget JSON types
-  const widgetRe = /\{(?=[^{]*"w"\s*:\s*"(signal|risk|plan|list|alert|panel|summary)")[^}]*\}/g;
+  // Find widget JSON objects with proper brace counting for nested objects
   const matches: { start: number; end: number; json: string }[] = [];
-  let m;
-  while ((m = widgetRe.exec(text)) !== null) {
-    matches.push({ start: m.index, end: m.index + m[0].length, json: m[0] });
+  const widgetTagRe = /"w"\s*:\s*"(signal|risk|plan|list|alert|panel|summary)"/g;
+  let tagMatch;
+  while ((tagMatch = widgetTagRe.exec(text)) !== null) {
+    // Search backwards from the tag to find the opening brace
+    let start = tagMatch.index;
+    while (start > 0 && text[start] !== '{') start--;
+    if (text[start] !== '{') continue;
+    // Count braces from start to find matching closing brace
+    let depth = 0;
+    let end = start;
+    for (let i = start; i < text.length; i++) {
+      if (text[i] === '{') depth++;
+      else if (text[i] === '}') {
+        depth--;
+        if (depth === 0) { end = i + 1; break; }
+      }
+    }
+    if (end > start) {
+      const json = text.slice(start, end);
+      // Avoid duplicates (same start position)
+      if (!matches.some(m => m.start === start)) {
+        matches.push({ start, end, json });
+      }
+    }
   }
+  matches.sort((a, b) => a.start - b.start);
 
   let pos = 0, idx = 0;
   for (const match of matches) {
