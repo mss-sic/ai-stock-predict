@@ -120,6 +120,15 @@ func (h *AIHandler) AnalyzeStream(c *gin.Context) {
 	c.Header("Connection", "keep-alive")
 	c.Writer.Flush()
 
+	aiCfg := h.loadSystemConfig("chat_analysis")
+
+	// ── Agent mode (tools enabled) ──
+	if aiCfg.EnableTools {
+		h.analyzeStreamAgent(c, body.Code, body.Question, aiCfg)
+		return
+	}
+
+	// ── Standard streaming mode ──
 	sysMsg := h.buildStockContext(body.Code)
 
 	// Load recent history (last 8 messages, capped at ~2400 chars total)
@@ -148,8 +157,6 @@ func (h *AIHandler) AnalyzeStream(c *gin.Context) {
 
 	var fullReply string
 	uid, _ := c.Get("userId")
-		// Use system config for parameters if available
-	aiCfg := h.loadSystemConfig("chat_analysis")
 	err := h.svc.ChatCompletionStreamWithConfig(uid.(uint), body.Question, messages, aiCfg, func(chunk string) {
 		fullReply += chunk
 		data, _ := json.Marshal(gin.H{"chunk": chunk})
@@ -498,6 +505,7 @@ func (h *AIHandler) UpdateSystemConfig(c *gin.Context) {
 		Temperature  *float64 `json:"temperature"`
 		MaxTokens    *int     `json:"maxTokens"`
 		EnableSearch *bool    `json:"enableSearch"`
+		EnableTools  *bool    `json:"enableTools"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		response.BadRequest(c, "参数错误")
@@ -595,4 +603,366 @@ PE：%.2f | PB：%.2f
 	// Legacy custom prompt with only code/name/industry/date
 	return fmt.Sprintf(prompt,
 		code, stock.Name, stock.Industry, now.Format("2006年1月"))
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Agent Mode — Function Calling
+// ═══════════════════════════════════════════════════════════════
+
+// analyzeStreamAgent handles the agent loop with tool calling via SSE streaming.
+func (h *AIHandler) analyzeStreamAgent(c *gin.Context, code, question string, aiCfg model.AISystemConfig) {
+	uid, _ := c.Get("userId")
+	w := c.Writer
+
+	// Build system prompt for agent mode (without injected data, agent queries itself)
+	sysMsg := h.buildAgentSystemPrompt(code)
+
+	// Load recent history
+	var history []model.AIConversation
+	db.PG.Where("code = ?", code).Order("created_at DESC").Limit(12).Find(&history)
+	messages := []map[string]string{
+		{"role": "system", "content": sysMsg},
+	}
+	total := 0
+	const maxCtx = 3000
+	for i := len(history) - 1; i >= 0; i-- {
+		txt := history[i].Content
+		if total+len(txt) > maxCtx {
+			remain := maxCtx - total
+			if remain < 20 { break }
+			txt = safeSlice(txt, remain) + "…"
+		}
+		total += len(txt)
+		role := history[i].Role
+		if role == "ai" { role = "assistant" }
+		messages = append(messages, map[string]string{
+			"role": role, "content": txt,
+		})
+		if total >= maxCtx { break }
+	}
+	// Append current question
+	messages = append(messages, map[string]string{"role": "user", "content": question})
+
+	tools := h.buildAgentTools()
+
+	var fullReply string
+
+	err := h.svc.ChatCompletionAgentStream(uid.(uint), messages, aiCfg, tools,
+		func(name string, args map[string]interface{}) string {
+			return h.executeAgentTool(name, args, code)
+		},
+		func(eventType string, data map[string]string) {
+			// Send tool status event to frontend
+			evt := map[string]interface{}{"status": eventType}
+			for k, v := range data { evt[k] = v }
+			b, _ := json.Marshal(evt)
+			fmt.Fprintf(w, "data: %s\n\n", string(b))
+			w.Flush()
+		},
+		func(chunk string) {
+			fullReply += chunk
+			b, _ := json.Marshal(gin.H{"chunk": chunk})
+			fmt.Fprintf(w, "data: %s\n\n", string(b))
+			w.Flush()
+		},
+	)
+	if err != nil {
+		log.Printf("[ai_agent] ERROR uid=%v code=%s: %v", uid, code, err)
+		errData, _ := json.Marshal(gin.H{"error": true, "message": err.Error(), "code": response.CodeAIConfigMissing})
+		fmt.Fprintf(w, "data: %s\n\n", string(errData))
+		w.Flush()
+	} else {
+		db.PG.Create(&model.AIConversation{Code: code, Role: "ai", Content: fullReply})
+		fmt.Fprintf(w, "data: [DONE]\n\n")
+		w.Flush()
+	}
+}
+
+// buildAgentSystemPrompt builds system prompt for agent mode.
+func (h *AIHandler) buildAgentSystemPrompt(code string) string {
+	var stock struct{ Name, Industry string }
+	db.PG.Raw("SELECT name, industry FROM stocks_basic WHERE code = ?", code).Scan(&stock)
+
+	now := time.Now()
+	cfg := h.loadSystemConfig("chat_analysis")
+	prompt := cfg.SystemPrompt
+	if prompt != "" {
+		if strings.Contains(prompt, "%s") {
+			return fmt.Sprintf(prompt, code, stock.Name, stock.Industry, now.Format("2006年1月"))
+		}
+		return prompt
+	}
+	// Default agent prompt — encourages tool usage
+	return fmt.Sprintf(`你是专业A股分析助手。当前分析标的：%s %s（行业：%s）
+
+你拥有以下工具可以实时查询数据库中的精确数据：
+- get_stock_price: 获取最新价格、PE/PB、成交量
+- get_kline_summary: 获取近期K线走势摘要（均线、涨跌幅）
+- get_technical: 获取MACD/KDJ/RSI等技术指标
+- get_financials: 获取财务数据（ROE/EPS/营收/利润等）
+- get_news: 获取近期新闻和公告
+
+使用规则：
+1. 分析前务必先调用相关工具获取数据，不要凭空编造
+2. 引用数据时注明来源（如"根据系统K线数据..."）
+3. 输出使用混合格式：纯文本分析 + JSON widget 结构
+4. Widget类型：signal(信号)、risk(风险)、list(列表)、alert(警示)、panel(面板)、summary(总结)
+5. 分析截止时间：%s`, code, stock.Name, stock.Industry, now.Format("2006年1月"))
+}
+
+// buildAgentTools returns the tool definitions for DeepSeek Function Calling.
+func (h *AIHandler) buildAgentTools() []map[string]interface{} {
+	return []map[string]interface{}{
+		{
+			"type": "function",
+			"function": map[string]interface{}{
+				"name":        "get_stock_price",
+				"description": "获取股票最新价格、PE、PB、成交量和市值数据",
+				"parameters": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"code": map[string]interface{}{"type": "string", "description": "股票代码，如 300059"},
+					},
+					"required": []string{"code"},
+				},
+			},
+		},
+		{
+			"type": "function",
+			"function": map[string]interface{}{
+				"name":        "get_kline_summary",
+				"description": "获取近期K线走势摘要，包含均线、涨跌幅、最高最低等信息",
+				"parameters": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"code": map[string]interface{}{"type": "string", "description": "股票代码"},
+						"days": map[string]interface{}{"type": "integer", "description": "回溯天数，默认20"},
+					},
+					"required": []string{"code"},
+				},
+			},
+		},
+		{
+			"type": "function",
+			"function": map[string]interface{}{
+				"name":        "get_technical",
+				"description": "获取技术指标数据：MACD、KDJ、RSI、布林带等",
+				"parameters": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"code": map[string]interface{}{"type": "string", "description": "股票代码"},
+					},
+					"required": []string{"code"},
+				},
+			},
+		},
+		{
+			"type": "function",
+			"function": map[string]interface{}{
+				"name":        "get_financials",
+				"description": "获取最新财务报表数据：ROE、EPS、营收、利润、毛利率等",
+				"parameters": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"code": map[string]interface{}{"type": "string", "description": "股票代码"},
+					},
+					"required": []string{"code"},
+				},
+			},
+		},
+		{
+			"type": "function",
+			"function": map[string]interface{}{
+				"name":        "get_news",
+				"description": "获取股票近期重要新闻、公告和研报标题",
+				"parameters": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"code":  map[string]interface{}{"type": "string", "description": "股票代码"},
+						"limit": map[string]interface{}{"type": "integer", "description": "返回条数，默认5"},
+					},
+					"required": []string{"code"},
+				},
+			},
+		},
+	}
+}
+
+// executeAgentTool executes a single tool call against the database.
+func (h *AIHandler) executeAgentTool(name string, args map[string]interface{}, defaultCode string) string {
+	code, ok := args["code"].(string)
+	if !ok || code == "" {
+		code = defaultCode
+	}
+
+	switch name {
+	case "get_stock_price":
+		return h.toolGetStockPrice(code)
+
+	case "get_kline_summary":
+		days := 20
+		if d, ok := args["days"].(float64); ok {
+			days = int(d)
+		}
+		return h.toolGetKlineSummary(code, days)
+
+	case "get_technical":
+		return h.toolGetTechnical(code)
+
+	case "get_financials":
+		return h.toolGetFinancials(code)
+
+	case "get_news":
+		limit := 5
+		if l, ok := args["limit"].(float64); ok {
+			limit = int(l)
+		}
+		return h.toolGetNews(code, limit)
+
+	default:
+		return `{"error": "unknown tool: ` + name + `"}`
+	}
+}
+
+// ── Tool implementations ──
+
+func (h *AIHandler) toolGetStockPrice(code string) string {
+	type Row struct {
+		Close, High, Low, Volume float64
+		PE, PB, TotalMV, CircMV  float64
+		TradeDate                string
+		Name, Industry           string
+	}
+	var r Row
+	db.PG.Raw(`SELECT k.close, k.high, k.low, k.volume, TO_CHAR(k.trade_date,'YYYY-MM-DD') as trade_date,
+		i.pe, i.pb, i.total_market_cap, i.circulating_market_cap,
+		b.name, b.industry
+		FROM stocks_daily_k k
+		LEFT JOIN stocks_daily_indicator i ON i.code=k.code AND i.trade_date=k.trade_date
+		LEFT JOIN stocks_basic b ON b.code=k.code
+		WHERE k.code=? ORDER BY k.trade_date DESC LIMIT 1`, code).Scan(&r)
+
+	return fmt.Sprintf(`{"code":"%s","name":"%s","industry":"%s","close":%.2f,"high":%.2f,"low":%.2f,"volume":%.0f,"pe":%.2f,"pb":%.2f,"totalMV":%.0f,"circMV":%.0f,"tradeDate":"%s"}`,
+		code, r.Name, r.Industry, r.Close, r.High, r.Low, r.Volume, r.PE, r.PB, r.TotalMV, r.CircMV, r.TradeDate)
+}
+
+func (h *AIHandler) toolGetKlineSummary(code string, days int) string {
+	type Row struct {
+		Close, High, Low, Volume float64
+		TradeDate                string
+	}
+	var rows []Row
+	db.PG.Raw(`SELECT close, high, low, volume, TO_CHAR(trade_date,'YYYY-MM-DD') as trade_date
+		FROM stocks_daily_k WHERE code=? ORDER BY trade_date DESC LIMIT ?`, code, days).Scan(&rows)
+
+	if len(rows) == 0 {
+		return `{"error":"no kline data"}`
+	}
+
+	// Calculate summary: MA5, MA10, MA20, change%, amplitude
+	n := len(rows)
+	first := rows[n-1] // earliest
+	last := rows[0]    // latest
+	chgPct := (last.Close - first.Close) / first.Close * 100
+
+	ma5, ma10 := 0.0, 0.0
+	c5, c10 := 0, 0
+	highAll, lowAll := last.High, last.Low
+	for i, r := range rows {
+		if r.High > highAll { highAll = r.High }
+		if r.Low < lowAll { lowAll = r.Low }
+		if i < 5 { ma5 += r.Close; c5++ }
+		if i < 10 { ma10 += r.Close; c10++ }
+	}
+	if c5 > 0 { ma5 /= float64(c5) }
+	if c10 > 0 { ma10 /= float64(c10) }
+
+	amp := (highAll - lowAll) / first.Close * 100
+
+	return fmt.Sprintf(`{"code":"%s","days":%d,"startDate":"%s","endDate":"%s","startPrice":%.2f,"endPrice":%.2f,"changePct":%.2f,"ma5":%.2f,"ma10":%.2f,"highAll":%.2f,"lowAll":%.2f,"amplitude":%.2f}`,
+		code, n, first.TradeDate, last.TradeDate, first.Close, last.Close, chgPct, ma5, ma10, highAll, lowAll, amp)
+}
+
+func (h *AIHandler) toolGetTechnical(code string) string {
+	type Row struct {
+		TradeDate      string
+		RSI1, RSI2     float64
+	}
+	var rows []Row
+	db.PG.Raw(`SELECT TO_CHAR(trade_date,'YYYY-MM-DD') as trade_date, rsi1, rsi2
+		FROM stocks_daily_indicator WHERE code=? ORDER BY trade_date DESC LIMIT 10`, code).Scan(&rows)
+
+	if len(rows) == 0 {
+		// Try stocks_daily_k for MACD pattern
+		type KRow struct {
+			Close, High, Low float64
+			TradeDate        string
+		}
+		var krows []KRow
+		db.PG.Raw(`SELECT close, high, low, TO_CHAR(trade_date,'YYYY-MM-DD') as trade_date
+			FROM stocks_daily_k WHERE code=? ORDER BY trade_date DESC LIMIT 20`, code).Scan(&krows)
+		if len(krows) < 5 {
+			return `{"error":"insufficient data for technical analysis"}`
+		}
+		// Simple MA crossover detection
+		ma5, ma10 := 0.0, 0.0
+		for i := 0; i < 5 && i < len(krows); i++ { ma5 += krows[i].Close }
+		for i := 0; i < 10 && i < len(krows); i++ { ma10 += krows[i].Close }
+		ma5 /= 5
+		ma10 /= float64(min(10, len(krows)))
+		crossover := "多头排列"
+		if ma5 < ma10 { crossover = "死叉" }
+		return fmt.Sprintf(`{"code":"%s","latestClose":%.2f,"ma5":%.2f,"ma10":%.2f,"maStatus":"%s","note":"基础MA数据，完整指标需采集器运行"}`,
+			code, krows[0].Close, ma5, ma10, crossover)
+	}
+
+	latest := rows[0]
+	return fmt.Sprintf(`{"code":"%s","tradeDate":"%s","rsi6":%.2f,"rsi12":%.2f,"note":"RSI为采集器计算的基础指标，更详细的MACD/KDJ/布林带需确保采集器已运行"}`,
+		code, latest.TradeDate, latest.RSI1, latest.RSI2)
+}
+
+func (h *AIHandler) toolGetFinancials(code string) string {
+	type Row struct {
+		ReportDate, ReportType                string
+		TotalRevenue, NetProfit               float64
+		RevenueGrowth, ProfitGrowth           float64
+		ROE, EPS, BPS, GrossMargin, NetMargin float64
+		DebtRatio                             float64
+	}
+	var rows []Row
+	db.PG.Raw(`SELECT report_date, report_type, total_revenue, net_profit,
+		revenue_growth, profit_growth, roe, eps, bps, gross_margin, net_margin, debt_ratio
+		FROM stock_financials WHERE code=? ORDER BY report_date DESC LIMIT 3`, code).Scan(&rows)
+
+	if len(rows) == 0 {
+		return `{"error":"no financial data"}`
+	}
+
+	r := rows[0]
+	return fmt.Sprintf(`{"code":"%s","latestReport":"%s","reportType":"%s","revenue":%.2f,"netProfit":%.2f,"revenueGrowth":%.2f,"profitGrowth":%.2f,"roe":%.2f,"eps":%.2f,"bps":%.2f,"grossMargin":%.2f,"netMargin":%.2f,"debtRatio":%.2f,"note":"单位：万元(营收/利润)，%%(增长率/比率)"}`,
+		code, r.ReportDate, r.ReportType, r.TotalRevenue, r.NetProfit,
+		r.RevenueGrowth, r.ProfitGrowth, r.ROE, r.EPS, r.BPS,
+		r.GrossMargin, r.NetMargin, r.DebtRatio)
+}
+
+func (h *AIHandler) toolGetNews(code string, limit int) string {
+	type Row struct {
+		Title, Summary, Source, PublishDate, NewsType string
+	}
+	var rows []Row
+	db.PG.Raw(`SELECT title, summary, source, publish_date, news_type
+		FROM stock_news WHERE code=? ORDER BY publish_date DESC LIMIT ?`, code, limit).Scan(&rows)
+
+	if len(rows) == 0 {
+		return `{"error":"no news data"}`
+	}
+
+	var items []string
+	for _, r := range rows {
+		summary := r.Summary
+		if len(summary) > 80 { summary = summary[:80] + "..." }
+		items = append(items, fmt.Sprintf(`{"title":"%s","summary":"%s","source":"%s","date":"%s"}`,
+			r.Title, summary, r.Source, r.PublishDate))
+	}
+	return fmt.Sprintf(`{"code":"%s","count":%d,"items":[%s]}`, code, len(rows), strings.Join(items, ","))
 }

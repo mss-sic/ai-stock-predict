@@ -21,7 +21,7 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
 
   // ── AI System Configs ──
-  interface SysCfg { scene: string; name: string; systemPrompt: string; modelName: string; temperature: number; maxTokens: number; enableSearch: boolean; }
+  interface SysCfg { scene: string; name: string; systemPrompt: string; modelName: string; temperature: number; maxTokens: number; enableSearch: boolean; enableTools: boolean; }
   const [sysConfigs, setSysConfigs] = useState<SysCfg[]>([]);
   const [editingScene, setEditingScene] = useState<string | null>(null);
   const [editCfg, setEditCfg] = useState<SysCfg | null>(null);
@@ -51,6 +51,7 @@ export default function SettingsPage() {
           temperature: editCfg.temperature,
           maxTokens: editCfg.maxTokens,
           enableSearch: editCfg.enableSearch,
+          enableTools: editCfg.enableTools,
         }),
       });
       setSysConfigs(prev => prev.map(c => c.scene === editCfg.scene ? editCfg : c));
@@ -294,9 +295,17 @@ export default function SettingsPage() {
                   onChange={e => setEditCfg({...editCfg, maxTokens: parseInt(e.target.value) || 0})} style={inp} />
               </div>
               <div>
-                <label style={label}>搜索</label>
+                <label style={label}>联网搜索</label>
                 <select value={editCfg.enableSearch ? '1' : '0'}
                   onChange={e => setEditCfg({...editCfg, enableSearch: e.target.value === '1'})} style={sel}>
+                  <option value="1">✅ 开启</option>
+                  <option value="0">❌ 关闭</option>
+                </select>
+              </div>
+              <div>
+                <label style={label}>Agent工具调用</label>
+                <select value={editCfg.enableTools ? '1' : '0'}
+                  onChange={e => setEditCfg({...editCfg, enableTools: e.target.value === '1'})} style={sel}>
                   <option value="1">✅ 开启</option>
                   <option value="0">❌ 关闭</option>
                 </select>

@@ -12,6 +12,7 @@ type AISystemConfig struct {
 	Temperature  float64   `gorm:"default:0.7" json:"temperature"`
 	MaxTokens    int       `gorm:"default:2048" json:"maxTokens"`
 	EnableSearch bool      `gorm:"default:true" json:"enableSearch"`
+	EnableTools  bool      `gorm:"default:false" json:"enableTools"`
 	CreatedAt    time.Time `json:"createdAt"`
 	UpdatedAt    time.Time `json:"updatedAt"`
 }

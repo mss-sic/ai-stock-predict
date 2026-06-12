@@ -15,7 +15,7 @@ import BoardSidebar from '../components/BoardSidebar';
 
 type TabKey = 'forecast' | 'analysis' | 'strategy' | 'technical' | 'trading' | 'financial' | 'shareholder' | 'reports' | 'news';
 
-interface Message { role: 'user' | 'ai'; text: string }
+interface Message { role: 'user' | 'ai'; text: string; status?: string }
 interface Marker { i: number; type: 'board' | 'buy' | 'sell'; label?: string }
 
 // ─── Technical indicators (same as before, omitted for brevity) ───
@@ -593,7 +593,7 @@ fetchPredictionResult(code).then((r: any) => {
       const res = await authFetch('/api/v1/ai/analyze/stream', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code, question: msg }) });
       const reader = res.body?.getReader(); if (!reader) throw new Error('no reader');
       const decoder = new TextDecoder(); let buffer = '';
-      while (true) { const { done, value } = await reader.read(); if (done) break; buffer += decoder.decode(value, { stream: true }); const lines = buffer.split('\n'); buffer = lines.pop() || ''; for (const line of lines) { if (!line.startsWith('data: ')) continue; const data = line.slice(6); if (data === '[DONE]') continue; try { const p = JSON.parse(data); if (p.chunk) setMsgs(prev => { const cp = [...prev]; cp[cp.length - 1] = { ...cp[cp.length - 1], text: cp[cp.length - 1].text + p.chunk }; return cp; }); if (p.error) setMsgs(prev => { const cp = [...prev]; cp[cp.length - 1] = { ...cp[cp.length - 1], text: '错误: ' + (p.message || '请求失败') }; return cp; }); } catch (_) {} } }
+      while (true) { const { done, value } = await reader.read(); if (done) break; buffer += decoder.decode(value, { stream: true }); const lines = buffer.split('\n'); buffer = lines.pop() || ''; for (const line of lines) { if (!line.startsWith('data: ')) continue; const data = line.slice(6); if (data === '[DONE]') continue; try { const p = JSON.parse(data); if (p.status === 'tool_start') setMsgs(prev => { const cp = [...prev]; cp[cp.length - 1] = { ...cp[cp.length - 1], text: cp[cp.length - 1].text, status: '🔍 正在查询 ' + (p.tool || '数据') + '...' }; return cp; }); if (p.status === 'tool_end') setMsgs(prev => { const cp = [...prev]; cp[cp.length - 1] = { ...cp[cp.length - 1], text: cp[cp.length - 1].text, status: '📊 分析中...' }; return cp; }); if (p.chunk) setMsgs(prev => { const cp = [...prev]; cp[cp.length - 1] = { ...cp[cp.length - 1], text: cp[cp.length - 1].text + p.chunk, status: '' }; return cp; }); if (p.error) setMsgs(prev => { const cp = [...prev]; cp[cp.length - 1] = { ...cp[cp.length - 1], text: '错误: ' + (p.message || '请求失败'), status: '' }; return cp; }); } catch (_) {} } }
       setMsgs(prev => { const cp = [...prev]; if (cp[cp.length - 1].text === '') cp[cp.length - 1] = { ...cp[cp.length - 1], text: '(回复为空)' }; return cp; });
     } catch { setMsgs(prev => { const cp = [...prev]; cp[cp.length - 1] = { ...cp[cp.length - 1], text: '服务暂不可用' }; return cp; }); }
     setChatLoading(false);
@@ -1108,6 +1108,17 @@ fetchPredictionResult(code).then((r: any) => {
                           whiteSpace: hasWidgets ? 'normal' : 'pre-wrap',
                           wordBreak: 'break-word',
                         }}>
+                          {m.status && <div style={{ 
+                            display: 'flex', alignItems: 'center', gap: 8, 
+                            padding: '6px 0', color: 'var(--color-text-3)', fontSize: 12,
+                            animation: 'pulse 1.5s ease-in-out infinite'
+                          }}>
+                            <span style={{ 
+                              display: 'inline-block', width: 6, height: 6, borderRadius: '50%',
+                              background: 'var(--arcoblue-6)', animation: 'pulse 1s ease-in-out infinite'
+                            }} />
+                            {m.status}
+                          </div>}
                           {m.text ? (m.role === 'ai' ? (
                             sections.length > 0 ? (
                               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>

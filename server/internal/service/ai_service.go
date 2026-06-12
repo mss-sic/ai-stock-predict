@@ -429,3 +429,104 @@ func (s *AIService) ChatCompletionAgent(userID uint, history []map[string]string
 	}
 	return fmt.Errorf("Agent exceeded max turns (%d)", maxTurns)
 }
+
+// ChatCompletionAgentStream runs the agent loop with SSE event streaming.
+// onEvent("tool_start"|"tool_end", map) is called for tool lifecycle.
+// onChunk is called for final text chunks.
+func (s *AIService) ChatCompletionAgentStream(userID uint, history []map[string]string, sysCfg model.AISystemConfig, tools []map[string]interface{}, toolExecutor func(name string, args map[string]interface{}) string, onEvent func(eventType string, data map[string]string), onChunk func(chunk string)) error {
+	cfg, err := s.GetConfig(userID)
+	if err != nil {
+		return err
+	}
+	if cfg.APIKey == "" {
+		return fmt.Errorf("AI API Key未配置")
+	}
+
+	modelName := cfg.ModelName
+	if sysCfg.ModelName != "" {
+		modelName = sysCfg.ModelName
+	}
+
+	msgs := make([]AgentMessage, len(history))
+	for i, h := range history {
+		role := h["role"]
+		if role == "ai" { role = "assistant" }
+		msgs[i] = AgentMessage{Role: role, Content: h["content"]}
+	}
+
+	const maxTurns = 5
+	for turn := 0; turn < maxTurns; turn++ {
+		body := map[string]interface{}{
+			"model":       modelName,
+			"messages":    msgs,
+			"temperature": sysCfg.Temperature,
+			"max_tokens":  sysCfg.MaxTokens,
+			"tools":       tools,
+			"tool_choice": "auto",
+		}
+
+		b, _ := json.Marshal(body)
+		req, err := http.NewRequest("POST", cfg.BaseURL+"/v1/chat/completions", bytes.NewReader(b))
+		if err != nil { return err }
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
+		client := &http.Client{Timeout: 120 * time.Second}
+		resp, err := client.Do(req)
+		if err != nil { return fmt.Errorf("AI请求失败: %w", err) }
+		defer resp.Body.Close()
+		if resp.StatusCode != 200 {
+			respBody, _ := io.ReadAll(resp.Body)
+			return fmt.Errorf("AI API返回 %d: %s", resp.StatusCode, string(respBody))
+		}
+
+		var result struct {
+			Choices []struct {
+				Message struct {
+					Role      string    `json:"role"`
+					Content   string    `json:"content"`
+					ToolCalls []ToolCall `json:"tool_calls"`
+				} `json:"message"`
+				FinishReason string `json:"finish_reason"`
+			} `json:"choices"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			return fmt.Errorf("AI响应解析失败: %w", err)
+		}
+
+		if len(result.Choices) == 0 {
+			return fmt.Errorf("AI返回空结果")
+		}
+
+		choice := result.Choices[0]
+
+		// ── Tool calls → execute and continue ──
+		if len(choice.Message.ToolCalls) > 0 {
+			msgs = append(msgs, AgentMessage{
+				Role:      "assistant",
+				Content:   choice.Message.Content,
+				ToolCalls: choice.Message.ToolCalls,
+			})
+			for _, tc := range choice.Message.ToolCalls {
+				onEvent("tool_start", map[string]string{"tool": tc.Function.Name})
+				var args map[string]interface{}
+				json.Unmarshal([]byte(tc.Function.Arguments), &args)
+				toolResult := toolExecutor(tc.Function.Name, args)
+				onEvent("tool_end", map[string]string{"tool": tc.Function.Name})
+				msgs = append(msgs, AgentMessage{
+					Role:       "tool",
+					ToolCallID: tc.ID,
+					Name:       tc.Function.Name,
+					Content:    toolResult,
+				})
+			}
+			continue
+		}
+
+		// ── Final text response ──
+		if choice.Message.Content != "" {
+			onChunk(choice.Message.Content)
+		}
+		return nil
+	}
+	return fmt.Errorf("Agent exceeded max turns (%d)", maxTurns)
+}
