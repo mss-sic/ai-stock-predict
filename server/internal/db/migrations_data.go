@@ -411,6 +411,22 @@ func init() {
 		},
 	})
 
+
+	// v15: add position_sizing column to strategies
+	migrations = append(migrations, Migration{
+		Version:     15,
+		Description: "MySQL: strategies add position_sizing column",
+		Up: func() error {
+			safeExecMysql(`
+				SET @col_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS
+					WHERE TABLE_SCHEMA = 'stock_predict' AND TABLE_NAME = 'strategies' AND COLUMN_NAME = 'position_sizing');
+				SET @sql = IF(@col_exists = 0, 'ALTER TABLE strategies ADD COLUMN position_sizing VARCHAR(15) DEFAULT ''fixed_pct''', 'SELECT 1');
+				PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+			`)
+			return nil
+		},
+	})
+
 	log.Printf("[migrate] registered %d migrations", len(migrations))
 
 
