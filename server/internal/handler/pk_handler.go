@@ -322,22 +322,41 @@ func (h *PkHandler) EntryDetail(c *gin.Context) {
 		return
 	}
 
+	// Load strategy details
+	var strategy model.Strategy
+	var conditions []model.StrategyCondition
+	if db.MySQL.First(&strategy, entry.StrategyID).Error == nil {
+		db.MySQL.Where("strategy_id = ?", entry.StrategyID).Order("cond_type, id").Find(&conditions)
+	}
+
+	resp := map[string]interface{}{
+		"entry": entry,
+		"strategy": map[string]interface{}{
+			"name":         strategy.Name,
+			"stopProfit":   strategy.StopProfit,
+			"stopLoss":     strategy.StopLoss,
+			"maxHoldings":  strategy.MaxHoldings,
+			"buyPct":       strategy.BuyPositionPct,
+			"addPct":       strategy.AddPositionPct,
+			"initialCapital": strategy.InitialCapital,
+			"conditions":   conditions,
+		},
+	}
+
 	if entry.ResultID == nil {
-		response.Success(c, map[string]interface{}{"entry": entry, "result": nil})
+		response.Success(c, resp)
 		return
 	}
 
 	var result model.BacktestResult
 	db.MySQL.First(&result, *entry.ResultID)
+	resp["result"] = result
 
 	var logs []model.BacktestExecutionLog
 	db.MySQL.Where("task_id = ?", result.TaskID).Order("seq").Find(&logs)
+	resp["logs"] = logs
 
-	response.Success(c, map[string]interface{}{
-		"entry":  entry,
-		"result": result,
-		"logs":   logs,
-	})
+	response.Success(c, resp)
 }
 
 // ── PK Backtest Runner ──

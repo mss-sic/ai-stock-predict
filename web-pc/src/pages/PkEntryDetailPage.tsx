@@ -7,6 +7,7 @@ import KLineChart from '../components/KLineChart';
 
 interface EntryData {
   entry: any;
+  strategy?: any;
   result: any;
   logs: any[];
 }
@@ -87,7 +88,7 @@ export default function PkEntryDetailPage() {
   if (loading) return <div style={{ padding: 60, textAlign: 'center' }}><Spin size={30} /></div>;
   if (!data) return <div style={{ padding: 60, textAlign: 'center', color: 'var(--color-text-3)' }}>数据加载失败</div>;
 
-  const { entry, result, logs } = data;
+  const { entry, strategy, result, logs } = data;
   const tradesArr = result?.trades?.data || result?.trades || [];
 
   return (
@@ -108,6 +109,52 @@ export default function PkEntryDetailPage() {
         {entry.status === 'running' && <Tag color="blue">进行中</Tag>}
         {entry.status === 'completed' && <Tag color="green">已完成</Tag>}
       </div>
+
+      {/* Strategy Info */}
+      {strategy && (
+        <Card style={{ marginBottom: 20, background: 'var(--color-bg-1)', boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }} title={
+          <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <TrendingUp size={16} style={{ color: 'var(--color-primary)' }} />
+            策略条件
+          </span>
+        }>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '10px 20px' }}>
+            <div><span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>止盈</span><div style={{ fontWeight: 600 }}>{strategy.stopProfit > 0 ? `${strategy.stopProfit}%` : '未设置'}</div></div>
+            <div><span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>止损</span><div style={{ fontWeight: 600, color: '#F53F3F' }}>{strategy.stopLoss < 0 ? `${strategy.stopLoss}%` : '未设置'}</div></div>
+            <div><span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>最大持股</span><div style={{ fontWeight: 600 }}>{strategy.maxHoldings} 只</div></div>
+            <div><span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>建仓比例</span><div style={{ fontWeight: 600 }}>{strategy.buyPct}%</div></div>
+            <div><span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>加仓比例</span><div style={{ fontWeight: 600 }}>{strategy.addPct}%</div></div>
+            <div><span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>初始资金</span><div style={{ fontWeight: 600 }}>¥{(strategy.initialCapital || 0).toLocaleString()}</div></div>
+          </div>
+          {strategy.conditions && strategy.conditions.length > 0 && (
+            <>
+              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text-2)', margin: '14px 0 8px', borderTop: '1px solid var(--color-border-1)', paddingTop: 12 }}>
+                交易条件
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {strategy.conditions.map((c: any, i: number) => {
+                  const typeLabels: Record<string, string> = { buy: '买入', add: '加仓', sell: '卖出', reduce: '减仓' };
+                  const typeColors: Record<string, string> = { buy: '#F53F3F', add: '#FF7D00', sell: '#00B42A', reduce: '#165DFF' };
+                  const opLabels: Record<string, string> = { gt: '>', lt: '<', gte: '≥', lte: '≤', eq: '=', cross_up: '上穿', cross_down: '下穿' };
+                  return (
+                    <span key={i} style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 4,
+                      padding: '3px 10px', borderRadius: 14,
+                      fontSize: 11, fontWeight: 500,
+                      background: `${typeColors[c.condType] || '#165DFF'}14`,
+                      color: typeColors[c.condType] || '#165DFF',
+                      border: `1px solid ${typeColors[c.condType] || '#165DFF'}30`,
+                    }}>
+                      <span style={{ fontWeight: 700 }}>{typeLabels[c.condType] || c.condType}</span>
+                      {c.indicator} {opLabels[c.operator] || c.operator} {c.value}
+                    </span>
+                  );
+                })}
+              </div>
+            </>
+          )}
+        </Card>
+      )}
 
       {/* Metrics Cards */}
       {result && (
