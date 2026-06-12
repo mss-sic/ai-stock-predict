@@ -4,10 +4,11 @@ import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from './services/AuthContext';
 import { fetchIndices, logout as logoutApi, getAccessToken, heartbeat } from './services/api';
 import Logo from './components/Logo';
-import { LayoutDashboard, History, Grid3X3, Layers, Star, Target, Briefcase, ShieldAlert, Database, Search, Settings, LogOut, UserCog, Shield, Sun, Moon } from 'lucide-react';
+import { LayoutDashboard, History, Grid3X3, Layers, Star, Target, Briefcase, ShieldAlert, Database, Search, Settings, LogOut, UserCog, Shield, Sun, Moon, Swords } from 'lucide-react';
 import { useTheme } from './services/ThemeContext';
 import '@arco-design/web-react/dist/css/arco.css';
 import './styles/app.css';
+import PkNotice from './components/PkNotice';
 
 const navItems = [
   { key: '/', label: '今日榜单', icon: LayoutDashboard },
@@ -17,6 +18,7 @@ const navItems = [
   { key: '/stocks', label: '股票列表', icon: Search },
   { key: '/watchlist', label: '自选股', icon: Star },
   { key: '/strategy', label: '交易策略', icon: Target },
+  { key: '/pk', label: '策略PK', icon: Swords },
   { key: '/holdings', label: '持股管理', icon: Briefcase },
   { key: '/risk', label: '风险监控', icon: ShieldAlert },
   { key: '/data', label: '数据管理', icon: Database },
@@ -72,6 +74,7 @@ export default function AppLayout() {
   return (
     <>
       <ToastContainer />
+      <PkNotice />
       <div className="app-shell">
       <aside className="app-sidebar">
         <div className="sidebar-brand" style={{ borderColor: 'var(--color-border-1)' }}>

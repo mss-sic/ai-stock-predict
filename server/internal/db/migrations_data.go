@@ -264,5 +264,17 @@ func init() {
 		},
 	})
 
+	// ============================================================
+	// v009: MySQL PK events / entries / daily rankings
+	// ============================================================
+	Register(Migration{
+		Version:     9,
+		Description: "MySQL: pk_events, pk_entries, pk_daily_rankings",
+		Up: func() error {
+			gormAutoMigrate(MySQL, &model.PkEvent{}, &model.PkEntry{}, &model.PkDailyRanking{})
+			return nil
+		},
+	})
+
 	log.Printf("[migrate] registered %d migrations", len(migrations))
 }

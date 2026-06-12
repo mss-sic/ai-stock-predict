@@ -260,7 +260,9 @@ func (h *BoardHandler) getEnrichedBoard(dateStr string) ([]EnrichedBoardItem, st
 		// Group by code
 		codeDates := make(map[string][]string)
 		for _, r := range rows {
-			codeDates[r.StockCode] = append(codeDates[r.StockCode], r.PickDate[:10])
+			if len(r.PickDate) >= 10 {
+				codeDates[r.StockCode] = append(codeDates[r.StockCode], r.PickDate[:10])
+			}
 		}
 		for code, dates := range codeDates {
 			appearance := len(dates)

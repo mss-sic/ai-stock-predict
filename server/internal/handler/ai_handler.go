@@ -19,6 +19,14 @@ type AIHandler struct {
 	svc *service.AIService
 }
 
+// safeSlice truncates s to n chars, returns empty if too short.
+func safeSlice(s string, n int) string {
+	if len(s) >= n {
+		return s[:n]
+	}
+	return s
+}
+
 func NewAIHandler() *AIHandler {
 	return &AIHandler{svc: service.NewAIService()}
 }
@@ -405,7 +413,7 @@ func (h *AIHandler) buildScoringContext(code string) (string, map[string]interfa
 	klineSummary := ""
 	for i := len(klines) - 1; i >= 0; i-- {
 		k := klines[i]
-		klineSummary += fmt.Sprintf("%s O:%.2f C:%.2f H:%.2f L:%.2f V:%.0f; ", k.TradeDate[:10], k.Open, k.Close, k.High, k.Low, k.Volume)
+		klineSummary += fmt.Sprintf("%s O:%.2f C:%.2f H:%.2f L:%.2f V:%.0f; ", safeSlice(k.TradeDate, 10), k.Open, k.Close, k.High, k.Low, k.Volume)
 	}
 
 	extra := map[string]interface{}{

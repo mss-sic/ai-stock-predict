@@ -145,6 +145,19 @@ func main() {
 
 		// Strategy
 		strategyH := handler.NewStrategyHandler()
+		handler.SetDefaultStrategyHandler(strategyH)
+
+		// PK Events
+		pkH := handler.NewPkHandler()
+		api.POST("/pk/events", pkH.CreateEvent)
+		api.GET("/pk/events", pkH.ListEvents)
+		api.GET("/pk/events/:id", pkH.GetEvent)
+		api.PUT("/pk/events/:id", pkH.UpdateEvent)
+		api.POST("/pk/events/:id/start", pkH.StartEvent)
+		api.POST("/pk/events/:id/close", pkH.CloseEvent)
+		api.POST("/pk/events/:id/join", pkH.JoinEvent)
+		api.GET("/pk/entries/:entryId/detail", pkH.EntryDetail)
+		api.GET("/pk/active-notice", pkH.ActiveNotice)
 		api.GET("/strategies", strategyH.List)
 		api.POST("/strategies", strategyH.Create)
 		api.PUT("/strategies/:id", strategyH.Update)

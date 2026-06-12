@@ -19,6 +19,8 @@ import SettingsPage from './pages/SettingsPage';
 import PersonalSettingsPage from "./pages/PersonalSettingsPage";
 import LoginPage from './pages/LoginPage';
 import AdminPage from './pages/AdminPage';
+import PkListPage from './pages/PkListPage';
+import PkDetailPage from './pages/PkDetailPage';
 
 function ErrorBoundary() {
   const error = useRouteError() as any;
@@ -85,6 +87,8 @@ const router = createBrowserRouter([
           { path: 'settings', element: <SettingsPage /> },
           { path: "profile", element: <PersonalSettingsPage /> },
           { path: 'admin', element: <AdminPage /> },
+          { path: 'pk', element: <PkListPage /> },
+          { path: 'pk/:id', element: <PkDetailPage /> },
           { path: '*', element: <Navigate to="/" replace /> },
         ],
       },
