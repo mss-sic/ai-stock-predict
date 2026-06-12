@@ -120,11 +120,33 @@ func (h *AIHandler) AnalyzeStream(c *gin.Context) {
 
 	sysMsg := h.buildStockContext(body.Code)
 
+	// Load recent history (last 8 messages, capped at ~2400 chars total)
+	var history []model.AIConversation
+	db.PG.Where("code = ?", body.Code).Order("created_at DESC").Limit(8).Find(&history)
+	messages := []map[string]string{
+		{"role": "system", "content": sysMsg},
+	}
+	total := 0
+	const maxCtx = 2400
+	for i := len(history) - 1; i >= 0; i-- {
+		txt := history[i].Content
+		if total+len(txt) > maxCtx {
+			remain := maxCtx - total
+			if remain < 20 { break }
+			txt = safeSlice(txt, remain) + "…"
+		}
+		total += len(txt)
+		messages = append(messages, map[string]string{
+			"role": history[i].Role, "content": txt,
+		})
+		if total >= maxCtx { break }
+	}
+
 	var fullReply string
 	uid, _ := c.Get("userId")
-	err := h.svc.ChatCompletionStream(uid.(uint), body.Question, []map[string]string{
-		{"role": "system", "content": sysMsg},
-	}, func(chunk string) {
+		// Use system config for parameters if available
+	aiCfg := h.loadSystemConfig("chat_analysis")
+	err := h.svc.ChatCompletionStreamWithConfig(uid.(uint), body.Question, messages, aiCfg, func(chunk string) {
 		fullReply += chunk
 		data, _ := json.Marshal(gin.H{"chunk": chunk})
 		fmt.Fprintf(c.Writer, "data: %s\n\n", string(data))
@@ -441,6 +463,68 @@ func (h *AIHandler) buildScoringContext(code string) (string, map[string]interfa
 	return ctx, extra
 }
 
+
+// GetSystemConfigs returns all AI system configs (admin)
+func (h *AIHandler) GetSystemConfigs(c *gin.Context) {
+	var configs []model.AISystemConfig
+	db.PG.Order("id ASC").Find(&configs)
+	if configs == nil { configs = []model.AISystemConfig{} }
+	response.Success(c, configs)
+}
+
+// GetSystemConfig returns a single scene config
+func (h *AIHandler) GetSystemConfig(c *gin.Context) {
+	scene := c.Param("scene")
+	var cfg model.AISystemConfig
+	if err := db.PG.Where("scene = ?", scene).First(&cfg).Error; err != nil {
+		response.NotFound(c, "配置不存在")
+		return
+	}
+	response.Success(c, cfg)
+}
+
+// UpdateSystemConfig updates an AI system config
+func (h *AIHandler) UpdateSystemConfig(c *gin.Context) {
+	scene := c.Param("scene")
+	var body struct {
+		Name         *string  `json:"name"`
+		SystemPrompt *string  `json:"systemPrompt"`
+		ModelName    *string  `json:"modelName"`
+		Temperature  *float64 `json:"temperature"`
+		MaxTokens    *int     `json:"maxTokens"`
+		EnableSearch *bool    `json:"enableSearch"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		response.BadRequest(c, "参数错误")
+		return
+	}
+	var cfg model.AISystemConfig
+	if err := db.PG.Where("scene = ?", scene).First(&cfg).Error; err != nil {
+		response.NotFound(c, "配置不存在")
+		return
+	}
+	updates := map[string]interface{}{}
+	if body.Name != nil { updates["name"] = *body.Name }
+	if body.SystemPrompt != nil { updates["system_prompt"] = *body.SystemPrompt }
+	if body.ModelName != nil { updates["model_name"] = *body.ModelName }
+	if body.Temperature != nil { updates["temperature"] = *body.Temperature }
+	if body.MaxTokens != nil { updates["max_tokens"] = *body.MaxTokens }
+	if body.EnableSearch != nil { updates["enable_search"] = *body.EnableSearch }
+	db.PG.Model(&cfg).Updates(updates)
+	response.SuccessMsg(c, "ok")
+}
+
+// loadSystemConfig loads AI system config for a scene, returning defaults if not found
+func (h *AIHandler) loadSystemConfig(scene string) model.AISystemConfig {
+	var cfg model.AISystemConfig
+	if err := db.PG.Where("scene = ?", scene).First(&cfg).Error; err != nil {
+		return model.AISystemConfig{
+			Scene: scene, Temperature: 0.7, MaxTokens: 2048, EnableSearch: true,
+		}
+	}
+	return cfg
+}
+
 func (h *AIHandler) buildStockContext(code string) string {
 	type StockInfo struct {
 		Name     string
@@ -450,32 +534,11 @@ func (h *AIHandler) buildStockContext(code string) string {
 	db.PG.Raw("SELECT name, industry FROM stocks_basic WHERE code = ?", code).Scan(&stock)
 
 	now := time.Now()
-	return fmt.Sprintf(`你是一个专业、严谨、深度的金融分析助手。
-
-当前分析标的：%s（%s），行业：%s。
-
-请基于联网搜索的最新信息（截止%s），以JSON格式输出分析结果。严格遵循以下Schema，不要输出其他内容：
-
-{
-  "summary": "80字以内综合判断，含关键数据支撑的结论",
-  "label": "短线看多/短线看空/震荡观望/强烈看多/强烈看空",
-  "signals": [
-    {"type": "up|down", "title": "信号标题(≤12字)", "desc": "详细说明(≤40字)"}
-  ],
-  "risks": [
-    {"title": "风险标题(≤12字)", "desc": "风险说明(≤40字)"}
-  ],
-  "support": "支撑位(数字，单位元)",
-  "resistance": "压力位(数字，单位元)",
-  "suggestion": "操作建议(≤60字)",
-  "position": "建议仓位占比(百分比数字，如30)"
-}
-
-要求：
-- signals数组5-6个信号，type标记看多(up)或看空(down)
-- risks数组2-4个风险点
-- support/resistance基于技术面估算
-- 涉及操作建议时声明"不构成投资建议"
-- 数据时效性截止至%s`,
-		code, stock.Name, stock.Industry, now.Format("2006年1月"), now.Format("2006年1月"))
+	cfg := h.loadSystemConfig("chat_analysis")
+	prompt := cfg.SystemPrompt
+	if prompt == "" {
+		prompt = "你是一个专业的A股分析助手。请联网搜索最新信息。\n当前标的：%s（%s），行业：%s。截止%s。"
+	}
+	return fmt.Sprintf(prompt,
+		code, stock.Name, stock.Industry, now.Format("2006年1月"))
 }

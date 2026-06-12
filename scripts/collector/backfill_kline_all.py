@@ -22,8 +22,9 @@ for i, code in enumerate(codes):
         rows = []
         for row in klines:
             if len(row) >= 6:
+                vol_shou = float(row[5]); vol_gu = int(vol_shou * 100); close_p = float(row[2])
                 rows.append((code, row[0], float(row[1]), float(row[3]), float(row[4]),
-                             float(row[2]), int(float(row[5])), float(row[2]) * float(row[5]) / 100))
+                             close_p, vol_gu, close_p * float(vol_gu)))
         if rows:
             execute_values(cur, """INSERT INTO stocks_daily_k (code,trade_date,open,high,low,close,volume,amount)
                 VALUES %s ON CONFLICT (code,trade_date) DO NOTHING""", rows)

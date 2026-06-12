@@ -17,6 +17,7 @@ import (
 	"github.com/ai-stock-predict/server/internal/model"
 	"github.com/gin-gonic/gin"
 	"github.com/ai-stock-predict/server/pkg/response"
+	"gorm.io/gorm/clause"
 )
 
 type PredictionHandler struct{}
@@ -218,18 +219,22 @@ func (h *PredictionHandler) GetResult(c *gin.Context) {
 }
 
 func savePredictions(code, modelName string, pred []map[string]float64) {
+	now := time.Now()
+	records := make([]model.Prediction, 0, len(pred))
 	for _, p := range pred {
 		day := int(p["day"])
-		predictDate := time.Now().AddDate(0, 0, day)
-		rec := model.Prediction{
-			Code:           code,
-			ModelName:      modelName,
-			PredictDate:    predictDate,
-			PredictedPrice: p["price"],
-			UpperBound:     p["upper"],
-			LowerBound:     p["lower"],
+		predictDate := now.AddDate(0, 0, day)
+		records = append(records, model.Prediction{
+			Code: code, ModelName: modelName, PredictDate: predictDate,
+			PredictedPrice: p["price"], UpperBound: p["upper"], LowerBound: p["lower"],
+		})
+	}
+	if len(records) > 0 {
+		if err := db.PG.Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "code"}, {Name: "model_name"}, {Name: "predict_date"}},
+			DoUpdates: clause.AssignmentColumns([]string{"predicted_price", "upper_bound", "lower_bound"}),
+		}).CreateInBatches(records, 100).Error; err != nil {
+			log.Printf("savePredictions batch error: %v", err)
 		}
-		db.PG.Where("code = ? AND model_name = ? AND predict_date = ?", code, modelName, predictDate.Format("2006-01-02")).
-			Assign(rec).FirstOrCreate(&rec)
 	}
 }

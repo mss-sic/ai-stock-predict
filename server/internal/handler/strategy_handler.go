@@ -1045,11 +1045,15 @@ type IndicatorValue struct {
 
 // IndicatorCache stores preloaded indicator values: map[indicatorName]map[code|date]value
 type IndicatorCache struct {
-	data map[string]map[string]float64 // key: indicator, inner key: "code|date"
+	data              map[string]map[string]float64 // key: indicator, inner key: "code|date"
+	hasIndicatorData  map[string]map[string]bool    // indicator -> code -> has any data
 }
 
 func newIndicatorCache() *IndicatorCache {
-	return &IndicatorCache{data: make(map[string]map[string]float64)}
+	return &IndicatorCache{
+		data:             make(map[string]map[string]float64),
+		hasIndicatorData: make(map[string]map[string]bool),
+	}
 }
 
 func (ic *IndicatorCache) set(indicator, code, date string, val float64) {
@@ -1078,7 +1082,25 @@ func (ic *IndicatorCache) batchScan(indicator string, query string, args ...inte
 	}
 	for _, r := range rows {
 		ic.set(indicator, r.Code, r.Date, r.Value)
+		ic.markHasData(indicator, r.Code)
 	}
+}
+
+// markHasData records that a stock has this indicator type of data (at least one date).
+func (ic *IndicatorCache) markHasData(indicator, code string) {
+	if _, ok := ic.hasIndicatorData[indicator]; !ok {
+		ic.hasIndicatorData[indicator] = make(map[string]bool)
+	}
+	ic.hasIndicatorData[indicator][code] = true
+}
+
+// HasData returns true if the stock has any records for this indicator.
+func (ic *IndicatorCache) HasData(indicator, code string) bool {
+	m, ok := ic.hasIndicatorData[indicator]
+	if !ok {
+		return false
+	}
+	return m[code]
 }
 
 // batchScanWithCodes builds an IN clause from codes and injects it via fmt.Sprintf at %%s.
@@ -1107,7 +1129,7 @@ func preloadIndicators(conds []model.StrategyCondition, codes []string, startDat
 			continue
 		case ind == "streak_count", ind == "algo_score", ind == "signal_value":
 			continue
-		case ind == "pe", ind == "pb", ind == "ps", ind == "pe_percentile", ind == "pb_percentile", ind == "total_market_cap":
+		case ind == "pe_percentile", ind == "pb_percentile":
 			continue
 		case ind == "roe", ind == "revenue_growth", ind == "profit_growth", ind == "gross_margin", ind == "net_margin", ind == "debt_ratio", ind == "eps":
 			continue
@@ -1238,10 +1260,11 @@ func preloadIndicators(conds []model.StrategyCondition, codes []string, startDat
 	}
 
 	// Batch preload: MACD
-	if needPreload["macd"] {
-		log.Printf("[backtest] batch preloading MACD for %d stocks...", len(codes))
-		cache.batchScanWithCodes("macd", codes,
-			`WITH klines AS (
+	if needPreload["macd"] || needPreload["macd_dif"] || needPreload["macd_dea"] {
+		log.Printf("[backtest] batch preloading MACD/DIF/DEA for %d stocks...", len(codes))
+		inClause := db.CodesToInClause(codes)
+		query := fmt.Sprintf(`
+			WITH klines AS (
 				SELECT code, TO_CHAR(trade_date, 'YYYY-MM-DD') as date, close FROM stocks_daily_k
 				WHERE code IN (%s) AND trade_date BETWEEN ? AND ?
 			), ema AS (
@@ -1255,9 +1278,35 @@ func preloadIndicators(conds []model.StrategyCondition, codes []string, startDat
 					AVG(ema12 - ema26) OVER (PARTITION BY code ORDER BY date ROWS BETWEEN 8 PRECEDING AND CURRENT ROW) as dea
 				FROM ema
 			)
-			SELECT code, date, dif - dea as value FROM macd_calc`,
-			startDate, endDate)
+			SELECT code, date, dif, dea, dif - dea as hist
+			FROM macd_calc WHERE dif IS NOT NULL
+		`, inClause)
+		type MACDRow struct {
+			Code  string
+			Date  string
+			DIF   float64
+			DEA   float64
+			Hist  float64
+		}
+		var rows []MACDRow
+		if err := db.PG.Raw(query, startDate, endDate).Scan(&rows).Error; err != nil {
+			log.Printf("[backtest] MACD preload failed: %v", err)
+		} else {
+			for _, r := range rows {
+				if needPreload["macd"] {
+					cache.set("macd", r.Code, r.Date, r.Hist)
+				}
+				if needPreload["macd_dif"] {
+					cache.set("macd_dif", r.Code, r.Date, r.DIF)
+				}
+				if needPreload["macd_dea"] {
+					cache.set("macd_dea", r.Code, r.Date, r.DEA)
+				}
+			}
+		}
 		delete(needPreload, "macd")
+		delete(needPreload, "macd_dif")
+		delete(needPreload, "macd_dea")
 	}
 
 	// Batch preload: KDJ (preload K, D, J separately)
@@ -1345,12 +1394,211 @@ func preloadIndicators(conds []model.StrategyCondition, codes []string, startDat
 		delete(needPreload, "cci")
 	}
 
+	// Batch preload: Bollinger Bands (upper/middle/lower)
+	if needPreload["boll_upper"] || needPreload["boll_middle"] || needPreload["boll_lower"] {
+		log.Printf("[backtest] batch preloading Bollinger Bands for %d stocks...", len(codes))
+		inClause := db.CodesToInClause(codes)
+		query := fmt.Sprintf(`
+			WITH bb AS (
+				SELECT code, TO_CHAR(trade_date, 'YYYY-MM-DD') as date, close,
+					AVG(close) OVER (PARTITION BY code ORDER BY trade_date ROWS BETWEEN 19 PRECEDING AND CURRENT ROW) as mid,
+					STDDEV_SAMP(close) OVER (PARTITION BY code ORDER BY trade_date ROWS BETWEEN 19 PRECEDING AND CURRENT ROW) as stddev
+				FROM stocks_daily_k WHERE code IN (%s) AND trade_date BETWEEN ? AND ?
+			)
+			SELECT code, date,
+				mid + 2 * COALESCE(stddev, 0) as upper,
+				mid as middle,
+				mid - 2 * COALESCE(stddev, 0) as lower
+			FROM bb
+		`, inClause)
+		type BBRow struct {
+			Code   string
+			Date   string
+			Upper  float64
+			Middle float64
+			Lower  float64
+		}
+		var rows []BBRow
+		if err := db.PG.Raw(query, startDate, endDate).Scan(&rows).Error; err != nil {
+			log.Printf("[backtest] BB preload failed: %v", err)
+		} else {
+			for _, r := range rows {
+				if needPreload["boll_upper"]  { cache.set("boll_upper",  r.Code, r.Date, r.Upper)  }
+				if needPreload["boll_middle"] { cache.set("boll_middle", r.Code, r.Date, r.Middle) }
+				if needPreload["boll_lower"]  { cache.set("boll_lower",  r.Code, r.Date, r.Lower)  }
+			}
+		}
+		delete(needPreload, "boll_upper")
+		delete(needPreload, "boll_middle")
+		delete(needPreload, "boll_lower")
+	}
+
+	// Batch preload: PSY/PSYMA psychological line
+	if needPreload["psy_12"] || needPreload["psy_ma"] {
+		log.Printf("[backtest] batch preloading PSY/PSYMA for %d stocks...", len(codes))
+		inClause := db.CodesToInClause(codes)
+		query := fmt.Sprintf(`
+			WITH klines AS (
+				SELECT code, TO_CHAR(trade_date, 'YYYY-MM-DD') as date, close,
+					LAG(close) OVER (PARTITION BY code ORDER BY trade_date) as prev_close
+				FROM stocks_daily_k WHERE code IN (%s) AND trade_date BETWEEN ? AND ?
+			),
+			psy_calc AS (
+				SELECT code, date,
+					SUM(CASE WHEN close > prev_close THEN 1 ELSE 0 END) 
+						OVER (PARTITION BY code ORDER BY date ROWS BETWEEN 11 PRECEDING AND CURRENT ROW) * 100.0 / 12 as psy
+				FROM klines
+			)
+			SELECT code, date, psy,
+				AVG(psy) OVER (PARTITION BY code ORDER BY date ROWS BETWEEN 5 PRECEDING AND CURRENT ROW) as psyma
+			FROM psy_calc
+		`, inClause)
+		type PSYRow struct {
+			Code  string
+			Date  string
+			PSY   float64
+			PSYMA float64
+		}
+		var rows []PSYRow
+		if err := db.PG.Raw(query, startDate, endDate).Scan(&rows).Error; err != nil {
+			log.Printf("[backtest] PSY preload failed: %v", err)
+		} else {
+			for _, r := range rows {
+				if needPreload["psy_12"] { cache.set("psy_12", r.Code, r.Date, r.PSY) }
+				if needPreload["psy_ma"] { cache.set("psy_ma", r.Code, r.Date, r.PSYMA) }
+			}
+		}
+		delete(needPreload, "psy_12")
+		delete(needPreload, "psy_ma")
+	}
+
+	// Batch preload: RSI multi-period (rsi_6/12/24)
+	if needPreload["rsi_6"] || needPreload["rsi_12"] || needPreload["rsi_24"] {
+		log.Printf("[backtest] batch preloading multi-period RSI for %d stocks...", len(codes))
+		inClause := db.CodesToInClause(codes)
+		query := fmt.Sprintf(`
+			WITH klines AS (
+				SELECT code, TO_CHAR(trade_date, 'YYYY-MM-DD') as date, close,
+					close - LAG(close) OVER (PARTITION BY code ORDER BY trade_date) as chg
+				FROM stocks_daily_k WHERE code IN (%s) AND trade_date BETWEEN ? AND ?
+			)
+			SELECT code, date,
+				CASE WHEN avg_loss_6 > 0 THEN 100 - 100/(1 + avg_gain_6/NULLIF(avg_loss_6,0)) ELSE 100 END as rsi6,
+				CASE WHEN avg_loss_12 > 0 THEN 100 - 100/(1 + avg_gain_12/NULLIF(avg_loss_12,0)) ELSE 100 END as rsi12,
+				CASE WHEN avg_loss_24 > 0 THEN 100 - 100/(1 + avg_gain_24/NULLIF(avg_loss_24,0)) ELSE 100 END as rsi24
+			FROM (
+				SELECT code, date,
+					AVG(CASE WHEN chg > 0 THEN chg ELSE 0 END) OVER (PARTITION BY code ORDER BY date ROWS BETWEEN 5 PRECEDING AND CURRENT ROW) as avg_gain_6,
+					AVG(CASE WHEN chg < 0 THEN -chg ELSE 0 END) OVER (PARTITION BY code ORDER BY date ROWS BETWEEN 5 PRECEDING AND CURRENT ROW) as avg_loss_6,
+					AVG(CASE WHEN chg > 0 THEN chg ELSE 0 END) OVER (PARTITION BY code ORDER BY date ROWS BETWEEN 11 PRECEDING AND CURRENT ROW) as avg_gain_12,
+					AVG(CASE WHEN chg < 0 THEN -chg ELSE 0 END) OVER (PARTITION BY code ORDER BY date ROWS BETWEEN 11 PRECEDING AND CURRENT ROW) as avg_loss_12,
+					AVG(CASE WHEN chg > 0 THEN chg ELSE 0 END) OVER (PARTITION BY code ORDER BY date ROWS BETWEEN 23 PRECEDING AND CURRENT ROW) as avg_gain_24,
+					AVG(CASE WHEN chg < 0 THEN -chg ELSE 0 END) OVER (PARTITION BY code ORDER BY date ROWS BETWEEN 23 PRECEDING AND CURRENT ROW) as avg_loss_24
+				FROM klines
+			) gains
+		`, inClause)
+		type RSIRow struct {
+			Code  string
+			Date  string
+			RSI6  float64
+			RSI12 float64
+			RSI24 float64
+		}
+		var rows []RSIRow
+		if err := db.PG.Raw(query, startDate, endDate).Scan(&rows).Error; err != nil {
+			log.Printf("[backtest] multi-RSI preload failed: %v", err)
+		} else {
+			for _, r := range rows {
+				if needPreload["rsi_6"]  { cache.set("rsi_6",  r.Code, r.Date, r.RSI6)  }
+				if needPreload["rsi_12"] { cache.set("rsi_12", r.Code, r.Date, r.RSI12) }
+				if needPreload["rsi_24"] { cache.set("rsi_24", r.Code, r.Date, r.RSI24) }
+			}
+		}
+		delete(needPreload, "rsi_6")
+		delete(needPreload, "rsi_12")
+		delete(needPreload, "rsi_24")
+	}
+
+	// Batch preload: MA lines (ma_5/10/20/30/60)
+	if needPreload["ma_5"] || needPreload["ma_10"] || needPreload["ma_20"] || needPreload["ma_30"] || needPreload["ma_60"] {
+		log.Printf("[backtest] batch preloading MA lines for %d stocks...", len(codes))
+		inClause := db.CodesToInClause(codes)
+		query := fmt.Sprintf(`
+			SELECT code, TO_CHAR(trade_date, 'YYYY-MM-DD') as date,
+				AVG(close) OVER (PARTITION BY code ORDER BY trade_date ROWS BETWEEN 4 PRECEDING AND CURRENT ROW) as ma5,
+				AVG(close) OVER (PARTITION BY code ORDER BY trade_date ROWS BETWEEN 9 PRECEDING AND CURRENT ROW) as ma10,
+				AVG(close) OVER (PARTITION BY code ORDER BY trade_date ROWS BETWEEN 19 PRECEDING AND CURRENT ROW) as ma20,
+				AVG(close) OVER (PARTITION BY code ORDER BY trade_date ROWS BETWEEN 29 PRECEDING AND CURRENT ROW) as ma30,
+				AVG(close) OVER (PARTITION BY code ORDER BY trade_date ROWS BETWEEN 59 PRECEDING AND CURRENT ROW) as ma60
+			FROM stocks_daily_k WHERE code IN (%s) AND trade_date BETWEEN ? AND ?
+		`, inClause)
+		type MARow struct {
+			Code string
+			Date string
+			MA5  float64
+			MA10 float64
+			MA20 float64
+			MA30 float64
+			MA60 float64
+		}
+		var rows []MARow
+		if err := db.PG.Raw(query, startDate, endDate).Scan(&rows).Error; err != nil {
+			log.Printf("[backtest] MA preload failed: %v", err)
+		} else {
+			for _, r := range rows {
+				if needPreload["ma_5"]  { cache.set("ma_5",  r.Code, r.Date, r.MA5)  }
+				if needPreload["ma_10"] { cache.set("ma_10", r.Code, r.Date, r.MA10) }
+				if needPreload["ma_20"] { cache.set("ma_20", r.Code, r.Date, r.MA20) }
+				if needPreload["ma_30"] { cache.set("ma_30", r.Code, r.Date, r.MA30) }
+				if needPreload["ma_60"] { cache.set("ma_60", r.Code, r.Date, r.MA60) }
+			}
+		}
+		delete(needPreload, "ma_5")
+		delete(needPreload, "ma_10")
+		delete(needPreload, "ma_20")
+		delete(needPreload, "ma_30")
+		delete(needPreload, "ma_60")
+	}
+
 	if len(needPreload) > 0 {
 		keys := make([]string, 0, len(needPreload))
 		for k := range needPreload {
 			keys = append(keys, k)
 		}
 		log.Printf("[backtest] unbatched indicators (fallback to per-stock): %v", keys)
+	}
+
+	// Batch preload: PE/PB/PS/market_cap from stocks_daily_indicator
+	if needPreload["pe"] || needPreload["pb"] || needPreload["ps"] || needPreload["total_market_cap"] {
+		log.Printf("[backtest] batch preloading PE/PB/PS/市值 for %d stocks...", len(codes))
+		if needPreload["pe"] {
+			cache.batchScanWithCodes("pe", codes,
+				`SELECT code, TO_CHAR(trade_date, 'YYYY-MM-DD') as date, pe as value
+				FROM stocks_daily_indicator WHERE code IN (%s) AND trade_date BETWEEN ? AND ? AND pe > 0`,
+				startDate, endDate)
+			delete(needPreload, "pe")
+		}
+		if needPreload["pb"] {
+			cache.batchScanWithCodes("pb", codes,
+				`SELECT code, TO_CHAR(trade_date, 'YYYY-MM-DD') as date, pb as value
+				FROM stocks_daily_indicator WHERE code IN (%s) AND trade_date BETWEEN ? AND ? AND pb > 0`,
+				startDate, endDate)
+			delete(needPreload, "pb")
+		}
+		if needPreload["ps"] {
+			cache.batchScanWithCodes("ps", codes,
+				`SELECT code, TO_CHAR(trade_date, 'YYYY-MM-DD') as date, ps as value
+				FROM stocks_daily_indicator WHERE code IN (%s) AND trade_date BETWEEN ? AND ? AND ps > 0`,
+				startDate, endDate)
+			delete(needPreload, "ps")
+		}
+		if needPreload["total_market_cap"] {
+			cache.batchScanWithCodes("total_market_cap", codes,
+				`SELECT code, TO_CHAR(trade_date, 'YYYY-MM-DD') as date, COALESCE(total_market_cap, 0) as value
+				FROM stocks_daily_indicator WHERE code IN (%s) AND trade_date BETWEEN ? AND ?`,
+				startDate, endDate)
+			delete(needPreload, "total_market_cap")
+		}
 	}
 
 	return cache
@@ -1514,8 +1762,22 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 				return checkOp((cur-prev)/prev*100, cond.Operator, cond.Value)
 			}
 			return false
+		// PE/PB/PS indicators: check data availability before falling back
+		// Missing data should NOT silently pass the condition
+		case "pe", "pb", "ps", "total_market_cap":
+			if !icache.HasData(ind, code) {
+				return false // No indicator data for this stock
+			}
+		case "pe_percentile":
+			if !icache.HasData("pe", code) {
+				return false // No PE data → cannot compute percentile
+			}
+		case "pb_percentile":
+			if !icache.HasData("pb", code) {
+				return false // No PB data → cannot compute percentile
+			}
 		}
-		// Fallback to original per-stock SQL query
+		// Fallback to original per-stock SQL query (handles forward-fill)
 		return evaluateSingleCondition(cond, code, date)
 	}
 
@@ -2487,8 +2749,15 @@ func buildIndicatorList() []map[string]interface{} {
 		{"key": "momentum_5", "label": "5日动量", "type": "number", "operators": []string{"gte", "lte", "gt", "lt"}, "desc": "近5个交易日累计涨跌幅 (%)", "backtestSafe": true, "dataNote": "✅ K线衍生，全量历史覆盖", "suggestion": "买入建议 > 3%，短期趋势向上"},
 		{"key": "momentum_20", "label": "20日动量", "type": "number", "operators": []string{"gte", "lte", "gt", "lt"}, "desc": "近20个交易日累计涨跌幅 (%)", "backtestSafe": true, "dataNote": "✅ K线衍生，全量历史覆盖", "suggestion": "买入建议 > 5%，中期趋势确立"},
 		{"key": "ma_deviation", "label": "均线偏离", "type": "number", "operators": []string{"gte", "lte", "gt", "lt"}, "desc": "收盘价偏离MA20的百分比", "backtestSafe": true, "dataNote": "✅ K线衍生，全量历史覆盖", "suggestion": "买入建议 < -5% 超跌，卖出建议 > 10% 超涨"},
+		{"key": "ma_5", "label": "MA5均线", "type": "number", "operators": []string{"gte", "lte", "gt", "lt"}, "desc": "5日收盘均价", "backtestSafe": true, "dataNote": "✅ K线衍生，全量历史覆盖", "suggestion": "收盘价>MA5短线偏多，<MA5偏空"},
+		{"key": "ma_10", "label": "MA10均线", "type": "number", "operators": []string{"gte", "lte", "gt", "lt"}, "desc": "10日收盘均价", "backtestSafe": true, "dataNote": "✅ K线衍生，全量历史覆盖", "suggestion": "MA5>MA10短线金叉"},
+		{"key": "ma_20", "label": "MA20均线", "type": "number", "operators": []string{"gte", "lte", "gt", "lt"}, "desc": "20日收盘均价(月线)", "backtestSafe": true, "dataNote": "✅ K线衍生，全量历史覆盖", "suggestion": "收盘价>MA20中线偏多，常用止损位"},
+		{"key": "ma_30", "label": "MA30均线", "type": "number", "operators": []string{"gte", "lte", "gt", "lt"}, "desc": "30日收盘均价", "backtestSafe": true, "dataNote": "✅ K线衍生，全量历史覆盖", "suggestion": "中期趋势判断位"},
+		{"key": "ma_60", "label": "MA60均线", "type": "number", "operators": []string{"gte", "lte", "gt", "lt"}, "desc": "60日收盘均价(季线)", "backtestSafe": true, "dataNote": "✅ K线衍生，全量历史覆盖", "suggestion": "收盘价>MA60长线偏多，重要支撑压力位"},
 		{"key": "ma_cross", "label": "MA均线交叉", "type": "cross", "operators": []string{"cross_up", "cross_down"}, "desc": "value填均线周期如5/20表示MA5上穿/下穿MA20", "backtestSafe": true, "dataNote": "✅ K线衍生，全量历史覆盖", "suggestion": "上穿买入，如 MA5↑MA20 为短线金叉"},
 		{"key": "macd", "label": "MACD信号", "type": "cross", "operators": []string{"cross_up", "cross_down", "eq"}, "desc": "MACD(12,26,9)金叉=1/死叉=-1/无交叉=0", "backtestSafe": true, "dataNote": "✅ K线衍生，全量历史覆盖", "suggestion": "eq=1 买入(金叉), eq=-1 卖出(死叉), 零轴上方金叉更可靠"},
+		{"key": "macd_dif", "label": "MACD DIF", "type": "number", "operators": []string{"gte", "lte", "gt", "lt", "cross_up", "cross_down"}, "desc": "MACD快线DIF值 (EMA12-EMA26)", "backtestSafe": true, "dataNote": "✅ K线衍生，全量历史覆盖", "suggestion": "DIF>0多头，DIF>DEA金叉看涨"},
+		{"key": "macd_dea", "label": "MACD DEA", "type": "number", "operators": []string{"gte", "lte", "gt", "lt"}, "desc": "MACD慢线DEA值 (DIF的9日EMA)", "backtestSafe": true, "dataNote": "✅ K线衍生，全量历史覆盖", "suggestion": "DEA>0多头区域，DIF上穿DEA金叉"},
 
 		// ═══ 技术面 — 超买超卖 (100% K线数据覆盖) ═══
 		{"key": "rsi", "label": "RSI(14)", "type": "number", "operators": []string{"gte", "lte", "gt", "lt"}, "desc": "相对强弱指数，>70超买 <30超卖", "backtestSafe": true, "dataNote": "✅ K线衍生，全量历史覆盖", "suggestion": "买入建议 < 30 超卖，卖出建议 > 70 超买"},
@@ -2537,11 +2806,11 @@ func buildIndicatorList() []map[string]interface{} {
 		{"key": "volume_trend", "label": "量能趋势", "type": "number", "operators": []string{"gte", "lte", "gt", "lt"}, "desc": "成交量MA5/MA20-1，>0放量趋势", "backtestSafe": true, "dataNote": "✅ K线衍生，全量历史覆盖", "suggestion": "买入建议 > 0 放量趋势，量涨价增更可靠"},
 		{"key": "index_relative", "label": "大盘相对强度", "type": "number", "operators": []string{"gte", "lte", "gt", "lt"}, "desc": "个股20日收益-上证20日收益，正值跑赢大盘", "backtestSafe": true, "dataNote": "✅ K线衍生，全量历史覆盖", "suggestion": "买入建议 > 5 跑赢大盘，说明个股强势"},
 		// ═══ 估值 (依赖indicator表，仅2天历史) ═══
-		{"key": "pe", "label": "市盈率PE", "type": "number", "operators": []string{"gte", "lte", "gt", "lt"}, "desc": "当前市盈率", "backtestSafe": false, "dataNote": "⚠️ 仅最近2天数据，回测取最近可用值", "suggestion": "买入建议 < 15 低估值，< 10 极度低估"},
-		{"key": "pb", "label": "市净率PB", "type": "number", "operators": []string{"gte", "lte", "gt", "lt"}, "desc": "当前市净率", "backtestSafe": false, "dataNote": "⚠️ 仅最近2天数据，回测取最近可用值", "suggestion": "买入建议 < 1.5 低市净率，金融股可放宽"},
-		{"key": "ps", "label": "市销率PS", "type": "number", "operators": []string{"gte", "lte", "gt", "lt"}, "desc": "当前市销率", "backtestSafe": false, "dataNote": "⚠️ 仅最近2天数据，回测取最近可用值", "suggestion": "买入建议 < 2，成长股可适当放宽"},
-		{"key": "pe_percentile", "label": "PE历史分位", "type": "number", "operators": []string{"gte", "lte"}, "desc": "当前PE在历史数据中的百分位，<30低估 >70高估", "backtestSafe": false, "dataNote": "⚠️ 仅最近2天数据，回测取最近可用值", "suggestion": "买入建议 < 30 历史低位，> 70 历史高位"},
-		{"key": "pb_percentile", "label": "PB历史分位", "type": "number", "operators": []string{"gte", "lte"}, "desc": "当前PB在历史数据中的百分位，<30低估 >70高估", "backtestSafe": false, "dataNote": "⚠️ 仅最近2天数据，回测取最近可用值", "suggestion": "买入建议 < 30 历史低位，> 70 历史高位"},
+		{"key": "pe", "label": "市盈率PE", "type": "number", "operators": []string{"gte", "lte", "gt", "lt"}, "desc": "当前市盈率", "backtestSafe": true, "dataNote": "📊 ~3500只股票覆盖，2024-07起有历史数据", "suggestion": "买入建议 < 15 低估值，< 10 极度低估"},
+		{"key": "pb", "label": "市净率PB", "type": "number", "operators": []string{"gte", "lte", "gt", "lt"}, "desc": "当前市净率", "backtestSafe": true, "dataNote": "📊 ~3500只股票覆盖，2024-07起有历史数据", "suggestion": "买入建议 < 1.5 低市净率，金融股可放宽"},
+		{"key": "ps", "label": "市销率PS", "type": "number", "operators": []string{"gte", "lte", "gt", "lt"}, "desc": "当前市销率", "backtestSafe": true, "dataNote": "📊 ~3500只股票覆盖，2024-07起有历史数据", "suggestion": "买入建议 < 2，成长股可适当放宽"},
+		{"key": "pe_percentile", "label": "PE历史分位", "type": "number", "operators": []string{"gte", "lte"}, "desc": "当前PE在历史数据中的百分位，<30低估 >70高估", "backtestSafe": true, "dataNote": "📊 基于 ~580个交易日历史PE计算，2024-07起可用", "suggestion": "买入建议 < 30 历史低位，> 70 历史高位"},
+		{"key": "pb_percentile", "label": "PB历史分位", "type": "number", "operators": []string{"gte", "lte"}, "desc": "当前PB在历史数据中的百分位，<30低估 >70高估", "backtestSafe": true, "dataNote": "📊 基于 ~580个交易日历史PB计算，2024-07起可用", "suggestion": "买入建议 < 30 历史低位，> 70 历史高位"},
 
 		// ═══ 基本面 (30只股票，8报告期) ═══
 		{"key": "roe", "label": "ROE", "type": "number", "operators": []string{"gte", "lte", "gt", "lt"}, "desc": "净资产收益率 (%)", "backtestSafe": true, "dataNote": "📊 30只股票覆盖，回测取最近财报", "suggestion": "买入建议 > 15%，ROE越高盈利能力越强"},
@@ -2762,6 +3031,16 @@ func getIndicatorValue(cond model.StrategyCondition, code, date string) float64 
 		return getMomentum(code, date, 20)
 	case "ma_deviation":
 		return getMADeviation(code, date, 20)
+	case "ma_5":
+		return getSMA(code, date, 5)
+	case "ma_10":
+		return getSMA(code, date, 10)
+	case "ma_20":
+		return getSMA(code, date, 20)
+	case "ma_30":
+		return getSMA(code, date, 30)
+	case "ma_60":
+		return getSMA(code, date, 60)
 	case "ma_cross":
 		ma1 := int(cond.Value)
 		ma2 := int(math.Round((cond.Value - float64(ma1)) * 1000))
@@ -2770,10 +3049,20 @@ func getIndicatorValue(cond model.StrategyCondition, code, date string) float64 
 		return checkMACross(code, date, ma1, ma2)
 	case "macd":
 		return checkMACD(code, date)
+	case "macd_dif":
+		return getMACDDIF(code, date)
+	case "macd_dea":
+		return getMACDDEA(code, date)
 
 	// ── 技术面 — 超买超卖 ──
 	case "rsi":
 		return getRSI(code, date, 14)
+	case "rsi_6":
+		return getRSI(code, date, 6)
+	case "rsi_12":
+		return getRSI(code, date, 12)
+	case "rsi_24":
+		return getRSI(code, date, 24)
 	case "kdj_k":
 		k, _, _ := getKDJ(code, date)
 		return k
@@ -2787,6 +3076,12 @@ func getIndicatorValue(cond model.StrategyCondition, code, date string) float64 
 		return getBollPosition(code, date)
 	case "boll_width":
 		return getBollWidth(code, date)
+	case "boll_upper":
+		return getBollUpper(code, date)
+	case "boll_middle":
+		return getSMA(code, date, 20) // Bollinger middle = MA20
+	case "boll_lower":
+		return getBollLower(code, date)
 
 	// ── 技术面 — 量价 ──
 	case "volume_ratio":
@@ -2980,6 +3275,19 @@ func getMomentum(code, date string, days int) float64 {
 	return chg
 }
 
+// getSMA returns simple moving average for fallback (cache miss).
+func getSMA(code, date string, days int) float64 {
+	var ma float64
+	db.PG.Raw(`SELECT COALESCE(
+		(SELECT AVG(close) FROM (
+			SELECT close FROM stocks_daily_k 
+			WHERE code = ? AND trade_date <= ?::date 
+			ORDER BY trade_date DESC LIMIT ?
+		) sub), 0)
+	`, code, date, days).Scan(&ma)
+	return ma
+}
+
 func getMADeviation(code, date string, maPeriod int) float64 {
 	var dev float64
 	db.PG.Raw(`SELECT COALESCE(
@@ -3030,6 +3338,43 @@ func checkMACD(code, date string) float64 {
 		ELSE 0 END
 	FROM macd ORDER BY trade_date DESC LIMIT 1`, code, date).Scan(&cross)
 	return float64(cross)
+}
+
+func getMACDDIF(code, date string) float64 {
+	var dif float64
+	db.PG.Raw(`WITH klines AS (
+		SELECT trade_date, close FROM stocks_daily_k
+		WHERE code = ? AND trade_date <= ?::date ORDER BY trade_date ASC
+	), ema AS (
+		SELECT trade_date,
+			AVG(close) OVER (ORDER BY trade_date ASC ROWS BETWEEN 11 PRECEDING AND CURRENT ROW) as ma12,
+			AVG(close) OVER (ORDER BY trade_date ASC ROWS BETWEEN 25 PRECEDING AND CURRENT ROW) as ma26
+		FROM klines
+	)
+	SELECT COALESCE(ma12 - ma26, 0) FROM ema ORDER BY trade_date DESC LIMIT 1
+	`, code, date).Scan(&dif)
+	return dif
+}
+
+func getMACDDEA(code, date string) float64 {
+	var dea float64
+	db.PG.Raw(`WITH klines AS (
+		SELECT trade_date, close FROM stocks_daily_k
+		WHERE code = ? AND trade_date <= ?::date ORDER BY trade_date ASC
+	), ema AS (
+		SELECT trade_date,
+			AVG(close) OVER (ORDER BY trade_date ASC ROWS BETWEEN 11 PRECEDING AND CURRENT ROW) as ma12,
+			AVG(close) OVER (ORDER BY trade_date ASC ROWS BETWEEN 25 PRECEDING AND CURRENT ROW) as ma26
+		FROM klines
+	), macd AS (
+		SELECT trade_date,
+			ma12 - ma26 as dif,
+			AVG(ma12 - ma26) OVER (ORDER BY trade_date ASC ROWS BETWEEN 8 PRECEDING AND CURRENT ROW) as dea
+		FROM ema
+	)
+	SELECT COALESCE(dea, 0) FROM macd ORDER BY trade_date DESC LIMIT 1
+	`, code, date).Scan(&dea)
+	return dea
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -3092,6 +3437,28 @@ func getBollPosition(code, date string) float64 {
 		ORDER BY trade_date DESC LIMIT 1
 	) boll`, code, date).Scan(&pos)
 	return pos
+}
+
+// getBollUpper returns Bollinger upper band for fallback.
+func getBollUpper(code, date string) float64 {
+	var val float64
+	db.PG.Raw(`SELECT (mid + 2 * COALESCE(stddev, 0)) FROM (
+		SELECT AVG(close) as mid, STDDEV_SAMP(close) as stddev FROM (
+			SELECT close FROM stocks_daily_k WHERE code = ? AND trade_date <= ?::date ORDER BY trade_date DESC LIMIT 20
+		) sub
+	) bb`, code, date).Scan(&val)
+	return val
+}
+
+// getBollLower returns Bollinger lower band for fallback.
+func getBollLower(code, date string) float64 {
+	var val float64
+	db.PG.Raw(`SELECT (mid - 2 * COALESCE(stddev, 0)) FROM (
+		SELECT AVG(close) as mid, STDDEV_SAMP(close) as stddev FROM (
+			SELECT close FROM stocks_daily_k WHERE code = ? AND trade_date <= ?::date ORDER BY trade_date DESC LIMIT 20
+		) sub
+	) bb`, code, date).Scan(&val)
+	return val
 }
 
 func getBollWidth(code, date string) float64 {
@@ -3711,14 +4078,14 @@ func getIndicatorDataSource(indicator string) string {
 	switch {
 	// K线衍生
 	case indicator == "daily_change", indicator == "momentum_5", indicator == "momentum_20",
-		indicator == "ma_deviation", indicator == "ma_cross", indicator == "macd",
-		indicator == "ema_cross", indicator == "rsi", indicator == "kdj_k", indicator == "kdj_d", indicator == "kdj_j",
-		indicator == "boll_position", indicator == "boll_width", indicator == "boll_squeeze",
+		indicator == "ma_5", indicator == "ma_10", indicator == "ma_20", indicator == "ma_30", indicator == "ma_60", indicator == "ma_deviation", indicator == "ma_cross", indicator == "macd",
+		indicator == "ema_cross", indicator == "macd_dif", indicator == "macd_dea", indicator == "rsi", indicator == "rsi_6", indicator == "rsi_12", indicator == "rsi_24", indicator == "kdj_k", indicator == "kdj_d", indicator == "kdj_j",
+		indicator == "boll_position", indicator == "boll_width", indicator == "boll_squeeze", indicator == "boll_upper", indicator == "boll_middle", indicator == "boll_lower",
 		indicator == "volume_ratio", indicator == "volume_ma_ratio", indicator == "turnover_rate",
 		indicator == "atr", indicator == "atr_pct", indicator == "drawdown_20", indicator == "new_high_20",
 		indicator == "up_days_ratio", indicator == "price_position_20", indicator == "price_position_60",
 		indicator == "adx", indicator == "dmi_plus", indicator == "dmi_minus",
-		indicator == "cci", indicator == "williams_r", indicator == "mfi",
+		indicator == "cci", indicator == "psy_12", indicator == "psy_ma", indicator == "williams_r", indicator == "mfi",
 		indicator == "ma_convergence", indicator == "trend_strength",
 		indicator == "consecutive_days", indicator == "gap_pct", indicator == "high_low_range",
 		indicator == "vwap_deviation", indicator == "volume_trend", indicator == "index_relative":
@@ -3755,7 +4122,7 @@ func getIndicatorDataSource(indicator string) string {
 func hasAnyData(code, date, indicator string) bool {
 	switch {
 	case indicator == "daily_change", strings.HasPrefix(indicator, "momentum"),
-		indicator == "ma_deviation", indicator == "ma_cross", indicator == "macd",
+		indicator == "ma_5", indicator == "ma_10", indicator == "ma_20", indicator == "ma_30", indicator == "ma_60", indicator == "ma_deviation", indicator == "ma_cross", indicator == "macd",
 		indicator == "ema_cross", indicator == "rsi", strings.HasPrefix(indicator, "kdj"),
 		strings.HasPrefix(indicator, "boll"), indicator == "boll_squeeze",
 		strings.HasPrefix(indicator, "volume"), indicator == "turnover_rate",
@@ -3763,7 +4130,7 @@ func hasAnyData(code, date, indicator string) bool {
 		strings.HasPrefix(indicator, "new_high"), indicator == "up_days_ratio",
 		strings.HasPrefix(indicator, "price_position"),
 		indicator == "adx", strings.HasPrefix(indicator, "dmi_"),
-		indicator == "cci", indicator == "williams_r", indicator == "mfi",
+		indicator == "cci", indicator == "psy_12", indicator == "psy_ma", indicator == "williams_r", indicator == "mfi",
 		indicator == "ma_convergence", indicator == "trend_strength",
 		indicator == "consecutive_days", indicator == "gap_pct", indicator == "high_low_range",
 		indicator == "vwap_deviation", indicator == "volume_trend", indicator == "index_relative":

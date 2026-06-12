@@ -13,8 +13,8 @@ func (AlgorithmPick) TableName() string { return "algorithm_picks" }
 
 type AlgorithmPickDetail struct {
 	ID          uint      `gorm:"primaryKey" json:"id"`
-	PickDate    time.Time `gorm:"index;type:date" json:"pickDate"`
-	StockCode   string    `gorm:"index;size:10" json:"stockCode"`
+	PickDate    time.Time `gorm:"uniqueIndex:idx_pick_code;type:date" json:"pickDate"`
+	StockCode   string    `gorm:"uniqueIndex:idx_pick_code;size:10" json:"stockCode"`
 	Rank        int       `json:"rank"`
 	Score       float64   `gorm:"type:numeric(8,2)" json:"score"`
 	SignalTags  JSONArray `gorm:"type:jsonb" json:"signalTags"`

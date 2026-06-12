@@ -20,9 +20,9 @@ func (AIAnalysis) TableName() string { return "ai_analyses" }
 // Prediction stores model prediction results (PostgreSQL)
 type Prediction struct {
 	ID             uint      `gorm:"primaryKey" json:"id"`
-	Code           string    `gorm:"index;size:10" json:"code"`
-	ModelName      string    `gorm:"index;size:30" json:"modelName"`
-	PredictDate    time.Time `gorm:"index;type:date" json:"predictDate"`
+	Code           string    `gorm:"uniqueIndex:idx_pred_code_model_date;size:10" json:"code"`
+	ModelName      string    `gorm:"uniqueIndex:idx_pred_code_model_date;size:30" json:"modelName"`
+	PredictDate    time.Time `gorm:"uniqueIndex:idx_pred_code_model_date;type:date" json:"predictDate"`
 	PredictedPrice float64   `gorm:"type:numeric(12,4)" json:"predictedPrice"`
 	UpperBound     float64   `gorm:"type:numeric(12,4)" json:"upperBound"`
 	LowerBound     float64   `gorm:"type:numeric(12,4)" json:"lowerBound"`

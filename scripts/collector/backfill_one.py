@@ -19,8 +19,9 @@ print(f"API: {len(klines)} records", flush=True)
 rows = []
 for row in klines:
     if len(row) >= 6:
+        vol_shou = float(row[5]); vol_gu = int(vol_shou * 100); close_p = float(row[2])
         rows.append((code, row[0], float(row[1]), float(row[3]), float(row[4]),
-                     float(row[2]), int(float(row[5])), float(row[2]) * float(row[5]) / 100))
+                     close_p, vol_gu, close_p * float(vol_gu)))
 execute_values(cur, "INSERT INTO stocks_daily_k (code,trade_date,open,high,low,close,volume,amount) VALUES %s ON CONFLICT DO NOTHING", rows)
 conn.commit()
 cur.execute("SELECT COUNT(*), MIN(trade_date), MAX(trade_date) FROM stocks_daily_k WHERE code=%s", (code,))

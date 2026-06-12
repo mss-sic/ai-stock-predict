@@ -17,13 +17,21 @@ import (
 	"gorm.io/gorm/clause"
 )
 
+// klineIndicatorRow bundles K-line + indicator data for batch import.
+type klineIndicatorRow struct {
+	Kline     model.StockDailyK
+	Indicator model.StockDailyIndicator
+	HasIndicator bool // true if any indicator field is non-zero
+}
+
 type klineImportResult struct {
-	FileName    string   `json:"fileName"`
-	TotalRows   int      `json:"totalRows"`
-	Imported    int      `json:"imported"`
-	Skipped     int      `json:"skipped"`
-	Errors      []string `json:"errors"`
-	TradeDate   string   `json:"tradeDate"`
+	FileName         string   `json:"fileName"`
+	TotalRows        int      `json:"totalRows"`
+	ImportedKline    int      `json:"importedKline"`
+	ImportedIndic    int      `json:"importedIndicator"`
+	Skipped          int      `json:"skipped"`
+	Errors           []string `json:"errors"`
+	TradeDate        string   `json:"tradeDate"`
 }
 
 func parseKlineCSV(f multipart.File, fileName string) (*klineImportResult, error) {
@@ -57,8 +65,29 @@ func parseKlineCSV(f multipart.File, fileName string) (*klineImportResult, error
 
 	// Read all rows into batches
 	batchSize := 500
-	batch := make([]model.StockDailyK, 0, batchSize)
+	klineBatch := make([]model.StockDailyK, 0, batchSize)
+	indicBatch := make([]model.StockDailyIndicator, 0, batchSize)
 	var tradeDate string
+
+	flushBatches := func() {
+		if len(klineBatch) > 0 {
+			if err := upsertKlineBatch(klineBatch); err != nil {
+				result.Errors = append(result.Errors, fmt.Sprintf("K线批量写入失败: %v", err))
+				result.Skipped += len(klineBatch)
+			} else {
+				result.ImportedKline += len(klineBatch)
+			}
+			klineBatch = klineBatch[:0]
+		}
+		if len(indicBatch) > 0 {
+			if err := upsertIndicatorBatch(indicBatch); err != nil {
+				result.Errors = append(result.Errors, fmt.Sprintf("指标批量写入失败: %v", err))
+			} else {
+				result.ImportedIndic += len(indicBatch)
+			}
+			indicBatch = indicBatch[:0]
+		}
+	}
 
 	for {
 		row, err := csvReader.Read()
@@ -82,29 +111,19 @@ func parseKlineCSV(f multipart.File, fileName string) (*klineImportResult, error
 			tradeDate = rowDate
 		}
 
-		batch = append(batch, record)
+		klineBatch = append(klineBatch, record.Kline)
+		if record.HasIndicator {
+			indicBatch = append(indicBatch, record.Indicator)
+		}
 		result.TotalRows++
 
-		if len(batch) >= batchSize {
-			if err := upsertKlineBatch(batch); err != nil {
-				result.Errors = append(result.Errors, fmt.Sprintf("批量写入失败: %v", err))
-				result.Skipped += len(batch)
-			} else {
-				result.Imported += len(batch)
-			}
-			batch = batch[:0]
+		if len(klineBatch) >= batchSize || len(indicBatch) >= batchSize {
+			flushBatches()
 		}
 	}
 
 	// Flush remaining
-	if len(batch) > 0 {
-		if err := upsertKlineBatch(batch); err != nil {
-			result.Errors = append(result.Errors, fmt.Sprintf("批量写入失败: %v", err))
-			result.Skipped += len(batch)
-		} else {
-			result.Imported += len(batch)
-		}
-	}
+	flushBatches()
 
 	result.TradeDate = tradeDate
 
@@ -113,12 +132,12 @@ func parseKlineCSV(f multipart.File, fileName string) (*klineImportResult, error
 	if result.Skipped > 0 {
 		status = "partial"
 	}
-	if result.Imported == 0 {
+	if result.ImportedKline == 0 {
 		status = "failed"
 	}
 	db.MySQL.Create(&model.ImportLog{
 		FileName:     fileName,
-		RowsImported: result.Imported,
+		RowsImported: result.TotalRows,
 		Status:       status,
 		ImportedAt:   time.Now(),
 	})
@@ -126,8 +145,8 @@ func parseKlineCSV(f multipart.File, fileName string) (*klineImportResult, error
 	return result, nil
 }
 
-func parseKlineRow(row []string, colIdx map[string]int) (model.StockDailyK, string, string) {
-	var r model.StockDailyK
+func parseKlineRow(row []string, colIdx map[string]int) (klineIndicatorRow, string, string) {
+	var result klineIndicatorRow
 
 	getStr := func(col string) string {
 		if idx, ok := colIdx[col]; ok && idx < len(row) {
@@ -165,18 +184,19 @@ func parseKlineRow(row []string, colIdx map[string]int) (model.StockDailyK, stri
 	code = strings.TrimPrefix(code, "sz")
 	code = strings.TrimPrefix(code, "bj")
 	if code == "" {
-		return r, "", fmt.Sprintf("缺少股票代码: %v", row)
+		return result, "", fmt.Sprintf("缺少股票代码: %v", row)
 	}
 
 	dateStr := getStr("交易日期")
 	if dateStr == "" {
-		return r, "", fmt.Sprintf("股票%s: 缺少交易日期", code)
+		return result, "", fmt.Sprintf("股票%s: 缺少交易日期", code)
 	}
 	tradeDate, err := time.Parse("2006-01-02", dateStr)
 	if err != nil {
-		return r, "", fmt.Sprintf("股票%s: 日期格式错误: %s", code, dateStr)
+		return result, "", fmt.Sprintf("股票%s: 日期格式错误: %s", code, dateStr)
 	}
 
+	// ── K-line fields ──
 	open, _ := getFloat("开盘价")
 	high, _ := getFloat("最高价")
 	low, _ := getFloat("最低价")
@@ -185,17 +205,48 @@ func parseKlineRow(row []string, colIdx map[string]int) (model.StockDailyK, stri
 	amount, _ := getFloat("成交额")
 	turnover, _ := getFloat("换手率")
 
-	r.Code = code
-	r.TradeDate = tradeDate
-	r.Open = open
-	r.High = high
-	r.Low = low
-	r.Close = close_
-	r.Volume = volume
-	r.Amount = amount
-	r.TurnoverRate = turnover
+	result.Kline.Code = code
+	result.Kline.TradeDate = tradeDate
+	result.Kline.Open = open
+	result.Kline.High = high
+	result.Kline.Low = low
+	result.Kline.Close = close_
+	result.Kline.Volume = volume
+	result.Kline.Amount = amount
+	result.Kline.TurnoverRate = turnover
 
-	return r, dateStr, ""
+	// ── Indicator/valuation fields ──
+	pe, hasPE := getFloat("市盈率TTM")
+	pb, hasPB := getFloat("市净率")
+	ps, hasPS := getFloat("市销率TTM")
+	mcap, hasMCAP := getFloat("总市值")
+	cmcap, hasCMCAP := getFloat("流通市值")
+
+	if hasPE || hasPB || hasPS || hasMCAP || hasCMCAP {
+		result.Indicator.Code = code
+		result.Indicator.TradeDate = tradeDate
+		result.Indicator.PE = pe
+		result.Indicator.PB = pb
+		result.Indicator.PS = ps
+		result.Indicator.TotalMarketCap = mcap
+		result.Indicator.CirculatingMarketCap = cmcap
+		result.HasIndicator = true
+	}
+
+	return result, dateStr, ""
+}
+
+func upsertIndicatorBatch(batch []model.StockDailyIndicator) error {
+	if db.PG == nil {
+		return fmt.Errorf("PostgreSQL 未连接")
+	}
+	if len(batch) == 0 {
+		return nil
+	}
+	return db.PG.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "code"}, {Name: "trade_date"}},
+		DoUpdates: clause.AssignmentColumns([]string{"pe", "pb", "ps", "total_market_cap", "circulating_market_cap"}),
+	}).CreateInBatches(batch, 500).Error
 }
 
 func upsertKlineBatch(batch []model.StockDailyK) error {

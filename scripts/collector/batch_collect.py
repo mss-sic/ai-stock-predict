@@ -64,8 +64,15 @@ def fetch_quote_batch(codes_batch):
     return results
 
 def insert_kline(cur, code, row, turnover=0):
-    """Insert or update a single kline record"""
-    amt = float(row[2]) * float(row[5]) / 100
+    """Insert or update a single kline record.
+    Tencent API returns volume in 手 (lots of 100 shares).
+    We convert to 股: volume_gu = volume_shou * 100.
+    Amount (成交额) = close * volume_gu (元).
+    """
+    vol_shou = float(row[5])
+    vol_gu = int(vol_shou * 100)
+    close_p = float(row[2])
+    amt = close_p * float(vol_gu)
     cur.execute("""
         INSERT INTO stocks_daily_k (code, trade_date, open, high, low, close, volume, amount, turnover_rate)
         VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
@@ -74,7 +81,7 @@ def insert_kline(cur, code, row, turnover=0):
             close = EXCLUDED.close, volume = EXCLUDED.volume, amount = EXCLUDED.amount,
             turnover_rate = EXCLUDED.turnover_rate
     """, (code, row[0], float(row[1]), float(row[3]), float(row[4]),
-          float(row[2]), int(float(row[5])), amt, turnover))
+          close_p, vol_gu, amt, turnover))
     return cur.rowcount
 
 def detect_adjustment(cur, code):
@@ -135,24 +142,11 @@ def main():
             days_to_fetch = 60
         else:
             missing = (today - latest).days
+            # Always fetch at least 5 days to refresh latest data
             if missing <= 0:
-                # Skip — already up-to-date (除权检测改为按需触发)
-                continue
-            if False and detect_adjustment(cur, code):
-                    # Full reload for adjusted stock
-                    klines = fetch_kline(code, days=365)
-                    updated = 0
-                    for row in klines:
-                        if len(row) >= 6:
-                            insert_kline(cur, code, row)
-                            updated += 1
-                    total_adjusted += 1
-                    if updated > 0:
-                        total_records += updated
-                    if total_adjusted % 10 == 0:
-                        print(f"  [除权修复] {code} → 已更新 {updated} 条历史数据", flush=True)
-                continue
-            days_to_fetch = missing + 3
+                days_to_fetch = 5
+            else:
+                days_to_fetch = missing + 5
 
         klines = fetch_kline(code, days=days_to_fetch)
         new_for_stock = 0
@@ -172,6 +166,21 @@ def main():
             print(f"  📈 进度 {i+1}/{len(stocks)} | 更新{total_new}只股票 | 入库{total_records}条K线 | 除权修复{total_adjusted}只 | 耗时{elapsed:.0f}s", flush=True)
 
     conn.commit()
+
+    # ─── 历史换手率回填 (百度K线) ───
+    print(f"\n📊 历史换手率回填 (百度K线)...", flush=True)
+    t0 = time.time()
+    to_backfill = [c for c, l in stocks if l is not None]
+    turnover_history = 0
+    for i, code in enumerate(to_backfill):
+        updated = backfill_turnover_kline(cur, code)
+        turnover_history += updated
+        if (i + 1) % 50 == 0:
+            conn.commit()
+            print(f"  回填进度: {i+1}/{len(to_backfill)} | 已更新 {turnover_history} 条", flush=True)
+        time.sleep(0.05)  # 百度API限流
+    conn.commit()
+    print(f"  历史换手率完成: {turnover_history} 条 | 耗时 {time.time()-t0:.0f}s", flush=True)
 
     # ─── 行情数据采集 (换手率/PE/市值) ───
     print(f"\n📊 采集行情数据 (腾讯实时行情 - 换手率/PE/市值)...", flush=True)

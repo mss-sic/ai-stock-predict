@@ -777,7 +777,7 @@ export default function KLineChart({
               <div>高 <span style={{ color: UP, fontWeight: 500 }}>{hoverData?.high?.toFixed(2) ?? '-'}</span></div>
               <div>低 <span style={{ color: DOWN, fontWeight: 500 }}>{hoverData?.low?.toFixed(2) ?? '-'}</span></div>
               <div>收 <span style={{ color: (hoverData?.close ?? 0) >= (hoverData?.open ?? 0) ? UP : DOWN, fontWeight: 600, fontSize: 13 }}>{hoverData?.close?.toFixed(2) ?? '-'}</span></div>
-              <div style={{ marginTop: 4, color: isDark ? '#a0a4a8' : 'var(--color-text-3)' }}>量 {(hoverData?.volume || 0) >= 1e8 ? ((hoverData?.volume || 0) / 1e8).toFixed(2) + '亿' : ((hoverData?.volume || 0) / 1e4).toFixed(0) + '万手'}</div>
+              <div style={{ marginTop: 4, color: isDark ? '#a0a4a8' : 'var(--color-text-3)' }}>量 {(hoverData?.volume || 0) >= 1e8 ? ((hoverData?.volume || 0) / 1e6).toFixed(1) + '万手' : ((hoverData?.volume || 0) / 1e6).toFixed(2) + '万手'}</div>
               <div style={{ color: isDark ? '#a0a4a8' : 'var(--color-text-3)' }}>换手 {(hoverData?.turnoverRate || 0) > 0 ? ((hoverData?.turnoverRate || 0) * 100).toFixed(2) + '%' : '-'}</div>
             </>
           ) : (

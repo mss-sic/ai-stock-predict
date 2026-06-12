@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
-import AIAnalysisCard, { tryParseAnalysis } from '../components/AIAnalysisCard';
+import { parseStreamSections, tryParseWidget, WidgetRenderer } from '../components/AIAnalysisCard';
 import { useParams } from 'react-router-dom';
 import { Button, Tag, Input, Tooltip, Modal, Select } from '@arco-design/web-react';
 import {
@@ -371,7 +371,7 @@ fetchPredictionResult(code).then((r: any) => {
       try {
         const res = await authFetch(`/api/v1/ai/history/${code}`);
         const json = await res.json();
-        setMsgs((json.data || []).map((m: any) => ({ role: m.role, text: m.content })));
+        setMsgs((json.data?.messages || []).map((m: any) => ({ role: m.role, text: m.content })));
       } catch (_) {}
     })();
     (async () => {
@@ -511,7 +511,7 @@ fetchPredictionResult(code).then((r: any) => {
     const prev = safeKlines.length > 1 ? safeKlines[safeKlines.length - 2] : latest;
     const chg = (latest?.close ?? 0) - (prev?.close ?? 0), chgPct = (prev?.close ?? 0) > 0 ? (chg / (prev?.close ?? 1)) * 100 : 0;
     const high = Math.max(...safeKlines.slice(-20).map((k: any) => k.high)), low = Math.min(...safeKlines.slice(-20).map((k: any) => k.low));
-    const vol = latest.volume ?? 0, amount = (latest.amount ?? 0) * 1e4; const turnover = (latest.turnoverRate ?? 0) * 100;
+    const vol = latest.volume ?? 0, amount = latest.amount ?? 0; const turnover = (latest.turnoverRate ?? 0) * 100;
     const amplitude = (latest?.open ?? 0) > 0 ? (((latest?.high ?? 0) - (latest?.low ?? 0)) / (latest?.open ?? 1)) * 100 : 0;
     return { price: latest?.close ?? 0, chg, chgPct, high, low, prevClose: prev?.close ?? 0, open: latest?.open ?? 0, vol, amount, amplitude, turnover };
   }, [safeKlines]);
@@ -712,7 +712,7 @@ fetchPredictionResult(code).then((r: any) => {
                     <span>昨收 <b style={{ color: 'var(--color-text-1)', fontWeight: 500 }}>{priceStats.prevClose.toFixed(2)}</b></span>
                     <span>最高 <b className="up">{priceStats.high.toFixed(2)}</b></span>
                     <span>最低 <b className="down">{priceStats.low.toFixed(2)}</b></span>
-                    <span>成交量 <b style={{ color: 'var(--color-text-1)', fontWeight: 500 }}>{fmtVol(priceStats.vol)}</b></span>
+                    <span>成交量 <b style={{ color: 'var(--color-text-1)', fontWeight: 500 }}>{fmtVol(Math.round(priceStats.vol / 100))}手</b></span>
                     <span>成交额 <b style={{ color: 'var(--color-text-1)', fontWeight: 500 }}>{fmtMoney(priceStats.amount)}</b></span>
                     <span>振幅 <b style={{ color: 'var(--color-text-1)', fontWeight: 500 }}>{priceStats.amplitude.toFixed(2)}%</b></span>
                     <span>换手 <b style={{ color: 'var(--color-text-1)', fontWeight: 500 }}>{priceStats.turnover > 0 ? priceStats.turnover.toFixed(2) + '%' : '-'}</b></span>
@@ -1086,39 +1086,54 @@ fetchPredictionResult(code).then((r: any) => {
                         color: m.role === 'ai' ? '#fff' : 'var(--gray-8)',
                       }}>{m.role === 'ai' ? 'AI' : '我'}</div>
                       {(() => {
-                        const isStructured = m.role === 'ai' && m.text && tryParseAnalysis(m.text);
+                        const sections = m.role === 'ai' && m.text ? parseStreamSections(m.text, 0) : [];
+                        const hasWidgets = sections.some((s: any) => s.type === 'widget');
                         return <div style={{
-                          maxWidth: isStructured ? '100%' : '78%',
-                          padding: isStructured ? '0' : '9px 14px',
-                          borderRadius: 8, fontSize: 13, lineHeight: '20px',
-                          background: m.role === 'ai' ? (isStructured ? 'transparent' : 'var(--color-bg-2)') : 'var(--color-primary)',
+                          maxWidth: hasWidgets ? '100%' : '78%',
+                          padding: hasWidgets ? '0' : '9px 14px',
+                          borderRadius: 8, fontSize: 13, lineHeight: '22px',
+                          background: m.role === 'ai' ? (hasWidgets ? 'transparent' : 'var(--color-bg-2)') : 'var(--color-primary)',
                           color: m.role === 'ai' ? 'var(--color-text-1)' : '#fff',
-                          border: m.role === 'ai' ? (isStructured ? 'none' : '1px solid var(--color-border-1)') : 'none',
-                          whiteSpace: isStructured ? 'normal' : 'pre-wrap',
+                          border: m.role === 'ai' ? (hasWidgets ? 'none' : '1px solid var(--color-border-1)') : 'none',
+                          whiteSpace: hasWidgets ? 'normal' : 'pre-wrap',
                           wordBreak: 'break-word',
                         }}>
                           {m.text ? (m.role === 'ai' ? (
-                            isStructured ? <AIAnalysisCard key={`struct-${i}`} data={isStructured} /> :
-                            <ReactMarkdown key={`md-${i}`}
-                            components={{
-                              table: ({ children }) => <table style={{ borderCollapse: 'collapse', width: '100%', margin: '8px 0', fontSize: 12 }}>{children}</table>,
-                              th: ({ children }) => <th style={{ border: '1px solid var(--color-border-1)', padding: '4px 8px', background: 'var(--color-fill-2)', textAlign: 'left' }}>{children}</th>,
-                              td: ({ children }) => <td style={{ border: '1px solid var(--color-border-1)', padding: '4px 8px' }}>{children}</td>,
-                              p: ({ children }) => <p style={{ margin: '4px 0' }}>{children}</p>,
-                              ul: ({ children }) => <ul style={{ margin: '4px 0', paddingLeft: 18 }}>{children}</ul>,
-                              ol: ({ children }) => <ol style={{ margin: '4px 0', paddingLeft: 18 }}>{children}</ol>,
-                              code: ({ children, className }) => <code className={className} style={{ background: 'var(--color-fill-2)', padding: '1px 4px', borderRadius: 3, fontSize: 11 }}>{children}</code>,
-                              pre: ({ children }) => <pre style={{ background: 'var(--color-fill-2)', padding: 8, borderRadius: 4, overflow: 'auto', fontSize: 11 }}>{children}</pre>,
-                              strong: ({ children }) => <strong style={{ color: 'var(--color-text-1)' }}>{children}</strong>,
-                              h3: ({ children }) => <h4 style={{ margin: '8px 0 4px', fontSize: 13 }}>{children}</h4>,
-                              h4: ({ children }) => <h4 style={{ margin: '6px 0 3px', fontSize: 12 }}>{children}</h4>,
-                              hr: () => <hr style={{ border: 'none', borderTop: '1px solid var(--color-border-1)', margin: '8px 0' }} />,
-                            }}
-                          >
-                            {m.text}
-                          </ReactMarkdown>
-                        ) : m.text) : <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} />}
-                        </div>
+                            sections.length > 0 ? (
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                                {sections.map((s: any) => (
+                                  s.type === 'widget' ? (() => {
+                                    const w = tryParseWidget(s.content);
+                                    return w ? <WidgetRenderer key={s.key} w={w} /> : null;
+                                  })() : (
+                                    <ReactMarkdown key={s.key}
+                                      components={{
+                                        p: ({ children }: any) => <p style={{ margin: 0 }}>{children}</p>,
+                                        strong: ({ children }: any) => <strong style={{ color: 'var(--color-text-1)' }}>{children}</strong>,
+                                        code: ({ children }: any) => <code style={{ background: 'var(--color-fill-2)', padding: '1px 4px', borderRadius: 3, fontSize: 11 }}>{children}</code>,
+                                      }}
+                                    >{s.content}</ReactMarkdown>
+                                  )
+                                ))}
+                              </div>
+                            ) : (
+                              <ReactMarkdown
+                                components={{
+                                  p: ({ children }: any) => <p style={{ margin: '4px 0' }}>{children}</p>,
+                                  ul: ({ children }: any) => <ul style={{ margin: '4px 0', paddingLeft: 18 }}>{children}</ul>,
+                                  ol: ({ children }: any) => <ol style={{ margin: '4px 0', paddingLeft: 18 }}>{children}</ol>,
+                                  strong: ({ children }: any) => <strong style={{ color: 'var(--color-text-1)' }}>{children}</strong>,
+                                  code: ({ children }: any) => <code style={{ background: 'var(--color-fill-2)', padding: '1px 4px', borderRadius: 3, fontSize: 11 }}>{children}</code>,
+                                }}
+                              >{m.text}</ReactMarkdown>
+                            )
+                          ) : m.text) : (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--color-text-3)', fontSize: 12 }}>
+                              <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} />
+                              分析中...
+                            </div>
+                          )}
+                        </div>;
                       })()}
                       </div>
                   ))}
@@ -1543,7 +1558,7 @@ fetchPredictionResult(code).then((r: any) => {
                         <td className="r num down" style={{ padding: '6px 10px' }}>{k.low?.toFixed(2)}</td>
                         <td className="r num" style={{ padding: '6px 10px', fontWeight: 600 }}>{k.close?.toFixed(2)}</td>
                         <td className={`r num ${chg >= 0 ? 'up' : 'down'}`} style={{ padding: '6px 10px' }}>{chg >= 0 ? '+' : ''}{chg.toFixed(2)}%</td>
-                        <td className="r num" style={{ padding: '6px 10px' }}>{k.volume ? (k.volume / 10000).toFixed(0) : '-'}</td>
+                        <td className="r num" style={{ padding: '6px 10px' }}>{k.volume ? (k.volume / 1000000).toFixed(2) : '-'}</td>
                         <td className="r num" style={{ padding: '6px 10px' }}>{k.amount ? (k.amount * 1e4 / 1e8).toFixed(2) : '-'}</td>
                         <td className="r num" style={{ padding: '6px 10px' }}>{k.turnoverRate > 0 ? (k.turnoverRate * 100).toFixed(2) : '-'}</td>
                       </tr>

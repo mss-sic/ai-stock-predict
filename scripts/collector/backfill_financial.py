@@ -128,14 +128,27 @@ def main():
     conn = psycopg2.connect(PG_DSN)
     cur = conn.cursor()
     
-    if codes_arg:
+    if codes_arg and not codes_arg.isdigit():
         codes = [c.strip() for c in codes_arg.split(',') if c.strip()]
     else:
-        # Get ALL stocks, prioritize those without financial data
+        # Prioritize top market-cap stocks missing financial data
+        # Fetch limit from arg or default to 500
+        limit = int(sys.argv[1]) if len(sys.argv) > 1 and sys.argv[1].isdigit() else 500
         cur.execute("""
             SELECT b.code FROM stocks_basic b
-            ORDER BY b.code
-        """)
+            LEFT JOIN (
+                SELECT DISTINCT code FROM stock_financials
+            ) f ON b.code = f.code
+            LEFT JOIN (
+                SELECT code, MAX(total_market_cap) as mcap
+                FROM stocks_daily_indicator
+                WHERE total_market_cap > 0
+                GROUP BY code
+            ) i ON b.code = i.code
+            WHERE f.code IS NULL
+            ORDER BY i.mcap DESC NULLS LAST
+            LIMIT %s
+        """, (limit,))
         codes = [r[0] for r in cur.fetchall()]
     
     if not codes:

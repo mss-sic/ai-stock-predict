@@ -10,6 +10,7 @@ import (
 	"github.com/ai-stock-predict/server/internal/db"
 	"github.com/ai-stock-predict/server/internal/model"
 	"github.com/xuri/excelize/v2"
+	"gorm.io/gorm/clause"
 )
 
 type ImportResult struct {
@@ -190,17 +191,23 @@ func importSheet2(f *excelize.File, result *ImportResult, signalMap map[string]f
 			GeneratedAt: time.Now(),
 		}).FirstOrCreate(&model.AlgorithmPick{})
 
-		// Upsert detail rows with correct rank
-		for _, p := range dg.picks {
-			score := signalMap[p.code] // from sheet1 algorithm output
-			detail := model.AlgorithmPickDetail{
-				PickDate:  p.date,
-				StockCode: p.code,
-				Rank:      p.rank,
-				Score:     score,
+		// Batch upsert detail rows
+		{ 
+			details := make([]model.AlgorithmPickDetail, 0, len(dg.picks))
+			for _, p := range dg.picks {
+				details = append(details, model.AlgorithmPickDetail{
+					PickDate: p.date, StockCode: p.code, Rank: p.rank,
+					Score: signalMap[p.code],
+				})
 			}
-			db.PG.Where("pick_date = ? AND stock_code = ?", p.date, p.code).
-				Assign(detail).FirstOrCreate(&detail)
+			if len(details) > 0 {
+				if err := db.PG.Clauses(clause.OnConflict{
+					Columns:   []clause.Column{{Name: "pick_date"}, {Name: "stock_code"}},
+					DoUpdates: clause.AssignmentColumns([]string{"rank", "score"}),
+				}).CreateInBatches(details, 500).Error; err != nil {
+					return fmt.Errorf("批量写入上榜详情失败: %w", err)
+				}
+			}
 		}
 	}
 
@@ -226,7 +233,8 @@ func importSheet1(f *excelize.File, result *ImportResult) error {
 		return fmt.Errorf("sheet1 数据为空")
 	}
 
-	count := 0
+	now := time.Now()
+	signals := make([]model.StockSignal, 0, len(rows))
 	for _, row := range rows {
 		if len(row) < 2 {
 			continue
@@ -240,19 +248,29 @@ func importSheet1(f *excelize.File, result *ImportResult) error {
 		if err != nil {
 			continue
 		}
-
-		db.PG.Where("code = ?", code).Assign(model.StockSignal{
-			Code:        code,
-			SignalValue: val,
-			Source:      "excel_import",
-			UpdatedAt:   time.Now(),
-		}).FirstOrCreate(&model.StockSignal{Code: code})
-		count++
+		signals = append(signals, model.StockSignal{
+			Code: code, SignalValue: val, Source: "excel_import", UpdatedAt: now,
+		})
 	}
 
-	result.SignalsImported = count
+	if len(signals) > 0 {
+		batchSize := 500
+		for i := 0; i < len(signals); i += batchSize {
+			end := i + batchSize
+			if end > len(signals) { end = len(signals) }
+			batch := signals[i:end]
+			if err := db.PG.Clauses(clause.OnConflict{
+				Columns:   []clause.Column{{Name: "code"}},
+				DoUpdates: clause.AssignmentColumns([]string{"signal_value", "source", "updated_at"}),
+			}).CreateInBatches(batch, batchSize).Error; err != nil {
+				return fmt.Errorf("批量写入信号失败: %w", err)
+			}
+		}
+	}
+
+	result.SignalsImported = len(signals)
 	result.Previews = append(result.Previews,
-		fmt.Sprintf("信号: %d 只个股信号值已导入", count))
+		fmt.Sprintf("信号: %d 只个股信号值已导入", len(signals)))
 	return nil
 }
 

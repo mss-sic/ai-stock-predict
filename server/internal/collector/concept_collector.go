@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"time"
 
+	"gorm.io/gorm/clause"
+
 	"github.com/ai-stock-predict/server/internal/db"
 	"github.com/ai-stock-predict/server/internal/model"
 )
@@ -39,25 +41,26 @@ func CollectConcepts() error {
 		}
 
 		// Upsert concept board metadata
-		db.PG.Where("concept_code = ?", board.Code).Assign(model.ConceptBoard{
+		if err := db.PG.Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "concept_code"}},
+			DoUpdates: clause.AssignmentColumns([]string{"concept_name", "concept_type", "stock_count", "updated_at"}),
+		}).Create(&model.ConceptBoard{
 			ConceptCode: board.Code,
 			ConceptName: board.Name,
 			ConceptType: board.Type,
 			StockCount:  len(stocks),
 			UpdatedAt:   time.Now(),
-		}).FirstOrCreate(&model.ConceptBoard{})
+		}).Error; err != nil {
+			log.Printf("[概念采集] 板块%s 创建失败: %v", board.Code, err)
+		}
 
-		// Upsert stock-concept mappings in batches
-		batchSize := 200
-		for j := 0; j < len(stocks); j += batchSize {
-			end := j + batchSize
-			if end > len(stocks) {
-				end = len(stocks)
-			}
-			batch := stocks[j:end]
-			for _, sc := range batch {
-				db.PG.Where("code = ? AND concept_code = ?", sc.Code, sc.ConceptCode).
-					Assign(sc).FirstOrCreate(&model.StockConcept{})
+		// Batch upsert stock-concept mappings
+		if len(stocks) > 0 {
+			if err := db.PG.Clauses(clause.OnConflict{
+				Columns:   []clause.Column{{Name: "code"}, {Name: "concept_code"}},
+				DoUpdates: clause.AssignmentColumns([]string{"concept_name", "concept_type", "stock_name", "updated_at"}),
+			}).CreateInBatches(stocks, 500).Error; err != nil {
+				log.Printf("[概念采集] 板块%s 批量写入失败: %v", board.Code, err)
 			}
 		}
 
@@ -220,14 +223,16 @@ func seedFromStocksBasic() error {
 	for _, ind := range industries {
 		code := ind.Industry
 		// Upsert concept board
-		board := model.ConceptBoard{
+		if err := db.PG.Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "concept_code"}},
+			DoUpdates: clause.AssignmentColumns([]string{"concept_name", "concept_type", "stock_count", "updated_at"}),
+		}).Create(&model.ConceptBoard{
 			ConceptCode: code,
 			ConceptName: code,
 			ConceptType: "industry",
 			StockCount:  ind.Cnt,
 			UpdatedAt:   time.Now(),
-		}
-		if err := db.PG.Where("concept_code = ?", code).Assign(board).FirstOrCreate(&model.ConceptBoard{}).Error; err != nil {
+		}).Error; err != nil {
 			log.Printf("[概念采集] 行业板块 %s 入库失败: %v", code, err)
 			continue
 		}
@@ -245,23 +250,24 @@ func seedFromStocksBasic() error {
 			continue
 		}
 
-		batchSize := 200
-		for j := 0; j < len(stocks); j += batchSize {
-			end := j + batchSize
-			if end > len(stocks) {
-				end = len(stocks)
-			}
-			for _, s := range stocks[j:end] {
-				sc := model.StockConcept{
-					Code:        s.Code,
-					ConceptCode: code,
-					ConceptName: code,
-					ConceptType: "industry",
-					StockName:   s.Name,
-					UpdatedAt:   time.Now(),
-				}
-				db.PG.Where("code = ? AND concept_code = ?", s.Code, code).
-					Assign(sc).FirstOrCreate(&model.StockConcept{})
+		// Batch upsert stock-concept mappings
+		scs := make([]model.StockConcept, 0, len(stocks))
+		for _, s := range stocks {
+			scs = append(scs, model.StockConcept{
+				Code:        s.Code,
+				ConceptCode: code,
+				ConceptName: code,
+				ConceptType: "industry",
+				StockName:   s.Name,
+				UpdatedAt:   time.Now(),
+			})
+		}
+		if len(scs) > 0 {
+			if err := db.PG.Clauses(clause.OnConflict{
+				Columns:   []clause.Column{{Name: "code"}, {Name: "concept_code"}},
+				DoUpdates: clause.AssignmentColumns([]string{"concept_name", "concept_type", "stock_name", "updated_at"}),
+			}).CreateInBatches(scs, 500).Error; err != nil {
+				log.Printf("[概念采集] 行业%s 批量写入失败: %v", code, err)
 			}
 		}
 		totalStocks += len(stocks)

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Button } from '@arco-design/web-react';
+import { Button, Tabs } from '@arco-design/web-react';
 import { Settings, Globe, Cpu, CheckCircle, XCircle, RefreshCw } from 'lucide-react';
-import { fetchAIConfig, saveAIConfig, testAIConnection, listAIModels } from '../services/api';
+import { fetchAIConfig, saveAIConfig, testAIConnection, listAIModels, authFetch } from '../services/api';
 
 const providers = [
   { label: 'DeepSeek (推荐)', value: 'deepseek', baseURL: 'https://api.deepseek.com', model: 'deepseek-chat' },
@@ -19,6 +19,45 @@ export default function SettingsPage() {
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null);
   const [saving, setSaving] = useState(false);
+
+  // ── AI System Configs ──
+  interface SysCfg { scene: string; name: string; systemPrompt: string; modelName: string; temperature: number; maxTokens: number; enableSearch: boolean; }
+  const [sysConfigs, setSysConfigs] = useState<SysCfg[]>([]);
+  const [editingScene, setEditingScene] = useState<string | null>(null);
+  const [editCfg, setEditCfg] = useState<SysCfg | null>(null);
+  const [savingSys, setSavingSys] = useState(false);
+
+  useEffect(() => {
+    authFetch('/api/v1/ai/system-configs').then(r => r.json()).then(j => {
+      if (j.data) setSysConfigs(j.data);
+    }).catch(() => {});
+  }, []);
+
+  const openEditSys = (cfg: SysCfg) => {
+    setEditingScene(cfg.scene);
+    setEditCfg({ ...cfg });
+  };
+  const saveSys = async () => {
+    if (!editCfg) return;
+    setSavingSys(true);
+    try {
+      await authFetch(`/api/v1/ai/system-configs/${editCfg.scene}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: editCfg.name,
+          systemPrompt: editCfg.systemPrompt,
+          modelName: editCfg.modelName,
+          temperature: editCfg.temperature,
+          maxTokens: editCfg.maxTokens,
+          enableSearch: editCfg.enableSearch,
+        }),
+      });
+      setSysConfigs(prev => prev.map(c => c.scene === editCfg.scene ? editCfg : c));
+      setEditingScene(null);
+    } catch (_) {}
+    setSavingSys(false);
+  };
   const [modelList, setModelList] = useState<string[]>([]);
   const [fetchingModels, setFetchingModels] = useState(false);
 
@@ -96,9 +135,12 @@ export default function SettingsPage() {
 
   return (
     <div style={{ padding: '0 0 40px', maxWidth: 720 }}>
-      <h2 style={{ color: 'var(--color-text-1)', fontSize: 18, fontWeight: 700, marginBottom: 20, display: 'flex', alignItems: 'center', gap: 8 }}>
-        <Settings size={20} color="#165dff" /> AI 模型配置
-      </h2>
+      <Tabs defaultActiveTab="model" style={{ marginTop: -8 }}>
+        <Tabs.TabPane key="model" title={
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Settings size={14} /> AI 模型
+          </span>
+        }>
 
       {/* AI Config */}
       <div className="card">
@@ -190,8 +232,92 @@ export default function SettingsPage() {
           </p>
         </div>
       </div>
+
+        </Tabs.TabPane>
+        <Tabs.TabPane key="prompt" title={
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Cpu size={14} /> 提示词
+          </span>
+        }>
+
+      {/* ── AI System Configs ── */}
+      <div>
+        {sysConfigs.map(cfg => (
+          <div key={cfg.scene} className="card" style={{ marginBottom: 12 }}>
+            <div className="card-body" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text-1)' }}>{cfg.name}</div>
+                <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginTop: 2 }}>
+                  scene: {cfg.scene} · temp: {cfg.temperature} · max_tokens: {cfg.maxTokens} · search: {cfg.enableSearch ? '✅' : '❌'}
+                </div>
+              </div>
+              <Button size="small" onClick={() => openEditSys(cfg)}>编辑</Button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+        </Tabs.TabPane>
+      </Tabs>
+
+      {/* Edit Modal */}
+      {editingScene && editCfg && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 9999,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }} onClick={() => setEditingScene(null)}>
+          <div style={{
+            background: 'var(--color-bg-1)', borderRadius: 12, padding: 24, width: 640, maxHeight: '80vh',
+            overflow: 'auto', boxShadow: '0 8px 32px rgba(0,0,0,0.18)',
+          }} onClick={e => e.stopPropagation()}>
+            <h3 style={{ margin: '0 0 16px', fontSize: 16 }}>编辑 {editCfg.name}</h3>
+
+            <label style={label}>场景标识</label>
+            <input value={editCfg.scene} disabled style={{ ...inp, marginBottom: 12, color: 'var(--color-text-3)' }} />
+
+            <label style={label}>名称</label>
+            <input value={editCfg.name} onChange={e => setEditCfg({...editCfg, name: e.target.value})} style={{ ...inp, marginBottom: 12 }} />
+
+            <label style={label}>系统提示词（支持 %s 占位符）</label>
+            <textarea value={editCfg.systemPrompt} onChange={e => setEditCfg({...editCfg, systemPrompt: e.target.value})}
+              style={{ ...inp, marginBottom: 12, minHeight: 160, fontFamily: 'monospace', fontSize: 11, resize: 'vertical' }} />
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 12 }}>
+              <div>
+                <label style={label}>Temperature</label>
+                <input type="number" step="0.1" min="0" max="2" value={editCfg.temperature}
+                  onChange={e => setEditCfg({...editCfg, temperature: parseFloat(e.target.value) || 0})} style={inp} />
+              </div>
+              <div>
+                <label style={label}>Max Tokens</label>
+                <input type="number" min="100" max="8192" value={editCfg.maxTokens}
+                  onChange={e => setEditCfg({...editCfg, maxTokens: parseInt(e.target.value) || 0})} style={inp} />
+              </div>
+              <div>
+                <label style={label}>搜索</label>
+                <select value={editCfg.enableSearch ? '1' : '0'}
+                  onChange={e => setEditCfg({...editCfg, enableSearch: e.target.value === '1'})} style={sel}>
+                  <option value="1">✅ 开启</option>
+                  <option value="0">❌ 关闭</option>
+                </select>
+              </div>
+            </div>
+
+            <label style={label}>模型覆盖（空=用用户配置）</label>
+            <input value={editCfg.modelName} onChange={e => setEditCfg({...editCfg, modelName: e.target.value})}
+              placeholder="留空则使用用户配置的模型" style={{ ...inp, marginBottom: 16 }} />
+
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <Button onClick={() => setEditingScene(null)}>取消</Button>
+              <Button type="primary" onClick={saveSys} loading={savingSys}>保存</Button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
 
+// ── styles ──
 const label: React.CSSProperties = { fontSize: 12, color: 'var(--color-text-3)', marginBottom: 4, display: 'block', fontWeight: 500 };

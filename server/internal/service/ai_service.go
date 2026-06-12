@@ -188,6 +188,82 @@ func (s *AIService) ChatCompletionStream(userID uint, prompt string, history []m
 	return nil
 }
 
+
+// ChatCompletionStreamWithConfig sends a streaming request with system config overrides
+func (s *AIService) ChatCompletionStreamWithConfig(userID uint, prompt string, history []map[string]string, sysCfg model.AISystemConfig, onChunk func(chunk string)) error {
+	cfg, err := s.GetConfig(userID)
+	if err != nil {
+		return err
+	}
+	if cfg.APIKey == "" {
+		return fmt.Errorf("AI API Key未配置")
+	}
+
+	messages := make([]map[string]string, 0, len(history)+1)
+	messages = append(messages, history...)
+	messages = append(messages, map[string]string{"role": "user", "content": prompt})
+
+	modelName := cfg.ModelName
+	if sysCfg.ModelName != "" {
+		modelName = sysCfg.ModelName
+	}
+
+	body := map[string]interface{}{
+		"model":       modelName,
+		"messages":    messages,
+		"temperature": sysCfg.Temperature,
+		"max_tokens":  sysCfg.MaxTokens,
+		"stream":      true,
+	}
+	if sysCfg.EnableSearch {
+		body["enable_search"] = true
+	}
+
+	b, _ := json.Marshal(body)
+	req, err := http.NewRequest("POST", cfg.BaseURL+"/v1/chat/completions", bytes.NewReader(b))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
+	client := &http.Client{Timeout: 120 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("AI请求失败: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("AI API返回 %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	scanner := bufio.NewScanner(resp.Body)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		data := strings.TrimPrefix(line, "data: ")
+		if data == "[DONE]" {
+			break
+		}
+		var chunk struct {
+			Choices []struct {
+				Delta struct {
+					Content string `json:"content"`
+				} `json:"delta"`
+			} `json:"choices"`
+		}
+		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
+			continue
+		}
+		if len(chunk.Choices) > 0 && chunk.Choices[0].Delta.Content != "" {
+			onChunk(chunk.Choices[0].Delta.Content)
+		}
+	}
+	return nil
+}
+
 // AnalyzeStock builds a structured prompt and returns AI analysis
 func (s *AIService) AnalyzeStock(userID uint, code, name, industry string, close float64, pe, pb float64, klineSummary string, predSummary string) (map[string]interface{}, error) {
 	prompt := fmt.Sprintf(`你是一位资深A股分析师。请分析以下股票并返回JSON结果。

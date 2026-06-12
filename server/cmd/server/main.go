@@ -210,6 +210,9 @@ func main() {
 		api.DELETE("/ai/history/:code", aiH.ClearHistory)
 		api.GET("/ai/score/:code", aiH.GetScore)
 		api.POST("/ai/score/:code", aiH.RunScore)
+		api.GET("/ai/system-configs", aiH.GetSystemConfigs)
+		api.GET("/ai/system-configs/:scene", aiH.GetSystemConfig)
+		api.PUT("/ai/system-configs/:scene", aiH.UpdateSystemConfig)
 
 		// Import
 		importH := handler.NewImportHandler(aiH)

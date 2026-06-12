@@ -321,6 +321,82 @@ func init() {
 		},
 	})
 
+
+	// v006: AI system configs per scene
+	migrations = append(migrations, Migration{
+		Version:     12,
+		Description: "PG: ai_system_configs with default prompts",
+		Up: func() error {
+			gormAutoMigrate(PG, &model.AISystemConfig{})
+			// Insert defaults — idempotent (do nothing if scene already exists)
+			defaults := []model.AISystemConfig{
+				{
+					Scene: "chat_analysis", Name: "AI对话分析",
+					SystemPrompt: `你是一名专业、严谨的A股分析师。
+
+当前标的：%s（%s），行业：%s。必须联网搜索最新信息（截止%s）。
+
+输出用 Markdown + 以下 JSON Widget 穿插（保证一行无换行）：
+
+{"w":"summary","label":"短线看多","text":"综合判断≤80字"}
+{"w":"signal","u":true,"h":"信号≤10字","d":"说明≤30字"}   // u:true=看多 false=看空
+{"w":"risk","h":"风险≤10字","d":"说明≤30字"}
+{"w":"list","t":"标题≤8字","items":["条目1","条目2","条目3"]}  // 列表3-5条
+{"w":"alert","level":"warning","title":"注意","body":"说明"}   // level: info/warning/danger
+{"w":"panel","t":"标题","rows":[{"k":"指标","v":"数值"}]}      // 数据面板4-6行
+{"w":"plan","s":支撑价,"r":压力价,"tip":"建议≤20字","pos":30}
+
+结构顺序：1个summary → 1段Markdown走势分析 → 4-6个signal → 1-2个list → 1个panel(可选) → 2-3个risk → 1段Markdown → 1个plan
+操作建议须声明"不构成投资建议"`,
+					Temperature: 0.7, MaxTokens: 2048, EnableSearch: true,
+				},
+				{
+					Scene: "stock_scoring", Name: "AI综合评分",
+					SystemPrompt: `你是一位资深A股分析师。请全面分析以下股票，从六个维度打分（1-10分），并返回严格JSON格式（不要markdown代码块）：
+六维评分标准：
+- fundamentalScore(基本面): 营收/利润/ROE/现金流等财务健康度
+- growthScore(成长性): 营收增速/利润增速/行业空间  
+- valuationScore(估值): PE/PB分位数/与行业对比
+- capitalScore(资金面): 成交量/北向资金/主力资金流向
+- technicalScore(技术面): 趋势/均线/MACD/KDJ等指标
+- industryScore(行业景气): 行业周期/政策/景气度
+
+综合评分cScore 0-10分，建议suggestion(强烈买入/买入/增持/持有/减持/卖出/强烈卖出)，风险等级riskLevel(低风险/中低风险/中风险/中高风险/高风险)，riskWarnings风险点数组，summary 80字以内摘要。%s`,
+					Temperature: 0.3, MaxTokens: 1024, EnableSearch: false,
+				},
+			}
+			for _, d := range defaults {
+				var existing model.AISystemConfig
+				if err := PG.Where("scene = ?", d.Scene).First(&existing).Error; err != nil {
+					PG.Create(&d)
+				}
+			}
+			return nil
+		},
+	})
+
+
+	// v13: composite unique indexes for algorithm_pick_details and predictions
+	migrations = append(migrations, Migration{
+		Version:     13,
+		Description: "PG: composite unique indexes on algorithm_pick_details and predictions",
+		Up: func() error {
+			gormAutoMigrate(PG, &model.AlgorithmPickDetail{}, &model.Prediction{})
+			// Manual unique index creation (GORM doesn't handle composite unique renames well)
+			safeExec(`DO $$ BEGIN
+				IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_pick_code') THEN
+					CREATE UNIQUE INDEX idx_pick_code ON algorithm_pick_details(pick_date, stock_code);
+				END IF;
+			END $$`)
+			safeExec(`DO $$ BEGIN
+				IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_pred_code_model_date') THEN
+					CREATE UNIQUE INDEX idx_pred_code_model_date ON predictions(code, model_name, predict_date);
+				END IF;
+			END $$`)
+			return nil
+		},
+	})
+
 	log.Printf("[migrate] registered %d migrations", len(migrations))
 }
 
