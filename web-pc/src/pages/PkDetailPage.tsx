@@ -54,8 +54,9 @@ export default function PkDetailPage() {
   const fetchData = async () => {
     try {
       const res = await api.get(`/pk/events/${id}`);
-      setEvent(res.data.data.event);
-      setEntries(res.data.data.entries || []);
+      const d = res.data?.data || {};
+      setEvent(d.event || null);
+      setEntries(Array.isArray(d.entries) ? d.entries : []);
     } catch (e) {
       console.error(e);
     } finally {
@@ -66,7 +67,8 @@ export default function PkDetailPage() {
   const fetchStrategies = async () => {
     try {
       const res = await api.get('/strategies', { params: { exclude_pk: 'true' } });
-      setStrategies(res.data.data || []);
+      const list = res.data?.data;
+      setStrategies(Array.isArray(list) ? list : []);
     } catch (e) {}
   };
 
@@ -156,8 +158,8 @@ export default function PkDetailPage() {
   ];
 
   // ── Podium: top 3 ──
-  const displayedEntries = entries.map((e, i) => ({ ...e, finalRank: e.finalRank || i + 1 }));
-  const tableData = displayedEntries.slice(3, 100);
+  const displayedEntries = (Array.isArray(entries) ? entries : []).map((e: any, i: number) => ({ ...e, finalRank: e?.finalRank || i + 1 }));
+  const tableData = (Array.isArray(displayedEntries) ? displayedEntries : []).slice(3, 100);
 
   const podiumConfig = [
     { label: '🥇', color: '#f5a623', bg: 'linear-gradient(135deg, #fffdf5 0%, #fef6e0 40%, #ffeaa7 100%)', border: '#e8b800', shadow: '0 4px 20px rgba(245,166,35,0.25)' },
