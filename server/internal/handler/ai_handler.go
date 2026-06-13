@@ -193,8 +193,99 @@ func (h *AIHandler) GetScore(c *gin.Context) {
 	response.Success(c, score)
 }
 
+
+// ScoreStockAgent uses agent tools to fetch real data before scoring.
+func (h *AIHandler) ScoreStockAgent(code string, uid uint) error {
+	sysMsg := h.buildScoringAgentPrompt(code)
+	tools := h.buildAgentTools()
+	
+	var fullReply string
+	err := h.svc.ChatCompletionAgent(uid, []map[string]string{
+		{"role": "system", "content": sysMsg},
+		{"role": "user", "content": fmt.Sprintf("请对股票 %s 进行全面六维评分。先调用工具获取各维度数据，再输出JSON结果。", code)},
+	}, tools,
+		func(name string, args map[string]interface{}) string {
+			return h.executeAgentTool(name, args, code)
+		},
+		func(chunk string) {
+			fullReply += chunk
+		},
+	)
+	if err != nil {
+		return err
+	}
+	
+	reply := strings.TrimSpace(fullReply)
+	if idx := strings.Index(reply, "{"); idx >= 0 {
+		reply = reply[idx:]
+	}
+	if idx := strings.LastIndex(reply, "}"); idx >= 0 {
+		reply = reply[:idx+1]
+	}
+	
+	var result map[string]interface{}
+	if err := json.Unmarshal([]byte(reply), &result); err != nil {
+		return err
+	}
+	
+	score := model.AIStockScore{Code: code, AnalyzedAt: time.Now()}
+	if v, ok := result["compositeScore"].(float64); ok { score.CompositeScore = v }
+	if v, ok := result["fundamentalScore"].(float64); ok { score.FundamentalScore = v }
+	if v, ok := result["growthScore"].(float64); ok { score.GrowthScore = v }
+	if v, ok := result["valuationScore"].(float64); ok { score.ValuationScore = v }
+	if v, ok := result["capitalScore"].(float64); ok { score.CapitalScore = v }
+	if v, ok := result["technicalScore"].(float64); ok { score.TechnicalScore = v }
+	if v, ok := result["industryScore"].(float64); ok { score.IndustryScore = v }
+	if v, ok := result["riskLevel"].(string); ok { score.RiskLevel = v }
+	if v, ok := result["suggestion"].(string); ok { score.Suggestion = v }
+	if v, ok := result["summary"].(string); ok { score.Summary = v }
+	if warnings, ok := result["riskWarnings"].([]interface{}); ok {
+		for _, w := range warnings {
+			if s, ok := w.(string); ok { score.RiskWarnings = append(score.RiskWarnings, s) }
+		}
+	}
+	return db.PG.Create(&score).Error
+}
+
+
+// buildScoringAgentPrompt builds the system prompt for agent-based AI scoring.
+func (h *AIHandler) buildScoringAgentPrompt(code string) string {
+	var stock struct{ Name, Industry string }
+	db.PG.Raw("SELECT name, industry FROM stocks_basic WHERE code = ?", code).Scan(&stock)
+	
+	return fmt.Sprintf(`你是专业A股量化评分系统。请对股票 %s（%s，行业：%s）进行六维综合评分。
+	
+	你拥有以下工具可实时查询数据库精确数据，评分前必须先调用工具获取各维度数据：
+	- get_stock_price: 获取最新价格、PE、PB、市值
+	- get_kline_summary: 获取近期K线走势（均线、涨跌幅、量价关系）
+	- get_technical: 获取MACD/KDJ/RSI等技术指标
+	- get_financials: 获取财务数据（ROE/EPS/营收利润/现金流等）
+	- get_news: 获取近期新闻和公告
+	
+	六维评分标准（每维1-10分，取工具返回的精确数据）：
+	- fundamentalScore(基本面): 财务健康度（ROE/EPS/利润率/现金流）
+	- growthScore(成长性): 营收增速/利润增速
+	- valuationScore(估值): PE/PB分位数与行业对比
+	- capitalScore(资金面): 成交量变化/量比/换手率
+	- technicalScore(技术面): 均线趋势/MACD/KDJ/RSI信号
+	- industryScore(行业景气): 行业政策/景气度/板块表现
+	
+	综合评分 = 基本面*0.20 + 成长性*0.20 + 估值*0.20 + 资金面*0.15 + 技术面*0.15 + 行业景气*0.10
+	
+	输出严格JSON（不要代码块标记）：
+	{"compositeScore":7.2,"fundamentalScore":7.5,"growthScore":6.8,"valuationScore":7.0,"capitalScore":6.5,"technicalScore":7.8,"industryScore":8.0,"riskLevel":"中风险","suggestion":"增持","summary":"...","riskWarnings":["...","..."]}`, code, stock.Name, stock.Industry)
+
+}
+
 // ScoreStock runs AI scoring for a single stock (reusable, no gin context)
 func (h *AIHandler) ScoreStock(code string, uid uint) error {
+	// Try agent-based scoring first
+	if agentErr := h.ScoreStockAgent(code, uid); agentErr != nil {
+		log.Printf("[ai] agent scoring failed for %s, fallback to classic: %v", code, agentErr)
+	} else {
+		return nil
+	}
+	
 	stockCtx, _ := h.buildScoringContext(code)
 
 	sysPrompt := fmt.Sprintf(`你是一位资深A股分析师。请全面分析以下股票，从六个维度打分（1-10分），并返回严格JSON格式（不要markdown代码块）：
