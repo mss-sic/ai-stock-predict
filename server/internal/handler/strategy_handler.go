@@ -1237,16 +1237,20 @@ func (ic *IndicatorCache) batchScanWithCodes(indicator string, codes []string, q
 func preloadIndicators(conds []model.StrategyCondition, codes []string, startDate, endDate string, kcache *KlineCache) *IndicatorCache {
 	cache := newIndicatorCache()
 
-	// Collect unique indicator names to preload
+	// Collect unique indicator names to preload (use Registry for safety check)
 	needPreload := make(map[string]bool)
 	for _, c := range conds {
 		ind := c.Indicator
+		// Skip non-backtest-safe indicators
+		if !IsBacktestSafe(ind) {
+			continue
+		}
 		// Skip indicators we can compute from close prices in Go
 		switch ind {
 		case "daily_change", "momentum_5", "momentum_20":
 			continue // computed from kcache.GetClose
 		}
-		// Skip indicators from other tables (they're fast enough with simple queries)
+		// Skip indicators from other tables (fast enough with simple queries)
 		switch {
 		case strings.HasPrefix(ind, "ai_"):
 			continue
@@ -1292,8 +1296,8 @@ func preloadIndicators(conds []model.StrategyCondition, codes []string, startDat
 				FROM klines
 			), dmi14 AS (
 				SELECT code, date,
-					AVG(up_move) OVER (PARTITION BY code ORDER BY date ROWS BETWEEN 13 PRECEDING AND CURRENT ROW) as avg_up,
-					AVG(down_move) OVER (PARTITION BY code ORDER BY date ROWS BETWEEN 13 PRECEDING AND CURRENT ROW) as avg_down,
+					AVG(CASE WHEN up_move > 0 AND up_move > down_move THEN up_move ELSE 0 END) OVER (PARTITION BY code ORDER BY date ROWS BETWEEN 13 PRECEDING AND CURRENT ROW) as avg_up,
+					AVG(CASE WHEN down_move > 0 AND down_move > up_move THEN down_move ELSE 0 END) OVER (PARTITION BY code ORDER BY date ROWS BETWEEN 13 PRECEDING AND CURRENT ROW) as avg_down,
 					AVG(tr) OVER (PARTITION BY code ORDER BY date ROWS BETWEEN 13 PRECEDING AND CURRENT ROW) as avg_tr
 				FROM tr_calc
 			), dmi AS (
@@ -1325,8 +1329,8 @@ func preloadIndicators(conds []model.StrategyCondition, codes []string, startDat
 				FROM klines
 			), dmi14 AS (
 				SELECT code, date,
-					AVG(up_move) OVER (PARTITION BY code ORDER BY date ROWS BETWEEN 13 PRECEDING AND CURRENT ROW) as avg_up,
-					AVG(down_move) OVER (PARTITION BY code ORDER BY date ROWS BETWEEN 13 PRECEDING AND CURRENT ROW) as avg_down,
+					AVG(CASE WHEN up_move > 0 AND up_move > down_move THEN up_move ELSE 0 END) OVER (PARTITION BY code ORDER BY date ROWS BETWEEN 13 PRECEDING AND CURRENT ROW) as avg_up,
+					AVG(CASE WHEN down_move > 0 AND down_move > up_move THEN down_move ELSE 0 END) OVER (PARTITION BY code ORDER BY date ROWS BETWEEN 13 PRECEDING AND CURRENT ROW) as avg_down,
 					AVG(tr) OVER (PARTITION BY code ORDER BY date ROWS BETWEEN 13 PRECEDING AND CURRENT ROW) as avg_tr
 				FROM tr_calc
 			)
@@ -1349,8 +1353,8 @@ func preloadIndicators(conds []model.StrategyCondition, codes []string, startDat
 				FROM klines
 			), dmi14 AS (
 				SELECT code, date,
-					AVG(up_move) OVER (PARTITION BY code ORDER BY date ROWS BETWEEN 13 PRECEDING AND CURRENT ROW) as avg_up,
-					AVG(down_move) OVER (PARTITION BY code ORDER BY date ROWS BETWEEN 13 PRECEDING AND CURRENT ROW) as avg_down,
+					AVG(CASE WHEN up_move > 0 AND up_move > down_move THEN up_move ELSE 0 END) OVER (PARTITION BY code ORDER BY date ROWS BETWEEN 13 PRECEDING AND CURRENT ROW) as avg_up,
+					AVG(CASE WHEN down_move > 0 AND down_move > up_move THEN down_move ELSE 0 END) OVER (PARTITION BY code ORDER BY date ROWS BETWEEN 13 PRECEDING AND CURRENT ROW) as avg_down,
 					AVG(tr) OVER (PARTITION BY code ORDER BY date ROWS BETWEEN 13 PRECEDING AND CURRENT ROW) as avg_tr
 				FROM tr_calc
 			)
@@ -1432,11 +1436,12 @@ func preloadIndicators(conds []model.StrategyCondition, codes []string, startDat
 		delete(needPreload, "macd_dea")
 	}
 
-	// Batch preload: KDJ (preload K, D, J separately)
+	// Batch preload: KDJ (preload K, D, J)
 	if needPreload["kdj_k"] || needPreload["kdj_d"] || needPreload["kdj_j"] {
 		log.Printf("[backtest] batch preloading KDJ for %d stocks...", len(codes))
-		cache.batchScanWithCodes("kdj_k", codes,
-			`WITH klines AS (
+		inClauseKDJ := db.CodesToInClause(codes)
+		queryKDJ := fmt.Sprintf(`
+			WITH klines AS (
 				SELECT code, TO_CHAR(trade_date, 'YYYY-MM-DD') as date, high, low, close FROM stocks_daily_k
 				WHERE code IN (%s) AND trade_date BETWEEN ? AND ?
 			), rsv AS (
@@ -1448,13 +1453,35 @@ func preloadIndicators(conds []model.StrategyCondition, codes []string, startDat
 						MIN(low) OVER (PARTITION BY code ORDER BY date ROWS BETWEEN 8 PRECEDING AND CURRENT ROW)) * 100
 					ELSE 50 END as rsv_val
 				FROM klines
+			), k_calc AS (
+				SELECT code, date,
+					(2.0/3.0) * COALESCE(LAG(rsv_val) OVER (PARTITION BY code ORDER BY date), 50) + (1.0/3.0) * rsv_val as k_val
+				FROM rsv
+			), kdj AS (
+				SELECT code, date, k_val,
+					AVG(k_val) OVER (PARTITION BY code ORDER BY date ROWS BETWEEN 2 PRECEDING AND CURRENT ROW) as d_val
+				FROM k_calc
 			)
-			SELECT code, date,
-				(0.6667 * COALESCE(LAG(rsv_val) OVER (PARTITION BY code ORDER BY date), 50) + 0.3333 * rsv_val) + 
-				COALESCE(LAG((0.6667 * COALESCE(LAG(rsv_val) OVER (PARTITION BY code ORDER BY date), 50) + 0.3333 * rsv_val)) OVER (PARTITION BY code ORDER BY date), 50) * 0.3333
-				as value FROM rsv`,
-			startDate, endDate)
-		// For simplicity, preload K only for now; D/J are similar
+			SELECT code, date, k_val, d_val, 3*k_val - 2*d_val as j_val
+			FROM kdj
+		`, inClauseKDJ)
+		type KDJRow struct {
+			Code string
+			Date string
+			K    float64
+			D    float64
+			J    float64
+		}
+		var kdjRows []KDJRow
+		if err := db.PG.Raw(queryKDJ, startDate, endDate).Scan(&kdjRows).Error; err != nil {
+			log.Printf("[backtest] KDJ preload failed: %v", err)
+		} else {
+			for _, r := range kdjRows {
+				if needPreload["kdj_k"] { cache.set("kdj_k", r.Code, r.Date, r.K) }
+				if needPreload["kdj_d"] { cache.set("kdj_d", r.Code, r.Date, r.D) }
+				if needPreload["kdj_j"] { cache.set("kdj_j", r.Code, r.Date, r.J) }
+			}
+		}
 		delete(needPreload, "kdj_k")
 		delete(needPreload, "kdj_d")
 		delete(needPreload, "kdj_j")
@@ -1463,12 +1490,22 @@ func preloadIndicators(conds []model.StrategyCondition, codes []string, startDat
 	// Batch preload: simple volume-related from stocks_daily_k
 	if needPreload["volume_ratio"] || needPreload["volume_ma_ratio"] {
 		log.Printf("[backtest] batch preloading volume data for %d stocks...", len(codes))
-		cache.batchScanWithCodes("volume_ratio", codes,
-			`SELECT code, TO_CHAR(trade_date, 'YYYY-MM-DD') as date, 
-				COALESCE(volume / NULLIF(AVG(volume) OVER (PARTITION BY code ORDER BY trade_date ROWS BETWEEN 4 PRECEDING AND 1 PRECEDING), 0), 0) as value
-			FROM stocks_daily_k WHERE code IN (%s) AND trade_date BETWEEN ? AND ?`,
-			startDate, endDate)
-		delete(needPreload, "volume_ratio")
+		if needPreload["volume_ratio"] {
+			cache.batchScanWithCodes("volume_ratio", codes,
+				`SELECT code, TO_CHAR(trade_date, 'YYYY-MM-DD') as date, 
+					COALESCE(volume / NULLIF(AVG(volume) OVER (PARTITION BY code ORDER BY trade_date ROWS BETWEEN 4 PRECEDING AND 1 PRECEDING), 0), 0) as value
+				FROM stocks_daily_k WHERE code IN (%s) AND trade_date BETWEEN ? AND ?`,
+				startDate, endDate)
+			delete(needPreload, "volume_ratio")
+		}
+		if needPreload["volume_ma_ratio"] {
+			cache.batchScanWithCodes("volume_ma_ratio", codes,
+				`SELECT code, TO_CHAR(trade_date, 'YYYY-MM-DD') as date, 
+					COALESCE(volume / NULLIF(AVG(volume) OVER (PARTITION BY code ORDER BY trade_date ROWS BETWEEN 19 PRECEDING AND 1 PRECEDING), 0), 0) as value
+				FROM stocks_daily_k WHERE code IN (%s) AND trade_date BETWEEN ? AND ?`,
+				startDate, endDate)
+			delete(needPreload, "volume_ma_ratio")
+		}
 	}
 
 	// Batch preload: turnover_rate if available
@@ -2957,6 +2994,28 @@ func (h *StrategyHandler) StockPool(c *gin.Context) {
 // ── Available indicators list ──
 
 func buildIndicatorList() []map[string]interface{} {
+	result := make([]map[string]interface{}, 0, len(IndicatorRegistry))
+	for _, m := range IndicatorRegistry {
+		result = append(result, map[string]interface{}{
+			"key":          m.Key,
+			"label":        m.Label,
+			"category":     m.Category,
+			"unit":         m.Unit,
+			"type":         m.Type,
+			"operators":    m.Operators,
+			"desc":         m.Desc,
+			"backtestSafe": m.BacktestSafe,
+			"dataNote":     m.DataNote,
+			"suggestion":   m.Suggestion,
+			"useFor":       m.UseFor,
+			"dataSource":   m.DataSource,
+		})
+	}
+	return result
+}
+
+// buildIndicatorListLegacy was the old hardcoded list; replaced by Registry. Keep for reference.
+func buildIndicatorListLegacy() []map[string]interface{} {
 	return []map[string]interface{}{
 		// ═══ 榜单与评分 ═══
 		{"key": "streak_count", "label": "连榜次数", "type": "number", "operators": []string{"gte", "lte", "gt", "lt", "eq"}, "desc": "该股票在榜单连续出现的交易日数", "backtestSafe": true, "dataNote": "依赖榜单数据覆盖", "suggestion": "买入建议 ≥ 3 天，连续上榜说明持续受关注"},
@@ -3064,6 +3123,8 @@ func (h *StrategyHandler) Indicators(c *gin.Context) {
 	response.Success(c, buildIndicatorList())
 }
 
+// buildIndicatorListLegacy closing brace is above. End of legacy function.
+
 // parseValue converts flexible AI values to float64
 func parseValue(v interface{}, indicator string, op string) float64 {
 	switch val := v.(type) {
@@ -3106,7 +3167,7 @@ func truncate(s string, n int) string {
 func filterConds(conds []model.StrategyCondition, condType string) []model.StrategyCondition {
 	var out []model.StrategyCondition
 	for _, c := range conds {
-		if c.CondType == condType {
+		if c.CondType == condType && c.Enabled {
 			out = append(out, c)
 		}
 	}
@@ -3316,6 +3377,10 @@ func getIndicatorValue(cond model.StrategyCondition, code, date string) float64 
 		return getVolumeRatio(code, date, 5)
 	case "volume_ma_ratio":
 		return getVolumeRatio(code, date, 20)
+	case "psy_12":
+		return getPSY(code, date, 12)
+	case "psy_ma":
+		return getPSYMA(code, date)
 	case "turnover_rate":
 		return getTurnoverRate(code, date)
 	case "atr":
@@ -3863,6 +3928,38 @@ func checkEMACross(code, date string, ma1, ma2 int) float64 {
 // 技术面 — 进阶：超买超卖扩展 (CCI/Williams%R/MFI)
 // ═══════════════════════════════════════════════════════════════
 
+// getPSY computes 12-day psychological line (% of up days in last N days).
+func getPSY(code, date string, period int) float64 {
+	var psy float64
+	db.PG.Raw(`SELECT COALESCE(
+		SUM(CASE WHEN close > LAG(close) OVER (ORDER BY trade_date ASC) THEN 1 ELSE 0 END)::float /
+		NULLIF(COUNT(*) - 1, 0) * 100, 50)
+	FROM (
+		SELECT close FROM stocks_daily_k
+		WHERE code = ? AND trade_date <= ?::date
+		ORDER BY trade_date DESC LIMIT ?
+	) sub`, code, date, period+1).Scan(&psy)
+	return psy
+}
+
+// getPSYMA computes 6-day SMA of PSY(12).
+func getPSYMA(code, date string) float64 {
+	var psyma float64
+	db.PG.Raw(`WITH psy_vals AS (
+		SELECT trade_date,
+			COALESCE(
+				SUM(CASE WHEN close > LAG(close) OVER (ORDER BY trade_date ASC) THEN 1 ELSE 0 END)::float /
+				NULLIF(COUNT(*) OVER () - 1, 0) * 100, 50) as psy
+		FROM stocks_daily_k
+		WHERE code = ? AND trade_date <= ?::date
+		ORDER BY trade_date ASC
+	)
+	SELECT COALESCE(AVG(psy), 50) FROM (
+		SELECT psy FROM psy_vals ORDER BY trade_date DESC LIMIT 6
+	) sub`, code, date).Scan(&psyma)
+	return psyma
+}
+
 func getCCI(code, date string, period int) float64 {
 	var cci float64
 	db.PG.Raw(`WITH klines AS (
@@ -4212,6 +4309,187 @@ type TestIndicatorResp struct {
 	HasData        bool    `json:"hasData"`
 }
 
+// ── Indicator Management (Enable/Disable by strategy) ──
+
+// StrategyIndicatorView represents an indicator with its enable status per condType.
+type StrategyIndicatorView struct {
+	Key          string            `json:"key"`
+	Label        string            `json:"label"`
+	Category     string            `json:"category"`
+	Unit         string            `json:"unit"`
+	Type         string            `json:"type"`
+	Desc         string            `json:"desc"`
+	BacktestSafe bool              `json:"backtestSafe"`
+	DataNote     string            `json:"dataNote"`
+	Suggestion   string            `json:"suggestion"`
+	Enabled      map[string]bool   `json:"enabled"` // condType -> enabled
+	Conditions   []CondSummary     `json:"conditions"` // existing conditions for this indicator
+}
+
+// CondSummary is a lightweight view of a condition.
+type CondSummary struct {
+	ID         uint    `json:"id"`
+	CondType   string  `json:"condType"`
+	Operator   string  `json:"operator"`
+	Value      float64 `json:"value"`
+	Enabled    bool    `json:"enabled"`
+	LogicGroup int     `json:"logicGroup"`
+}
+
+// ListStrategyIndicators returns all indicators with enable status for the strategy.
+func (h *StrategyHandler) ListStrategyIndicators(c *gin.Context) {
+	uid := getUID(c)
+	sid, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "策略ID错误")
+		return
+	}
+
+	// Verify ownership
+	var s model.Strategy
+	if db.MySQL.Where("id = ? AND user_id = ?", sid, uid).First(&s).Error != nil {
+		response.NotFound(c, "策略不存在")
+		return
+	}
+
+	// Load existing conditions
+	var conds []model.StrategyCondition
+	db.MySQL.Where("strategy_id = ?", sid).Find(&conds)
+
+	// Build condition index: indicator -> condType -> enabled
+	condByIndicator := make(map[string]map[string][]CondSummary)
+	for _, c := range conds {
+		if _, ok := condByIndicator[c.Indicator]; !ok {
+			condByIndicator[c.Indicator] = make(map[string][]CondSummary)
+		}
+		condByIndicator[c.Indicator][c.CondType] = append(condByIndicator[c.Indicator][c.CondType], CondSummary{
+			ID:         c.ID,
+			CondType:   c.CondType,
+			Operator:   c.Operator,
+			Value:      c.Value,
+			Enabled:    c.Enabled,
+			LogicGroup: c.LogicGroup,
+		})
+	}
+
+	// Build response: all registered indicators with their status
+	result := make([]StrategyIndicatorView, 0, len(IndicatorRegistry))
+	for _, m := range IndicatorRegistry {
+		enabled := make(map[string]bool)
+		var summaries []CondSummary
+
+		if condMap, ok := condByIndicator[m.Key]; ok {
+			for condType, summaries_ := range condMap {
+				allEnabled := false
+				for _, s_ := range summaries_ {
+					if s_.Enabled {
+						allEnabled = true
+						break
+					}
+				}
+				enabled[condType] = allEnabled
+				summaries = append(summaries, summaries_...)
+			}
+		}
+
+		result = append(result, StrategyIndicatorView{
+			Key:          m.Key,
+			Label:        m.Label,
+			Category:     m.Category,
+			Unit:         m.Unit,
+			Type:         m.Type,
+			Desc:         m.Desc,
+			BacktestSafe: m.BacktestSafe,
+			DataNote:     m.DataNote,
+			Suggestion:   m.Suggestion,
+			Enabled:      enabled,
+			Conditions:   summaries,
+		})
+	}
+
+	response.Success(c, result)
+}
+
+// ToggleIndicatorCondition toggles the enabled state of a specific condition.
+type ToggleIndicatorReq struct {
+	CondID  uint `json:"condId"`  // toggle specific condition
+	Enabled *bool `json:"enabled"` // nil = toggle, true = enable, false = disable
+}
+
+func (h *StrategyHandler) ToggleIndicatorCondition(c *gin.Context) {
+	uid := getUID(c)
+	sid, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "策略ID错误")
+		return
+	}
+
+	// Verify ownership
+	var s model.Strategy
+	if db.MySQL.Where("id = ? AND user_id = ?", sid, uid).First(&s).Error != nil {
+		response.NotFound(c, "策略不存在")
+		return
+	}
+
+	var req ToggleIndicatorReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "参数错误")
+		return
+	}
+
+	var cond model.StrategyCondition
+	if db.MySQL.Where("id = ? AND strategy_id = ?", req.CondID, sid).First(&cond).Error != nil {
+		response.NotFound(c, "条件不存在")
+		return
+	}
+
+	// Toggle or set
+	if req.Enabled != nil {
+		cond.Enabled = *req.Enabled
+	} else {
+		cond.Enabled = !cond.Enabled
+	}
+
+	db.MySQL.Save(&cond)
+	log.Printf("[strategy] indicator toggle cond=%d indicator=%s enabled=%v uid=%d", cond.ID, cond.Indicator, cond.Enabled, uid)
+	response.SuccessMsg(c, "已更新")
+}
+
+// BulkToggleIndicator toggles all conditions for an indicator type within a strategy.
+type BulkToggleReq struct {
+	Indicator string `json:"indicator"`
+	CondType  string `json:"condType"` // buy/sell/add/reduce
+	Enabled   bool   `json:"enabled"`
+}
+
+func (h *StrategyHandler) BulkToggleIndicator(c *gin.Context) {
+	uid := getUID(c)
+	sid, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "策略ID错误")
+		return
+	}
+
+	var s model.Strategy
+	if db.MySQL.Where("id = ? AND user_id = ?", sid, uid).First(&s).Error != nil {
+		response.NotFound(c, "策略不存在")
+		return
+	}
+
+	var req BulkToggleReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "参数错误")
+		return
+	}
+
+	db.MySQL.Model(&model.StrategyCondition{}).
+		Where("strategy_id = ? AND indicator = ? AND cond_type = ?", sid, req.Indicator, req.CondType).
+		Update("enabled", req.Enabled)
+
+	log.Printf("[strategy] bulk toggle sid=%d indicator=%s condType=%s enabled=%v uid=%d", sid, req.Indicator, req.CondType, req.Enabled, uid)
+	response.SuccessMsg(c, fmt.Sprintf("已%s %s 的 %s 指标", map[bool]string{true: "启用", false: "禁用"}[req.Enabled], req.CondType, req.Indicator))
+}
+
 func (h *StrategyHandler) TestIndicator(c *gin.Context) {
 	var req TestIndicatorReq
 	if err := c.ShouldBindJSON(&req); err != nil || req.StockCode == "" || req.Date == "" || req.Indicator == "" || req.Operator == "" {
@@ -4280,13 +4558,17 @@ func (h *StrategyHandler) TestIndicator(c *gin.Context) {
 }
 
 func getIndicatorMeta(key string) map[string]interface{} {
-	indicators := buildIndicatorList()
-	for _, ind := range indicators {
-		if ind["key"] == key {
-			return ind
-		}
+	m := GetIndicatorMeta(key)
+	if m == nil {
+		return nil
 	}
-	return nil
+	return map[string]interface{}{
+		"key": m.Key, "label": m.Label, "category": m.Category,
+		"unit": m.Unit, "type": m.Type, "operators": m.Operators,
+		"desc": m.Desc, "backtestSafe": m.BacktestSafe,
+		"dataNote": m.DataNote, "suggestion": m.Suggestion,
+		"useFor": m.UseFor, "dataSource": m.DataSource,
+	}
 }
 
 func getOperatorLabel(op string) string {
@@ -4303,6 +4585,11 @@ func getOperatorLabel(op string) string {
 }
 
 func getIndicatorDataSource(indicator string) string {
+	return GetIndicatorDataSource(indicator)
+}
+
+// getIndicatorDataSourceLegacy kept for reference.
+func getIndicatorDataSourceLegacy(indicator string) string {
 	switch {
 	// K线衍生
 	case indicator == "daily_change", indicator == "momentum_5", indicator == "momentum_20",

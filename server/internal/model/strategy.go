@@ -57,6 +57,7 @@ type StrategyCondition struct {
 	Indicator  string `gorm:"size:30" json:"indicator"`    // streak_count / algo_score / ai_score / ma_cross etc
 	Operator   string `gorm:"size:15" json:"operator"`     // gt / lt / gte / lte / eq / cross_up / cross_down
 	Value      float64 `json:"value"`                      // threshold
+	Enabled    bool    `gorm:"default:true" json:"enabled"` // soft enable/disable without deleting
 	LogicGroup int    `gorm:"default:1" json:"logicGroup"` // AND group
 	SortOrder  int    `gorm:"default:0" json:"sortOrder"`
 }

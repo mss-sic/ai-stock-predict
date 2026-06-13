@@ -433,6 +433,21 @@ func init() {
 		},
 	})
 
+	// ============================================================
+	// v012: strategy_conditions add enabled column + set existing to true
+	// ============================================================
+	Register(Migration{
+		Version:     12,
+		Description: "MySQL: strategy_conditions add enabled column, default true",
+		Up: func() error {
+			// Add enabled column if not exists (idempotent via GORM AutoMigrate)
+			gormAutoMigrate(MySQL, &model.StrategyCondition{})
+			// Set existing conditions to enabled=true
+			safeExecMysql("UPDATE strategy_conditions SET enabled = true WHERE enabled = false")
+			return nil
+		},
+	})
+
 	log.Printf("[migrate] registered %d migrations", len(migrations))
 
 
