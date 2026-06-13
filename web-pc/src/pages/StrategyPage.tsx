@@ -900,20 +900,20 @@ export default function StrategyPage() {
                   {btHistory.length > 0 ? (
                     <Table
                       columns={[
-                        { title: '时间', dataIndex: 'createdAt', width: 140, render: (v: string) => <span style={{ fontSize: 12, color: 'var(--color-text-2)' }}>{v?.slice(0, 16)}</span> },
-                        { title: '股票池', dataIndex: 'stockCode', width: 150, render: (v: string) => <span style={{ fontSize: 12, color: 'var(--color-text-2)' }}>{v || '多只'}</span> },
-                        { title: '区间', dataIndex: 'startDate', width: 180, render: (_: any, r: any) => <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>{r.startDate?.slice(0,10)} → {r.endDate?.slice(0,10)}</span> },
-                        { title: '收益', dataIndex: 'totalReturn', width: 100, render: (v: number) => (
+                        { title: '时间', dataIndex: 'createdAt', width: 120, render: (v: string) => <span style={{ fontSize: 12, color: 'var(--color-text-2)' }}>{v?.slice(0, 16)}</span> },
+                        { title: '股票池', dataIndex: 'stockCode', width: 120, render: (v: string) => <span style={{ fontSize: 12, color: 'var(--color-text-2)' }}>{v || '多只'}</span> },
+                        { title: '区间', dataIndex: 'startDate', width: 160, render: (_: any, r: any) => <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>{r.startDate?.slice(0,10)} → {r.endDate?.slice(0,10)}</span> },
+                        { title: '收益', dataIndex: 'totalReturn', width: 85, render: (v: number) => (
                           <span style={{
                             fontWeight: 700, fontSize: 13, fontFamily: 'monospace',
                             color: v >= 0 ? '#f53f3f' : '#00b42a'
                           }}>{v >= 0 ? '+' : ''}{v}%</span>
                         )},
                         { title: '夏普', dataIndex: 'sharpeRatio', width: 70, render: (v: number) => <span style={{ fontFamily: 'monospace', fontSize: 12 }}>{v}</span> },
-                        { title: '回撤', dataIndex: 'maxDrawdown', width: 80, render: (v: number) => <span style={{ color: '#f53f3f', fontSize: 12 }}>-{v}%</span> },
+                        { title: '回撤', dataIndex: 'maxDrawdown', width: 70, render: (v: number) => <span style={{ color: '#f53f3f', fontSize: 12 }}>-{v}%</span> },
                         { title: '胜率', dataIndex: 'winRate', width: 70, render: (v: number) => <span style={{ fontSize: 12 }}>{v}%</span> },
                         { title: '交易', dataIndex: 'tradeCount', width: 60 },
-                        { title: '操作', dataIndex: 'id', width: 120, render: (id: number, record: any) => (
+                        { title: '操作', dataIndex: 'id', width: 100, render: (id: number, record: any) => (
                           <div style={{ display: 'flex', gap: 6 }}>
                             <Button size="mini" type="outline" onClick={() => handleViewBacktestDetail(record)}
                               style={{ borderColor: 'var(--color-primary)', color: 'var(--color-primary)', fontSize: 11 }}>详情</Button>
@@ -927,6 +927,7 @@ export default function StrategyPage() {
                       rowKey="id"
                       pagination={false}
                       size="small"
+                      scroll={{ x: 800 }}
                       stripe
                     />
                   ) : (
@@ -1017,6 +1018,7 @@ export default function StrategyPage() {
                       rowKey="id"
                       pagination={false}
                       size="small"
+                    scroll={{ x: 800 }}
                       stripe
                     />
                   </div>
