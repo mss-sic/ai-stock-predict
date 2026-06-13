@@ -206,7 +206,7 @@ export default function PkDetailPage() {
           <span>类型: {event.type === 'backtest' ? '历史回测' : '实盘PK'}</span>
         </div>
         {event.description && <div style={{ marginTop: 8, color: 'var(--color-text-3)', fontSize: 13 }}>{event.description}</div>}
-        {event.status === 'enrolling' && !myEntry && (
+        {event.status === 'enrolling' && (
           <div style={{ marginTop: 12 }}>
             <Button type="primary" icon={<Play size={14} />} onClick={() => { fetchStrategies(); setJoinVisible(true); }}>
               报名参赛

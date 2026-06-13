@@ -264,8 +264,8 @@ func (h *PkHandler) JoinEvent(c *gin.Context) {
 
 	// Check: user already registered for this event?
 	var existing model.PkEntry
-	if db.MySQL.Where("event_id = ? AND user_id = ?", eid, uid).First(&existing).Error == nil {
-		response.BadRequest(c, "您已报名该活动")
+	if db.MySQL.Where("event_id = ? AND user_id = ? AND strategy_id = ?", eid, uid, body.StrategyID).First(&existing).Error == nil {
+		response.BadRequest(c, "该策略已报名该活动")
 		return
 	}
 
