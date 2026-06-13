@@ -9,6 +9,7 @@ import { useTheme } from './services/ThemeContext';
 import '@arco-design/web-react/dist/css/arco.css';
 import './styles/app.css';
 import PkNotice from './components/PkNotice';
+import AppTopbar from './components/AppTopbar';
 
 const navItems = [
   { key: '/', label: '今日榜单', icon: LayoutDashboard },
@@ -163,6 +164,8 @@ export default function AppLayout() {
       </aside>
 
       <main className="app-main">
+
+        <AppTopbar />
         {/* Market indices */}
         <div style={{ display: 'flex', gap: 0, marginBottom: 16, background: 'var(--color-bg-1)', borderRadius: 10, padding: '10px 20px', border: '1px solid var(--color-border-1)' }}>
           {indices.map((idx, i) => (

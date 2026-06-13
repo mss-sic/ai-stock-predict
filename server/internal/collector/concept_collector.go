@@ -114,8 +114,8 @@ type emBoardItem struct {
 
 type emBoardResp struct {
 	Data struct {
-		Diff []emBoardItem `json:"diff"`
-		Total int          `json:"total"`
+		Diff  []emBoardItem `json:"diff"`
+		Total int           `json:"total"`
 	} `json:"data"`
 }
 
@@ -198,7 +198,6 @@ func fetchBoardStocks(boardCode, boardName, boardType string) ([]model.StockConc
 
 	return stocks, nil
 }
-
 
 // seedFromStocksBasic falls back to seeding concept data from stocks_basic.industry
 // when the EastMoney API is unavailable (e.g. overseas or blocked).
