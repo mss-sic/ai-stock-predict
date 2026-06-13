@@ -1021,8 +1021,6 @@ const handleChatSend = async (text?: string) => {
                                 </text>
                               );
                             })}
-                            {/* Center composite score */}
-                            <text x={cx} y={cy - 4} fontSize="26" fontWeight="800" fill="#1D2129" textAnchor="middle">{aiScore.compositeScore?.toFixed(1)}</text>
                             <text x={cx} y={cy + 16} fontSize="10" fill="var(--color-text-3)" textAnchor="middle">综合</text>
                           </svg>
                         );
