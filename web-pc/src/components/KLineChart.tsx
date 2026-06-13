@@ -39,6 +39,7 @@ interface Props {
   splitIdx?: number;
   predMarkers?: PredMarker[];
   enableRangeSelect?: boolean;
+  onMarkerClick?: (index: number) => void;
   selectedRange?: [number, number] | null;
   onRangeChange?: (startIdx: number, endIdx: number) => void;
   costLine?: number | null;
@@ -55,6 +56,7 @@ export default function KLineChart({
   selectedRange = null,
   onRangeChange,
   costLine = null,
+  onMarkerClick,
 }: Props) {
   const { isDark } = useTheme();
   const UP = isDark ? '#f85149' : '#F53F3F';
@@ -584,7 +586,7 @@ export default function KLineChart({
             return (
               <g key={`mk${k}`}>
                 <line x1={x} y1={candleLow} x2={x} y2={my + 10} stroke="#F53F3F" strokeWidth="1.5" opacity="0.8" />
-                <circle cx={x} cy={my} r="7" fill="#F53F3F" stroke="#fff" strokeWidth="1.5" />
+                <circle cx={x} cy={my} r="7" fill="#F53F3F" stroke="#fff" strokeWidth="1.5" style={{cursor:'pointer'}} onClick={() => onMarkerClick?.(m.i)} />
                 <text x={x} y={my + 3.5} fontSize="9" fill="#fff" textAnchor="middle" fontWeight="700">B</text>
                 <text x={x} y={my + 22} fontSize="10" fill="#F53F3F" textAnchor="middle" fontWeight="600">{m.label || ''}</text>
               </g>
@@ -596,7 +598,7 @@ export default function KLineChart({
             return (
               <g key={`mk${k}`}>
                 <line x1={x} y1={candleHigh} x2={x} y2={my - 10} stroke="#00B42A" strokeWidth="1.5" opacity="0.8" />
-                <circle cx={x} cy={my} r="7" fill="#00B42A" stroke="#fff" strokeWidth="1.5" />
+                <circle cx={x} cy={my} r="7" fill="#00B42A" stroke="#fff" strokeWidth="1.5" style={{cursor:'pointer'}} onClick={() => onMarkerClick?.(m.i)} />
                 <text x={x} y={my + 3.5} fontSize="9" fill="#fff" textAnchor="middle" fontWeight="700">S</text>
                 <text x={x} y={my - 10} fontSize="10" fill="#00B42A" textAnchor="middle" fontWeight="600">{m.label || ''}</text>
               </g>
@@ -607,7 +609,7 @@ export default function KLineChart({
           const bmy = candleHigh - 8;
           return (
             <g key={`mk${k}`}>
-              <circle cx={x} cy={bmy - 12} r="8" fill={BOARD_PURPLE} stroke="#fff" strokeWidth="1.5" opacity="0.9" />
+              <circle cx={x} cy={bmy - 12} r="8" fill={BOARD_PURPLE} stroke="#fff" strokeWidth="1.5" opacity="0.9" style={{cursor:'pointer'}} onClick={() => onMarkerClick?.(m.i)} />
               <text x={x} y={bmy - 8} fontSize="9" fill="#fff" textAnchor="middle" fontWeight="700">榜</text>
               {m.rank && <text x={x} y={bmy + 4} fontSize="8" fill={BOARD_PURPLE} textAnchor="middle">#{m.rank}</text>}
             </g>

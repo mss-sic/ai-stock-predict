@@ -396,7 +396,7 @@ func (pm *PositionManager) ExecuteStop(
 		sc.CashDelta += proceeds
 		sc.PositionsRemoved = append(sc.PositionsRemoved, t.Code)
 		sc.NewTrades = append(sc.NewTrades, backtestTrade{
-			Date: date, Code: t.Code, Name: pos.Name, Action: "sell",
+			Date: date, Code: t.Code, Name: pos.Name, Action: "stop",
 			Price: price, Quantity: pos.Quantity, Reason: t.Reason,
 			Pnl: math.Round(pnl*100) / 100, PnlPct: math.Round(pnlPct*100) / 100,
 		})

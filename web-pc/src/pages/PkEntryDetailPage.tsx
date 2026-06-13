@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Table, Tabs, Tag, Spin, Card, Button } from '@arco-design/web-react';
 import { ArrowLeft, TrendingUp, Trophy, Shield, PieChart, FileText, Activity, List, Settings } from 'lucide-react';
@@ -67,6 +67,7 @@ export default function PkEntryDetailPage() {
   const [stockKline, setStockKline] = useState<any[]>([]);
   const [stockMarkers, setStockMarkers] = useState<any[]>([]);
   const [stockLoading, setStockLoading] = useState(false);
+  const tradeTableRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     (async () => {
@@ -85,6 +86,11 @@ export default function PkEntryDetailPage() {
     return computeStockAnalysis(trades, capital);
   }, [data]);
 
+  const handleMarkerClick = (klineIdx: number) => {
+    if (tradeTableRef.current) {
+      tradeTableRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  };
   const handleViewStockDetail = async (stock: StockAnalysis) => {
     setSelectedStock(stock);
     setStockKline([]);
@@ -105,7 +111,7 @@ export default function PkEntryDetailPage() {
         });
         if (idx >= 0 && (t.action === 'buy' || t.action === 'add')) {
           markers.push({ i: idx, type: 'buy' as const, label: `¥${(t.price || t.execPrice || 0).toFixed(1)}` });
-        } else if (idx >= 0 && (t.action === 'sell' || t.action === 'reduce')) {
+        } else if (idx >= 0 && (t.action === 'sell' || t.action === 'reduce' || t.action === 'stop')) {
           const pnl = t.pnlPct != null ? `${t.pnlPct > 0 ? '+' : ''}${t.pnlPct?.toFixed(1)}%` : '';
           markers.push({ i: idx, type: 'sell' as const, label: `¥${(t.price || t.execPrice || 0).toFixed(1)} ${pnl}` });
         }
@@ -250,9 +256,13 @@ export default function PkEntryDetailPage() {
                   columns={[
                     { title: '日期', dataIndex: 'date', width: 100, render: (v: string) => <span style={{ fontSize: 11, fontFamily: 'monospace' }}>{v}</span> },
                     { title: '操作', dataIndex: 'action', width: 72, render: (v: string) => {
-                      const labels: Record<string, string> = { buy: '买入', add: '加仓', sell: '卖出', reduce: '减仓' };
-                      const colors: Record<string, string> = { buy: '#F53F3F', add: '#FF7D00', sell: '#00B42A', reduce: '#165DFF' };
-                      const bgs: Record<string, string> = { buy: 'rgba(245,63,63,0.1)', add: 'rgba(255,125,0,0.1)', sell: 'rgba(0,180,42,0.1)', reduce: 'rgba(22,93,255,0.1)' };
+                        const labels: Record<string, string> = { buy: '买入', add: '加仓', sell: '卖出', reduce: '减仓', stop: '止损' };
+                        const colors: Record<string, string> = { buy: '#F53F3F', add: '#FF7D00', sell: '#00B42A', reduce: '#165DFF', stop: '#7B61FF' };
+                        const bgs: Record<string, string> = { buy: 'rgba(245,63,63,0.1)', add: 'rgba(255,125,0,0.1)', sell: 'rgba(0,180,42,0.1)', reduce: 'rgba(22,93,255,0.1)', stop: 'rgba(123,97,255,0.1)' };
+                      if (v === 'stop') {
+                        const isProfit = (record as any).reason === '止盈' || (record as any).pnlPct > 0;
+                        return <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: 4, background: isProfit ? 'rgba(245,63,63,0.08)' : 'rgba(0,180,42,0.08)', color: isProfit ? '#F53F3F' : '#00B42A', fontWeight: 700, fontSize: 11 }}>{isProfit ? '止盈' : '止损'}</span>;
+                      }
                       return <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: 4, background: bgs[v] || 'var(--color-fill-2)', color: colors[v] || 'var(--color-text-3)', fontWeight: 700, fontSize: 11 }}>{labels[v] || v}</span>;
                     }},
                     { title: '股票', dataIndex: 'name', width: 110, render: (v: string, r: any) => (
@@ -436,20 +446,24 @@ export default function PkEntryDetailPage() {
                 <div style={{ background: 'var(--color-bg-1)', borderRadius: 12, padding: '20px 24px', marginBottom: 20, boxShadow: '0 1px 3px rgba(0,0,0,0.04)', border: '1px solid var(--color-border-1)' }}>
                   <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 14 }}>📈 K线图 · 交易标记</div>
                   {stockKline.length > 0 ? (
-                    <KLineChart data={stockKline} markers={stockMarkers} height={420} />
+                    <KLineChart data={stockKline} markers={stockMarkers} height={420} onMarkerClick={handleMarkerClick} />
                   ) : (
                     <div style={{ padding: 60, textAlign: 'center', color: 'var(--color-text-3)' }}>加载K线数据中...</div>
                   )}
                 </div>
-                <div style={{ background: 'var(--color-bg-1)', borderRadius: 12, padding: '20px 24px', boxShadow: '0 1px 3px rgba(0,0,0,0.04)', border: '1px solid var(--color-border-1)' }}>
+                <div ref={tradeTableRef} style={{ background: 'var(--color-bg-1)', borderRadius: 12, padding: '20px 24px', boxShadow: '0 1px 3px rgba(0,0,0,0.04)', border: '1px solid var(--color-border-1)' }}>
                   <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 14 }}><List size={14} style={{ marginRight: 6 }} />交易记录</div>
                   <Table
                     columns={[
                       { title: '日期', dataIndex: 'date', width: 100, render: (v: string) => <span style={{ fontSize: 11, fontFamily: 'monospace', color: 'var(--color-text-3)' }}>{v}</span> },
                       { title: '操作', dataIndex: 'action', width: 68, render: (v: string) => {
-                        const labels: Record<string, string> = { buy: '买入', add: '加仓', sell: '卖出', reduce: '减仓' };
-                        const colors: Record<string, string> = { buy: '#F53F3F', add: '#FF7D00', sell: '#00B42A', reduce: '#165DFF' };
-                        const bgs: Record<string, string> = { buy: 'rgba(245,63,63,0.1)', add: 'rgba(255,125,0,0.1)', sell: 'rgba(0,180,42,0.1)', reduce: 'rgba(22,93,255,0.1)' };
+                        const labels: Record<string, string> = { buy: '买入', add: '加仓', sell: '卖出', reduce: '减仓', stop: '止损' };
+                        const colors: Record<string, string> = { buy: '#F53F3F', add: '#FF7D00', sell: '#00B42A', reduce: '#165DFF', stop: '#7B61FF' };
+                        const bgs: Record<string, string> = { buy: 'rgba(245,63,63,0.1)', add: 'rgba(255,125,0,0.1)', sell: 'rgba(0,180,42,0.1)', reduce: 'rgba(22,93,255,0.1)', stop: 'rgba(123,97,255,0.1)' };
+                        if (v === 'stop') {
+                          const isProfit = (record as any).reason === '止盈' || (record as any).pnlPct > 0;
+                          return <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: 4, background: isProfit ? 'rgba(245,63,63,0.08)' : 'rgba(0,180,42,0.08)', color: isProfit ? '#F53F3F' : '#00B42A', fontWeight: 700, fontSize: 11 }}>{isProfit ? '止盈' : '止损'}</span>;
+                        }
                         return <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: 4, background: bgs[v] || 'var(--color-fill-2)', color: colors[v] || 'var(--color-text-3)', fontWeight: 700, fontSize: 11 }}>{labels[v] || v}</span>;
                       }},
                       { title: '价格', dataIndex: 'price', width: 76, render: (v: number) => <span style={{ fontFamily: 'monospace', fontSize: 12 }}>¥{v?.toFixed(2)}</span> },
