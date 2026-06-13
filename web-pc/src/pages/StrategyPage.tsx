@@ -1208,7 +1208,7 @@ export default function StrategyPage() {
                 activeTab={btDetailTab}
                 onChange={setBtDetailTab}
                 style={{ padding: '16px 20px 0' }}
-                type="card-gutter"
+                type="line"
               >
                 <Tabs.TabPane key="trades" title={
                   <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -1224,7 +1224,7 @@ export default function StrategyPage() {
                     {(() => {
                       const tradesArr = btDetailResult.trades?.data || btDetailResult.trades || [];
                       if (!Array.isArray(tradesArr) || tradesArr.length === 0) {
-                        return <div style={{ padding: 48, textAlign: 'center', color: 'var(--color-text-3)', fontSize: 13 }}>暂无交易记录</div>;
+                        return <div style={{ padding: 48, textAlign: 'center', color: 'var(--color-text-3)', background: 'var(--color-fill-1)', borderRadius: 8, border: '1px dashed var(--color-border-1)', fontSize: 13 }}>暂无交易记录</div>;
                       }
                       return (
                         <Table
@@ -1298,7 +1298,7 @@ export default function StrategyPage() {
                         })}
                       </div>
                     ) : (
-                      <div style={{ padding: 48, textAlign: 'center', color: 'var(--color-text-3)', fontSize: 13 }}>
+                      <div style={{ padding: 48, textAlign: 'center', color: 'var(--color-text-3)', fontSize: 13, background: 'var(--color-fill-1)', borderRadius: 8, border: '1px dashed var(--color-border-1)' }}>
                         {btDetailResult.taskId ? '该回测无执行日志（可能是旧版本运行）' : '暂无执行日志'}
                       </div>
                     )}
@@ -1474,6 +1474,10 @@ export default function StrategyPage() {
                     const labels: Record<string, string> = { buy: '买入', add: '加仓', sell: '卖出', reduce: '减仓', stop: '止盈/止损' };
                     const colors: Record<string, string> = { buy: 'var(--stock-up)', add: 'var(--color-warning-text)', sell: 'var(--stock-down)', reduce: 'var(--color-primary)', stop: 'var(--stock-up)' };
                     const bgs: Record<string, string> = { buy: 'var(--color-danger-bg)', add: 'var(--color-warning-bg)', sell: 'var(--color-success-bg)', reduce: 'var(--color-info-bg)', stop: 'var(--color-danger-bg)' };
+                        if (v === 'stop') {
+                          const isProfit = (record as any).reason === '止盈' || (record as any).pnlPct > 0;
+                          return <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: 4, background: isProfit ? 'rgba(245,63,63,0.08)' : 'rgba(0,180,42,0.08)', color: isProfit ? '#F53F3F' : '#00B42A', fontWeight: 700, fontSize: 11 }}>{isProfit ? '止盈' : '止损'}</span>;
+                        }
                     return <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: 4, background: bgs[v] || 'var(--color-fill-2)', color: colors[v] || 'var(--color-text-3)', fontWeight: 700, fontSize: 11 }}>{labels[v] || v}</span>;
                   }},
                   { title: '价格', dataIndex: 'execPrice', width: 76, render: (v: number) => <span style={{ fontFamily: 'monospace', fontSize: 12 }}>¥{v?.toFixed(2)}</span> },
