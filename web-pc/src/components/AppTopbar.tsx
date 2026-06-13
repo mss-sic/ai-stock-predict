@@ -19,6 +19,11 @@ const routeLabels: Record<string, { label: string; parent?: string }> = {
   '/risk': { label: '风险监控' },
   '/data': { label: '数据管理' },
   '/settings': { label: '系统设置' },
+  '/admin': { label: '用户管理' },
+  '/concept': { label: '概念板块详情', parent: '概念板块' },
+  '/forecast': { label: '价格预测', parent: '股票详情' },
+  '/ai': { label: 'AI分析', parent: '股票详情' },
+  '/pk/create': { label: '创建活动', parent: '策略PK' },
   '/profile': { label: '个人设置' },
 };
 
@@ -90,6 +95,14 @@ export default function AppTopbar() {
         } else if (segments[0] === 'board') {
           parts.push({ label: base.label, path: prefix });
         }
+        } else if (segments[0] === 'concept') {
+          parts.push({ label: segments[1] || '详情' });
+        } else if (segments[0] === 'forecast') {
+          parts.push({ label: '价格预测' });
+        } else if (segments[0] === 'ai') {
+          parts.push({ label: 'AI分析' });
+        } else if (segments[0] === 'admin') {
+          parts.push({ label: base.label });
         return parts;
       }
     }
