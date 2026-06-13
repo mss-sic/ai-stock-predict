@@ -10,9 +10,12 @@ import (
 	"github.com/ai-stock-predict/server/internal/db"
 	"github.com/ai-stock-predict/server/internal/model"
 	"github.com/ai-stock-predict/server/internal/repository"
+	"github.com/ai-stock-predict/server/pkg/cache"
 	"github.com/gin-gonic/gin"
 	"github.com/ai-stock-predict/server/pkg/response"
 )
+
+var boardDataCache = cache.NewBoardCache(30 * time.Second)
 
 type BoardHandler struct {
 	repo *repository.BoardRepo
@@ -114,6 +117,11 @@ func (h *BoardHandler) getEnrichedBoard(dateStr string) ([]EnrichedBoardItem, st
 			return nil, "", err
 		}
 		dateStr = latest.PickDate.Format("2006-01-02")
+	}
+
+	// Check cache
+	if data, _, ok := boardDataCache.Get(dateStr); ok {
+		return data.([]EnrichedBoardItem), dateStr, nil
 	}
 
 	var picks []model.AlgorithmPickDetail
@@ -348,6 +356,8 @@ func (h *BoardHandler) getEnrichedBoard(dateStr string) ([]EnrichedBoardItem, st
 		result = append(result, item)
 	}
 
+	// Cache result
+	boardDataCache.Set(result, dateStr)
 	return result, dateStr, nil
 }
 
