@@ -1470,7 +1470,7 @@ export default function StrategyPage() {
                 columns={[
                   { title: '信号日', dataIndex: 'signalDate', width: 100, render: (v: string) => <span style={{ fontSize: 11, fontFamily: 'monospace', color: 'var(--color-text-3)' }}>{v}</span> },
                   { title: '成交日', dataIndex: 'execDate', width: 100, render: (v: string) => <span style={{ fontSize: 11, fontFamily: 'monospace', color: 'var(--color-text-2)' }}>{v}</span> },
-                  { title: '操作', dataIndex: 'actionType', width: 68, render: (v: string) => {
+                  { title: '操作', dataIndex: 'actionType', width: 68, render: (v: string, record: any) => {
                     const labels: Record<string, string> = { buy: '买入', add: '加仓', sell: '卖出', reduce: '减仓', stop: '止盈/止损' };
                     const colors: Record<string, string> = { buy: 'var(--stock-up)', add: 'var(--color-warning-text)', sell: 'var(--stock-down)', reduce: 'var(--color-primary)', stop: 'var(--stock-up)' };
                     const bgs: Record<string, string> = { buy: 'var(--color-danger-bg)', add: 'var(--color-warning-bg)', sell: 'var(--color-success-bg)', reduce: 'var(--color-info-bg)', stop: 'var(--color-danger-bg)' };
