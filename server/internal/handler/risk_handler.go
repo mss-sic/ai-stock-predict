@@ -27,7 +27,7 @@ func (h *RiskHandler) List(c *gin.Context) {
 		response.InternalError(c, "获取风险预警失败: "+err.Error())
 		return
 	}
-	
+
 	response.Success(c, alerts)
 }
 
