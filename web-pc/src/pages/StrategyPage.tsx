@@ -615,6 +615,20 @@ export default function StrategyPage() {
     }
   };
 
+  // Format a raw indicator value for display with proper unit
+  const formatValue = (key: string, val: number | undefined | null): string => {
+    if (val === undefined || val === null) return '—';
+    const meta = indicators.find((i: any) => i.key === key);
+    if (!meta) return String(val);
+    if (key === 'total_market_cap') return (val / 100000000).toFixed(1) + ' 亿';
+    if (meta.type === 'cross') return val > 0 ? '金叉 ↑' : val < 0 ? '死叉 ↓' : '无信号';
+    if (meta.unit === '%') return val.toFixed(2) + '%';
+    if (meta.unit === '元') return val.toFixed(2) + ' 元';
+    if (meta.unit === '分') return val.toFixed(1) + ' 分';
+    if (meta.unit === '次数') return String(Math.round(val)) + ' 次';
+    return String(val);
+  };
+
   const getIndicatorLabel = (key: string) => {
     const ind = indicators.find((i: any) => i.key === key);
     return ind ? ind.label : key;
@@ -1305,7 +1319,7 @@ export default function StrategyPage() {
                   {getOperators(testCond.indicator).find((o: string) => o === testCond.operator) ? 
                     ({ gte: '≥', lte: '≤', gt: '>', lt: '<', eq: '=', cross_up: '↑上穿', cross_down: '↓下穿' } as any)[testCond.operator] : testCond.operator}
                 </span>
-                <span style={{ fontWeight: 700, fontSize: 15, color: 'var(--color-info-text)' }}>{testCond.value}</span>
+                <span style={{ fontWeight: 700, fontSize: 15, color: 'var(--color-info-text)' }}>{testCond.indicator === 'total_market_cap' ? (testCond.value / 100000000).toFixed(0) + '亿' : testCond.value}{getIndicatorInfo(testCond.indicator)?.unit === '%' ? '%' : ''}</span>
               </div>
             </div>
 
@@ -1373,12 +1387,12 @@ export default function StrategyPage() {
                     <div style={{ display: 'flex', gap: 24, marginBottom: 10 }}>
                       <div>
                         <div style={{ fontSize: 11, color: 'var(--color-text-3)' }}>指标计算值</div>
-                        <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--color-info-text)', fontFamily: 'monospace' }}>{testResult.computedValue}</div>
+                        <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--color-info-text)', fontFamily: 'monospace' }}>{formatValue(testCond.indicator, testResult.computedValue)}</div>
                       </div>
                       <div>
                         <div style={{ fontSize: 11, color: 'var(--color-text-3)' }}>阈值</div>
                         <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text-2)', fontFamily: 'monospace' }}>
-                          {({ gte: '≥', lte: '≤', gt: '>', lt: '<', eq: '=', cross_up: '↑', cross_down: '↓' } as any)[testResult.operator]} {testResult.threshold}
+                          {({ gte: '≥', lte: '≤', gt: '>', lt: '<', eq: '=', cross_up: '↑', cross_down: '↓' } as any)[testResult.operator]} {testCond.indicator === 'total_market_cap' ? (testResult.threshold / 100000000).toFixed(0) + '亿' : testResult.threshold}
                         </div>
                       </div>
                     </div>
