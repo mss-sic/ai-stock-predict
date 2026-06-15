@@ -163,6 +163,150 @@ export default function StrategyPage() {
     }]);
   };
 
+  // Smart defaults per indicator: operator + value when user selects a new indicator
+  const getIndicatorDefaults = (key: string): { operator: string; value: number } => {
+    const meta = indicators.find((i: any) => i.key === key);
+    if (!meta || meta.type === 'cross') return { operator: 'cross_up', value: 0 };
+    switch (key) {
+      // Scores: ≥6
+      case 'algo_score': case 'ai_score': case 'ai_fundamental': case 'ai_technical':
+      case 'ai_valuation': case 'ai_growth': case 'ai_industry': case 'ai_capital':
+        return { operator: 'gte', value: 6 };
+      // RSI / KDJ / MFI / PSY: >70 overbought or <30 oversold
+      case 'rsi': case 'rsi_6': case 'rsi_12': case 'rsi_24':
+        return { operator: 'gte', value: 70 };
+      case 'kdj_k': case 'kdj_d':
+        return { operator: 'gte', value: 80 };
+      case 'kdj_j':
+        return { operator: 'gte', value: 90 };
+      case 'mfi':
+        return { operator: 'gte', value: 80 };
+      case 'psy_12': case 'psy_ma':
+        return { operator: 'gte', value: 60 };
+      // Oversold: <30
+      case 'williams_r':
+        return { operator: 'lte', value: -80 };
+      // CCI
+      case 'cci':
+        return { operator: 'gte', value: 100 };
+      // Trend strength
+      case 'adx':
+        return { operator: 'gte', value: 25 };
+      case 'dmi_plus': case 'dmi_minus':
+        return { operator: 'gte', value: 20 };
+      // Bollinger
+      case 'boll_position':
+        return { operator: 'gte', value: 80 };
+      case 'boll_width':
+        return { operator: 'gte', value: 10 };
+      case 'boll_squeeze':
+        return { operator: 'lte', value: 1 };
+      case 'boll_upper': case 'boll_middle': case 'boll_lower':
+        return { operator: 'gte', value: 0 };
+      // MACD values
+      case 'macd_dif': case 'macd_dea':
+        return { operator: 'gte', value: 0 };
+      // Momentum & daily change
+      case 'daily_change':
+        return { operator: 'gte', value: 2 };
+      case 'momentum_5':
+        return { operator: 'gte', value: 3 };
+      case 'momentum_20':
+        return { operator: 'gte', value: 5 };
+      // MA values
+      case 'ma_5': case 'ma_10': case 'ma_20': case 'ma_30': case 'ma_60':
+        return { operator: 'gte', value: 0 };
+      case 'ma_deviation':
+        return { operator: 'gte', value: 5 };
+      // Volume
+      case 'volume_ratio':
+        return { operator: 'gte', value: 2 };
+      case 'volume_ma_ratio':
+        return { operator: 'gte', value: 1.5 };
+      case 'turnover_rate':
+        return { operator: 'gte', value: 5 };
+      case 'volume_trend':
+        return { operator: 'gte', value: 1 };
+      // ATR
+      case 'atr':
+        return { operator: 'lte', value: 0.5 };
+      case 'atr_pct':
+        return { operator: 'lte', value: 3 };
+      // Drawdown / New high / Up days
+      case 'drawdown_20':
+        return { operator: 'gte', value: -10 };
+      case 'new_high_20':
+        return { operator: 'eq', value: 1 };
+      case 'up_days_ratio':
+        return { operator: 'gte', value: 60 };
+      // Price position
+      case 'price_position_20': case 'price_position_60':
+        return { operator: 'gte', value: 70 };
+      case 'gap_pct':
+        return { operator: 'gte', value: 3 };
+      case 'high_low_range':
+        return { operator: 'lte', value: 5 };
+      // Convergence / Trend
+      case 'ma_convergence':
+        return { operator: 'lte', value: 3 };
+      case 'trend_strength':
+        return { operator: 'gte', value: 2 };
+      // Count-based
+      case 'streak_count': case 'consecutive_days':
+        return { operator: 'gte', value: 3 };
+      case 'signal_value':
+        return { operator: 'gte', value: 0.5 };
+      // Valuation
+      case 'pe':
+        return { operator: 'lte', value: 20 };
+      case 'pb':
+        return { operator: 'lte', value: 2 };
+      case 'ps':
+        return { operator: 'lte', value: 2 };
+      case 'pe_percentile': case 'pb_percentile':
+        return { operator: 'lte', value: 30 };
+      // Fundamentals
+      case 'roe':
+        return { operator: 'gte', value: 15 };
+      case 'revenue_growth':
+        return { operator: 'gte', value: 10 };
+      case 'profit_growth':
+        return { operator: 'gte', value: 15 };
+      case 'gross_margin':
+        return { operator: 'gte', value: 30 };
+      case 'net_margin':
+        return { operator: 'gte', value: 10 };
+      case 'debt_ratio':
+        return { operator: 'lte', value: 60 };
+      case 'eps':
+        return { operator: 'gte', value: 0.5 };
+      // Market cap / shareholders
+      case 'total_market_cap':
+        return { operator: 'gte', value: 10000000000 }; // 100亿
+      case 'shareholder_change':
+        return { operator: 'lte', value: -5 };
+      case 'inst_hold_ratio':
+        return { operator: 'gte', value: 30 };
+      // Prediction
+      case 'prediction_upside':
+        return { operator: 'gte', value: 10 };
+      case 'prediction_consensus':
+        return { operator: 'gte', value: 0.6 };
+      // Index relative / VWAP
+      case 'index_relative':
+        return { operator: 'gte', value: 2 };
+      case 'vwap_deviation':
+        return { operator: 'gte', value: 2 };
+      default:
+        return { operator: 'gte', value: 0 };
+    }
+  };
+
+  const handleIndicatorChange = (idx: number, newKey: string) => {
+    const defaults = getIndicatorDefaults(newKey);
+    setConditions(prev => prev.map((c, i) => i === idx ? { ...c, indicator: newKey, operator: defaults.operator, value: defaults.value } : c));
+  };
+
   const updateCondition = (idx: number, field: string, value: any) => {
     setConditions(prev => prev.map((c, i) => i === idx ? { ...c, [field]: value } : c));
   };
@@ -736,7 +880,7 @@ export default function StrategyPage() {
                           <Tooltip content={<div style={{maxWidth:260}}>{info?.desc}<br/><span style={{color:'var(--color-text-3)',fontSize:11}}>{info?.dataNote}</span></div>} position="bottom">
                             <Select
                               value={c.indicator}
-                              onChange={v => updateCondition(globalIdx, 'indicator', v)}
+                              onChange={v => handleIndicatorChange(globalIdx, v)}
                               style={{ width: 180 }}
                               size="small"
                               placeholder="选择指标"
@@ -768,13 +912,29 @@ export default function StrategyPage() {
                                   const opLabels: Record<string, string> = { gte: '≥ 大于等于', lte: '≤ 小于等于', gt: '> 大于', lt: '< 小于', eq: '= 等于', cross_up: '↑ 上穿', cross_down: '↓ 下穿' };
                                   return { label: opLabels[op] || op, value: op };
                                 })} />
+                              {c.indicator === 'total_market_cap' ? (
+                              <InputNumber
+                                value={c.value / 100000000}
+                                onChange={v => updateCondition(globalIdx, 'value', (v ?? 0) * 100000000)}
+                                style={{ width: 110, fontFamily: 'monospace' }}
+                                size="small"
+                                placeholder="市值(亿)"
+                                suffix="亿"
+                                step={10}
+                              />
+                            ) : c.indicator === 'new_high_20' ? (
+                              <Select value={c.value} onChange={v => updateCondition(globalIdx, 'value', v ?? 0)} style={{ width: 90 }} size="small"
+                                options={[{ label: '是', value: 1 }, { label: '否', value: 0 }]} />
+                            ) : (
                               <InputNumber
                                 value={c.value}
                                 onChange={v => updateCondition(globalIdx, 'value', v ?? 0)}
-                              style={{ width: 90, fontFamily: 'monospace' }}
-                              size="small"
-                              placeholder="阈值"
-                            />
+                                style={{ width: 90, fontFamily: 'monospace' }}
+                                size="small"
+                                placeholder="阈值"
+                                suffix={(() => { const u = info?.unit; if (!u) return undefined; if (u === '分' || u === '次数') return undefined; return u; })()}
+                              />
+                            )}
                           </>
                           )}
 
