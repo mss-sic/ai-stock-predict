@@ -173,6 +173,7 @@ func main() {
 		api.POST("/strategies/ai-generate", strategyH.AIGenerate)
 		api.POST("/strategies/optimize-prompt", strategyH.OptimizePrompt)
 		api.GET("/strategies/indicators", strategyH.Indicators)
+		api.GET("/strategies/indicator-guide", strategyH.IndicatorGuide)
 		api.POST("/strategies/test-indicator", strategyH.TestIndicator)
 		api.GET("/strategies/:id/indicators", strategyH.ListStrategyIndicators)
 		api.PUT("/strategies/:id/indicators/toggle", strategyH.ToggleIndicatorCondition)

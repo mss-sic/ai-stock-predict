@@ -220,29 +220,10 @@ func (h *StrategyHandler) AIGenerate(c *gin.Context) {
 		return
 	}
 
-	// Compact indicator list for AI prompt
-	indicators := `榜单: algo_score(0-10), streak_count
-趋势: daily_change, momentum_5/20, ma_deviation, ma_cross(cross_up/down,val=5/20), macd, adx(>25), dmi_plus/minus
-超买超卖: rsi(>70/<30), kdj_k/d/j, boll_position(>80/<20), cci(>100/<-100), williams_r, mfi
-量价: volume_ratio, turnover_rate, atr/pct, volume_trend
-形态: drawdown_20, new_high_20, up_days_ratio, price_position_20/60, gap_pct, high_low_range, ma_convergence, trend_strength, index_relative
-估值: pe/pb/ps, pe_percentile(<30)
-基本面: roe, revenue_growth, profit_growth, gross_margin, debt_ratio
-资金: total_market_cap, shareholder_change
-(以上均需检查数据覆盖⚠️)`
+	// Dynamically generated indicator list from Registry for AI prompt
+	indicators := buildAIPromptIndicatorList()
 
-	prompt := fmt.Sprintf(`你是量化策略专家。根据用户描述生成A股策略JSON。
-
-%s
-
-用户策略名: %s
-用户描述: %s
-风险偏好: %s
-
-返回纯JSON（无markdown）:
-{"name":"..","description":"..","stopProfit":止盈%%,"stopLoss":止损%%(负数),"maxHoldings":最大持仓,
-"conditions":[{"condType":"buy|add|sell|reduce","indicator":"..","operator":"gte|lte|eq|cross_up|cross_down","value":数字,"logicGroup":1,"sortOrder":0}]}
-`, indicators, body.Name, body.Description, style)
+	prompt := buildAIGeneratePrompt(indicators, body.Name, body.Description, style)
 
 	reply, err := h.aiSvc.ChatCompletion(uid, prompt, nil)
 	if err != nil {
@@ -317,6 +298,135 @@ func (h *StrategyHandler) AIGenerate(c *gin.Context) {
 	}
 
 	response.Success(c, result)
+}
+
+// buildAIPromptIndicatorList generates a compact, structured indicator list from the Registry
+// for AI prompt context. Groups by category and includes operator hints and value ranges.
+func buildAIPromptIndicatorList() string {
+	type catGroup struct {
+		name    string
+		entries []string
+	}
+	groups := make(map[string]*catGroup)
+	categoryOrder := []string{"榜单与评分", "AI评分", "技术面-趋势", "技术面-超买超卖", "技术面-量价", "技术面-形态", "估值", "基本面", "资金面", "预测"}
+
+	for _, m := range IndicatorRegistry {
+		group, ok := groups[m.Category]
+		if !ok {
+			group = &catGroup{name: m.Category}
+			groups[m.Category] = group
+		}
+		// Format: key(unit), with type hints for cross
+		entry := m.Key
+		if m.Type == "cross" {
+			entry += "(type=cross,ops=cross_up/cross_down,val=5/20格式)"
+		}
+		// Add value range hint based on indicator
+		switch m.Key {
+		case "algo_score", "ai_score", "ai_fundamental", "ai_technical", "ai_valuation", "ai_growth", "ai_industry", "ai_capital":
+			entry += "[0-10]"
+		case "rsi", "rsi_6", "rsi_12", "rsi_24":
+			entry += "[0-100,>70超买/<30超卖]"
+		case "kdj_k", "kdj_d", "kdj_j":
+			entry += "[0-100]"
+		case "boll_position":
+			entry += "[0-100,>80上轨/<20下轨]"
+		case "cci":
+			entry += "[-300~300,>100超买/<-100超卖]"
+		case "williams_r":
+			entry += "[-100~0]"
+		case "mfi":
+			entry += "[0-100]"
+		case "volume_ratio":
+			entry += "[>2放量/<0.5缩量]"
+		case "turnover_rate":
+			entry += "[%]"
+		case "adx":
+			entry += "[0-100,>25趋势强]"
+		case "pe_percentile", "pb_percentile":
+			entry += "[0-100,<30低估]"
+		case "ma_cross", "ema_cross":
+			entry += "(cross,val格式=5/20)"
+		case "daily_change", "momentum_5", "momentum_20", "gap_pct":
+			entry += "[%]"
+		case "pe":
+			entry += "[>0,<20低估]"
+		case "pb":
+			entry += "[>0,<2低估]"
+		case "roe":
+			entry += "[%,>15优秀]"
+		case "debt_ratio":
+			entry += "[%,<60安全]"
+		case "total_market_cap":
+			entry += "[元,大盘>1e11]"
+		case "prediction_upside":
+			entry += "[%,>10看涨]"
+		case "prediction_consensus":
+			entry += "[0-1,>0.6看涨]"
+		}
+		group.entries = append(group.entries, entry)
+	}
+
+	var sb strings.Builder
+	for _, cat := range categoryOrder {
+		if g, ok := groups[cat]; ok && len(g.entries) > 0 {
+			sb.WriteString(g.name)
+			sb.WriteString(": ")
+			sb.WriteString(strings.Join(g.entries, ", "))
+			sb.WriteString("\n")
+		}
+	}
+	// Handle categories not in the ordered list
+	for _, g := range groups {
+		found := false
+		for _, c := range categoryOrder {
+			if c == g.name {
+				found = true
+				break
+			}
+		}
+		if !found && len(g.entries) > 0 {
+			sb.WriteString(g.name)
+			sb.WriteString(": ")
+			sb.WriteString(strings.Join(g.entries, ", "))
+			sb.WriteString("\n")
+		}
+	}
+	return sb.String()
+}
+
+// buildAIGeneratePrompt constructs the full AI prompt with indicator context.
+func buildAIGeneratePrompt(indicators, name, description, style string) string {
+	return fmt.Sprintf(`你是量化策略专家。根据用户描述生成A股策略JSON。
+
+可用指标（按分类，含值域和操作符）：
+%s
+
+重要规则：
+- operator 枚举: gte(≥), lte(≤), gt(>), lt(<), eq(=), cross_up(↑上穿), cross_down(↓下穿)
+- cross 类型指标（ma_cross, ema_cross）只能用 cross_up/cross_down 操作符，值用 "5/20" 格式表示短均线/长均线
+- number 类型指标用 gte/lte/gt/lt/eq，值为数字
+- 买入条件 condType="buy"，卖出条件 condType="sell"
+- 同一 logicGroup 内条件为 AND 关系，不同 logicGroup 为 OR 关系
+- 注意数据覆盖：🚫预测类指标回测不可用，⚠️标注类数据覆盖面有限
+- 根据风险偏好 aggressive 可放宽阈值，conservative 收紧阈值
+
+用户策略名: %s
+用户描述: %s
+风险偏好: %s
+
+返回纯JSON（无markdown，只返回JSON对象）：
+{
+  "name": "策略名称",
+  "description": "策略描述",
+  "stopProfit": 15,
+  "stopLoss": -8,
+  "maxHoldings": 10,
+  "conditions": [
+    {"condType": "buy", "indicator": "algo_score", "operator": "gte", "value": 6, "logicGroup": 1, "sortOrder": 0},
+    {"condType": "sell", "indicator": "rsi", "operator": "gte", "value": 80, "logicGroup": 1, "sortOrder": 0}
+  ]
+}`, indicators, name, description, style)
 }
 
 // ── Prompt Optimizer ──
@@ -3123,6 +3233,280 @@ func (h *StrategyHandler) Indicators(c *gin.Context) {
 	response.Success(c, buildIndicatorList())
 }
 
+// IndicatorGuide returns a comprehensive indicator guide for frontend consumption,
+// organized by category with full metadata for building interactive indicator forms.
+func (h *StrategyHandler) IndicatorGuide(c *gin.Context) {
+	type IndicatorGuideItem struct {
+		Key          string   `json:"key"`
+		Label        string   `json:"label"`
+		Category     string   `json:"category"`
+		Unit         string   `json:"unit"`
+		Type         string   `json:"type"`         // number / cross
+		Operators    []string `json:"operators"`    // available operators for this indicator
+		Desc         string   `json:"desc"`
+		BacktestSafe bool     `json:"backtestSafe"`
+		DataNote     string   `json:"dataNote"`
+		Suggestion   string   `json:"suggestion"`
+		UseFor       string   `json:"useFor"`       // buy / sell / both
+		DataSource   string   `json:"dataSource"`
+		ValueType    string   `json:"valueType"`    // "number" | "cross"
+		ValueExample string   `json:"valueExample"` // example value for UI hint
+		ValueMin     *float64 `json:"valueMin,omitempty"`
+		ValueMax     *float64 `json:"valueMax,omitempty"`
+	}
+
+	type CategoryGroup struct {
+		Category string               `json:"category"`
+		Label    string               `json:"label"`
+		Items    []IndicatorGuideItem `json:"items"`
+	}
+
+	// Build categories map
+	catMap := make(map[string]*CategoryGroup)
+	categoryOrder := []string{"榜单与评分", "AI评分", "技术面-趋势", "技术面-超买超卖", "技术面-量价", "技术面-形态", "估值", "基本面", "资金面", "预测"}
+
+	for _, m := range IndicatorRegistry {
+		item := IndicatorGuideItem{
+			Key:          m.Key,
+			Label:        m.Label,
+			Category:     m.Category,
+			Unit:         m.Unit,
+			Type:         m.Type,
+			Operators:    m.Operators,
+			Desc:         m.Desc,
+			BacktestSafe: m.BacktestSafe,
+			DataNote:     m.DataNote,
+			Suggestion:   m.Suggestion,
+			UseFor:       m.UseFor,
+			DataSource:   m.DataSource,
+			ValueType:    m.Type,
+			ValueExample: getValueExample(m),
+		}
+		// Set value range hints for number types
+		if m.Type == "number" {
+			if min, max, ok := getValueRange(m.Key); ok {
+				item.ValueMin = min
+				item.ValueMax = max
+			}
+		}
+		if m.Type == "cross" {
+			item.ValueExample = "5/20"
+		}
+
+		if _, ok := catMap[m.Category]; !ok {
+			catMap[m.Category] = &CategoryGroup{Category: m.Category, Label: m.Category, Items: []IndicatorGuideItem{}}
+		}
+		catMap[m.Category].Items = append(catMap[m.Category].Items, item)
+	}
+
+	// Build ordered response
+	result := make([]CategoryGroup, 0, len(categoryOrder))
+	for _, cat := range categoryOrder {
+		if g, ok := catMap[cat]; ok {
+			result = append(result, *g)
+		}
+	}
+	// Append any categories not in the ordered list
+	for _, g := range catMap {
+		found := false
+		for _, c := range categoryOrder {
+			if c == g.Category {
+				found = true
+				break
+			}
+		}
+		if !found {
+			result = append(result, *g)
+		}
+	}
+
+	// Also return flat operator enum for dropdowns
+	operatorEnum := []map[string]string{
+		{"key": "gte", "label": "≥ 大于等于", "appliesTo": "number"},
+		{"key": "lte", "label": "≤ 小于等于", "appliesTo": "number"},
+		{"key": "gt", "label": "> 大于", "appliesTo": "number"},
+		{"key": "lt", "label": "< 小于", "appliesTo": "number"},
+		{"key": "eq", "label": "= 等于", "appliesTo": "number"},
+		{"key": "cross_up", "label": "↑ 上穿", "appliesTo": "cross"},
+		{"key": "cross_down", "label": "↓ 下穿", "appliesTo": "cross"},
+	}
+
+	response.Success(c, map[string]interface{}{
+		"categories":  result,
+		"operators":   operatorEnum,
+		"totalCount":  len(IndicatorRegistry),
+	})
+}
+
+// getValueExample returns a human-readable example value for an indicator.
+func getValueExample(m *IndicatorMeta) string {
+	switch m.Key {
+	case "algo_score", "ai_score", "ai_fundamental", "ai_technical", "ai_valuation", "ai_growth", "ai_industry", "ai_capital":
+		return "6"
+	case "streak_count":
+		return "3"
+	case "signal_value":
+		return "0.5"
+	case "daily_change":
+		return "2"
+	case "momentum_5":
+		return "3"
+	case "momentum_20":
+		return "5"
+	case "ma_deviation":
+		return "5"
+	case "ma_cross", "ema_cross":
+		return "5/20"
+	case "macd", "macd_dif", "macd_dea":
+		return "0"
+	case "rsi", "rsi_6":
+		return "70"
+	case "rsi_12", "rsi_24":
+		return "60"
+	case "kdj_k":
+		return "80"
+	case "kdj_d":
+		return "70"
+	case "kdj_j":
+		return "90"
+	case "boll_position":
+		return "80"
+	case "boll_width":
+		return "10"
+	case "boll_squeeze":
+		return "1"
+	case "volume_ratio":
+		return "2"
+	case "volume_ma_ratio":
+		return "1.5"
+	case "turnover_rate":
+		return "5"
+	case "atr":
+		return "0.5"
+	case "atr_pct":
+		return "3"
+	case "adx":
+		return "25"
+	case "dmi_plus", "dmi_minus":
+		return "20"
+	case "cci":
+		return "100"
+	case "williams_r":
+		return "-80"
+	case "mfi":
+		return "80"
+	case "psy_12":
+		return "60"
+	case "psy_ma":
+		return "50"
+	case "drawdown_20":
+		return "-10"
+	case "new_high_20":
+		return "1"
+	case "up_days_ratio":
+		return "60"
+	case "price_position_20", "price_position_60":
+		return "70"
+	case "gap_pct":
+		return "3"
+	case "high_low_range":
+		return "5"
+	case "ma_convergence":
+		return "3"
+	case "trend_strength":
+		return "2"
+	case "consecutive_days":
+		return "3"
+	case "vwap_deviation":
+		return "2"
+	case "volume_trend":
+		return "1"
+	case "index_relative":
+		return "2"
+	case "pe":
+		return "20"
+	case "pb":
+		return "2"
+	case "ps":
+		return "2"
+	case "pe_percentile", "pb_percentile":
+		return "30"
+	case "roe":
+		return "15"
+	case "revenue_growth":
+		return "10"
+	case "profit_growth":
+		return "15"
+	case "gross_margin":
+		return "30"
+	case "net_margin":
+		return "10"
+	case "debt_ratio":
+		return "60"
+	case "eps":
+		return "0.5"
+	case "total_market_cap":
+		return "100000000000"
+	case "shareholder_change":
+		return "-5"
+	case "inst_hold_ratio":
+		return "30"
+	case "prediction_upside":
+		return "10"
+	case "prediction_consensus":
+		return "0.6"
+	default:
+		return "0"
+	}
+}
+
+// getValueRange returns min/max range hints for number-type indicators.
+func getValueRange(key string) (*float64, *float64, bool) {
+	f := func(v float64) *float64 { return &v }
+	switch key {
+	case "algo_score", "ai_score", "ai_fundamental", "ai_technical", "ai_valuation", "ai_growth", "ai_industry", "ai_capital":
+		return f(0), f(10), true
+	case "rsi", "rsi_6", "rsi_12", "rsi_24":
+		return f(0), f(100), true
+	case "kdj_k", "kdj_d", "kdj_j":
+		return f(0), f(100), true
+	case "boll_position":
+		return f(0), f(100), true
+	case "williams_r":
+		return f(-100), f(0), true
+	case "mfi":
+		return f(0), f(100), true
+	case "adx":
+		return f(0), f(100), true
+	case "dmi_plus", "dmi_minus":
+		return f(0), f(100), true
+	case "pe_percentile", "pb_percentile":
+		return f(0), f(100), true
+	case "volume_ratio", "volume_ma_ratio":
+		return f(0), f(10), true
+	case "turnover_rate":
+		return f(0), f(50), true
+	case "streak_count":
+		return f(0), f(30), true
+	case "signal_value":
+		return f(-1), f(1), true
+	case "daily_change":
+		return f(-10), f(10), true
+	case "momentum_5":
+		return f(-30), f(30), true
+	case "momentum_20":
+		return f(-50), f(50), true
+	case "ma_deviation":
+		return f(-20), f(20), true
+	case "debt_ratio":
+		return f(0), f(100), true
+	case "prediction_consensus":
+		return f(0), f(1), true
+	default:
+		return nil, nil, false
+	}
+}
+
 // buildIndicatorListLegacy closing brace is above. End of legacy function.
 
 // parseValue converts flexible AI values to float64
@@ -3803,6 +4187,8 @@ func getATR(code, date string, period int) float64 {
 // 技术面 — 形态与强度
 // ═══════════════════════════════════════════════════════════════
 
+// getMaxDrawdown returns the max drawdown as a positive magnitude (percentage).
+// e.g., 7.6 means a 7.6% drawdown from the N-day high. Use operator "gt" to compare.
 func getMaxDrawdown(code, date string, days int) float64 {
 	var dd float64
 	db.PG.Raw(`SELECT COALESCE(ABS(MIN(drawdown)), 0) FROM (
@@ -3928,34 +4314,43 @@ func checkEMACross(code, date string, ma1, ma2 int) float64 {
 // 技术面 — 进阶：超买超卖扩展 (CCI/Williams%R/MFI)
 // ═══════════════════════════════════════════════════════════════
 
-// getPSY computes 12-day psychological line (% of up days in last N days).
+// getPSY computes N-day psychological line (% of up days in last N days).
+// Uses proper rolling window — up days / N * 100 for the most recent period days.
 func getPSY(code, date string, period int) float64 {
 	var psy float64
-	db.PG.Raw(`SELECT COALESCE(
-		SUM(CASE WHEN close > LAG(close) OVER (ORDER BY trade_date ASC) THEN 1 ELSE 0 END)::float /
-		NULLIF(COUNT(*) - 1, 0) * 100, 50)
-	FROM (
-		SELECT close FROM stocks_daily_k
-		WHERE code = ? AND trade_date <= ?::date
-		ORDER BY trade_date DESC LIMIT ?
-	) sub`, code, date, period+1).Scan(&psy)
-	return psy
-}
-
-// getPSYMA computes 6-day SMA of PSY(12).
-func getPSYMA(code, date string) float64 {
-	var psyma float64
-	db.PG.Raw(`WITH psy_vals AS (
-		SELECT trade_date,
-			COALESCE(
-				SUM(CASE WHEN close > LAG(close) OVER (ORDER BY trade_date ASC) THEN 1 ELSE 0 END)::float /
-				NULLIF(COUNT(*) OVER () - 1, 0) * 100, 50) as psy
+	db.PG.Raw(`WITH klines AS (
+		SELECT trade_date, close,
+			LAG(close) OVER (ORDER BY trade_date ASC) as prev_close
 		FROM stocks_daily_k
 		WHERE code = ? AND trade_date <= ?::date
 		ORDER BY trade_date ASC
 	)
+	SELECT COALESCE(
+		SUM(CASE WHEN close > prev_close THEN 1 ELSE 0 END)::float /
+		NULLIF(COUNT(*) - 1, 0) * 100, 50)
+	FROM (SELECT * FROM klines WHERE prev_close IS NOT NULL ORDER BY trade_date DESC LIMIT ?) sub`,
+		code, date, period).Scan(&psy)
+	return psy
+}
+
+// getPSYMA computes 6-day SMA of PSY(12).
+// Computes PSY(12) rolling window first, then averages the last 6 PSY values.
+func getPSYMA(code, date string) float64 {
+	var psyma float64
+	db.PG.Raw(`WITH klines AS (
+		SELECT trade_date, close,
+			LAG(close) OVER (ORDER BY trade_date ASC) as prev_close
+		FROM stocks_daily_k
+		WHERE code = ? AND trade_date <= ?::date
+		ORDER BY trade_date ASC
+	), psy_calc AS (
+		SELECT trade_date,
+			SUM(CASE WHEN close > prev_close THEN 1 ELSE 0 END)
+				OVER (ORDER BY trade_date ASC ROWS BETWEEN 11 PRECEDING AND CURRENT ROW) * 100.0 / 12 as psy
+		FROM klines WHERE prev_close IS NOT NULL
+	)
 	SELECT COALESCE(AVG(psy), 50) FROM (
-		SELECT psy FROM psy_vals ORDER BY trade_date DESC LIMIT 6
+		SELECT psy FROM psy_calc ORDER BY trade_date DESC LIMIT 6
 	) sub`, code, date).Scan(&psyma)
 	return psyma
 }
@@ -4003,17 +4398,17 @@ func getMFI(code, date string, period int) float64 {
 		SELECT trade_date, high, low, close, volume FROM stocks_daily_k
 		WHERE code = ? AND trade_date <= ?::date ORDER BY trade_date ASC
 	), mf_calc AS (
-		SELECT
-			(high + low + close) / 3 * volume as tp_vol,
-			((high + low + close) / 3 - LAG((high + low + close) / 3) OVER (ORDER BY trade_date ASC)) * volume as mf
+		SELECT trade_date,
+			(high + low + close) / 3.0 as tp,
+			((high + low + close) / 3.0 - LAG((high + low + close) / 3.0) OVER (ORDER BY trade_date ASC)) * volume as mf
 		FROM klines
 	)
-	SELECT COALESCE(100 - 100 / (1 + pos_mf / NULLIF(neg_mf, 0)), 50)
+	SELECT COALESCE(100.0 - 100.0 / NULLIF(1.0 + pos_mf / NULLIF(neg_mf, 0), 0), 50.0)
 	FROM (
 		SELECT
 			SUM(CASE WHEN mf > 0 THEN mf ELSE 0 END) as pos_mf,
 			SUM(CASE WHEN mf < 0 THEN -mf ELSE 0 END) as neg_mf
-		FROM (SELECT * FROM mf_calc ORDER BY trade_date DESC LIMIT ?) recent
+		FROM (SELECT mf FROM mf_calc ORDER BY trade_date DESC LIMIT ?) recent
 	) mfi_calc`, code, date, period).Scan(&mfi)
 	return mfi
 }
@@ -4042,7 +4437,7 @@ func getBollSqueeze(code, date string, lookback int) float64 {
 				FROM stocks_daily_k WHERE code = ? AND trade_date <= ?::date ORDER BY trade_date DESC LIMIT 1
 			) curr WHERE mid > 0
 		))::float / NULLIF(?, 0) * 100, 50)`,
-		code, date, lookback+20, code, date, float64(lookback)).Scan(&squeeze)
+		code, date, lookback+20, code, date, float64(lookback+20)).Scan(&squeeze)
 	return squeeze
 }
 
@@ -4067,12 +4462,19 @@ func getMAConvergence(code, date string) float64 {
 			AVG(close) OVER (ORDER BY trade_date ASC ROWS BETWEEN 19 PRECEDING AND CURRENT ROW) as ma20,
 			AVG(close) OVER (ORDER BY trade_date ASC ROWS BETWEEN 59 PRECEDING AND CURRENT ROW) as ma60
 		FROM klines
+		ORDER BY trade_date DESC LIMIT 1
+	), stats AS (
+		SELECT ma5, ma10, ma20, ma60,
+			(ma5 + ma10 + ma20 + ma60) / 4.0 as avg_ma,
+			(ma5 + ma10 + ma20 + ma60) / 4.0 as mean_val
+		FROM mas
 	)
-	SELECT COALESCE(STDDEV(ma) / NULLIF(AVG(ma), 0) * 100, 100)
-	FROM (
-		SELECT UNNEST(ARRAY[ma5, ma10, ma20, ma60]) as ma
-		FROM mas ORDER BY trade_date DESC LIMIT 1
-	) cv_calc`, code, date).Scan(&cv)
+	SELECT COALESCE(
+		SQRT(
+			(POWER(ma5 - mean_val, 2) + POWER(ma10 - mean_val, 2) + 
+			 POWER(ma20 - mean_val, 2) + POWER(ma60 - mean_val, 2)) / 3.0
+		) / NULLIF(avg_ma, 0) * 100, 100)
+	FROM stats`, code, date).Scan(&cv)
 	return cv
 }
 
@@ -4082,12 +4484,13 @@ func getTrendStrength(code, date string, days int) float64 {
 		SELECT trade_date, close FROM stocks_daily_k
 		WHERE code = ? AND trade_date <= ?::date ORDER BY trade_date ASC
 	), ma AS (
-		SELECT close, AVG(close) OVER (ORDER BY trade_date ASC ROWS BETWEEN 19 PRECEDING AND CURRENT ROW) as ma20
+		SELECT trade_date, close,
+			AVG(close) OVER (ORDER BY trade_date ASC ROWS BETWEEN 19 PRECEDING AND CURRENT ROW) as ma20
 		FROM klines
 	)
 	SELECT COALESCE(
 		SUM(CASE WHEN close > ma20 THEN 1 ELSE 0 END)::float / NULLIF(COUNT(*), 0), 0.5)
-	FROM (SELECT * FROM ma ORDER BY trade_date DESC LIMIT ?) sub`, code, date, days).Scan(&strength)
+	FROM (SELECT close, ma20 FROM ma ORDER BY trade_date DESC LIMIT ?) sub`, code, date, days).Scan(&strength)
 	return strength
 }
 
@@ -4638,7 +5041,7 @@ func hasAnyData(code, date, indicator string) bool {
 	switch {
 	case indicator == "daily_change", strings.HasPrefix(indicator, "momentum"),
 		indicator == "ma_5", indicator == "ma_10", indicator == "ma_20", indicator == "ma_30", indicator == "ma_60", indicator == "ma_deviation", indicator == "ma_cross", indicator == "macd",
-		indicator == "ema_cross", indicator == "rsi", strings.HasPrefix(indicator, "kdj"),
+		indicator == "ema_cross", indicator == "macd_dif", indicator == "macd_dea", indicator == "rsi", indicator == "rsi_6", indicator == "rsi_12", indicator == "rsi_24", strings.HasPrefix(indicator, "kdj"),
 		strings.HasPrefix(indicator, "boll"), indicator == "boll_squeeze",
 		strings.HasPrefix(indicator, "volume"), indicator == "turnover_rate",
 		indicator == "atr", indicator == "atr_pct", strings.HasPrefix(indicator, "drawdown"),

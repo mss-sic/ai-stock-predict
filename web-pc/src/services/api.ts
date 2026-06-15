@@ -221,6 +221,7 @@ export const saveStrategyConditions = (id: number, conditions: any[]) => api.put
 export const aiGenerateStrategy = (data: any) => api.post("/strategies/ai-generate", data);
 export const optimizePrompt = (prompt: string, style: string) => api.post("/strategies/optimize-prompt", { prompt, style });
 export const fetchIndicators = () => api.get("/strategies/indicators");
+export const fetchIndicatorGuide = () => api.get("/strategies/indicator-guide");
 export const testIndicator = (data: any) => api.post("/strategies/test-indicator", data);
 export const runBacktest = (id: number, startDate: string, endDate: string, stockCodes?: string[]) => api.post(`/strategies/${id}/backtest`, { startDate, endDate, stockCodes });
 export const fetchBacktestHistory = (strategyId?: number) => api.get("/strategies/backtest-history", { params: strategyId ? { strategyId } : {} });
