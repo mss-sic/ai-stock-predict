@@ -22,6 +22,10 @@ func scriptsRoot() string {
 	return filepath.Join(base, scriptsDir)
 }
 
+// ScriptsRoot returns the absolute path to the scripts/collector directory.
+func ScriptsRoot() string { return scriptsRoot() }
+
+
 type KLineData struct {
 	Date   string  `json:"date"`
 	Open   float64 `json:"open"`

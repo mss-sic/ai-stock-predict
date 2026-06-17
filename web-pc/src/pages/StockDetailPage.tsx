@@ -829,6 +829,22 @@ const handleChatSend = async (text?: string) => {
       return;
     }
     
+    // Quote phase uses the realtime endpoint
+    if (phase === 'quote') {
+      setRefreshingPhase('quote');
+      try {
+        const res: any = await fetchRealtimeQuoteSingle(code!);
+        showToast('success', res.data?.message || '行情已刷新');
+        // Reload quote data
+        const q: any = await fetchQuote(code!);
+        if (q.data?.data) setPriceStats(q.data.data);
+        const ind: any = await fetchStockIndicators(code!);
+        if (ind.data?.data) setIndicator(ind.data.data);
+      } catch { showToast('error', '行情刷新失败'); }
+      setRefreshingPhase('');
+      return;
+    }
+
     // Other phases use the POST collector endpoint
     setRefreshingPhase(phase);
     try {
@@ -903,7 +919,13 @@ const handleChatSend = async (text?: string) => {
                     <span>振幅 <b style={{ color: 'var(--color-text-1)', fontWeight: 500 }}>{priceStats.amplitude.toFixed(2)}%</b></span>
                     <span>换手 <b style={{ color: 'var(--color-text-1)', fontWeight: 500 }}>{priceStats.turnover > 0 ? priceStats.turnover.toFixed(2) + '%' : '-'}</b></span>
                     {indicator && <><span>市盈率 <b style={{ color: 'var(--color-text-1)', fontWeight: 500 }}>{indicator.pe > 0 ? indicator.pe.toFixed(2) : '-'}</b></span><span>市值 <b style={{ color: 'var(--color-text-1)', fontWeight: 500 }}>{indicator.totalMarketCap > 0 ? fmtMoney(indicator.totalMarketCap) : '-'}</b></span></>}
-
+                    <button
+                      onClick={() => handleRefreshStockData('quote')}
+                      disabled={refreshingPhase !== ''}
+                      style={{ marginLeft: 4, padding: '2px 8px', fontSize: 11, border: '1px solid var(--color-border-2)', borderRadius: 4, background: 'transparent', color: 'var(--color-text-2)', cursor: refreshingPhase ? 'not-allowed' : 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4, opacity: refreshingPhase ? 0.5 : 1 }}
+                    >
+                      <Repeat size={11} className={refreshingPhase === 'quote' ? 'spin' : ''} />{refreshingPhase === 'quote' ? '刷新中' : '行情'}
+                    </button>
                   </div>
                 </>
               )}

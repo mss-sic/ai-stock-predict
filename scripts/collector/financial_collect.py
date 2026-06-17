@@ -140,7 +140,9 @@ def main():
         print("没有需要采集的股票", flush=True)
         return
     
-    print(f"采集财务数据: {len(codes)} 只", flush=True)
+    print(f"📊 数据源: 新浪财经 (利润表+资产负债表)", flush=True)
+    print(f"📋 待采集: {len(codes)} 只股票", flush=True)
+    print(f"🚀 开始采集财务数据...", flush=True)
     done = 0
     total_periods = 0
     start = time.time()
@@ -184,13 +186,23 @@ def main():
         if (i + 1) % 20 == 0:
             conn.commit()
             elapsed = time.time() - start
-            print(f"  {i+1}/{len(codes)} | {done} stocks | {total_periods} periods | {elapsed:.0f}s", flush=True)
+            pct = (i+1) * 100 // len(codes)
+            avg_periods = total_periods / max(done, 1)
+            print(f"  📊 进度: {i+1}/{len(codes)} ({pct}%) | 已入库 {done} 只/{total_periods} 期 | 平均 {avg_periods:.1f} 期/只 | 耗时 {elapsed:.0f}s", flush=True)
+            print(f"PROGRESS:{i+1}/{len(codes)}", flush=True)
         time.sleep(0.2)
     
     conn.commit()
     cur.close()
     conn.close()
-    print(f"✅ 财务数据: {done} stocks, {total_periods} periods | {time.time()-start:.0f}s")
+    elapsed = time.time()-start
+    avg_p = total_periods / max(done, 1)
+    print(f"\n{'─'*40}", flush=True)
+    print(f"✅ 财务数据采集完成", flush=True)
+    print(f"   📈 采集股票: {done} 只", flush=True)
+    print(f"   📥 入库报告期: {total_periods} 期 (平均 {avg_p:.1f} 期/只)", flush=True)
+    print(f"   ⏱️  总耗时: {elapsed:.0f}s", flush=True)
+    print(f"{'─'*40}", flush=True)
 
 if __name__ == "__main__":
     main()

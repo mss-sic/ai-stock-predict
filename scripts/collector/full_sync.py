@@ -160,6 +160,7 @@ def main():
     conn.close()
 
     print(f"\n✅ 同步完成!", flush=True)
+    new_count = upserted
     print(f"   新增: {count_new} 只", flush=True)
     print(f"   更新名称: {count_updated} 只", flush=True)
     print(f"   数据库总计: {total} 只", flush=True)

@@ -281,6 +281,8 @@ export const clearCollectorHistory = (type?: string) => api.delete("/collector/h
 export const fetchDataStats = () => api.get('/admin/data-stats');
 export const fetchDataDetail = (type: string) => api.get(`/admin/data-stats/${type}/detail`);
 export const collectSingleStock = (code: string, phases?: string[]) => api.post(`/collector/stock/${code}`, { phases });
+export const fetchRealtimeQuotes = () => api.post('/collector/realtime');
+export const fetchRealtimeQuoteSingle = (code: string) => api.post(`/collector/realtime/${code}`);
 
 // ── AI APIs ──
 export const aiAnalyze = (code: string, question: string) => api.post('/ai/analyze', { code, question });

@@ -461,6 +461,17 @@ func init() {
 		},
 	})
 
+
+	// v017: stock_realtime_quote table for intraday quote snapshots
+	migrations = append(migrations, Migration{
+		Version:     17,
+		Description: "PG: stock_realtime_quote table for real-time price snapshots",
+		Up: func() error {
+			gormAutoMigrate(PG, &model.StockRealtimeQuote{})
+			return nil
+		},
+	})
+
 	log.Printf("[migrate] registered %d migrations", len(migrations))
 
 

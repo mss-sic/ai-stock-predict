@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -22,6 +23,11 @@ type SSELine struct {
 	Message string       `json:"message,omitempty"`
 	Level   string       `json:"level,omitempty"`
 	Result  *PhaseResult `json:"result,omitempty"`
+	// Stats contains key-value statistics from collection (e.g. "records": 1234)
+	Stats   map[string]int64 `json:"stats,omitempty"`
+	// ProgressCurrent / ProgressTotal track per-phase sub-progress
+	ProgressCurrent int `json:"progressCurrent,omitempty"`
+	ProgressTotal   int `json:"progressTotal,omitempty"`
 }
 
 type sseWriter struct {
@@ -46,20 +52,84 @@ func (w *sseWriter) Write(p []byte) (n int, err error) {
 			w.buf.Reset()
 			line = strings.TrimPrefix(line, "\r")
 			if line != "" {
-				data, _ := json.Marshal(SSELine{Type: "log", Message: line, Level: w.level})
-				sseLine := fmt.Sprintf("data: %s\n\n", data)
-				for _, wr := range w.writers {
-					wr.Write([]byte(sseLine))
-					if f, ok := wr.(http.Flusher); ok {
-						f.Flush()
-					}
-				}
+				w.emitLine(line)
 			}
 		} else {
 			w.buf.WriteByte(b)
 		}
 	}
 	return
+}
+
+// emitLine parses a single output line and sends the appropriate SSE message.
+// Recognizes STAT:key=val and PROGRESS:current/total prefixes for structured data.
+func (w *sseWriter) emitLine(line string) {
+	// STAT: lines are for silent metric accumulation only — not emitted to SSE.
+	// The human-readable behavior descriptions come from regular print() lines.
+	if strings.HasPrefix(line, "STAT:") {
+		statPart := strings.TrimPrefix(line, "STAT:")
+		pairs := strings.Split(statPart, ",")
+		for _, pair := range pairs {
+			parts := strings.SplitN(strings.TrimSpace(pair), "=", 2)
+			if len(parts) == 2 {
+				if v, err := strconv.ParseInt(parts[1], 10, 64); err == nil {
+					progress.mu.Lock()
+					if progress.BehaviorStats == nil {
+						progress.BehaviorStats = make(map[string]int64)
+					}
+					progress.BehaviorStats[parts[0]] += v
+					progress.LastOutput = time.Now()
+					progress.mu.Unlock()
+				}
+			}
+		}
+		return
+	}
+
+	// Check for per-phase progress: PROGRESS:current/total
+	if strings.HasPrefix(line, "PROGRESS:") {
+		progPart := strings.TrimPrefix(line, "PROGRESS:")
+		parts := strings.SplitN(progPart, "/", 2)
+		curr, total := 0, 0
+		if v, err := strconv.Atoi(strings.TrimSpace(parts[0])); err == nil {
+			curr = v
+		}
+		if len(parts) == 2 {
+			if v, err := strconv.Atoi(strings.TrimSpace(parts[1])); err == nil {
+				total = v
+			}
+		}
+		data, _ := json.Marshal(SSELine{
+			Type:            "progress",
+			Level:           "info",
+			Message:         progPart,
+			ProgressCurrent: curr,
+			ProgressTotal:   total,
+		})
+		sseLine := fmt.Sprintf("data: %s\n\n", data)
+		for _, wr := range w.writers {
+			wr.Write([]byte(sseLine))
+			if f, ok := wr.(http.Flusher); ok {
+				f.Flush()
+			}
+		}
+		progress.mu.Lock()
+		progress.PhaseCurrent = curr
+		progress.PhaseTotal = total
+		progress.LastOutput = time.Now()
+		progress.mu.Unlock()
+		return
+	}
+
+	// Regular log line
+	data, _ := json.Marshal(SSELine{Type: "log", Message: line, Level: w.level})
+	sseLine := fmt.Sprintf("data: %s\n\n", data)
+	for _, wr := range w.writers {
+		wr.Write([]byte(sseLine))
+		if f, ok := wr.(http.Flusher); ok {
+			f.Flush()
+		}
+	}
 }
 
 func (w *sseWriter) addWriter(wr io.Writer) {
@@ -74,11 +144,7 @@ func (w *sseWriter) flushRemaining() {
 	if w.buf.Len() > 0 {
 		line := strings.TrimSpace(w.buf.String())
 		if line != "" {
-			data, _ := json.Marshal(SSELine{Type: "log", Message: line, Level: w.level})
-			sseLine := fmt.Sprintf("data: %s\n\n", data)
-			for _, wr := range w.writers {
-				wr.Write([]byte(sseLine))
-			}
+			w.emitLine(line)
 		}
 		w.buf.Reset()
 	}
@@ -108,6 +174,11 @@ type CollectionProgress struct {
 	LastRun  interface{}   `json:"lastRun"`
 	Errors   []string      `json:"errors"`
 	LastOutput time.Time   `json:"-"`
+	// Per-phase sub-progress
+	PhaseCurrent int `json:"phaseCurrent"`
+	PhaseTotal   int `json:"phaseTotal"`
+	// Accumulated behavior stats across all phases
+	BehaviorStats map[string]int64 `json:"behaviorStats"`
 }
 
 var (
@@ -172,21 +243,44 @@ func runPythonStreamWithArgs(script string, args ...string) error {
 	cmd.Dir = scriptsRoot()
 	cmd.Env = append(cmd.Environ(), "PYTHONUNBUFFERED=1", "PYTHONIOENCODING=utf-8")
 
-	stdoutW := &sseWriter{level: "info"}
-	stderrW := &sseWriter{level: "stderr"}
+	// Ensure activeWriter exists so Python stdout/stderr are always shared
 	writerMu.Lock()
-	if activeWriter != nil {
-		stdoutW.writers = append(stdoutW.writers, activeWriter.writers...)
-		stderrW.writers = append(stderrW.writers, activeWriter.writers...)
+	if activeWriter == nil {
+		activeWriter = &sseWriter{level: "info"}
 	}
+	aw := activeWriter // shared reference for both stdout and stderr
 	writerMu.Unlock()
 
-	cmd.Stdout = stdoutW
-	cmd.Stderr = stderrW
+	cmd.Stdout = aw
+	cmd.Stderr = aw
 	err := cmd.Run()
-	stdoutW.flushRemaining()
-	stderrW.flushRemaining()
+	// Flush remaining data through the shared writer
+	aw.flushRemaining()
 	return err
+}
+
+func runQuotePhase() PhaseResult {
+	setPhase("quote", "实时行情监控...")
+	sseSend(SSELine{Type: "phase", Phase: "quote", Message: "开始实时行情监控 (自选+持仓+榜单)...", Level: "info"})
+	t0 := time.Now()
+
+	err := runPythonStreamWithArgs("realtime_quotes.py", "--all")
+
+	var count int64
+	db.PG.Model(&model.StockRealtimeQuote{}).Count(&count)
+	phaseRes := PhaseResult{
+		Phase:      "quote",
+		Total:      int(count),
+		New:        int(count),
+		DurationMs: time.Since(t0).Milliseconds(),
+	}
+	if err != nil {
+		phaseRes.Errors = 1
+		sseSend(SSELine{Type: "result", Phase: "quote", Result: &phaseRes, Level: "error", Message: fmt.Sprintf("实时行情失败: %v", err)})
+	} else {
+		sseSend(SSELine{Type: "result", Phase: "quote", Result: &phaseRes, Level: "success", Message: fmt.Sprintf("实时行情: %d 只已更新", count)})
+	}
+	return phaseRes
 }
 
 // RunManualCollection runs all phases. If phases is non-empty, only those phases run.
@@ -210,6 +304,9 @@ func RunManualCollection(phases []string) {
 	progress.Errors = nil
 	progress.Started = time.Now()
 	progress.Finished = nil
+	progress.PhaseCurrent = 0
+	progress.PhaseTotal = 0
+	progress.BehaviorStats = make(map[string]int64)
 	progress.mu.Unlock()
 
 	logEntry := model.CollectionLog{
@@ -239,12 +336,19 @@ func RunManualCollection(phases []string) {
 		}
 		durationMs := now.Sub(logEntry.StartedAt).Milliseconds()
 		phasesJSON, _ := json.Marshal(progress.Results)
+		statsJSON, _ := json.Marshal(progress.BehaviorStats)
 		db.MySQL.Model(&logEntry).Updates(map[string]interface{}{
-			"phases": string(phasesJSON), "total_new": totalNew,
-			"total_skipped": totalSkipped, "total_errors": totalErrors,
-			"status": status, "duration_ms": durationMs, "finished_at": now,
+			"phases":         string(phasesJSON),
+			"total_new":      totalNew,
+			"total_skipped":  totalSkipped,
+			"total_errors":   totalErrors,
+			"status":         status,
+			"duration_ms":    durationMs,
+			"finished_at":    now,
+			"behavior_stats": string(statsJSON),
 		})
 		sseSend(SSELine{Type: "done", Phase: "done", Level: "success",
+			Stats: progress.BehaviorStats,
 			Message: fmt.Sprintf("采集完成: 新增 %d, 跳过 %d, 错误 %d, 耗时 %dms", totalNew, totalSkipped, totalErrors, durationMs)})
 	}()
 
@@ -304,6 +408,9 @@ func RunManualCollection(phases []string) {
 	}
 	if shouldRun("score") {
 		appendResult(runScorePhase())
+	}
+	if shouldRun("quote") {
+		appendResult(runQuotePhase())
 	}
 }
 

@@ -187,7 +187,9 @@ def main():
         print("股东数据已是最新", flush=True)
         return
     
-    print(f"采集股东数据: {len(codes)} 只", flush=True)
+    print(f"📊 数据源: 东方财富数据中心 (股东户数+十大股东)", flush=True)
+    print(f"📋 待采集: {len(codes)} 只股票 | 每只拉取12期历史 + 全量十大股东", flush=True)
+    print(f"🚀 开始采集股东数据...", flush=True)
     done, total_rows = 0, 0
     start = time.time()
     
@@ -239,13 +241,23 @@ def main():
         if (i + 1) % 50 == 0:
             conn.commit()
             elapsed = time.time() - start
-            print(f"  {i+1}/{len(codes)} | {done} stocks | {total_rows} rows | {elapsed:.0f}s", flush=True)
+            pct = (i+1) * 100 // len(codes)
+            avg_rows = total_rows / max(done, 1)
+            print(f"  📊 进度: {i+1}/{len(codes)} ({pct}%) | 已入库 {done} 只/{total_rows} 条 | 平均 {avg_rows:.1f} 条/只 | 耗时 {elapsed:.0f}s", flush=True)
+            print(f"PROGRESS:{i+1}/{len(codes)}", flush=True)
         time.sleep(0.15)
     
     conn.commit()
     cur.close()
     conn.close()
-    print(f"✅ 股东数据: {done} stocks, {total_rows} rows | {time.time()-start:.0f}s")
+    elapsed = time.time()-start
+    avg_r = total_rows / max(done, 1)
+    print(f"\n{'─'*40}", flush=True)
+    print(f"✅ 股东数据采集完成", flush=True)
+    print(f"   📈 采集股票: {done} 只", flush=True)
+    print(f"   📥 入库记录: {total_rows} 条 (平均 {avg_r:.1f} 条/只)", flush=True)
+    print(f"   ⏱️  总耗时: {elapsed:.0f}s", flush=True)
+    print(f"{'─'*40}", flush=True)
 
 if __name__ == "__main__":
     main()

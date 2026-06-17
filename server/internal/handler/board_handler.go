@@ -480,14 +480,27 @@ func (h *BoardHandler) ConceptBoardStocks(c *gin.Context) {
 		avgChg = avgChg / float64(len(stocks))
 	}
 	
-	response.Success(c, gin.H{
+	total := len(stocks)
+	emptyReason := ""
+	if total == 0 && board.ConceptType == "concept" {
+		emptyReason = "概念成分股数据待同步，请等待定时任务或手动触发采集"
+	}
+	if total == 0 && board.StockCount > 0 {
+		total = board.StockCount
+	}
+
+	respData := gin.H{
 		"board":     board,
 		"stocks":    stocks,
 		"upCount":   upCount,
 		"downCount": downCount,
 		"avgChgPct": avgChg,
-		"total":     len(stocks),
-	})
+		"total":     total,
+	}
+	if emptyReason != "" {
+		respData["emptyReason"] = emptyReason
+	}
+	response.Success(c, respData)
 }
 
 // ConceptHeatmap returns heatmap data for concept boards

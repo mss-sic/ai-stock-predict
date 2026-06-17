@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import {
   uploadExcel, uploadKline, uploadPrediction, uploadProfile, triggerCollection, fetchCollectorProgress,
+  fetchRealtimeQuotes,
   fetchImportHistory, fetchCollectorHistory, clearCollectorHistory, fetchDataStats, fetchDataDetail,
   fetchScheduledTasks, runTaskNow, initDefaultTasks, fetchTaskLogs, resetTaskStatus, toggleTask
 } from '../services/api';
@@ -47,7 +48,7 @@ const PHASE_COLORS: Record<string, string> = {
   backfill_financial: '#4080ff', backfill_shareholder: '#ff4080', backfill_indicator: '#00c853',
 };
 
-interface SSELine { type: string; phase?: string; message?: string; level?: string; result?: PhaseResult; }
+interface SSELine { type: string; phase?: string; message?: string; level?: string; result?: PhaseResult; stats?: Record<string, number>; progressCurrent?: number; progressTotal?: number; }
 interface PhaseResult { phase: string; total: number; new: number; skipped: number; errors: number; durationMs: number; }
 interface DataStat { key: string; label: string; count: number; updatedAt?: string; }
 
@@ -111,6 +112,7 @@ export default function DataManagementPage() {
   const [collecting, setCollecting] = useState(false);
   const [consoleLines, setConsoleLines] = useState<{ text: string; level: string; time: string }[]>([]);
   const [phaseResults, setPhaseResults] = useState<PhaseResult[]>([]);
+  const [phaseProgress, setPhaseProgress] = useState({ current: 0, total: 0 });
   const [totalDuration, setTotalDuration] = useState(0);
   const [toast, setToast] = useState<{ type: 'success' | 'error' | 'info'; msg: string } | null>(null);
   const [dataStats, setDataStats] = useState<DataStat[]>([]);
@@ -131,6 +133,9 @@ export default function DataManagementPage() {
   const consoleRef = useRef<HTMLDivElement>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
   const startTimeRef = useRef<number>(0);
+  const reconnectAttemptRef = useRef(0);
+  const reconnectTimerRef = useRef<any>(null);
+  const MAX_RECONNECT = 10;
 
   const showToast = useCallback((type: 'success' | 'error' | 'info', msg: string) => { setToast({ type, msg }); }, []);
 
@@ -165,9 +170,161 @@ export default function DataManagementPage() {
   const handleInitDefaults = async () => { try { await initDefaultTasks(); loadTasks(); } catch {} };
 
   // ── SSE ──
-  const connectStream = () => { setCollecting(true); const tok = localStorage.getItem('aip_access_token'); const es = new EventSource(`/api/v1/collector/stream?token=${tok || ''}`); eventSourceRef.current?.close(); eventSourceRef.current = es; es.onmessage = (event) => { try { const line: SSELine = JSON.parse(event.data); if (line.type === 'connected') return; if (line.type === 'log' && line.message) addConsoleLine(line.message, line.level || 'info'); else if (line.type === 'phase' && line.message) addConsoleLine(`\n━━━ ${line.message} ━━━`, 'phase'); else if (line.type === 'result' && line.result) { setPhaseResults(prev => [...prev, line.result!]); addConsoleLine(`${line.result.errors > 0 ? '⚠️' : '✅'} ${PHASE_LABELS[line.result.phase] || line.result.phase}: 总计${line.result.total} | 新增${line.result.new} | 耗时${(line.result.durationMs / 1000).toFixed(1)}s`, line.result.errors > 0 ? 'stderr' : 'success'); } else if (line.type === 'done') { addConsoleLine(`\n${line.message}`, 'success'); setCollecting(false); setTotalDuration(Date.now() - startTimeRef.current); es.close(); eventSourceRef.current = null; loadProgress(); showToast('success', '采集完成'); } } catch {} }; es.onerror = () => { if (!collecting) { es.close(); eventSourceRef.current = null; } }; };
+  // ── SSE event handler factory ──
+  const makeSSEHandler = (es: EventSource) => {
+    const handleMessage = (event: MessageEvent) => {
+      try {
+        const line: SSELine = JSON.parse(event.data);
+        if (line.type === 'connected') return;
+        if (line.type === 'log' && line.message) {
+          addConsoleLine(line.message, line.level || 'info');
+        } else if (line.type === 'stat') {
+          // Stats are accumulated server-side; human-readable behavior logs
+          // come through regular 'log' type lines from Python print() statements.
+        } else if (line.type === 'progress') {
+          setPhaseProgress({ current: line.progressCurrent || 0, total: line.progressTotal || 0 });
+          if (line.message) {
+            const pct = line.progressTotal ? Math.round((line.progressCurrent || 0) / line.progressTotal * 100) : 0;
+            addConsoleLine(`⏳ 进度 ${line.message} (${pct}%)`, 'progress');
+          }
+        } else if (line.type === 'phase' && line.message) {
+          setPhaseProgress({ current: 0, total: 0 });
+          addConsoleLine(`\n━━━ ${line.message} ━━━`, 'phase');
+        } else if (line.type === 'result' && line.result) {
+          if (line.result.new === 0 && line.result.total > 0 && line.result.errors === 0) {
+            addConsoleLine(`💡 ${PHASE_LABELS[line.result.phase] || line.result.phase}: 数据已是最新，共 ${line.result.total} 条无需更新`, 'info');
+          }
+          setPhaseResults(prev => {
+            const map = new Map(prev.map(r => [r.phase, r]));
+            map.set(line.result!.phase, line.result!);
+            const arr = Array.from(map.values());
+            // Dedup by phase key
+            const seen = new Set<string>();
+            return arr.filter((r: any) => {
+              if (seen.has(r.phase)) return false;
+              seen.add(r.phase);
+              return true;
+            });
+          });
+          addConsoleLine(`${line.result.errors > 0 ? '⚠️' : '✅'} ${PHASE_LABELS[line.result.phase] || line.result.phase}: 总计${line.result.total} | 新增${line.result.new} | 耗时${(line.result.durationMs / 1000).toFixed(1)}s`, line.result.errors > 0 ? 'stderr' : 'success');
+        } else if (line.type === 'done') {
+          addConsoleLine(`\n${line.message}`, 'success');
+          setCollecting(false);
+          setTotalDuration(Date.now() - startTimeRef.current);
+          es.close();
+          eventSourceRef.current = null;
+          reconnectAttemptRef.current = 0;
+          if (reconnectTimerRef.current) { clearTimeout(reconnectTimerRef.current); reconnectTimerRef.current = null; }
+          loadProgress();
+          showToast('success', '采集完成');
+        }
+      } catch {}
+    };
+    return handleMessage;
+  };
 
-  const handleTrigger = async (phases: string[]) => { setLoading(true); setConsoleLines([]); setPhaseResults([]); setTotalDuration(0); addConsoleLine('🚀 正在启动采集任务...', 'system'); try { const res: any = await triggerCollection(phases); setCollecting(true); startTimeRef.current = Date.now(); const tok = localStorage.getItem('aip_access_token'); const es = new EventSource(`/api/v1/collector/stream?token=${tok || ''}`); eventSourceRef.current = es; es.onmessage = (event) => { try { const line: SSELine = JSON.parse(event.data); if (line.type === 'connected') return; if (line.type === 'log' && line.message) addConsoleLine(line.message, line.level || 'info'); else if (line.type === 'phase' && line.message) addConsoleLine(`\n━━━ ${line.message} ━━━`, 'phase'); else if (line.type === 'result' && line.result) { setPhaseResults(prev => [...prev, line.result!]); addConsoleLine(`${line.result.errors > 0 ? '⚠️' : '✅'} ${PHASE_LABELS[line.result.phase] || line.result.phase}: 总计${line.result.total} | 新增${line.result.new} | 耗时${(line.result.durationMs / 1000).toFixed(1)}s`, line.result.errors > 0 ? 'stderr' : 'success'); } else if (line.type === 'done') { addConsoleLine(`\n${line.message}`, 'success'); setCollecting(false); setTotalDuration(Date.now() - startTimeRef.current); es.close(); eventSourceRef.current = null; loadProgress(); showToast('success', '采集完成'); } } catch {} }; es.onerror = () => { if (!collecting) { es.close(); eventSourceRef.current = null; } }; pollRef.current = setInterval(async () => { try { const pr: any = await fetchCollectorProgress(); setProgress(pr.data?.data); if (!pr.data?.data?.running && collecting) { setCollecting(false); setTotalDuration(Date.now() - startTimeRef.current); clearInterval(pollRef.current); pollRef.current = null; eventSourceRef.current?.close(); loadProgress(); } } catch {} }, 3000); } catch { showToast('error', '触发采集失败'); setCollecting(false); } setLoading(false); };
+  // ── SSE connect with exponential backoff reconnect ──
+  const connectStream = () => {
+    setCollecting(true);
+    const tok = localStorage.getItem('aip_access_token');
+    eventSourceRef.current?.close();
+    const es = new EventSource(`/api/v1/collector/stream?token=${tok || ''}`);
+    eventSourceRef.current = es;
+    es.onmessage = makeSSEHandler(es);
+    es.onerror = () => {
+      if (!collecting) {
+        es.close();
+        eventSourceRef.current = null;
+        return;
+      }
+      // Reconnect with exponential backoff: 1s, 2s, 4s, 8s... max 60s
+      const attempt = reconnectAttemptRef.current;
+      if (attempt >= MAX_RECONNECT) {
+        addConsoleLine('⚠️ SSE 重连失败已达上限，请手动刷新', 'stderr');
+        es.close();
+        eventSourceRef.current = null;
+        return;
+      }
+      const delay = Math.min(1000 * Math.pow(2, attempt), 60000);
+      reconnectAttemptRef.current = attempt + 1;
+      addConsoleLine(`🔄 SSE 断开，${(delay / 1000).toFixed(1)}s 后重连 (第${attempt + 1}次)...`, 'warn');
+      es.close();
+      reconnectTimerRef.current = setTimeout(() => {
+        connectStream();
+      }, delay);
+    };
+  };
+
+  const handleTrigger = async (phases: string[]) => {
+    setLoading(true);
+    setConsoleLines([]);
+    setPhaseResults([]);
+    setPhaseProgress({ current: 0, total: 0 });
+    setTotalDuration(0);
+    reconnectAttemptRef.current = 0;
+    addConsoleLine('🚀 正在启动采集任务...', 'system');
+    try {
+      await triggerCollection(phases);
+      setCollecting(true);
+      startTimeRef.current = Date.now();
+      const tok = localStorage.getItem('aip_access_token');
+      const es = new EventSource(`/api/v1/collector/stream?token=${tok || ''}`);
+      eventSourceRef.current = es;
+      es.onmessage = makeSSEHandler(es);
+      es.onerror = () => {
+        if (!collecting) {
+          es.close();
+          eventSourceRef.current = null;
+          return;
+        }
+        const attempt = reconnectAttemptRef.current;
+        if (attempt >= MAX_RECONNECT) {
+          addConsoleLine('⚠️ SSE 重连失败已达上限', 'stderr');
+          es.close();
+          eventSourceRef.current = null;
+          return;
+        }
+        const delay = Math.min(1000 * Math.pow(2, attempt), 60000);
+        reconnectAttemptRef.current = attempt + 1;
+        addConsoleLine(`🔄 SSE 断开，${(delay / 1000).toFixed(1)}s 后重连 (第${attempt + 1}次)...`, 'warn');
+        es.close();
+        reconnectTimerRef.current = setTimeout(() => {
+          const tok2 = localStorage.getItem('aip_access_token');
+          const es2 = new EventSource(`/api/v1/collector/stream?token=${tok2 || ''}`);
+          eventSourceRef.current = es2;
+          es2.onmessage = makeSSEHandler(es2);
+          es2.onerror = () => {
+            if (!collecting) { es2.close(); eventSourceRef.current = null; }
+          };
+        }, delay);
+      };
+      // Poll for progress as fallback
+      pollRef.current = setInterval(async () => {
+        try {
+          const pr: any = await fetchCollectorProgress();
+          const data = pr.data?.data;
+          setProgress(data);
+          // Sync phaseProgress from server fallback (stock-level progress)
+          // Always sync as long as we have valid phaseTotal > 0
+          if (data?.phaseTotal && data.phaseTotal > 0) {
+            setPhaseProgress({ current: data.phaseCurrent || 0, total: data.phaseTotal });
+          }
+          if (!data?.running && collecting) {
+            setCollecting(false);
+            setTotalDuration(Date.now() - startTimeRef.current);
+            clearInterval(pollRef.current);
+            pollRef.current = null;
+            eventSourceRef.current?.close();
+            loadProgress();
+          }
+        } catch {}
+      }, 3000);
+    } catch {
+      showToast('error', '触发采集失败');
+      setCollecting(false);
+    }
+    setLoading(false);
+  };
 
   const handleStop = () => { eventSourceRef.current?.close(); clearInterval(pollRef.current); setCollecting(false); addConsoleLine('⏹ 用户停止了监控（采集进程仍在服务端运行）', 'system'); };
 
@@ -188,9 +345,39 @@ export default function DataManagementPage() {
     return () => { clearInterval(pollRef.current); eventSourceRef.current?.close(); };
   }, [tab]);
 
-  // ── Auto-reconnect SSE ──
+  // ── Auto-reconnect SSE on page load ──
   useEffect(() => {
-    (async () => { try { const pr: any = await fetchCollectorProgress(); if (pr.data?.data?.running) { setCollecting(true); setProgress(pr.data.data); setPhaseResults(pr.data.data.results || []); if (pr.data.data.started) startTimeRef.current = new Date(pr.data.data.started).getTime(); addConsoleLine('🔄 检测到正在运行的采集，自动重连...', 'system'); const tok = localStorage.getItem('aip_access_token'); const es = new EventSource('/api/v1/collector/stream?token=' + (tok || '')); eventSourceRef.current = es; es.onmessage = (event) => { try { const line: SSELine = JSON.parse(event.data); if (line.type === 'connected') return; if (line.type === 'log' && line.message) addConsoleLine(line.message, line.level || 'info'); else if (line.type === 'phase' && line.message) addConsoleLine(`\n━━━ ${line.message} ━━━`, 'phase'); else if (line.type === 'result' && line.result) { setPhaseResults(prev => [...prev, line.result!]); addConsoleLine(`${line.result.errors > 0 ? '⚠️' : '✅'} ${PHASE_LABELS[line.result.phase] || line.result.phase}: 总计${line.result.total} | 新增${line.result.new} | 耗时${(line.result.durationMs / 1000).toFixed(1)}s`, line.result.errors > 0 ? 'stderr' : 'success'); } else if (line.type === 'done') { addConsoleLine(`\n${line.message}`, 'success'); setCollecting(false); setTotalDuration(Date.now() - startTimeRef.current); es.close(); eventSourceRef.current = null; loadProgress(); showToast('success', '采集完成'); } } catch {} }; } } catch {} })();
+    (async () => {
+      try {
+        const pr: any = await fetchCollectorProgress();
+        if (pr.data?.data?.running) {
+          setCollecting(true);
+          setProgress(pr.data.data);
+          // Dedup results by phase to prevent double panels
+          const rawResults = pr.data.data.results || [];
+          const seen = new Set<string>();
+          const deduped = rawResults.filter((r: any) => {
+            const key = r.phase;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+          });
+          setPhaseResults(deduped);
+          if (pr.data.data.phaseCurrent !== undefined && pr.data.data.phaseTotal && pr.data.data.phaseTotal > 0) {
+            setPhaseProgress({ current: pr.data.data.phaseCurrent, total: pr.data.data.phaseTotal });
+          }
+          if (pr.data.data.started) startTimeRef.current = new Date(pr.data.data.started).getTime();
+          addConsoleLine('🔄 检测到正在运行的采集，自动重连...', 'system');
+          const tok = localStorage.getItem('aip_access_token');
+          const es = new EventSource('/api/v1/collector/stream?token=' + (tok || ''));
+          eventSourceRef.current = es;
+          es.onmessage = makeSSEHandler(es);
+          es.onerror = () => {
+            if (!collecting) { es.close(); eventSourceRef.current = null; }
+          };
+        }
+      } catch {}
+    })();
   }, []);
 
   // ══════════════════════════════════════════
@@ -449,7 +636,12 @@ export default function DataManagementPage() {
                     {collecting && progress?.phase === selectedCollectPhase ? (
                       <Tag color="orange" style={{ display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ width: 6, height: 6, borderRadius: '50%', background: '#ff7d00', display: 'inline-block' }} />采集中</Tag>
                     ) : (
-                      <Button size="small" type="primary" icon={<Play size={12} />} onClick={() => handleTrigger([selectedCollectPhase])} disabled={collecting}>采集</Button>
+                      <>
+                        <Button size="small" type="primary" icon={<Play size={12} />} onClick={() => handleTrigger([selectedCollectPhase])} disabled={collecting}>采集</Button>
+                        <Tooltip content="实时刷新行情 (自选+持仓+榜单)">
+                          <Button size="small" type="outline" icon={<Zap size={12} />} onClick={async () => { try { const res: any = await fetchRealtimeQuotes(); showToast('success', res.data?.message || '刷新完成'); loadProgress(); } catch { showToast('error', '实时行情刷新失败'); } }} disabled={collecting}>行情刷新</Button>
+                        </Tooltip>
+                      </>
                     )}
                   </div>
                 </div>
@@ -458,8 +650,22 @@ export default function DataManagementPage() {
                   {collecting && progress && (
                     <div style={{ marginBottom: 12 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 6 }}>
-                        <Progress percent={Math.round((progress.current / Math.max(progress.total, 1)) * 100)} style={{ flex: 1 }} status="normal" />
-                        <span style={{ fontSize: 12, color: 'var(--color-text-3)', whiteSpace: 'nowrap' }}>{progress.current}/{progress.total}</span>
+                        {phaseProgress.total > 0 ? (
+                          <>
+                            <Progress percent={Math.round((phaseProgress.current / Math.max(phaseProgress.total, 1)) * 100)} style={{ flex: 1 }} status="normal" />
+                            <span style={{ fontSize: 12, color: 'var(--color-text-3)', whiteSpace: 'nowrap' }}>{phaseProgress.current.toLocaleString()} / {phaseProgress.total.toLocaleString()}</span>
+                          </>
+                        ) : progress?.total > 0 ? (
+                          <>
+                            <Progress percent={Math.round((progress.current / Math.max(progress.total, 1)) * 100)} style={{ flex: 1 }} status="normal" />
+                            <span style={{ fontSize: 12, color: 'var(--color-text-3)', whiteSpace: 'nowrap' }}>阶段 {progress.current}/{progress.total}</span>
+                          </>
+                        ) : (
+                          <>
+                            <Progress percent={0} style={{ flex: 1 }} status="normal" />
+                            <span style={{ fontSize: 12, color: 'var(--color-text-3)', whiteSpace: 'nowrap', animation: 'collectBgPulse 1.5s infinite' }}>采集中...</span>
+                          </>
+                        )}
                       </div>
                       <div style={{ fontSize: 12, color: 'var(--color-text-2)' }}>{progress.message || '正在采集...'}</div>
                     </div>

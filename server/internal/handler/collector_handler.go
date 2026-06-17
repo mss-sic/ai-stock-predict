@@ -1,13 +1,16 @@
 package handler
 
 import (
-	"log"
 	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/ai-stock-predict/server/internal/collector"
@@ -210,4 +213,115 @@ func (h *CollectorHandler) CollectReports(c *gin.Context) {
 	} else {
 		emit("complete", "该股票暂无机构研报（近2年无券商覆盖）", "warn")
 	}
+}
+
+// RealtimeQuotes triggers real-time quote fetch for relevant stocks
+// (board picks last 2 days + user's strategy stock pool + holdings).
+func (h *CollectorHandler) RealtimeQuotes(c *gin.Context) {
+	userID := c.GetUint("userID")
+
+	// 1. Collect target stock codes
+	codeSet := make(map[string]bool)
+
+	// Board picks from last 2 trading days
+	var boardCodes []string
+	db.PG.Raw(`
+		SELECT DISTINCT code FROM board_picks
+		WHERE trade_date >= (SELECT MAX(trade_date) FROM board_picks WHERE trade_date < CURRENT_DATE)
+		ORDER BY code
+	`).Scan(&boardCodes)
+	for _, code := range boardCodes {
+		codeSet[code] = true
+	}
+
+	// User's strategy stock pool
+	var stockCodesStr string
+	db.MySQL.Raw("SELECT stock_codes FROM strategies WHERE user_id = ? AND stock_codes != '' LIMIT 1", userID).Scan(&stockCodesStr)
+	for _, code := range strings.Split(stockCodesStr, ",") {
+		code = strings.TrimSpace(code)
+		if len(code) == 6 {
+			codeSet[code] = true
+		}
+	}
+
+	// User's current holdings (stocks with non-zero position)
+	var holdingCodes []string
+	db.MySQL.Raw(`
+		SELECT DISTINCT stock_code FROM trade_records
+		WHERE user_id = ? AND trade_type = 'buy'
+		AND stock_code NOT IN (
+			SELECT stock_code FROM trade_records WHERE user_id = ? AND trade_type = 'sell'
+			GROUP BY stock_code HAVING SUM(quantity) >= (
+				SELECT SUM(quantity) FROM trade_records t2 WHERE t2.user_id = ? AND t2.stock_code = trade_records.stock_code AND t2.trade_type = 'buy'
+			)
+		)
+	`, userID, userID, userID).Scan(&holdingCodes)
+	for _, code := range holdingCodes {
+		codeSet[code] = true
+	}
+
+	if len(codeSet) == 0 {
+		response.Success(c, map[string]interface{}{
+			"message": "没有需要更新的股票（榜单/自选/持仓均为空）",
+			"count":   0,
+		})
+		return
+	}
+
+	codes := make([]string, 0, len(codeSet))
+	for code := range codeSet {
+		codes = append(codes, code)
+	}
+
+	log.Printf("[collector] realtime quotes: %d stocks (board=%d, strategy=%d, holdings=%d)",
+		len(codes), len(boardCodes), len(strings.Split(stockCodesStr, ",")), len(holdingCodes))
+
+	// 2. Run Python script
+	scriptPath := filepath.Join(collector.ScriptsRoot(), "realtime_quotes.py")
+	cmd := exec.Command("python3", "-u", scriptPath, strings.Join(codes, ","))
+	cmd.Dir = collector.ScriptsRoot()
+	cmd.Env = append(os.Environ(), "PYTHONUNBUFFERED=1")
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Printf("[collector] realtime quotes failed: %v", err)
+		response.Error(c, http.StatusInternalServerError, 500, "实时行情采集失败: "+string(output))
+		return
+	}
+
+	// 3. Count updated records
+	var count int64
+	db.PG.Model(&model.StockRealtimeQuote{}).Count(&count)
+
+	response.Success(c, map[string]interface{}{
+		"message": fmt.Sprintf("实时行情更新完成，共 %d 只股票", count),
+		"count":   count,
+		"output":  string(output),
+	})
+}
+
+// RealtimeQuoteSingle refreshes real-time quote for a single stock.
+func (h *CollectorHandler) RealtimeQuoteSingle(c *gin.Context) {
+	code := c.Param("code")
+	if code == "" {
+		response.Error(c, http.StatusBadRequest, 400, "missing stock code")
+		return
+	}
+
+	scriptPath := filepath.Join(collector.ScriptsRoot(), "realtime_quotes.py")
+	cmd := exec.Command("python3", "-u", scriptPath, code)
+	cmd.Dir = collector.ScriptsRoot()
+	cmd.Env = append(os.Environ(), "PYTHONUNBUFFERED=1")
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Printf("[collector] realtime single %s failed: %v", code, err)
+		response.Error(c, http.StatusInternalServerError, 500, "行情刷新失败: "+string(output))
+		return
+	}
+
+	response.Success(c, map[string]interface{}{
+		"message": fmt.Sprintf("%s 行情已刷新", code),
+		"output":  string(output),
+	})
 }
