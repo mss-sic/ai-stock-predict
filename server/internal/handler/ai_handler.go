@@ -254,17 +254,14 @@ func (h *AIHandler) ScoreStockAgent(code string, uid uint) error {
 
 // toolGetMyHoldings returns user's current holdings with cost, quantity, and P&L.
 func (h *AIHandler) toolGetMyHoldings(userID uint) string {
-	var holdings []struct {
-		ID        uint    `json:"id"`
-		UserID    uint    `json:"userId"`
-		StockCode string  `json:"stockCode"`
-		CostPrice float64 `json:"costPrice"`
-		Quantity  int     `json:"quantity"`
-		BuyDate   string  `json:"buyDate"`
-	}
+	var holdings []model.Holding
 	log.Printf("[tool_get_holdings] querying for userID=%d", userID)
-	db.MySQL.Raw(`SELECT id, user_id, stock_code, cost_price, quantity, buy_date FROM holdings WHERE user_id = ?`, userID).Scan(&holdings)
-	log.Printf("[tool_get_holdings] found %d holdings for userID=%d", len(holdings), userID)
+	result := db.MySQL.Where("user_id = ?", userID).Find(&holdings)
+	if result.Error != nil {
+		log.Printf("[tool_get_holdings] query error for userID=%d: %v", userID, result.Error)
+		return fmt.Sprintf(`{"holdings":[],"totalValue":0,"totalCost":0,"totalPnl":0,"totalPnlPct":0,"message":"查询出错: %s"}`, result.Error.Error())
+	}
+	log.Printf("[tool_get_holdings] found %d holdings for userID=%d (rows affected: %d)", len(holdings), userID, result.RowsAffected)
 
 	if len(holdings) == 0 {
 		return `{"holdings":[],"totalValue":0,"totalCost":0,"totalPnl":0,"totalPnlPct":0,"message":"暂无持仓数据"}`
