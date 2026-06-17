@@ -1,5 +1,33 @@
 # Changelog
 
+## v1.3.3 (2026-06-18)
+
+### 数据采集
+- **采集控制台进度条修复** — 修复进度条始终 0/1 问题：前端 phaseProgress 轮询同步不再要求 phaseCurrent 非 undefined
+- **采集日志优化** — batch_collect.py 每批次输出关键行为日志："通过腾讯获取 0618 日K线 122 条，新入库 22 只"
+- **STAT 行为统计** — 新增 `STAT:kline_fetched=X,kline_new=Y` 行，Go 引擎自动累积到 behaviorStats
+- **NULL trade_date 崩溃修复** — stocks_daily_indicator 写入时先检查 MAX(trade_date) 再插入，避免 TimescaleDB NotNullViolation
+- **采集控制台刷新重连** — 自动重连时 phaseResults 按 phase 去重，修复刷新后双统计面板
+- **实时行情监控** — 新增 quote 阶段，交易时段每 5 分钟自动采集自选+持仓+榜单股票行情
+- **realtime_quotes.py** — 新增 `--all` 监控模式，支持无用户上下文的定时任务调用
+
+### 概念板块
+- **成分股数据填充** — 新增 `populate_concept_stocks_sina.py`，从新浪 API 填充 175 个概念板块共 8,090 条成分股记录
+- **stock_count 修正** — 从新浪 API 恢复准确板块股票数（此前均为 0）
+- **概念空数据提示** — ConceptBoardStocks handler 在 stock_concepts 为空时返回 emptyReason
+- **乱码修复** — `gn_kdts`（宽带提速）、`gn_wxdh`（卫星导航）名称编码修复
+- **populate_concept_stocks.py** — 增加 3 次指数退避重试（东方财富 API 备用）
+
+### 后端
+- engine.go 新增 `runQuotePhase` + `runPythonStreamWithArgs` SSE 进度推送
+- task_service.go 新增 `{"实时行情监控", "quote", "0 */5 9-15 * * 1-5"}` 定时任务
+- board_handler.go 空概念处理 + emptyReason 字段
+
+### 数据模型
+- stock_realtime_quote 表新增，存储实时行情快照
+- concept_boards.stock_count 从 0 恢复为新浪 API 准确值
+
+
 ## v1.3.2 (2026-06-18)
 
 ### AI 简介美化
