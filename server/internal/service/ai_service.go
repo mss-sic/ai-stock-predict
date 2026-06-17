@@ -358,7 +358,7 @@ func (s *AIService) ChatCompletionAgent(userID uint, history []map[string]string
 		msgs = append(msgs, AgentMessage{Role: role, Content: h["content"]})
 	}
 
-	const maxTurns = 5
+	const maxTurns = 8
 	for turn := 0; turn < maxTurns; turn++ {
 		body := map[string]interface{}{
 			"model":       cfg.ModelName,
@@ -430,7 +430,7 @@ func (s *AIService) ChatCompletionAgent(userID uint, history []map[string]string
 		}
 		return nil
 	}
-	return fmt.Errorf("Agent exceeded max turns (%d)", maxTurns)
+	onChunk("\n\n> ⚠️ 分析需要的数据较多，已自动截断。您可以换一种方式提问。"); return nil
 }
 
 // ChatCompletionAgentStream runs the agent loop with SSE event streaming.
@@ -460,7 +460,7 @@ func (s *AIService) ChatCompletionAgentStream(userID uint, history []map[string]
 		msgs = append(msgs, AgentMessage{Role: role, Content: h["content"]})
 	}
 
-	const maxTurns = 5
+	const maxTurns = 8
 	for turn := 0; turn < maxTurns; turn++ {
 		// Send phase event at start of each turn
 		if turn == 0 {
@@ -477,6 +477,14 @@ func (s *AIService) ChatCompletionAgentStream(userID uint, history []map[string]
 			"tool_choice": "auto",
 		}
 
+		// Last turn: force final answer (no more tool calls)
+		if turn == maxTurns-1 {
+			body["tool_choice"] = "none"
+			delete(body, "tools")
+			onEvent("agent_phase", map[string]string{
+				"phase": "finalizing", "label": "AI 正在生成最终回答...",
+			})
+		}
 		b, _ := json.Marshal(body)
 		req, err := http.NewRequest("POST", cfg.BaseURL+"/v1/chat/completions", bytes.NewReader(b))
 		if err != nil { return err }
@@ -567,5 +575,5 @@ func (s *AIService) ChatCompletionAgentStream(userID uint, history []map[string]
 		}
 		return nil
 	}
-	return fmt.Errorf("Agent exceeded max turns (%d)", maxTurns)
+	onChunk("\n\n> ⚠️ 分析需要的数据较多，已自动截断。您可以换一种方式提问。"); return nil
 }
