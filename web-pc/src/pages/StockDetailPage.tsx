@@ -543,6 +543,17 @@ fetchPredictionResult(code).then((r: any) => {
     })();
   }, [code]);
 
+  // Auto-scroll to bottom on mount (when loading existing history)
+  useEffect(() => {
+    const container = chatMessagesRef.current;
+    if (container && msgs.length > 0) {
+      // Delay to ensure DOM is painted
+      setTimeout(() => {
+        container.scrollTo({ top: container.scrollHeight, behavior: 'instant' });
+      }, 100);
+    }
+  }, []); // Only on mount
+
   // Auto-scroll chat to bottom when messages update or loading state changes
   useEffect(() => {
     const container = chatMessagesRef.current;
@@ -550,6 +561,7 @@ fetchPredictionResult(code).then((r: any) => {
       container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
     }
   }, [chatLoading]);
+
   // Also scroll on new messages (debounced by React batching)
   const prevMsgCount = useRef(0);
   useEffect(() => {
@@ -1648,7 +1660,10 @@ const handleChatSend = async (text?: string) => {
                                   )
                                 ))}
                               </div>
-                            ) : (
+                            ) : (() => {
+                                // Strip JSON widgets before rendering as plain Markdown
+                                const cleanText = m.text?.replace(/\{[^}]*"w"\s*:\s*"(?:signal|risk|plan|list|alert|panel|summary)"[^}]*\}/g, '') || '';
+                                return (
                               <ReactMarkdown
                                 remarkPlugins={[remarkGfm]}
                                 components={{
@@ -1691,8 +1706,9 @@ const handleChatSend = async (text?: string) => {
                                     }}>{children}</td>
                                   ),
                                 }}
-                              >{m.text}</ReactMarkdown>
-                            )
+                              >{cleanText}</ReactMarkdown>
+                                );
+                              })()
                           ) : m.text) : (
                             <div style={{
                               display: 'flex', flexDirection: 'column', gap: 8,
