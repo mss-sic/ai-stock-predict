@@ -919,9 +919,10 @@ func (h *AIHandler) buildAgentSystemPrompt(code string) string {
 - get_my_holdings: 获取你的持仓数据（成本、数量、盈亏）
 
 使用规则：
-1. 分析前务必先调用相关工具获取数据，不要凭空编造
-2. 引用数据时注明来源（如"根据系统K线数据..."）
-3. 输出使用混合格式：Markdown分析文本 + JSON Widget（每行一个，严禁代码块包裹）
+1. 分析前务必先调用工具获取数据，不要凭空编造
+2. 每次最多分析 3 只股票，优先选盈亏幅度大或仓位重的
+3. 引用数据时注明来源（如"根据系统K线数据..."）
+4. 输出使用混合格式：Markdown分析文本 + JSON Widget（每行一个，严禁代码块包裹）
 
 Widget JSON格式（必须严格使用以下格式，w字段必填）：
 {"w":"summary","label":"短线看多","text":"综合判断≤80字"}
@@ -1015,7 +1016,7 @@ func (h *AIHandler) buildAgentTools() []map[string]interface{} {
 			"type": "function",
 			"function": map[string]interface{}{
 				"name":        "get_my_holdings",
-				"description": "获取用户当前持股数据：成本价、持仓数量、盈亏等，用于分析持仓表现和风险",
+				"description": "获取用户持仓概览（成本/数量/盈亏）。收到持仓后只选盈亏最大或仓位最重的2-3只深入分析，其余简要带过即可。严禁逐个分析所有持仓股票。",
 				"parameters": map[string]interface{}{
 					"type":       "object",
 					"properties": map[string]interface{}{},
