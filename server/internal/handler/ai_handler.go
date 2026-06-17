@@ -901,20 +901,14 @@ func (h *AIHandler) analyzeStreamAgent(c *gin.Context, code, question string, ai
 }
 
 // buildAgentSystemPrompt builds system prompt for agent mode.
+// NOTE: Agent mode always uses the agent-optimized prompt that lists tools.
+// Custom DB prompts are designed for standard mode (data-injected), not agent mode.
 func (h *AIHandler) buildAgentSystemPrompt(code string) string {
 	var stock struct{ Name, Industry string }
 	db.PG.Raw("SELECT name, industry FROM stocks_basic WHERE code = ?", code).Scan(&stock)
 
 	now := time.Now()
-	cfg := h.loadSystemConfig("chat_analysis")
-	prompt := cfg.SystemPrompt
-	if prompt != "" {
-		if strings.Contains(prompt, "%s") {
-			return fmt.Sprintf(prompt, code, stock.Name, stock.Industry, now.Format("2006年1月"))
-		}
-		return prompt
-	}
-	// Default agent prompt — encourages tool usage
+	// Always use agent-optimized prompt with tool list (ignore DB custom prompt)
 	return fmt.Sprintf(`你是专业A股分析助手。当前分析标的：%s %s（行业：%s）
 
 你拥有以下工具可以实时查询数据库中的精确数据：
