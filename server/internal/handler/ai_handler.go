@@ -845,11 +845,6 @@ func (h *AIHandler) analyzeStreamAgent(c *gin.Context, code, question string, ai
 
 	// Build system prompt for agent mode (without injected data, agent queries itself)
 	sysMsg := h.buildAgentSystemPrompt(code)
-	// Ensure tool instructions are present (custom prompts from DB may omit them)
-	if !strings.Contains(sysMsg, "get_my_holdings") {
-		sysMsg += "\n\n你拥有以下工具可以实时查询数据库：get_stock_price(价格/PE/PB)、get_kline_summary(K线走势)、get_technical(技术指标)、get_financials(财务数据)、get_news(新闻公告)、get_my_holdings(持仓/成本/盈亏)、get_shareholders(股东户数/机构持仓比例)。分析前务必先调用工具获取数据，不要凭空编造。"
-	}
-
 	// Load recent history
 	var history []model.AIConversation
 	db.PG.Where("code = ?", code).Order("created_at DESC").Limit(12).Find(&history)
@@ -917,14 +912,20 @@ func (h *AIHandler) analyzeStreamAgent(c *gin.Context, code, question string, ai
 }
 
 // buildAgentSystemPrompt builds system prompt for agent mode.
-// NOTE: Agent mode always uses the agent-optimized prompt that lists tools.
-// Custom DB prompts are designed for standard mode (data-injected), not agent mode.
+// Loads from DB ai_system_configs (scene=chat_analysis), falls back to built-in default.
 func (h *AIHandler) buildAgentSystemPrompt(code string) string {
 	var stock struct{ Name, Industry string }
 	db.PG.Raw("SELECT name, industry FROM stocks_basic WHERE code = ?", code).Scan(&stock)
-
 	now := time.Now()
-	// Always use agent-optimized prompt with tool list (ignore DB custom prompt)
+
+	// Try DB custom prompt first
+	cfg := h.loadSystemConfig("chat_analysis")
+	if cfg.SystemPrompt != "" && cfg.EnableTools {
+		// Agent mode: format with stock info
+		return fmt.Sprintf(cfg.SystemPrompt, code, stock.Name, stock.Industry, now.Format("2006年1月"))
+	}
+
+	// Fallback built-in agent prompt
 	return fmt.Sprintf(`你是专业A股分析助手。当前分析标的：%s %s（行业：%s）
 
 你拥有以下工具可以实时查询数据库中的精确数据：
@@ -937,11 +938,10 @@ func (h *AIHandler) buildAgentSystemPrompt(code string) string {
 - get_shareholders: 获取股东户数和机构持仓比例变化趋势
 
 使用规则：
-1. 按问题需求调用工具，只调用回答问题必需的工具。例如问"机构持仓"只需查股东/新闻，不必调技术指标和财务
-2. 涉及多只股票时最多深入分析 3 只（选盈亏大或仓位重的），其余简要带过
-3. 引用数据时注明来源（如"根据系统K线数据..."）
-4. 优先用自然语言回答，贴合用户问题。仅在需要结构化展示（如数据对比、风险清单、操作建议）时使用 Widget
-5. Widget 格式（可选，按需使用，w字段必填）：
+1. 按问题需求调用工具，只调用回答问题必需的工具
+2. 涉及多只股票时最多深入分析 3 只，其余简要带过
+3. 优先用自然语言回答，贴合用户问题。仅在需要结构化展示时使用 Widget
+4. Widget 格式（可选，按需使用，w字段必填）：
 {"w":"summary","label":"短线看多","text":"综合判断≤80字"}
 {"w":"signal","u":true,"h":"信号≤10字","d":"说明≤30字"}
 {"w":"risk","h":"风险≤10字","d":"说明≤30字"}
@@ -949,8 +949,8 @@ func (h *AIHandler) buildAgentSystemPrompt(code string) string {
 {"w":"alert","level":"warning","title":"注意","body":"说明"}
 {"w":"panel","t":"标题","rows":[{"k":"指标","v":"数值"}]}
 {"w":"plan","s":支撑价,"r":压力价,"tip":"建议≤20字","pos":30}
-严禁自创格式（如 type/signal 等），必须使用 w 字段。不要用代码块包裹JSON。
-6. 分析截止时间：%s`, code, stock.Name, stock.Industry, now.Format("2006年1月"))
+严禁自创格式，必须使用 w 字段。不要用代码块包裹JSON。
+5. 分析截止时间：%s`, code, stock.Name, stock.Industry, now.Format("2006年1月"))
 }
 
 // buildAgentTools returns the tool definitions for DeepSeek Function Calling.
