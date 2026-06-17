@@ -24,7 +24,7 @@ cd web-pc && npm install && npm run build && cd ..
 
 echo "[4/4] 部署前端到生产目录..."
 mkdir -p "$WEB_ROOT"
-rsync -a --delete web-pc/dist/ "$WEB_ROOT/"
+rsync -a --delete --exclude=".user.ini" web-pc/dist/ "$WEB_ROOT/"
 
 echo ""
 echo "✅ 部署完成"
