@@ -41,8 +41,8 @@ def fetch_quotes(codes):
                         "high": float(fields[32]) if fields[32] else 0,
                         "low": float(fields[33]) if fields[33] else 0,
                         "amount": float(fields[36]) if fields[36] else 0,
-                        "turnover": float(fields[37]) if fields[37] else 0,
-                        "pe": float(fields[38]) if fields[38] else 0,
+                        "turnover": float(fields[38]) if fields[38] else 0,
+                        "pe": float(fields[39]) if fields[39] else 0,
                         "total_mcap": float(fields[44]) if fields[44] else 0,
                         "circulating_mcap": float(fields[45]) if fields[45] else 0,
                         "pb": float(fields[46]) if fields[46] else 0,
@@ -167,6 +167,42 @@ def main():
         missing = set(codes) - set(quotes.keys())
         if missing:
             print(f"   ⚠️  未获取到数据: {', '.join(sorted(missing)[:10])}", flush=True)
+
+
+    # ── 同步更新 stocks_daily_k.turnover_rate 和 stocks_daily_indicator ──
+    turnover_updated = 0
+    indicator_updated = 0
+    for code, q in quotes.items():
+        if q.get("turnover", 0) > 0:
+            cur.execute("""
+                UPDATE stocks_daily_k SET turnover_rate = %s
+                WHERE code = %s AND trade_date = (
+                    SELECT MAX(trade_date) FROM stocks_daily_k WHERE code = %s
+                )
+            """, (q["turnover"] / 100, code, code))
+            if cur.rowcount > 0:
+                turnover_updated += 1
+        if q.get("pe", 0) > 0 or q.get("total_mcap", 0) > 0:
+            cur.execute("SELECT MAX(trade_date) FROM stocks_daily_k WHERE code = %s", (code,))
+            latest = cur.fetchone()[0]
+            if latest:
+                try:
+                    cur.execute("""
+                        INSERT INTO stocks_daily_indicator (code, trade_date, pe, pb, total_market_cap, circulating_market_cap)
+                        VALUES (%s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (code, trade_date) DO UPDATE SET
+                            pe = EXCLUDED.pe, pb = EXCLUDED.pb,
+                            total_market_cap = EXCLUDED.total_market_cap,
+                            circulating_market_cap = EXCLUDED.circulating_market_cap
+                    """, (code, latest, q.get("pe", 0), q.get("pb", 0),
+                          q.get("total_mcap", 0), q.get("circulating_mcap", 0)))
+                    if cur.rowcount > 0:
+                        indicator_updated += 1
+                except Exception as e:
+                    print(f"  \u26a0\ufe0f  指标写入失败 {code}: {e}", flush=True)
+    conn.commit()
+    if turnover_updated > 0 or indicator_updated > 0:
+        print(f"  \U0001f4ca 同步: 换手率 {turnover_updated} 只 | PE/市值 {indicator_updated} 只", flush=True)
 
     cur.close()
     conn.close()
