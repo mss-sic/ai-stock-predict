@@ -835,12 +835,19 @@ const handleChatSend = async (text?: string) => {
       try {
         const res: any = await fetchRealtimeQuoteSingle(code!);
         showToast('success', res.data?.message || '行情已刷新');
-        // Reload quote data
-        const q: any = await fetchQuote(code!);
-        if (q.data?.data) setPriceStats(q.data.data);
-        const ind: any = await fetchStockIndicators(code!);
-        if (ind.data?.data) setIndicator(ind.data.data);
-      } catch { showToast('error', '行情刷新失败'); }
+        // Reload K-line (includes latest price/turnover) and indicators
+        try {
+          const klineRes: any = await fetchKLine(code!, 30);
+          if (klineRes.data?.data) setKlines(klineRes.data.data);
+        } catch { console.warn('K-line refresh failed'); }
+        try {
+          const indRes: any = await fetchIndicator(code!);
+          if (indRes.data?.data) setIndicator(indRes.data.data);
+        } catch { console.warn('Indicator refresh failed'); }
+      } catch (err: any) {
+        const msg = err?.response?.data?.message || err?.message || '行情刷新失败';
+        showToast('error', msg);
+      }
       setRefreshingPhase('');
       return;
     }
