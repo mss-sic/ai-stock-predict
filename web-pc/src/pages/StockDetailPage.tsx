@@ -6,7 +6,7 @@ import { Button, Tag, Input, Tooltip, Modal, Select } from '@arco-design/web-rea
 import {
   TrendingUp, TrendingDown, BarChart3, Repeat,
   Sparkles, Brain, Target, Activity, Table2, Bot,
-  Send, Trash2, Loader2, Check, X, Layers, FileText, Users, Newspaper, Star, StarOff, ChevronLeft, ChevronRight, ExternalLink,
+  RefreshCw, Send, Trash2, Loader2, Check, X, Layers, FileText, Users, Newspaper, Star, StarOff, ChevronLeft, ChevronRight, ExternalLink,
 } from 'lucide-react';
 import { showToast } from '../components/Toast';
 import { authFetch, checkAPIError, fetchStockDetail, fetchKLine, fetchIndicator, fetchPredictionResult, fetchPredictionHitRate, fetchStockHeatmap, fetchSignal, fetchFinancials, fetchShareholders, fetchStockNews, fetchReports, fetchStockConceptTags, addToWatchlist, removeFromWatchlist, fetchWatchlist, fetchWatchlistGroups, createWatchlistGroup, fetchHoldings, fetchProfile, runProfile } from '../services/api';
