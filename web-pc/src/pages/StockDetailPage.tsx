@@ -458,6 +458,7 @@ export default function StockDetailPage() {
   const [chatLoading, setChatLoading] = useState(false);
   const [, setTick] = useState(0);
   const chatBottomRef = useRef<HTMLDivElement>(null);
+  const chatMessagesRef = useRef<HTMLDivElement>(null);
 
   const [intervalMode, setIntervalMode] = useState(true);
   const [intervalRange, setIntervalRange] = useState<[number, number] | null>(null);
@@ -542,7 +543,27 @@ fetchPredictionResult(code).then((r: any) => {
     })();
   }, [code]);
 
-  useEffect(() => { chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [msgs, chatLoading]);
+  // Auto-scroll chat to bottom when messages update or loading state changes
+  useEffect(() => {
+    const container = chatMessagesRef.current;
+    if (container) {
+      container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
+    }
+  }, [chatLoading]);
+  // Also scroll on new messages (debounced by React batching)
+  const prevMsgCount = useRef(0);
+  useEffect(() => {
+    if (msgs.length > prevMsgCount.current) {
+      prevMsgCount.current = msgs.length;
+      const container = chatMessagesRef.current;
+      if (container) {
+        // Use requestAnimationFrame to ensure DOM has updated
+        requestAnimationFrame(() => {
+          container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
+        });
+      }
+    }
+  }, [msgs]);
 
   // ─── Model ensemble with hit-rate weighting ───
   const ensemble = useMemo(() => {
@@ -1327,7 +1348,7 @@ const handleChatSend = async (text?: string) => {
               <span style={{ fontWeight: 600, fontSize: 14 }}><Brain size={14} /> AI对话分析</span>
               {msgs.length > 0 && <Button size="mini" type="text" icon={<Trash2 size={12} />} onClick={handleClearChat} style={{ color: 'var(--color-text-3)', fontSize: 11 }}>清除</Button>}
             </div>
-            <div className="card-body" style={{ flex: 1, overflow: 'auto', padding: '12px 16px', background: 'var(--color-fill-1)' }}>
+            <div ref={chatMessagesRef} className="card-body" style={{ flex: 1, overflow: 'auto', padding: '12px 16px', background: 'var(--color-fill-1)' }}>
               {msgs.length === 0 ? (
                 <div style={{ textAlign: 'center', padding: '24px 0' }}>
                   <Brain size={28} color="#165dff" style={{ marginBottom: 8 }} />
