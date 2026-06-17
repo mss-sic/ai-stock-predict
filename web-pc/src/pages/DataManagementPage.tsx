@@ -4,7 +4,7 @@ import {
   Database, Upload as UploadIcon, RefreshCw, FileSpreadsheet, FileJson,
   CheckCircle, XCircle, Clock, Play, Terminal, Square, History, Activity, X,
   BarChart3, TrendingUp, Newspaper, FileText, PieChart, Users, Banknote,
-  Timer, Zap
+  Timer, Zap, Bot
 } from 'lucide-react';
 import {
   uploadExcel, uploadKline, uploadPrediction, triggerCollection, fetchCollectorProgress,
@@ -18,6 +18,7 @@ const PHASE_LABELS: Record<string, string> = {
   financial: '财务数据', news: '资讯数据', reports: '研报数据', concept: '概念板块',
   backfill_financial: '财报全量回填', backfill_shareholder: '股东全量回填',
   backfill_indicator: 'PE/PB历史回填',
+  profile: 'AI简介+评分',
 };
 
 const PHASE_DESCRIPTIONS: Record<string, string> = {
@@ -34,6 +35,7 @@ const PHASE_DESCRIPTIONS: Record<string, string> = {
   backfill_financial: '全量回溯历史财报数据，补齐所有报告期的财务指标',
   backfill_shareholder: '全量回溯历史股东数据，补齐所有报告期的股东变化',
   backfill_indicator: '全量回溯历史PE/PB指标，补齐所有交易日的估值数据',
+  profile: 'AI生成结构化公司简介+基本面/成长/估值/资金/技术/行业六维度评分',
 };
 
 const PHASE_COLORS: Record<string, string> = {

@@ -448,6 +448,19 @@ func init() {
 		},
 	})
 
+
+	// ============================================================
+	// v016: stock_profiles table for AI-generated company profiles
+	// ============================================================
+	Register(Migration{
+		Version:     16,
+		Description: "PG: stock_profiles table for AI company profiles",
+		Up: func() error {
+			gormAutoMigrate(PG, &model.StockProfile{})
+			return nil
+		},
+	})
+
 	log.Printf("[migrate] registered %d migrations", len(migrations))
 
 

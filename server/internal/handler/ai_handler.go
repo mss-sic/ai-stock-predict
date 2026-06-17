@@ -2,6 +2,10 @@ package handler
 
 import (
 	"encoding/json"
+	"os/exec"
+	"os"
+	"path/filepath"
+	"runtime"
 	"log"
 	"fmt"
 	"net/http"
@@ -1061,4 +1065,49 @@ func (h *AIHandler) toolGetNews(code string, limit int) string {
 			r.Title, summary, r.Source, r.PublishDate))
 	}
 	return fmt.Sprintf(`{"code":"%s","count":%d,"items":[%s]}`, code, len(rows), strings.Join(items, ","))
+}
+
+// ── Stock Profile (Markdown + 6-dim scores) ──
+
+// GetProfile returns the latest AI-generated stock profile
+func (h *AIHandler) GetProfile(c *gin.Context) {
+	code := c.Param("code")
+	var profile model.StockProfile
+	if err := db.PG.Where("code = ?", code).Order("analyzed_at DESC").First(&profile).Error; err != nil {
+		response.Success(c, nil)
+		return
+	}
+	response.Success(c, profile)
+}
+
+// RunProfile triggers AI profile generation for a single stock via collector script
+func (h *AIHandler) RunProfile(c *gin.Context) {
+	code := c.Param("code")
+	go func() {
+		exec.Command("python3",
+			filepath.Join(scriptsRoot(), "stock_profile_collect.py"),
+			"--code", code,
+		).Run()
+	}()
+	response.SuccessMsg(c, "已触发 "+code+" 简介采集，请稍后刷新查看")
+}
+
+// RunProfileBatch triggers batch AI profile generation
+func (h *AIHandler) RunProfileBatch(c *gin.Context) {
+	go func() {
+		exec.Command("python3",
+			filepath.Join(scriptsRoot(), "stock_profile_collect.py"),
+			"--batch",
+		).Run()
+	}()
+	response.SuccessMsg(c, "已触发批量简介采集，请稍后刷新查看")
+}
+
+var scriptsRoot = func() string {
+	if root := os.Getenv("APP_ROOT"); root != "" {
+		return filepath.Join(root, "scripts/collector")
+	}
+	_, f, _, _ := runtime.Caller(0)
+	base := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(f))))
+	return filepath.Join(base, "scripts/collector")
 }

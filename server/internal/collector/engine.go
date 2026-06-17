@@ -203,7 +203,7 @@ func RunManualCollection(phases []string) {
 	progress.Current = 0
 	totalPhases := len(phases)
 	if totalPhases == 0 {
-		totalPhases = 13
+		totalPhases = 14
 	}
 	progress.Total = totalPhases
 	progress.Results = nil
@@ -299,6 +299,26 @@ func RunManualCollection(phases []string) {
 	if shouldRun("concept") {
 		appendResult(runConceptPhase())
 	}
+	if shouldRun("profile") {
+		appendResult(runProfilePhase())
+	}
+}
+
+func runProfilePhase() PhaseResult {
+	setPhase("profile", "AI 股票简介+六维评分...")
+	sseSend(SSELine{Type: "phase", Phase: "profile", Message: "开始 AI 股票简介+六维评分采集...", Level: "info"})
+	t0 := time.Now()
+	var before int64
+	db.PG.Model(&model.StockProfile{}).Count(&before)
+	runPythonStreamWithArgs("stock_profile_collect.py", "--batch")
+	phaseRes := PhaseResult{Phase: "profile", Skipped: int(before)}
+	var after int64
+	db.PG.Model(&model.StockProfile{}).Count(&after)
+	phaseRes.Total = int(after)
+	phaseRes.New = int(after - before)
+	phaseRes.DurationMs = time.Since(t0).Milliseconds()
+	sseSend(SSELine{Type: "result", Phase: "profile", Result: &phaseRes, Level: "success", Message: fmt.Sprintf("AI简介: 新增 %d 份", after-before)})
+	return phaseRes
 }
 
 func runConceptPhase() PhaseResult {

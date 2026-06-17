@@ -283,6 +283,9 @@ export const fetchAIHistory = (code: string) => api.get(`/ai/history/${code}`);
 export const clearAIHistory = (code: string) => api.delete(`/ai/history/${code}`);
 export const fetchAIScore = (code: string) => api.get(`/ai/score/${code}`);
 export const runAIScore = (code: string) => api.post(`/ai/score/${code}`);
+export const fetchProfile = (code: string) => api.get(`/ai/profile/${code}`);
+export const runProfile = (code: string) => api.post(`/ai/profile/${code}`);
+export const runProfileBatch = () => api.post('/ai/profile-batch');
 
 // ── Settings APIs ──
 export const fetchAIConfig = () => api.get('/settings/ai');
