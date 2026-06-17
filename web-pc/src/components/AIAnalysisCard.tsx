@@ -340,7 +340,7 @@ interface Section {
 export function parseStreamSections(text: string, _prev: number): Section[] {
   const sections: Section[] = [];
   const matches: { start: number; end: number; json: string }[] = [];
-  const widgetTagRe = /"w"\s*:\s*"(signal|risk|plan|list|alert|panel|summary)"/g;
+  const widgetTagRe = /"(?:w|type)"\s*:\s*"(signal|risk|plan|list|alert|panel|summary)"/g;
   let tagMatch;
   while ((tagMatch = widgetTagRe.exec(text)) !== null) {
     let start = tagMatch.index;
@@ -384,6 +384,8 @@ export function parseStreamSections(text: string, _prev: number): Section[] {
 export function tryParseWidget(json: string): Widget | null {
   try {
     const obj = JSON.parse(json);
+    // Normalize: AI may use "type" instead of "w"
+    if (!obj.w && obj.type) obj.w = obj.type;
     switch (obj.w) {
       case 'signal':
         if (typeof obj.u === 'boolean' && obj.h && obj.d) return obj as SignalWidget;

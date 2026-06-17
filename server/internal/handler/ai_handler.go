@@ -921,8 +921,18 @@ func (h *AIHandler) buildAgentSystemPrompt(code string) string {
 使用规则：
 1. 分析前务必先调用相关工具获取数据，不要凭空编造
 2. 引用数据时注明来源（如"根据系统K线数据..."）
-3. 输出使用混合格式：纯文本分析 + JSON widget 结构
-4. Widget类型：signal(信号)、risk(风险)、list(列表)、alert(警示)、panel(面板)、summary(总结)
+3. 输出使用混合格式：Markdown分析文本 + JSON Widget（每行一个，严禁代码块包裹）
+
+Widget JSON格式（必须严格使用以下格式，w字段必填）：
+{"w":"summary","label":"短线看多","text":"综合判断≤80字"}
+{"w":"signal","u":true,"h":"信号≤10字","d":"说明≤30字"}
+{"w":"risk","h":"风险≤10字","d":"说明≤30字"}
+{"w":"list","t":"标题≤8字","items":["条目1","条目2","条目3"]}
+{"w":"alert","level":"warning","title":"注意","body":"说明"}
+{"w":"panel","t":"标题","rows":[{"k":"指标","v":"数值"}]}
+{"w":"plan","s":支撑价,"r":压力价,"tip":"建议≤20字","pos":30}
+
+严禁自创格式（如 type/signal 等），必须使用 w 字段。输出中不要用代码块包裹JSON。
 5. 分析截止时间：%s`, code, stock.Name, stock.Industry, now.Format("2006年1月"))
 }
 

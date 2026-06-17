@@ -1464,7 +1464,7 @@ const handleChatSend = async (text?: string) => {
                                         {allDone ? '✓' : (iconMap[currentTool?.tool || ''] || '⚡')}
                                       </span>
                                     </div>
-                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                    <div style={{ flex: 1, minWidth: 0, overflowWrap: 'break-word', wordBreak: 'break-word' }}>
                                       <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text-1)', display: 'flex', alignItems: 'center', gap: 6 }}>
                                         {allDone ? '数据获取完成' : `调用${currentTool?.label || '工具'}查询`}
                                         {!allDone && (
@@ -1555,7 +1555,7 @@ const handleChatSend = async (text?: string) => {
                                   }}>
                                     <span style={{ fontSize: 14, animation: 'spin 1.5s linear infinite reverse' }}>🧠</span>
                                   </div>
-                                  <div style={{ flex: 1, minWidth: 0 }}>
+                                  <div style={{ flex: 1, minWidth: 0, overflowWrap: 'break-word', wordBreak: 'break-word' }}>
                                     <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text-1)', display: 'flex', alignItems: 'center', gap: 8 }}>
                                       {m.status.label}
                                       <span style={{ display: 'inline-flex', gap: 3 }}>
@@ -1662,7 +1662,7 @@ const handleChatSend = async (text?: string) => {
                               </div>
                             ) : (() => {
                                 // Strip JSON widgets before rendering as plain Markdown
-                                const cleanText = m.text?.replace(/\{[^}]*"w"\s*:\s*"(?:signal|risk|plan|list|alert|panel|summary)"[^}]*\}/g, '') || '';
+                                const cleanText = m.text?.replace(/\{[^}]*"(?:w|type)"\s*:\s*"(?:signal|risk|plan|list|alert|panel|summary)"[^}]*\}/g, '') || '';
                                 return (
                               <ReactMarkdown
                                 remarkPlugins={[remarkGfm]}
