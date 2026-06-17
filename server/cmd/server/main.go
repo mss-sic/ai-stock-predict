@@ -107,6 +107,7 @@ func main() {
 		api.GET("/stocks/:code/shareholders", stockH.GetShareholders)
 		api.GET("/stocks/:code/news", stockH.GetNews)
 		api.GET("/stocks/:code/reports", stockH.GetReports)
+		api.POST("/stocks/:code/repair", stockH.RepairKLine)
 		api.GET("/reports/industry", stockH.GetIndustryReports)
 		api.GET("/reports/pdf", handler.ServeReportPDF)
 

@@ -676,3 +676,8 @@ func runBackfillIndicatorPhase() PhaseResult {
 	sseSend(SSELine{Type: "result", Phase: "backfill_indicator", Result: &phaseRes, Level: "success", Message: fmt.Sprintf("指标回填: +%d 条", after-before)})
 	return phaseRes
 }
+
+// RepairStock runs the repair_kline.py script to delete + refetch + recalc all data for a stock.
+func RepairStock(code string) error {
+	return runPythonStreamWithArgs("repair_kline.py", code)
+}

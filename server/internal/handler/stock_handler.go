@@ -8,6 +8,7 @@ import (
 	"github.com/ai-stock-predict/server/internal/repository"
 	"github.com/ai-stock-predict/server/internal/service"
 	"github.com/gin-gonic/gin"
+	"github.com/ai-stock-predict/server/internal/collector"
 	"github.com/ai-stock-predict/server/pkg/response"
 )
 
@@ -160,4 +161,23 @@ func GetDataDetail(c *gin.Context) {
 	typ := c.Param("type")
 	results := repository.GetDataDetail(typ)
 	response.Success(c, results)
+}
+
+// RepairKLine triggers full data repair for a stock (async).
+func (h *StockHandler) RepairKLine(c *gin.Context) {
+	code := c.Param("code")
+	if code == "" {
+		response.BadRequest(c, "缺少股票代码")
+		return
+	}
+	// Run repair in background (can take ~1-5 seconds)
+	go func() {
+		log.Printf("[repair] starting for %s", code)
+		if err := collector.RepairStock(code); err != nil {
+			log.Printf("[repair] failed for %s: %v", code, err)
+		} else {
+			log.Printf("[repair] completed for %s", code)
+		}
+	}()
+	response.Success(c, gin.H{"message": "数据修复已触发", "stockCode": code})
 }

@@ -1,15 +1,16 @@
 import { useEffect, useState, useMemo, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { parseStreamSections, tryParseWidget, WidgetRenderer } from '../components/AIAnalysisCard';
 import { useParams } from 'react-router-dom';
 import { Button, Tag, Input, Tooltip, Modal, Select } from '@arco-design/web-react';
 import {
   TrendingUp, TrendingDown, BarChart3, Repeat,
   Sparkles, Brain, Target, Activity, Table2, Bot,
-  RefreshCw, Send, Trash2, Loader2, Check, X, Layers, FileText, Users, Newspaper, Star, StarOff, ChevronLeft, ChevronRight, ExternalLink,
+  RefreshCw, Send, Trash2, Loader2, Check, X, Layers, FileText, Users, Newspaper, Star, StarOff, ChevronLeft, ChevronRight, ExternalLink, Wrench,
 } from 'lucide-react';
 import { showToast } from '../components/Toast';
-import { authFetch, checkAPIError, fetchStockDetail, fetchKLine, fetchIndicator, fetchPredictionResult, fetchPredictionHitRate, fetchStockHeatmap, fetchSignal, fetchFinancials, fetchShareholders, fetchStockNews, fetchReports, fetchStockConceptTags, addToWatchlist, removeFromWatchlist, fetchWatchlist, fetchWatchlistGroups, createWatchlistGroup, fetchHoldings, fetchProfile, runProfile } from '../services/api';
+import { authFetch, checkAPIError, fetchStockDetail, fetchKLine, fetchIndicator, fetchPredictionResult, fetchPredictionHitRate, fetchStockHeatmap, fetchSignal, fetchFinancials, fetchShareholders, fetchStockNews, fetchReports, fetchStockConceptTags, addToWatchlist, removeFromWatchlist, fetchWatchlist, fetchWatchlistGroups, createWatchlistGroup, fetchHoldings, fetchProfile, runProfile, repairStock } from '../services/api';
 import KLineChart from '../components/KLineChart';
 import BoardSidebar from '../components/BoardSidebar';
 
@@ -300,50 +301,132 @@ function FinBarChart({ data }: { data: any[] }) {
 function SectionCards({ md }: { md: string }) {
   const sections = md.split(/(?=###\s)/);
   const colors = ['#8b5cf6', '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#6366f1'];
+  const pillBg = ['rgba(139,92,246,0.1)', 'rgba(59,130,246,0.1)', 'rgba(16,185,129,0.1)', 'rgba(245,158,11,0.1)', 'rgba(239,68,68,0.1)', 'rgba(99,102,241,0.1)'];
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       {sections.filter(s => s.trim()).map((section, i) => {
         const titleMatch = section.match(/^###\s*(.+)/m);
         const title = titleMatch ? titleMatch[1] : '';
         const body = titleMatch ? section.replace(titleMatch[0], '') : section;
         const color = colors[i % colors.length];
+        const pill = pillBg[i % pillBg.length];
         return (
           <div key={i} style={{
-            background: 'var(--color-bg-1)',
+            background: 'var(--color-bg-2)',
             border: `1px solid var(--color-border-1)`,
-            borderLeft: `3px solid ${color}`,
-            borderRadius: 6,
+            borderLeftWidth: 0,
+            borderRadius: 12,
             overflow: 'hidden',
-          }}>
+            boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
+            transition: 'box-shadow 0.2s, transform 0.2s',
+          }}
+            onMouseEnter={e => { e.currentTarget.style.boxShadow = `0 2px 12px ${color}12, 0 4px 24px rgba(0,0,0,0.05)`; e.currentTarget.style.transform = 'translateY(-1px)'; }}
+            onMouseLeave={e => { e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.03)'; e.currentTarget.style.transform = 'translateY(0)'; }}
+          >
             {title && (
               <div style={{
-                padding: '8px 14px',
-                fontSize: 13,
-                fontWeight: 600,
-                color: 'var(--color-text-1)',
-                background: `linear-gradient(135deg, ${color}08, transparent)`,
-                borderBottom: '1px solid var(--color-border-1)',
+                padding: '12px 18px 10px',
+                display: 'flex', alignItems: 'center', gap: 10,
               }}>
-                {title}
+                <span style={{
+                  width: 4, height: 22, borderRadius: 2, background: color, flexShrink: 0,
+                }} />
+                <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--color-text-1)' }}>
+                  {title}
+                </span>
               </div>
             )}
-            <div style={{ padding: '8px 14px' }}>
+            <div style={{ padding: title ? '0 18px 14px' : '12px 18px' }}>
               <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
                 components={{
-                  h3: () => null,
-                  p: ({ children }: any) => <p style={{ margin: '2px 0', lineHeight: 1.7, fontSize: 13 }}>{children}</p>,
-                  strong: ({ children }: any) => <strong style={{ color: 'var(--color-text-1)', fontWeight: 700 }}>{children}</strong>,
-                  ul: ({ children }: any) => <ul style={{ margin: '4px 0', paddingLeft: 18, fontSize: 13 }}>{children}</ul>,
-                  ol: ({ children }: any) => <ol style={{ margin: '4px 0', paddingLeft: 18, fontSize: 13 }}>{children}</ol>,
-                  li: ({ children }: any) => <li style={{ margin: '1px 0', lineHeight: 1.6 }}>{children}</li>,
-                  table: ({ children }: any) => <table style={{ width: '100%', borderCollapse: 'collapse', margin: '6px 0', fontSize: 12, border: '1px solid var(--color-border-2)' }}>{children}</table>,
+                  h1: ({ children }: any) => <h1 style={{ margin: '10px 0 6px', fontSize: 15, fontWeight: 700, color: 'var(--color-text-1)', borderBottom: '1px solid var(--color-border-2)', paddingBottom: 4 }}>{children}</h1>,
+                  h2: ({ children }: any) => <h2 style={{ margin: '8px 0 5px', fontSize: 14, fontWeight: 700, color: 'var(--color-text-1)' }}>{children}</h2>,
+                  h3: ({ children }: any) => <h3 style={{ margin: '6px 0 4px', fontSize: 13, fontWeight: 700, color: 'var(--color-text-1)' }}>{children}</h3>,
+                  h4: ({ children }: any) => <h4 style={{ margin: '5px 0 3px', fontSize: 12, fontWeight: 700, color: 'var(--color-text-2)' }}>{children}</h4>,
+                  p: ({ children }: any) => {
+                    const text = typeof children === 'string' ? children : '';
+                    const strongOnly = Array.isArray(children) && children.length === 1 && children[0]?.type === 'strong';
+                    return (
+                      <p style={{
+                        margin: '3px 0', lineHeight: 1.75, fontSize: 13, color: 'var(--color-text-1)',
+                        ...(strongOnly ? { fontWeight: 700, fontSize: 15, margin: '12px 0 6px', color: color } : {}),
+                      }}>{children}</p>
+                    );
+                  },
+                  strong: ({ children }: any) => <strong style={{ color: color, fontWeight: 700 }}>{children}</strong>,
+                  em: ({ children }: any) => <em style={{ color: 'var(--color-text-2)', fontStyle: 'italic' }}>{children}</em>,
+                  hr: () => <hr style={{ border: 'none', borderTop: '1px solid var(--color-border-2)', margin: '10px 0' }} />,
+                  ul: ({ children }: any) => <ul style={{ margin: '4px 0', paddingLeft: 20, fontSize: 13, color: 'var(--color-text-1)' }}>{children}</ul>,
+                  ol: ({ children }: any) => <ol style={{ margin: '4px 0', paddingLeft: 20, fontSize: 13, color: 'var(--color-text-1)' }}>{children}</ol>,
+                  li: ({ children }: any) => <li style={{ margin: '2px 0', lineHeight: 1.7 }}>{children}</li>,
+                  table: ({ children }: any) => (
+                    <div style={{ overflowX: 'auto', margin: '10px 0', borderRadius: 8, border: '1px solid var(--color-border-2)' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>{children}</table>
+                    </div>
+                  ),
                   thead: ({ children }: any) => <thead>{children}</thead>,
                   tbody: ({ children }: any) => <tbody>{children}</tbody>,
-                  th: ({ children }: any) => <th style={{ background: 'var(--color-fill-2)', fontWeight: 600, padding: '4px 8px', textAlign: 'left', border: '1px solid var(--color-border-2)' }}>{children}</th>,
-                  td: ({ children }: any) => <td style={{ padding: '3px 8px', border: '1px solid var(--color-border-2)' }}>{children}</td>,
-                  tr: ({ children }: any) => <tr>{children}</tr>,
-                  blockquote: ({ children }: any) => <blockquote style={{ borderLeft: '3px solid var(--color-border-2)', background: 'var(--color-fill-1)', padding: '6px 10px', margin: '6px 0', borderRadius: 4, fontSize: 12 }}>{children}</blockquote>,
-                  code: ({ children }: any) => <code style={{ background: 'var(--color-fill-2)', padding: '1px 4px', borderRadius: 3, fontSize: 11, fontFamily: 'monospace' }}>{children}</code>,
+                  th: ({ children }: any) => (
+                    <th style={{
+                      background: `linear-gradient(180deg, ${color}10, transparent)`,
+                      fontWeight: 700,
+                      fontSize: 11,
+                      color: color,
+                      padding: '7px 10px',
+                      textAlign: 'left',
+                      borderBottom: `2px solid ${color}30`,
+                      whiteSpace: 'nowrap',
+                    }}>{children}</th>
+                  ),
+                  td: ({ children }: any) => (
+                    <td style={{
+                      padding: '6px 10px',
+                      borderBottom: '1px solid var(--color-border-1)',
+                      fontSize: 12,
+                      color: 'var(--color-text-1)',
+                    }}>{children}</td>
+                  ),
+                  tr: ({ children, ...props }: any) => {
+                    const isEven = props.index !== undefined && props.index % 2 === 0;
+                    return (
+                      <tr style={{
+                        background: isEven ? 'transparent' : 'var(--color-fill-1)',
+                      }}>{children}</tr>
+                    );
+                  },
+                  blockquote: ({ children }: any) => (
+                    <blockquote style={{
+                      borderLeft: `3px solid ${color}`,
+                      background: `${color}08`,
+                      padding: '10px 14px',
+                      margin: '10px 0',
+                      borderRadius: '0 6px 6px 0',
+                      fontSize: 12,
+                      color: 'var(--color-text-2)',
+                    }}>{children}</blockquote>
+                  ),
+                  code: ({ children }: any) => (
+                    <code style={{
+                      background: `${color}12`,
+                      color: color,
+                      padding: '2px 6px',
+                      borderRadius: 4,
+                      fontSize: 11,
+                      fontFamily: '"SF Mono", "Fira Code", monospace',
+                    }}>{children}</code>
+                  ),
+                  pre: ({ children }: any) => (
+                    <pre style={{
+                      background: 'var(--color-fill-2)',
+                      padding: '10px 14px',
+                      borderRadius: 8,
+                      overflow: 'auto',
+                      fontSize: 11,
+                      lineHeight: 1.5,
+                      margin: '8px 0',
+                    }}>{children}</pre>
+                  ),
                 }}
               >{body}</ReactMarkdown>
             </div>
@@ -384,6 +467,7 @@ export default function StockDetailPage() {
   // AI scoring state
   const [aiScore, setAiScore] = useState<any>(null);
   const [scoreLoading, setScoreLoading] = useState(false);
+  const [repairLoading, setRepairLoading] = useState(false);
   const [signal, setSignal] = useState<number | null>(null);
   const [conceptTags, setConceptTags] = useState<any[]>([]);
   const [todayBoardRank, setTodayBoardRank] = useState<number | null>(null);
@@ -547,26 +631,44 @@ fetchPredictionResult(code).then((r: any) => {
 
   // Prediction overlay
   const predOverlay = useMemo(() => {
-    if (!safeKlines.length || !(predictions || []).length) return { lines: [], splitIdx: undefined, markers: [] };
+    if (!safeKlines.length || !(predictions || []).length) return { lines: [], splitIdx: undefined, markers: [], verifiedCount: 0, totalFuture: 0, predMadeDate: '' };
     const lastIdx = safeKlines.length - 1;
     const lastClose = safeKlines[lastIdx]?.close || 10;
+    const lastKlineDate = (safeKlines[lastIdx]?.tradeDate || safeKlines[lastIdx]?.date || '').slice(0, 10);
 
     const kdColors = ['#F53F3F', '#F77234', '#FF7D00', '#FFB400', '#22C55E', '#14B8A6', '#3B82F6'];
     const predMarkers: Array<{ i: number; type: 'predHi' | 'predLo'; label?: string; color?: string }> = [];
+    let totalVerified = 0;
+    let totalFutureDays = 0;
+    let earliestPredDate = '';
 
     const lines = MODEL_NAMES.map((modelName, mi) => {
-      const modelPreds = (predictions || [])
+      const allPreds = (predictions || [])
         .filter((p: any) => p.modelName === modelName)
-        .sort((a: any, b: any) => (a.predictDate || '').localeCompare(b.predictDate || ''))
-        .slice(0, horizon); // Only show horizon days
+        .sort((a: any, b: any) => (a.predictDate || '').localeCompare(b.predictDate || ''));
+      
+      // Count verified (expired) predictions for this model
+      const expiredCount = allPreds.filter((p: any) => (p.predictDate || '').slice(0, 10) <= lastKlineDate).length;
+      if (mi === 0) totalVerified = expiredCount;
+      
+      // Only show future predictions (predictDate > lastKlineDate)
+      const futurePreds = allPreds
+        .filter((p: any) => (p.predictDate || '').slice(0, 10) > lastKlineDate)
+        .slice(0, horizon);
+      
+      if (mi === 0 && futurePreds.length > 0) {
+        totalFutureDays = futurePreds.length;
+        earliestPredDate = (allPreds[0]?.predictDate || '').slice(0, 10);
+      }
 
-      const lineData: (number | null)[] = Array(lastIdx + 1 + modelPreds.length).fill(null);
+      // Build line data: last K-line point → future predictions
+      const lineData: (number | null)[] = Array(lastIdx + 1 + futurePreds.length).fill(null);
       lineData[lastIdx] = lastClose;
-      modelPreds.forEach((p: any, pi: number) => { lineData[lastIdx + 1 + pi] = p.predictedPrice; });
+      futurePreds.forEach((p: any, pi: number) => { lineData[lastIdx + 1 + pi] = p.predictedPrice; });
 
       // Find highest and lowest prediction points
       let maxVal = -Infinity, maxI = -1, minVal = Infinity, minI = -1;
-      modelPreds.forEach((p: any, pi: number) => {
+      futurePreds.forEach((p: any, pi: number) => {
         if (p.predictedPrice > maxVal) { maxVal = p.predictedPrice; maxI = lastIdx + 1 + pi; }
         if (p.predictedPrice < minVal) { minVal = p.predictedPrice; minI = lastIdx + 1 + pi; }
       });
@@ -576,7 +678,7 @@ fetchPredictionResult(code).then((r: any) => {
       return { color: kdColors[mi], data: lineData, dashed: true, name: modelName };
     });
 
-    return { lines, splitIdx: lastIdx + 1, markers: predMarkers };
+    return { lines, splitIdx: lastIdx + 1, markers: predMarkers, verifiedCount: totalVerified, totalFuture: totalFutureDays, predMadeDate: earliestPredDate };
   }, [predictions, safeKlines, horizon]);
 
   const priceStats = useMemo(() => {
@@ -865,45 +967,155 @@ const handleChatSend = async (text?: string) => {
                     </a>
                   ));
                 })()}
+                <Tooltip content="删除历史K线+指标，重新采集前复权数据（含换手率/成交量/成交额）">
+                  <button
+                    onClick={async () => {
+                      if (!code) return;
+                      if (!window.confirm('确认修复数据？将删除该股票所有历史K线和指标，重新采集前复权数据。')) return;
+                      setRepairLoading(true);
+                      try {
+                        await repairStock(code);
+                        showToast('数据修复已触发，约5秒后刷新查看', 'success');
+                        setTimeout(() => window.location.reload(), 5000);
+                      } catch {
+                        showToast('修复失败', 'error');
+                        setRepairLoading(false);
+                      }
+                    }}
+                    disabled={repairLoading}
+                    style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 3,
+                      padding: '3px 8px', borderRadius: 4, fontSize: 11,
+                      border: '1px solid var(--orange-4)', color: 'var(--orange-6)', textDecoration: 'none',
+                      fontWeight: 500, flexShrink: 0, cursor: repairLoading ? 'not-allowed' : 'pointer',
+                      background: repairLoading ? 'var(--color-fill-2)' : 'transparent',
+                      marginLeft: 8, opacity: repairLoading ? 0.6 : 1,
+                    }}
+                  >
+                    <Wrench size={10} className={repairLoading ? 'spin' : ''} />
+                    {repairLoading ? '修复中...' : '修复数据'}
+                  </button>
+                </Tooltip>
               </div>
               <div style={{ padding: '0 4px 4px' }}>
                 <KLineChart data={klines} height={460} markers={markers} splitIdx={predOverlay.splitIdx} predictionLines={predOverlay.lines} predMarkers={predOverlay.markers} costLine={holdingCost} />
+                {/* ── Prediction metadata bar ── */}
+                {predOverlay.totalFuture > 0 && (
+                  <div style={{
+                    display: 'flex', alignItems: 'center', gap: 12,
+                    padding: '6px 12px', margin: '6px 4px 0',
+                    borderRadius: 6, fontSize: 10,
+                    background: 'var(--color-fill-1)', border: '1px solid var(--color-border-1)',
+                  }}>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 4, color: 'var(--color-text-2)' }}>
+                      <Target size={11} />
+                      <span>预测区间</span>
+                    </span>
+                    <span style={{ color: 'var(--color-text-1)', fontWeight: 600 }}>
+                      {predOverlay.totalFuture} 个交易日
+                    </span>
+                    {predOverlay.predMadeDate && (
+                      <span style={{ color: 'var(--color-text-3)' }}>
+                        生成于 {predOverlay.predMadeDate}
+                      </span>
+                    )}
+                    {predOverlay.verifiedCount > 0 && (
+                      <span style={{
+                        marginLeft: 'auto', padding: '1px 8px', borderRadius: 10,
+                        background: '#00b42a15', color: '#00b42a',
+                        fontWeight: 600,
+                      }}>
+                        <Check size={10} style={{ marginRight: 3, verticalAlign: 'middle' }} />
+                        已验证 {predOverlay.verifiedCount} 天
+                      </span>
+                    )}
+                    {predOverlay.verifiedCount === 0 && (
+                      <span style={{
+                        marginLeft: 'auto', padding: '1px 8px', borderRadius: 10,
+                        background: 'var(--orange-1)', color: 'var(--orange-6)',
+                        fontWeight: 600,
+                      }}>
+                        待验证
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
                     {/* ═══ AI 简介 ═══ */}
-          <div className="card">
-            <div style={{ padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--color-border-1)' }}>
-              <span style={{ fontSize: 14, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
-                <Bot size={14} color="#8b5cf6" /> AI 智能简介
-                {profileData?.analyzedAt && (
-                  <span style={{ fontSize: 10, color: 'var(--color-text-3)', fontWeight: 400 }}>
-                    {profileData.source === 'import' ? '📥 导入' : '🤖 AI生成'} · {new Date(profileData.analyzedAt).toLocaleDateString('zh-CN')} {new Date(profileData.analyzedAt).toLocaleTimeString('zh-CN', {hour:'2-digit',minute:'2-digit'})}
-                  </span>
-                )}
+          <div className="card" style={{ border: '1px solid var(--color-border-2)', borderRadius: 10, overflow: 'hidden', boxShadow: '0 2px 8px rgba(139,92,246,0.06), 0 1px 3px rgba(0,0,0,0.04)', marginTop: 50 }}>
+            <div style={{
+              padding: '14px 18px',
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+              background: 'linear-gradient(135deg, rgba(139,92,246,0.06), rgba(99,102,241,0.03))',
+              borderBottom: '1px solid rgba(139,92,246,0.12)',
+            }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{
+                  width: 32, height: 32, borderRadius: 8,
+                  background: 'linear-gradient(135deg, #8b5cf6, #6366f1)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  <Bot size={16} color="#fff" />
+                </span>
+                <span>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--color-text-1)', lineHeight: 1.2 }}>AI 智能简介</div>
+                  {profileData?.analyzedAt && (
+                    <div style={{ fontSize: 10, color: 'var(--color-text-3)', fontWeight: 400, marginTop: 2 }}>
+                      {profileData.source === 'import' ? '📥 导入' : '🤖 AI生成'} · {new Date(profileData.analyzedAt).toLocaleDateString('zh-CN')} {new Date(profileData.analyzedAt).toLocaleTimeString('zh-CN', {hour:'2-digit',minute:'2-digit'})}
+                    </div>
+                  )}
+                </span>
               </span>
               <button
                 onClick={async () => {
                   setProfileLoading(true);
                   try {
                     const r = await runProfile(code);
-                    if (r.data?.data) setProfileData(r.data.data);
-                  } catch {}
+                    if (r.data?.data) {
+                      setProfileData(r.data.data);
+                      showToast('简介更新成功', 'success');
+                    }
+                  } catch {
+                    showToast('简介更新失败', 'error');
+                  }
                   finally { setProfileLoading(false); }
                 }}
                 disabled={profileLoading}
-                style={{ padding: '2px 10px', borderRadius: 4, border: '1px solid #8b5cf6', background: profileLoading ? 'var(--color-fill-2)' : 'transparent', color: '#8b5cf6', cursor: 'pointer', fontSize: 11, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 3 }}
+                style={{
+                  padding: '6px 14px',
+                  borderRadius: 6,
+                  border: 'none',
+                  background: profileLoading ? 'var(--color-fill-3)' : 'linear-gradient(135deg, #8b5cf6, #6366f1)',
+                  color: '#fff',
+                  cursor: profileLoading ? 'not-allowed' : 'pointer',
+                  fontSize: 12,
+                  fontWeight: 600,
+                  display: 'flex', alignItems: 'center', gap: 5,
+                  boxShadow: '0 1px 3px rgba(139,92,246,0.3)',
+                  transition: 'all 0.2s',
+                }}
+                onMouseEnter={e => { if (!profileLoading) { e.currentTarget.style.boxShadow = '0 2px 8px rgba(139,92,246,0.4)'; e.currentTarget.style.transform = 'translateY(-1px)'; } }}
+                onMouseLeave={e => { e.currentTarget.style.boxShadow = '0 1px 3px rgba(139,92,246,0.3)'; e.currentTarget.style.transform = 'translateY(0)'; }}
               >
-                <RefreshCw size={10} className={profileLoading ? 'spin' : ''} />
-                {profileLoading ? '生成中...' : '更新简介'}
+                <RefreshCw size={12} className={profileLoading ? 'spin' : ''} />
+                {profileLoading ? '生成中...' : 'AI 更新简介'}
               </button>
             </div>
-            <div style={{ padding: '8px 12px 12px' }}>
+            <div style={{ padding: '14px 16px' }}>
               {profileData?.profileMarkdown ? (
                 <SectionCards md={profileData.profileMarkdown} />
               ) : (
-                <div style={{ textAlign: 'center', padding: 20, color: 'var(--color-text-3)' }}>
-                  <Bot size={24} style={{ marginBottom: 6, color: 'var(--color-text-4)' }} />
-                  <p style={{ fontSize: 12 }}>点击"更新简介"生成 AI 智能公司简介</p>
+                <div style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-3)' }}>
+                  <div style={{
+                    width: 48, height: 48, borderRadius: 12, margin: '0 auto 12px',
+                    background: 'linear-gradient(135deg, rgba(139,92,246,0.1), rgba(99,102,241,0.05))',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}>
+                    <Bot size={24} color="#8b5cf6" />
+                  </div>
+                  <p style={{ fontSize: 13, fontWeight: 500 }}>暂无 AI 智能简介</p>
+                  <p style={{ fontSize: 11, color: 'var(--color-text-4)', marginTop: 4 }}>点击右上角「AI 更新简介」生成专业公司分析报告</p>
                 </div>
               )}
             </div>

@@ -1,5 +1,40 @@
 # Changelog
 
+## v1.3.2 (2026-06-18)
+
+### AI 简介美化
+- 安装 `remark-gfm` 插件，修复 Markdown 表格无法渲染的问题
+- SectionCards 组件增强：卡片阴影 + 圆角 + 渐变色标题 + 彩色圆点装饰 + 鼠标悬浮上浮效果
+- 表格：带圆角容器包裹，渐变色表头，行间交替底色
+- strong/blockquote/code/pre/hr 全面美化，h1-h4 分级样式
+- AI 简介外层卡片：紫色阴影 + 圆角，标题栏渐变色背景 + 图标 badge
+- AI 更新按钮升级为紫色渐变填充按钮，带悬浮阴影动画和 toast 反馈
+- 简介卡片增加 marginTop 50px
+
+### 股票详情页
+- **预测曲线修复** — 只展示 `predictDate > 最新K线日期` 的未来预测，已过期预测不再重复绘制
+- **预测元数据栏** — K 线图下方显示：预测区间/生成日期/已验证天数（绿色 badge）
+- **修复数据功能** — 新增 `repair_kline.py` 脚本，删除历史 K 线+指标 → 重采前复权数据 → 重算 PE/PB/PS
+- 后端 API `POST /api/v1/stocks/:code/repair`，前端橙色 Wrench 按钮触发
+- 修复包含成交量、成交额、换手率（流通股本优先从实时行情 API 获取）
+- **换手率存储统一** — 从百分比（0.68）改为小数（0.0068），前端 `*100` 显示，修复 44 万条历史数据
+
+### 右侧面板
+- **历史榜单** — 日期选择改为 `/api/v1/board/dates` 全量榜单日期（不再限制当前股票上榜日期）
+- 修复日期格式（`TO_CHAR` → `pick_date::text`）
+- **新增自选股 Tab** — 分组筛选下拉 + 最新价/添加后收益率 + 加入/移出按钮
+- **新增持仓股 Tab** — 汇总栏（持仓数量 + 总盈亏）+ 每只持仓三行信息（名称/现价/股数/成本/市值/盈亏百分比+金额）
+
+### 后端
+- BoardHandler.Dates 修复：日期 SQL 改为 `pick_date::text` 兼容 GORM Scan
+- StockHandler.RepairKLine 新增异步修复端点
+- Collector.RepairStock 新增
+
+### 前端
+- BoardSidebar 重写为三 Tab 布局（历史榜单/自选股/持仓股）
+- StockDetailPage 新增 repairLoading 状态 + 修复按钮 + 预测元数据
+- api.ts 新增 repairStock / searchStock 接口
+
 ## v1.3.0 (2026-06-13)
 ### AI 对话
 

@@ -562,8 +562,15 @@ func (h *BoardHandler) StockHeatmap(c *gin.Context) {
 
 func (h *BoardHandler) Dates(c *gin.Context) {
 	var dates []string
-	db.PG.Raw("SELECT DISTINCT pick_date::date FROM algorithm_pick_details ORDER BY pick_date DESC LIMIT 30").
-		Scan(&dates)
+	err := db.PG.Raw("SELECT DISTINCT pick_date::text FROM algorithm_pick_details ORDER BY pick_date DESC LIMIT 30").
+		Scan(&dates).Error
+	if err != nil {
+		response.InternalError(c, "查询榜单日期失败: "+err.Error())
+		return
+	}
+	if dates == nil {
+		dates = []string{}
+	}
 	response.Success(c, dates)
 }
 

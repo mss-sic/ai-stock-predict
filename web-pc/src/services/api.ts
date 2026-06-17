@@ -292,6 +292,7 @@ export const runAIScore = (code: string) => api.post(`/ai/score/${code}`);
 export const fetchProfile = (code: string) => api.get(`/ai/profile/${code}`);
 export const runProfile = (code: string) => api.post(`/ai/profile/${code}`);
 export const runProfileBatch = () => api.post('/ai/profile-batch');
+export const repairStock = (code: string) => api.post(`/stocks/${code}/repair`);
 
 // ── Settings APIs ──
 export const fetchAIConfig = () => api.get('/settings/ai');
