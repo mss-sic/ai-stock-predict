@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""AI 股票简介采集器 — 仅生成结构化 Markdown 简介，不包含评分
+"""AI 六维评分采集器 — 独立于简介，可单独触发
 用法:
-  python3 stock_profile_collect.py --code 000001          # 单只
-  python3 stock_profile_collect.py --batch                # 批量(当日榜单)
-  python3 stock_profile_collect.py --init-prompt          # 初始化提示词
+  python3 stock_score_collect.py --code 000001          # 单只
+  python3 stock_score_collect.py --batch                # 批量(当日榜单)
+  python3 stock_score_collect.py --init-prompt          # 初始化提示词
 """
 import argparse, json, os, sys, time, urllib.request, ssl
 from datetime import date
@@ -16,31 +16,40 @@ os.environ['PYTHONUNBUFFERED'] = '1'
 PG_DSN   = os.environ.get("PG_DSN",   "host=localhost dbname=stock_predict user=stock password=stock123")
 MYSQL_DSN = os.environ.get("MYSQL_DSN", "host=127.0.0.1 port=3307 user=stock password=stock123 dbname=stock_predict")
 
-DEFAULT_SYSTEM_PROMPT = """你是一位专业、客观、严谨的金融投资分析师，精通A股市场。
-你的任务是对给定的股票进行深度分析，生成一份精美的结构化 Markdown 公司简介。
+DEFAULT_SYSTEM_PROMPT = """你是专业A股量化评分系统。请对给定股票进行六维综合评分。
 
 ## 数据来源
-基于提供的财务数据、技术指标、新闻资讯进行客观分析。如果某些数据缺失，在对应位置注明"数据不足"。
+基于提供的财务数据、技术指标、新闻资讯进行评分。如果某维度数据不足，标注"数据不足"并给出保守偏低的分数。
 
-## 简介结构（严格按此顺序）
-1. **🏢 核心特征** — 一句话概括公司定位、盈利模式和当前经营状态
-2. **💼 主营业务** — 业务结构、护城河来源（成本/技术/品牌/网络效应）、行业地位
-3. **📊 最新财报** — 使用表格展示关键财务数据（营收、净利润、ROE、毛利率、同比变化），并分析"增收不增利"或"增利不增收"的原因
-4. **🚀 成长驱动** — 短期和长期增长因素、在手订单、产能利用率
-5. **⚠️ 风险提示** — 列出 3-5 条具体的风险点
-6. **🔮 未来展望** — 新技术/新市场布局（至少 2 个方向），市场潜力
+## 六维评分标准（每维 0-100 分，60分为中性基准）
+1. **fundamentalScore (基本面)**: 财务健康度 — ROE/EPS/利润率/现金流/资产负债率
+2. **growthScore (成长性)**: 增长潜力 — 营收增速/利润增速/行业空间/新业务
+3. **valuationScore (估值)**: 估值水平 — PE/PB历史分位/行业对比/股息率
+4. **capitalScore (资金面)**: 资金流向 — 成交量变化/换手率/股东户数/机构持仓
+5. **technicalScore (技术面)**: 技术形态 — 均线趋势/量价关系/支撑阻力位
+6. **industryScore (行业)**: 行业景气 — 行业周期/政策/竞争格局
 
-## 格式要求
-- 使用 ## 标题分级
-- 核心数据用 **加粗** 突出
-- 财务数据使用 Markdown | 表格 |
-- 关键观点用 > 引用块
-- 每部分控制在 200 字上下
+## 综合评分 = 基本面×0.20 + 成长性×0.20 + 估值×0.20 + 资金面×0.15 + 技术面×0.15 + 行业×0.10
 
-## 输出格式
-严格按照以下 JSON 格式输出，不要包含任何其他文字：
+## 风险等级
+- riskLevel: low / medium-low / medium / medium-high / high
+- suggestion: strong_buy / buy / hold / reduce / sell
+- riskWarnings: 列出 3-5 条具体风险点
+- summary: 50字以内综合评价
+
+## 输出格式（严格 JSON，不要代码块标记）：
 {
-  "profileMarkdown": "完整的Markdown格式简介"
+  "compositeScore": 72.5,
+  "fundamentalScore": 70,
+  "growthScore": 68,
+  "valuationScore": 75,
+  "capitalScore": 65,
+  "technicalScore": 72,
+  "industryScore": 80,
+  "riskLevel": "medium",
+  "suggestion": "hold",
+  "summary": "...",
+  "riskWarnings": ["...", "..."]
 }"""
 
 
@@ -51,7 +60,6 @@ def get_mysql_conn():
     return psycopg2.connect(MYSQL_DSN, cursor_factory=RealDictCursor)
 
 def fetch_stock_data(code):
-    """Gather all relevant data for AI analysis"""
     pg = get_pg_conn()
     cur = pg.cursor()
     data = {"code": code}
@@ -65,48 +73,36 @@ def fetch_stock_data(code):
     data["industry"] = basic["industry"]
 
     cur.execute("""
-        SELECT report_date, report_type, total_revenue, net_profit,
-               revenue_growth, profit_growth, roe, eps, bps,
-               gross_margin, net_margin, debt_ratio
-        FROM stock_financials WHERE code = %s ORDER BY report_date DESC LIMIT 4
+        SELECT report_date, total_revenue, net_profit, revenue_growth, profit_growth,
+               roe, eps, gross_margin, net_margin, debt_ratio
+        FROM stock_financials WHERE code = %s ORDER BY report_date DESC LIMIT 3
     """, (code,))
     data["financials"] = [dict(r) for r in cur.fetchall()]
 
     cur.execute("""
-        SELECT trade_date, close, volume, turnover_rate
-        FROM stocks_daily_k WHERE code = %s ORDER BY trade_date DESC LIMIT 30
+        SELECT trade_date, open, high, low, close, volume, turnover_rate
+        FROM stocks_daily_k WHERE code = %s ORDER BY trade_date DESC LIMIT 60
     """, (code,))
     data["klines"] = [dict(r) for r in cur.fetchall()]
 
     cur.execute("""
-        SELECT pe, total_market_cap, circulating_market_cap
-        FROM stocks_daily_indicator WHERE code = %s ORDER BY trade_date DESC LIMIT 1
+        SELECT pe, total_market_cap FROM stocks_daily_indicator
+        WHERE code = %s ORDER BY trade_date DESC LIMIT 1
     """, (code,))
     ind = cur.fetchone()
     data["indicator"] = dict(ind) if ind else {}
 
     cur.execute("""
-        SELECT title, publish_date, news_type
-        FROM stock_news WHERE code = %s ORDER BY publish_date DESC LIMIT 10
+        SELECT title, publish_date FROM stock_news
+        WHERE code = %s ORDER BY publish_date DESC LIMIT 5
     """, (code,))
     data["news"] = [dict(r) for r in cur.fetchall()]
-
-    cur.execute("""
-        SELECT report_date, total_shareholders, institution_ratio
-        FROM stock_shareholders WHERE code = %s ORDER BY report_date DESC LIMIT 3
-    """, (code,))
-    data["shareholders"] = [dict(r) for r in cur.fetchall()]
-
-    cur.execute("SELECT concept_tags FROM stocks_basic WHERE code = %s", (code,))
-    tags = cur.fetchone()
-    data["conceptTags"] = tags["concept_tags"] if tags else []
 
     pg.close()
     return data
 
 
 def fetch_ai_config():
-    """Get user's AI config from MySQL and system prompt from PG"""
     mysql = get_mysql_conn()
     cur = mysql.cursor()
     cur.execute("SELECT api_key, base_url, model_name FROM ai_configs WHERE is_active = 1 LIMIT 1")
@@ -119,7 +115,7 @@ def fetch_ai_config():
     cur2 = pg.cursor()
     cur2.execute("""
         SELECT system_prompt, model_name, temperature, max_tokens
-        FROM ai_system_configs WHERE scene = 'stock_profile' LIMIT 1
+        FROM ai_system_configs WHERE scene = 'stock_scoring' LIMIT 1
     """)
     sys_cfg = cur2.fetchone()
     pg.close()
@@ -127,7 +123,7 @@ def fetch_ai_config():
     prompt = sys_cfg["system_prompt"] if sys_cfg and sys_cfg["system_prompt"] else DEFAULT_SYSTEM_PROMPT
     model = (sys_cfg.get("model_name") or cfg["model_name"]) if sys_cfg else cfg["model_name"]
     temp = float(sys_cfg["temperature"]) if sys_cfg and sys_cfg["temperature"] else 0.3
-    max_tok = int(sys_cfg["max_tokens"]) if sys_cfg and sys_cfg["max_tokens"] else 4096
+    max_tok = int(sys_cfg["max_tokens"]) if sys_cfg and sys_cfg["max_tokens"] else 2048
 
     return prompt, {
         "api_key": cfg["api_key"], "base_url": cfg["base_url"],
@@ -136,7 +132,6 @@ def fetch_ai_config():
 
 
 def call_ai(system_prompt, stock_data, ai_cfg):
-    """Call AI API to generate profile markdown"""
     user_prompt = json.dumps(stock_data, ensure_ascii=False, default=str, indent=2)
     body = {
         "model": ai_cfg["model_name"],
@@ -161,14 +156,25 @@ def call_ai(system_prompt, stock_data, ai_cfg):
         return None
 
 
-def save_profile(pg_conn, code, profile_md):
+def save_score(pg_conn, code, result):
     cur = pg_conn.cursor()
     cur.execute("""
-        INSERT INTO stock_profiles (code, profile_markdown, scores_json, analyzed_at, created_at, updated_at)
-        VALUES (%s, %s, '{}', %s, NOW(), NOW())
-        ON CONFLICT (code) DO UPDATE SET
-            profile_markdown = EXCLUDED.profile_markdown, updated_at = NOW()
-    """, (code, profile_md, date.today().isoformat()))
+        INSERT INTO ai_stock_scores
+            (code, composite_score, fundamental_score, growth_score, valuation_score,
+             capital_score, technical_score, industry_score, risk_level, suggestion,
+             risk_warnings, summary, analyzed_at, created_at)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())
+    """, (
+        code,
+        result.get("compositeScore"), result.get("fundamentalScore"),
+        result.get("growthScore"), result.get("valuationScore"),
+        result.get("capitalScore"), result.get("technicalScore"),
+        result.get("industryScore"), result.get("riskLevel"),
+        result.get("suggestion"),
+        json.dumps(result.get("riskWarnings", []), ensure_ascii=False),
+        result.get("summary", ""),
+        date.today().isoformat(),
+    ))
     pg_conn.commit()
     cur.close()
 
@@ -178,10 +184,9 @@ def process_stock(code, dry_run=False):
     try:
         stock_data = fetch_stock_data(code)
         if not stock_data:
-            print(f"  ⚠ {code}: 股票基础数据不存在", flush=True)
+            print(f"  ⚠ {code}: 数据不存在", flush=True)
             return False
         name = stock_data["name"]
-        print(f"  📊 {code} {name} | 财务{len(stock_data.get('financials',[]))}条 | K线{len(stock_data.get('klines',[]))}条", flush=True)
 
         prompt, ai_cfg = fetch_ai_config()
         if not ai_cfg:
@@ -189,19 +194,17 @@ def process_stock(code, dry_run=False):
             return False
 
         result = call_ai(prompt, stock_data, ai_cfg)
-        if not result or not result.get("profileMarkdown"):
+        if not result or result.get("compositeScore") is None:
             return False
 
-        md = result["profileMarkdown"]
-        preview = md[:150].replace('\n', ' ')
-        print(f"  ✅ {code} {name} | {preview}...", flush=True)
+        s = {k: result.get(k) for k in ["compositeScore","fundamentalScore","growthScore","valuationScore","capitalScore","technicalScore","industryScore"]}
+        print(f"  ✅ {code} {name} | 综合 {s['compositeScore']} | {result.get('riskLevel','?')} | {result.get('suggestion','?')}", flush=True)
 
         if dry_run:
-            print(md[:500], flush=True)
             return True
 
         pg = get_pg_conn()
-        save_profile(pg, code, md)
+        save_score(pg, code, result)
         pg.close()
         return True
     except Exception as e:
@@ -221,11 +224,11 @@ def get_board_stocks(pg):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="AI 股票简介采集")
+    parser = argparse.ArgumentParser(description="AI 六维评分采集")
     parser.add_argument("--code", help="单只股票代码")
-    parser.add_argument("--batch", action="store_true", help="批量处理当日榜单股票")
+    parser.add_argument("--batch", action="store_true", help="批量处理当日榜单")
     parser.add_argument("--dry-run", action="store_true", help="预览模式")
-    parser.add_argument("--init-prompt", action="store_true", help="初始化提示词到数据库")
+    parser.add_argument("--init-prompt", action="store_true", help="初始化提示词")
     args = parser.parse_args()
 
     if args.init_prompt:
@@ -233,14 +236,14 @@ def main():
         cur = pg.cursor()
         cur.execute("""
             INSERT INTO ai_system_configs (scene, name, system_prompt, temperature, max_tokens, enable_search, enable_tools, created_at, updated_at)
-            VALUES ('stock_profile', '股票简介', %s, 0.3, 4096, false, false, NOW(), NOW())
+            VALUES ('stock_scoring', '六维评分', %s, 0.3, 2048, false, false, NOW(), NOW())
             ON CONFLICT (scene) DO UPDATE SET
                 name = EXCLUDED.name, system_prompt = EXCLUDED.system_prompt,
                 temperature = EXCLUDED.temperature, max_tokens = EXCLUDED.max_tokens, updated_at = NOW()
         """, (DEFAULT_SYSTEM_PROMPT,))
         pg.commit()
         pg.close()
-        print("✅ 股票简介提示词已初始化 (scene=stock_profile)")
+        print("✅ 六维评分提示词已初始化 (scene=stock_scoring)")
         return
 
     if args.code:
@@ -263,7 +266,7 @@ def main():
             pg2.close()
         pg.close()
 
-        print(f"📊 批量处理 {len(stocks)} 只股票", flush=True)
+        print(f"📊 批量评分 {len(stocks)} 只", flush=True)
         success = 0; t0 = time.time()
         for i, code in enumerate(stocks):
             print(f"[{i+1}/{len(stocks)}]", flush=True)

@@ -203,7 +203,7 @@ func RunManualCollection(phases []string) {
 	progress.Current = 0
 	totalPhases := len(phases)
 	if totalPhases == 0 {
-		totalPhases = 14
+		totalPhases = 15
 	}
 	progress.Total = totalPhases
 	progress.Results = nil
@@ -302,6 +302,26 @@ func RunManualCollection(phases []string) {
 	if shouldRun("profile") {
 		appendResult(runProfilePhase())
 	}
+	if shouldRun("score") {
+		appendResult(runScorePhase())
+	}
+}
+
+func runScorePhase() PhaseResult {
+	setPhase("score", "AI 六维评分...")
+	sseSend(SSELine{Type: "phase", Phase: "score", Message: "开始 AI 六维评分采集...", Level: "info"})
+	t0 := time.Now()
+	var before int64
+	db.PG.Model(&model.AIStockScore{}).Where("DATE(analyzed_at) = CURRENT_DATE").Count(&before)
+	runPythonStreamWithArgs("stock_score_collect.py", "--batch")
+	phaseRes := PhaseResult{Phase: "score", Skipped: int(before)}
+	var after int64
+	db.PG.Model(&model.AIStockScore{}).Where("DATE(analyzed_at) = CURRENT_DATE").Count(&after)
+	phaseRes.Total = int(after)
+	phaseRes.New = int(after - before)
+	phaseRes.DurationMs = time.Since(t0).Milliseconds()
+	sseSend(SSELine{Type: "result", Phase: "score", Result: &phaseRes, Level: "success", Message: fmt.Sprintf("六维评分: 新增 %d 条", after-before)})
+	return phaseRes
 }
 
 func runProfilePhase() PhaseResult {

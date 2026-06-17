@@ -931,61 +931,35 @@ const handleChatSend = async (text?: string) => {
               style={{ padding: '4px 14px', borderRadius: 6, border: '1px solid #8b5cf6', background: profileLoading ? 'var(--color-fill-2)' : 'transparent', color: '#8b5cf6', cursor: 'pointer', fontSize: 12, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 4 }}
             >
               <RefreshCw size={12} className={profileLoading ? 'spin' : ''} />
-              {profileLoading ? '生成中...' : '更新分析'}
+              {profileLoading ? '生成中...' : '更新简介'}
             </button>
           </div>
           <div style={{ padding: '12px 20px 20px' }}>
-            {profileData ? (
-              profileData.profileMarkdown ? (
-                <ReactMarkdown
-                  components={{
-                    h2: ({ children }: any) => <h2 style={{ fontSize: 16, fontWeight: 700, color: 'var(--color-text-1)', margin: '16px 0 8px', borderBottom: '1px solid var(--color-border-2)', paddingBottom: 4 }}>{children}</h2>,
-                    h3: ({ children }: any) => <h3 style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text-1)', margin: '12px 0 4px' }}>{children}</h3>,
-                    p: ({ children }: any) => <p style={{ margin: '4px 0', lineHeight: 1.8 }}>{children}</p>,
-                    strong: ({ children }: any) => <strong style={{ color: 'var(--color-text-1)', fontWeight: 700 }}>{children}</strong>,
-                    ul: ({ children }: any) => <ul style={{ margin: '8px 0', paddingLeft: 20 }}>{children}</ul>,
-                    ol: ({ children }: any) => <ol style={{ margin: '8px 0', paddingLeft: 20 }}>{children}</ol>,
-                    li: ({ children }: any) => <li style={{ margin: '2px 0', lineHeight: 1.7 }}>{children}</li>,
-                    table: ({ children }: any) => <table style={{ width: '100%', borderCollapse: 'collapse', margin: '8px 0', fontSize: 13, border: '1px solid var(--color-border-2)' }}>{children}</table>,
-                    thead: ({ children }: any) => <thead>{children}</thead>,
-                    tbody: ({ children }: any) => <tbody>{children}</tbody>,
-                    th: ({ children }: any) => <th style={{ background: 'var(--color-fill-2)', fontWeight: 600, padding: '6px 10px', textAlign: 'left', border: '1px solid var(--color-border-2)' }}>{children}</th>,
-                    td: ({ children }: any) => <td style={{ padding: '5px 10px', border: '1px solid var(--color-border-2)' }}>{children}</td>,
-                    tr: ({ children }: any) => <tr>{children}</tr>,
-                    blockquote: ({ children }: any) => <blockquote style={{ borderLeft: '3px solid #8b5cf6', background: 'rgba(139,92,246,0.05)', padding: '10px 14px', margin: '10px 0', borderRadius: '0 6px 6px 0' }}>{children}</blockquote>,
-                    code: ({ children }: any) => <code style={{ background: 'var(--color-fill-2)', padding: '1px 5px', borderRadius: 3, fontSize: 12, fontFamily: 'monospace' }}>{children}</code>,
-                    hr: () => <hr style={{ border: 'none', borderTop: '1px solid var(--color-border-2)', margin: '12px 0' }} />,
-                  }}
-                >{profileData.profileMarkdown}</ReactMarkdown>
-              ) : profileData.scoresJson ? (() => { try { const scores = JSON.parse(profileData.scoresJson); return (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                  {scores.summary && <p style={{ fontSize: 14, color: 'var(--color-text-1)', fontStyle: 'italic', padding: '10px 14px', background: 'var(--color-fill-2)', borderRadius: 8 }}>💡 {scores.summary}</p>}
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
-                    {[{k:'compositeScore',l:'综合'},{k:'fundamentalScore',l:'基本面'},{k:'growthScore',l:'成长性'},{k:'valuationScore',l:'估值'},{k:'capitalScore',l:'资金面'},{k:'technicalScore',l:'技术面'},{k:'industryScore',l:'行业'}].map(({k,l}) => (
-                      <div key={k} style={{ background: 'var(--color-fill-2)', borderRadius: 8, padding: 10, textAlign: 'center' }}>
-                        <div style={{ fontSize: 22, fontWeight: 700, color: scores[k] >= 70 ? '#00b42a' : scores[k] >= 50 ? '#ff7d00' : '#f53f3f' }}>{scores[k] ?? '?'}</div>
-                        <div style={{ fontSize: 11, color: 'var(--color-text-3)' }}>{l}</div>
-                      </div>
-                    ))}
-                  </div>
-                  <div style={{ display: 'flex', gap: 12 }}>
-                    <Tag color={scores.riskLevel === 'low' ? 'green' : scores.riskLevel === 'high' ? 'red' : 'orange'}>风险: {scores.riskLevel}</Tag>
-                    <Tag color={scores.suggestion === 'buy' ? 'red' : scores.suggestion === 'reduce' ? 'green' : 'blue'}>建议: {scores.suggestion}</Tag>
-                  </div>
-                  {scores.riskWarnings?.length > 0 && (
-                    <div style={{ background: 'var(--color-danger-bg)', borderRadius: 8, padding: 12 }}>
-                      <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-danger-text)', marginBottom: 6 }}>⚠️ 风险提示</div>
-                      {scores.riskWarnings.map((w: string, i: number) => (
-                        <div key={i} style={{ fontSize: 12, color: 'var(--color-text-2)', lineHeight: 1.6 }}>• {w}</div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ); } catch { return <div style={{color:'var(--color-text-3)'}}>评分数据解析失败</div>; } })() : <div style={{color:'var(--color-text-3)', textAlign:'center', padding:40}}>暂无简介数据</div>
+            {profileData?.profileMarkdown ? (
+              <ReactMarkdown
+                components={{
+                  h2: ({ children }: any) => <h2 style={{ fontSize: 16, fontWeight: 700, color: 'var(--color-text-1)', margin: '16px 0 8px', borderBottom: '1px solid var(--color-border-2)', paddingBottom: 4 }}>{children}</h2>,
+                  h3: ({ children }: any) => <h3 style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text-1)', margin: '12px 0 4px' }}>{children}</h3>,
+                  p: ({ children }: any) => <p style={{ margin: '4px 0', lineHeight: 1.8 }}>{children}</p>,
+                  strong: ({ children }: any) => <strong style={{ color: 'var(--color-text-1)', fontWeight: 700 }}>{children}</strong>,
+                  ul: ({ children }: any) => <ul style={{ margin: '8px 0', paddingLeft: 20 }}>{children}</ul>,
+                  ol: ({ children }: any) => <ol style={{ margin: '8px 0', paddingLeft: 20 }}>{children}</ol>,
+                  li: ({ children }: any) => <li style={{ margin: '2px 0', lineHeight: 1.7 }}>{children}</li>,
+                  table: ({ children }: any) => <table style={{ width: '100%', borderCollapse: 'collapse', margin: '8px 0', fontSize: 13, border: '1px solid var(--color-border-2)' }}>{children}</table>,
+                  thead: ({ children }: any) => <thead>{children}</thead>,
+                  tbody: ({ children }: any) => <tbody>{children}</tbody>,
+                  th: ({ children }: any) => <th style={{ background: 'var(--color-fill-2)', fontWeight: 600, padding: '6px 10px', textAlign: 'left', border: '1px solid var(--color-border-2)' }}>{children}</th>,
+                  td: ({ children }: any) => <td style={{ padding: '5px 10px', border: '1px solid var(--color-border-2)' }}>{children}</td>,
+                  tr: ({ children }: any) => <tr>{children}</tr>,
+                  blockquote: ({ children }: any) => <blockquote style={{ borderLeft: '3px solid #8b5cf6', background: 'rgba(139,92,246,0.05)', padding: '10px 14px', margin: '10px 0', borderRadius: '0 6px 6px 0' }}>{children}</blockquote>,
+                  code: ({ children }: any) => <code style={{ background: 'var(--color-fill-2)', padding: '1px 5px', borderRadius: 3, fontSize: 12, fontFamily: 'monospace' }}>{children}</code>,
+                  hr: () => <hr style={{ border: 'none', borderTop: '1px solid var(--color-border-2)', margin: '12px 0' }} />,
+                }}
+              >{profileData.profileMarkdown}</ReactMarkdown>
             ) : (
               <div style={{ textAlign: 'center', padding: 40, color: 'var(--color-text-3)' }}>
                 <Bot size={32} style={{ marginBottom: 8, color: 'var(--color-text-4)' }} />
-                <p style={{ fontSize: 13 }}>点击"更新分析"生成 AI 智能简介和六维评分</p>
+                <p style={{ fontSize: 13 }}>点击"更新简介"生成 AI 智能公司简介</p>
               </div>
             )}
           </div>
