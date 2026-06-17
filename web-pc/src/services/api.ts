@@ -207,7 +207,7 @@ export const deleteWatchlistGroup = (id: number) => api.delete(`/watchlist/group
 export const reorderWatchlistGroups = (ids: number[]) => api.put('/watchlist/groups/reorder', { ids });
 
 // ── Stock search ──
-export const searchStock = (keyword: string) => api.get("/stocks", { params: { keyword, pageSize: 10 } });
+export const searchStock = (keyword: string) => api.get("/stocks", { params: { keyword, pageSize: 20 } });
 
 
 // ── Strategy ──

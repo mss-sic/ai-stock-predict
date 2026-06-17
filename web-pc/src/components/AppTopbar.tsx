@@ -1,8 +1,9 @@
-import { useMemo } from 'react';
+import { useMemo, useState, useCallback, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Input, Badge, Button, Tag } from '@arco-design/web-react';
+import { Input, AutoComplete, Badge, Button, Tag } from '@arco-design/web-react';
 import { Search, Bell, ChevronRight, Home, Clock, User } from 'lucide-react';
 import { useAuth } from '../services/AuthContext';
+import { searchStock } from '../services/api';
 
 // ── Breadcrumb route mapping ──
 const routeLabels: Record<string, { label: string; parent?: string }> = {
@@ -32,23 +33,17 @@ function useMarketStatus(): { isOpen: boolean; label: string } {
   return useMemo(() => {
     const now = new Date();
     const day = now.getDay();
-    // Weekend
     if (day === 0 || day === 6) return { isOpen: false, label: '休市' };
-    
     const h = now.getHours();
     const m = now.getMinutes();
     const t = h * 60 + m;
-    
-    // A-share market: 9:30-11:30, 13:00-15:00
     const morningOpen = 9 * 60 + 30;
     const morningClose = 11 * 60 + 30;
     const afternoonOpen = 13 * 60;
     const afternoonClose = 15 * 60;
-    
     if ((t >= morningOpen && t < morningClose) || (t >= afternoonOpen && t < afternoonClose)) {
       return { isOpen: true, label: '交易中' };
     }
-    // Pre-market (9:00-9:30) or lunch (11:30-13:00)
     if ((t >= 9 * 60 && t < morningOpen) || (t >= morningClose && t < afternoonOpen)) {
       return { isOpen: false, label: '等待开盘' };
     }
@@ -62,27 +57,69 @@ export default function AppTopbar() {
   const location = useLocation();
   const market = useMarketStatus();
 
+  // ── Search state ──
+  const [searchOptions, setSearchOptions] = useState<{ value: string; name: string }[]>([]);
+  const [searching, setSearching] = useState(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+  const optionsRef = useRef(searchOptions);
+  optionsRef.current = searchOptions;
+
+  const handleSearch = useCallback((value: string) => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    const trimmed = value.trim();
+    if (!trimmed) {
+      setSearchOptions([]);
+      setSearching(false);
+      return;
+    }
+    setSearching(true);
+    debounceRef.current = setTimeout(async () => {
+      try {
+        const res = await searchStock(trimmed);
+        const stocks = res.data?.data || [];
+        setSearchOptions(stocks.map((s: any) => ({
+          value: s.code,
+          name: `${s.code}  ${s.name}`,
+        })));
+      } catch {
+        setSearchOptions([]);
+      } finally {
+        setSearching(false);
+      }
+    }, 250);
+  }, []);
+
+  const handleSelect = useCallback((value: string) => {
+    if (value) {
+      navigate(`/stock/${value}`);
+      setSearchOptions([]);
+    }
+  }, [navigate]);
+
+  const handlePressEnter = useCallback((_e: any, activeOption?: { value: string }) => {
+    const code = activeOption?.value || optionsRef.current[0]?.value;
+    if (code) {
+      navigate(`/stock/${code}`);
+      setSearchOptions([]);
+    }
+  }, [navigate]);
+
   // ── Breadcrumb ──
   const breadcrumb = useMemo(() => {
     const parts: { label: string; path?: string }[] = [];
     const path = location.pathname;
-    
-    // Try exact match first
     const exact = routeLabels[path];
     if (exact) {
       if (exact.parent) parts.push({ label: exact.parent });
       parts.push({ label: exact.label });
       return parts;
     }
-    
-    // Try prefix match
     const segments = path.split('/').filter(Boolean);
     if (segments.length >= 2) {
       const prefix = '/' + segments[0];
       const base = routeLabels[prefix];
       if (base) {
         parts.push({ label: base.label, path: prefix });
-        // Check for sub-pages
         if (segments[0] === 'pk') {
           if (segments[1] && !isNaN(Number(segments[1]))) {
             parts.push({ label: '活动详情' });
@@ -106,8 +143,6 @@ export default function AppTopbar() {
         return parts;
       }
     }
-    
-    // Generic fallback
     parts.push({ label: segments[segments.length - 1] || '首页', path: '/' });
     return parts;
   }, [location.pathname]);
@@ -152,15 +187,22 @@ export default function AppTopbar() {
       <div style={{ flex: 1 }} />
 
       {/* ── Stock Search ── */}
-      <Input
-        prefix={<Search size={14} style={{ color: 'var(--color-text-3)' }} />}
+      <AutoComplete
+        data={searchOptions}
+        filterOption={false}
+        onSearch={handleSearch}
+        onSelect={handleSelect}
+        onPressEnter={handlePressEnter}
         placeholder="搜索股票代码/名称..."
-        style={{ width: 220, borderRadius: 8 }}
-        size="small"
-        onPressEnter={(e) => {
-          const v = (e.target as HTMLInputElement).value.trim();
-          if (v) navigate(`/stock/${v}`);
-        }}
+        style={{ width: 260 }}
+        triggerElement={
+          <Input
+            prefix={<Search size={14} style={{ color: 'var(--color-text-3)' }} />}
+            style={{ borderRadius: 8 }}
+            size="small"
+            allowClear
+          />
+        }
       />
 
       {/* ── Market Time ── */}
