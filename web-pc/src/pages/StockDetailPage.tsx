@@ -1642,9 +1642,33 @@ const handleChatSend = async (text?: string) => {
                                   h3: ({ children }: any) => <h3 style={{ fontSize: 14, fontWeight: 700, color: 'var(--color-text-1)', margin: '10px 0 4px' }}>{children}</h3>,
                                   h4: ({ children }: any) => <h4 style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-2)', margin: '8px 0 2px' }}>{children}</h4>,
                                   hr: () => <hr style={{ border: 'none', borderTop: '1px solid var(--color-border-1)', margin: '12px 0' }} />,
-                                  table: ({ children }: any) => <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, margin: '8px 0' }}>{children}</table>,
-                                  th: ({ children }: any) => <th style={{ borderBottom: '2px solid var(--color-border-2)', padding: '6px 10px', textAlign: 'left', color: 'var(--color-text-2)', fontWeight: 600 }}>{children}</th>,
-                                  td: ({ children }: any) => <td style={{ borderBottom: '1px solid var(--color-border-1)', padding: '6px 10px', color: 'var(--color-text-1)' }}>{children}</td>,
+                                  table: ({ children }: any) => (
+                                    <div style={{ overflowX: 'auto', margin: '10px 0', borderRadius: 8, border: '1px solid var(--color-border-2)' }}>
+                                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>{children}</table>
+                                    </div>
+                                  ),
+                                  thead: ({ children }: any) => <thead>{children}</thead>,
+                                  tbody: ({ children }: any) => <tbody>{children}</tbody>,
+                                  th: ({ children }: any) => (
+                                    <th style={{
+                                      background: 'var(--color-fill-2)',
+                                      fontWeight: 700,
+                                      fontSize: 11,
+                                      color: 'var(--color-text-2)',
+                                      padding: '7px 10px',
+                                      textAlign: 'left',
+                                      borderBottom: '2px solid var(--color-border-2)',
+                                      whiteSpace: 'nowrap',
+                                    }}>{children}</th>
+                                  ),
+                                  td: ({ children }: any) => (
+                                    <td style={{
+                                      padding: '6px 10px',
+                                      borderBottom: '1px solid var(--color-border-1)',
+                                      fontSize: 12,
+                                      color: 'var(--color-text-1)',
+                                    }}>{children}</td>
+                                  ),
                                 }}
                               >{m.text}</ReactMarkdown>
                             )
