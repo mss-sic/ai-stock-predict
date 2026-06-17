@@ -262,7 +262,9 @@ func (h *AIHandler) toolGetMyHoldings(userID uint) string {
 		Quantity  int     `json:"quantity"`
 		BuyDate   string  `json:"buyDate"`
 	}
+	log.Printf("[tool_get_holdings] querying for userID=%d", userID)
 	db.MySQL.Raw(`SELECT id, user_id, stock_code, cost_price, quantity, buy_date FROM holdings WHERE user_id = ?`, userID).Scan(&holdings)
+	log.Printf("[tool_get_holdings] found %d holdings for userID=%d", len(holdings), userID)
 
 	if len(holdings) == 0 {
 		return `{"holdings":[],"totalValue":0,"totalCost":0,"totalPnl":0,"totalPnlPct":0,"message":"暂无持仓数据"}`
