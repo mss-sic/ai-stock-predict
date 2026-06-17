@@ -143,7 +143,7 @@ def main():
         sql = """
             INSERT INTO stock_realtime_quote
                 (code, name, price, prev_close, open, high, low, volume, amount,
-                 change_pct, turnover_rate, pe, pb, total_market_cap, circulating_market_cap, amplitude, updated_at)
+                 change_pct, turnover_rate, pe, pb, total_market_cap, circulating_mcap, amplitude)
             VALUES %s
             ON CONFLICT (code) DO UPDATE SET
                 name = EXCLUDED.name, price = EXCLUDED.price,
@@ -153,7 +153,7 @@ def main():
                 change_pct = EXCLUDED.change_pct, turnover_rate = EXCLUDED.turnover_rate,
                 pe = EXCLUDED.pe, pb = EXCLUDED.pb,
                 total_market_cap = EXCLUDED.total_market_cap,
-                circulating_market_cap = EXCLUDED.circulating_market_cap,
+                circulating_mcap = EXCLUDED.circulating_mcap,
                 amplitude = EXCLUDED.amplitude, updated_at = NOW()
         """
         execute_values(cur, sql, rows, page_size=100)
