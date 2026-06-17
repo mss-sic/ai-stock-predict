@@ -1,62 +1,288 @@
-# AGENTS.md — 智策投研项目开发规范
+# AGENTS.md — 智策投研 项目开发规范
+
+> 适用于 Codex Agent 自动遵守的开发约束，覆盖 Go 后端 / React 前端 / Python 采集三层。
+
+---
 
 ## 1. 本地服务端启动规则
 
-**固定启动流程，禁止使用其他方式启动服务端，防止端口冲突：**
+**固定启动流程，禁止使用其他方式，防止端口冲突：**
 
 ```bash
-# 步骤 1: 编译 Go 服务端
+# 编译
 cd server && go build -o bin/server ./cmd/server/ && cp bin/server server-bin
 
-# 步骤 2: 停止旧进程 + 重启
+# 重启
 kill $(lsof -ti :8080) 2>/dev/null; sleep 1
-launchctl start com.stock.server
+launchctl start com.stock.server; sleep 2
 
-# 步骤 3: 验证
-sleep 2 && lsof -ti :8080
+# 验证
+lsof -ti :8080
 ```
 
-- **永远不要**直接运行 `go run` 或 `./server` 启动服务端
-- **永远不要**使用其他端口（8080 是唯一固定端口）
-- 前端使用 Vite 开发服务器 `npm run dev`（端口 5173），HMR 自动热更新，修改前端代码无需重启
-- 修改 Python 采集脚本无需重启服务端
+- **禁止** `go run`、`./server`、`air` 等其他启动方式
+- **禁止** 使用 8080 以外的端口
+- 前端 Vite HMR 自动热更新，修改前端代码无需重启
+- 修改 Python 脚本无需重启服务端
 
-## 2. 线上版本同步规则
+---
 
-修改数据库表结构时必须：
-- 在 `server/internal/db/migrations_data.go` 中新增迁移版本
-- 同时生成独立的线上修复 SQL 脚本，记录在 `docs/sql-fixes/` 目录下
-- 文件名格式: `YYYY-MM-DD_fix_description.sql`
-- 迁移版本号递增，描述清晰
+## 2. 零硬编码规则 (No Hardcoding)
 
-示例：
+### 2.1 Go 后端
+
+**所有可变配置必须通过环境变量读取，带 fallback，禁止直接在代码中写字面量：**
+
 ```go
-// v017: 新增 stock_profiles 表
-{
-    Version:     17,
-    Description: "新增 stock_profiles 表 (AI 简介 + 六维评分)",
-    Up: func() error {
-        return db.PG.AutoMigrate(&model.StockProfile{})
-    },
-},
+// ✅ 正确
+func getEnv(key, fallback string) string {
+    if v := os.Getenv(key); v != "" { return v }
+    return fallback
+}
+PG_DSN := getEnv("POSTGRES_DSN", "host=localhost ...")
+
+// ❌ 错误
+PG_DSN := "host=localhost user=stock password=stock123 dbname=stock_predict"
 ```
 
-## 3. 功能完成确认 & 变更日志
+- 数据库 DSN：`POSTGRES_DSN`、`MYSQL_DSN`
+- 服务端口：`PORT`（默认 8080）
+- AI API Key：`OPENAI_API_KEY`、`OPENAI_BASE_URL`
+- 调度表达式：`CRON_EXPR`
+- 采集并发数：`COLLECTOR_WORKERS`、`COLLECTOR_CHUNK`
 
-每次功能对话结束时：
-- **主动确认**：询问用户「功能是否已完成，是否需要归档？」
-- 按天在 `CHANGELOG.md` 中补充更新条目（`## vX.Y.Z (YYYY-MM-DD)` 格式）
-- 条目按功能模块分组（AI 简介、股票详情、数据修复、右侧面板等）
-- 用户确认后 `git commit` 提交代码
-- **不要**在用户未确认的情况下自动 commit
+### 2.2 Python 采集脚本
 
-## 4. 发布上线规则
+**所有 Python 脚本的数据库连接和其他可变配置必须使用环境变量 + 默认值：**
 
-当用户要求发布上线时：
-- **前提检查**：确保所有代码已 `git commit`
-- 运行 `./publish.sh` 构建 linux/amd64 镜像并推送到阿里云 Registry
-- 镜像地址: `crpi-t3tis8f2l2fb8jc9.cn-hangzhou.personal.cr.aliyuncs.com/lijiangbo/ai-stock-predict:latest`
-- 推送完成后给出服务器端更新命令：
+```python
+# ✅ 正确
+PG_DSN = os.environ.get("PG_DSN", "host=localhost dbname=stock_predict user=stock password=stock123")
+
+# ❌ 错误  
+PG_DSN = "host=localhost dbname=stock_predict user=stock password=stock123"  # 硬编码
+```
+
+- 所有采集脚本统一用 `os.environ.get("PG_DSN", "fallback")`
+- API 地址通过环境变量注入
+- 禁止在脚本中硬编码绝对路径
+
+### 2.3 前端
+
+**API 请求统一通过 `web-pc/src/services/api.ts` 中的函数，禁止在组件中直接写 URL 字符串：**
+
+```tsx
+// ✅ 正确
+import { fetchKLine } from '../services/api';
+fetchKLine(code)
+
+// ❌ 错误
+fetch(`/api/v1/stocks/${code}/kline`)  // 直接硬编码 URL
+```
+
+- 所有后端 API 路径集中在 `api.ts` 管理
+- 魔法数字（`slice(0,10)`、`pageSize=20` 等）提取为常量
+- 第三方 URL（新浪/东财/同花顺）集中在一个常量 Map 中
+
+---
+
+## 3. 错误处理规则
+
+### 3.1 Go 后端
+
+```go
+// ✅ 正确：每个 err 都必须处理或显式忽略
+result, err := someFunc()
+if err != nil {
+    log.Printf("[module] operation failed: %v", err)
+    response.InternalError(c, "操作失败")
+    return
+}
+
+// ❌ 错误：吞咽错误
+result, _ := someFunc()  // 不检查 err
+someFunc()               // 不接收 err
+```
+
+- **禁止** 使用 `_` 忽略 error 返回值
+- **禁止** 只 `log.Print` 不返回错误给调用方
+- Handler 层错误统一用 `response.Error()` 返回
+- Repository 层错误向上传递，不在底层静默吞掉
+
+### 3.2 前端
+
+```tsx
+// ✅ 正确
+try {
+    const res = await fetchData();
+    setData(res.data?.data || []);
+} catch (err) {
+    console.error('[Component] fetchData failed:', err);
+    showToast('加载失败', 'error');
+}
+
+// ❌ 错误：空 catch
+try { await fetchData(); } catch {}  // 静默失败
+try { await fetchData(); } catch (_) {}  // 静默失败
+```
+
+- **禁止** 空 `catch {}` 或 `catch (_) {}`
+- 至少 `console.error` 记录错误
+- 面向用户的操作需 `showToast` 反馈
+
+### 3.3 Python
+
+```python
+# ✅ 正确
+try:
+    data = fetch_api(code)
+except Exception as e:
+    log(f"[{code}] API 错误: {e}")
+    return None
+
+# ❌ 错误
+try:
+    data = fetch_api(code)
+except:
+    pass  # 静默吞掉
+```
+
+---
+
+## 4. 数据库 & 性能规则
+
+### 4.1 查询优化
+
+- **禁止** 在循环中执行数据库查询（N+1 问题）
+- 批量操作使用 `execute_values` / `CreateInBatches`
+- 列表查询必须有分页（默认 `pageSize=20`，最大不超过 `100`）
+- 关联查询优先使用 `JOIN LATERAL` 或 `Preload`，避免循环查询
+
+### 4.2 线上版本同步
+
+修改数据库表结构时：
+
+- 在 `server/internal/db/migrations_data.go` 中新增迁移版本
+- 同时生成独立修复 SQL → `docs/sql-fixes/YYYY-MM-DD_description.sql`
+- 迁移版本号严格递增，描述清晰
+- **思考**：现有数据如何迁移？是否需要回填脚本？
+
+### 4.3 索引
+
+- 高频查询字段（`code`、`trade_date`、`user_id`）必须有索引
+- `uniqueIndex` 用于业务唯一约束
+- 复合索引字段顺序：区分度高的在前
+
+---
+
+## 5. 代码组织规则
+
+### 5.1 Go 后端分层
+
+```
+handler/   ← HTTP 层（参数校验、响应格式化、调用 service）
+service/   ← 业务逻辑层
+repository/ ← 数据访问层
+model/     ← 数据模型定义
+config/    ← 配置管理
+collector/  ← 采集调度
+```
+
+- **Handler 禁止直接操作数据库**，必须通过 service 或 repository
+- **禁止** 单文件超过 800 行，超限拆分为多个文件
+- 所有导出函数必须有注释（`// FunctionName does X`）
+
+### 5.2 前端组件
+
+- 页面组件放 `pages/`，可复用组件放 `components/`
+- **禁止** 单文件超过 600 行，超限抽取子组件
+- 内联样式过多（>10 个 style prop）应提取为 CSS 变量或 `.css` 文件
+- `any` 类型使用必须加注释说明原因
+
+### 5.3 Python 脚本
+
+- 每个脚本单一职责（采集/回填/修复 其一）
+- 文件头部注释：功能说明 + 数据源 + 使用方法
+- 参数通过 argparse 或 `sys.argv` 传入，不硬编码
+
+---
+
+## 6. 注释 & 文档规则
+
+### 6.1 Go
+
+```go
+// Package handler provides HTTP handlers for stock data endpoints.
+
+// StockHandler handles stock-related HTTP requests.
+type StockHandler struct { svc *service.StockService }
+
+// GetDetail returns full stock detail including basic info and real-time price.
+func (h *StockHandler) GetDetail(c *gin.Context) { ... }
+```
+
+- 每个 package 至少一行注释
+- 每个导出类型/函数必须有 doc comment
+- 复杂逻辑块内部加单行注释解释
+
+### 6.2 前端
+
+```tsx
+/** Fetches K-line data for the given stock code.
+ *  Returns array of { tradeDate, open, close, high, low, volume, amount, turnoverRate }
+ */
+export const fetchKLine = (code: string) => api.get(`/stocks/${code}/kline`);
+```
+
+- 每个 API 函数加 JSDoc 注释
+- 复杂 useMemo / useEffect 内部加注释说明依赖和副作用
+
+---
+
+## 7. 健壮性规则
+
+### 7.1 输入校验
+
+- 所有 handler 入口必须校验必填参数（`code`、`id` 非空）
+- 数值范围校验（`page` ≥ 1、`pageSize` ≤ 100、`horizon` 1-60）
+- 文件上传校验大小和类型
+
+### 7.2 超时与重试
+
+- Python API 请求必须设 `timeout`（默认 30s，不可无限等待）
+- Go HTTP 请求设置 context timeout
+- 关键采集允许重试 1-2 次，但需要退避
+
+### 7.3 日志规范
+
+```go
+log.Printf("[module] action for %s: %v", code, err)   // 统一格式
+```
+
+- 格式：`[模块名] 操作描述: 详情`
+- 区分 Info / Warn / Error 级别
+- 禁止在循环内打印高频日志
+
+---
+
+## 8. 功能完成确认 & 变更日志
+
+- 每次功能对话结束时**主动询问**「功能是否已完成，是否需要归档？」
+- 确认后按天更新 `CHANGELOG.md`（`## vX.Y.Z (YYYY-MM-DD)` 格式）
+- 条目按功能模块分组
+- 用户确认后再 `git commit`
+- **禁止**在用户未确认的情况下自动 commit
+
+---
+
+## 9. 发布上线规则
+
+当用户要求发布上线：
+
+1. **前提检查**：`git status` 确认无未提交更改
+2. **构建推送**：运行 `./publish.sh`（buildx linux/amd64 → 阿里云 Registry）
+3. 仓库地址：`crpi-t3tis8f2l2fb8jc9.cn-hangzhou.personal.cr.aliyuncs.com/lijiangbo/ai-stock-predict:latest`
+4. 输出服务器更新命令：
 
 ```bash
 docker pull crpi-t3tis8f2l2fb8jc9.cn-hangzhou.personal.cr.aliyuncs.com/lijiangbo/ai-stock-predict:latest
@@ -65,17 +291,17 @@ cd /opt/ai-stock-predict/docker && docker compose up -d
 
 ---
 
-## 项目架构速查
+## 附录：项目架构速查
 
-| 层级 | 目录 | 说明 |
-|------|------|------|
-| 前端 | `web-pc/` | React + Vite + Arco Design，端口 5173 |
-| 后端 | `server/` | Go + Gin + GORM，端口 8080 |
-| 采集 | `scripts/collector/` | Python 脚本，腾讯 API + mootdx |
-| 数据库 | PostgreSQL | `stock_predict` 库，`stocks_basic` / `stocks_daily_k` / `predictions` 等 |
-| 部署 | `docker/` | Docker Compose 编排 |
+| 层级 | 目录 | 技术栈 |
+|------|------|--------|
+| 前端 | `web-pc/` | React 19 + Vite + Arco Design + ReactMarkdown |
+| 后端 | `server/` | Go + Gin + GORM (PostgreSQL + MySQL) |
+| 采集 | `scripts/collector/` | Python 3.12 + psycopg2 + requests + mootdx |
+| 数据库 | PostgreSQL | `stock_predict` 库 |
+| 部署 | `docker/` | Docker Compose + Nginx |
 
-## 常用命令
+### 常用命令速查
 
 ```bash
 # 前端构建
@@ -87,12 +313,15 @@ cd web-pc && npm run dev
 # 后端编译
 cd server && go build -o bin/server ./cmd/server/
 
-# 运行 Python 采集脚本
+# 服务重启
+kill $(lsof -ti :8080) 2>/dev/null; sleep 1; launchctl start com.stock.server
+
+# 修复单只股票
+cd scripts/collector && python3 repair_kline.py <CODE>
+
+# 增量采集
 cd scripts/collector && python3 batch_collect.py
 
-# 修复单只股票数据
-cd scripts/collector && python3 repair_kline.py 600519
-
-# 构建并推送镜像
+# 发布上线
 ./publish.sh
 ```
