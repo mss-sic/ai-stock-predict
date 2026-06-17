@@ -4,10 +4,10 @@ import {
   Database, Upload as UploadIcon, RefreshCw, FileSpreadsheet, FileJson,
   CheckCircle, XCircle, Clock, Play, Terminal, Square, History, Activity, X,
   BarChart3, TrendingUp, Newspaper, FileText, PieChart, Users, Banknote,
-  Timer, Zap, Bot
+  Timer, Zap, Bot, Sparkles
 } from 'lucide-react';
 import {
-  uploadExcel, uploadKline, uploadPrediction, triggerCollection, fetchCollectorProgress,
+  uploadExcel, uploadKline, uploadPrediction, uploadProfile, triggerCollection, fetchCollectorProgress,
   fetchImportHistory, fetchCollectorHistory, clearCollectorHistory, fetchDataStats, fetchDataDetail,
   fetchScheduledTasks, runTaskNow, initDefaultTasks, fetchTaskLogs, resetTaskStatus, toggleTask
 } from '../services/api';
@@ -102,6 +102,7 @@ export default function DataManagementPage() {
   const [tab, setTab] = useState<'overview' | 'tasks' | 'import' | 'collect' | 'history'>('overview');
   const [loading, setLoading] = useState(false);
   const [predLoading, setPredLoading] = useState(false);
+  const [profileLoading, setProfileLoading] = useState(false);
   const [klineLoading, setKlineLoading] = useState(false);
   const [result, setResult] = useState<any>(null);
   const [history, setHistory] = useState<any[]>([]);
@@ -552,12 +553,20 @@ export default function DataManagementPage() {
               {predLoading && <div style={{ marginTop: 16, padding: '12px 16px', background: 'var(--purple-1)', borderRadius: 4, display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, color: 'var(--purple-6)' }}><RefreshCw size={14} className="spin" />正在解析并导入预测数据...</div>}
             </div>
           </div>
+
+          <div className="card">
+            <div className="card-header"><span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Bot size={16} color="#8b5cf6" /><span style={{ fontSize: 15, fontWeight: 600 }}>导入 AI 股票简介 JSON</span></span><span className="muted" style={{ fontSize: 12 }}>AI 分析报告文件 .json</span></div>
+            <div className="card-body">
+              <Upload drag accept=".json" autoUpload={false} disabled={profileLoading || loading} onChange={(_, file) => { setProfileLoading(true); setResult(null); uploadProfile(file.originFile as File).then((res: any) => { setResult({ ...res.data, fileName: file.name, type: 'profile' }); showToast('success', `简介导入完成: ${res.data.imported}只新增, ${res.data.updated}只覆盖`); }).catch((err: any) => showToast('error', err?.response?.data?.error || '导入失败')).finally(() => setProfileLoading(false)); return false; }} tip="拖拽或点击上传 JSON 文件，格式: [{stock_code, analysis_content, ...}] 导入后覆盖已有 AI 简介" />
+              {profileLoading && <div style={{ marginTop: 16, padding: '12px 16px', background: 'rgba(139,92,246,0.08)', borderRadius: 4, display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, color: '#8b5cf6' }}><RefreshCw size={14} className="spin" />正在导入股票简介...</div>}
+            </div>
+          </div>
           {result && (
             <div className="card">
-              <div className="card-header"><span style={{ fontSize: 15, fontWeight: 600 }}>导入结果</span><span className="muted" style={{ fontSize: 12 }}>{result.fileName}{result.type === 'kline' ? ' (K线)' : result.type === 'prediction' ? ' (预测)' : ''}</span></div>
+              <div className="card-header"><span style={{ fontSize: 15, fontWeight: 600 }}>导入结果</span><span className="muted" style={{ fontSize: 12 }}>{result.fileName}{result.type === 'kline' ? ' (K线)' : result.type === 'prediction' ? ' (预测)' : result.type === 'profile' ? ' (简介)' : ''}</span></div>
               <div className="card-body">
                 <div style={{ display: 'grid', gridTemplateColumns: result.type === 'prediction' ? 'repeat(3, 1fr)' : 'repeat(4, 1fr)', gap: 16, marginBottom: 16 }}>
-                  {(result.type === 'kline' ? [{ label: '导入成功', value: result.imported || 0, color: '#00b42a' }, { label: '跳过', value: result.skipped || 0, color: 'var(--color-text-3)' }, { label: '总行数', value: result.totalRows || 0, color: '#165dff' }, { label: '交易日期', value: result.tradeDate || '-', color: '#722ed1' }] : result.type === 'prediction' ? [{ label: '预测记录', value: result.imported || 0, color: '#722ed1' }, { label: '跳过', value: result.skipped || 0, color: 'var(--color-text-3)' }, { label: '股票数', value: result.total || 0, color: '#165dff' }] : [{ label: '交易日数', value: result.datesImported, color: '#165dff' }, { label: '上榜记录', value: result.picksImported, color: '#f53f3f' }, { label: '信号数据', value: result.signalsImported, color: '#00b42a' }, { label: '新增个股', value: result.stocksCreated, color: '#ff7d00' }]).map(item => (
+                  {(result.type === 'kline' ? [{ label: '导入成功', value: result.imported || 0, color: '#00b42a' }, { label: '跳过', value: result.skipped || 0, color: 'var(--color-text-3)' }, { label: '总行数', value: result.totalRows || 0, color: '#165dff' }, { label: '交易日期', value: result.tradeDate || '-', color: '#722ed1' }] : result.type === 'profile' ? [{ label: '新增', value: result.imported || 0, color: '#8b5cf6' }, { label: '覆盖', value: result.updated || 0, color: '#f59e0b' }, { label: '错误', value: result.errors || 0, color: '#f53f3f' }, { label: '总数', value: result.total || 0, color: '#165dff' }] : result.type === 'prediction' ? [{ label: '预测记录', value: result.imported || 0, color: '#722ed1' }, { label: '跳过', value: result.skipped || 0, color: 'var(--color-text-3)' }, { label: '股票数', value: result.total || 0, color: '#165dff' }] : [{ label: '交易日数', value: result.datesImported, color: '#165dff' }, { label: '上榜记录', value: result.picksImported, color: '#f53f3f' }, { label: '信号数据', value: result.signalsImported, color: '#00b42a' }, { label: '新增个股', value: result.stocksCreated, color: '#ff7d00' }]).map(item => (
                     <div key={item.label} style={{ textAlign: 'center', padding: '12px', background: 'var(--color-fill-2)', borderRadius: 6 }}><div style={{ fontSize: 24, fontWeight: 700, color: item.color, fontFamily: 'var(--font-family-mono, monospace)' }}>{item.value}</div><div style={{ fontSize: 12, color: 'var(--color-text-3)', marginTop: 4 }}>{item.label}</div></div>
                   ))}
                 </div>

@@ -226,6 +226,7 @@ func main() {
 		importH := handler.NewImportHandler(aiH)
 		api.POST("/import/excel", importH.Upload)
 		api.POST("/import/kline", importH.UploadKline)
+		api.POST("/import/profile", importH.UploadProfile)
 		api.GET("/import/history", importH.History)
 
 		// Settings (per-user)

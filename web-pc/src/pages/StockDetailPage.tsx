@@ -814,6 +814,11 @@ const handleChatSend = async (text?: string) => {
             <div style={{ padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--color-border-1)' }}>
               <span style={{ fontSize: 14, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
                 <Bot size={14} color="#8b5cf6" /> AI 智能简介
+                {profileData?.analyzedAt && (
+                  <span style={{ fontSize: 10, color: 'var(--color-text-3)', fontWeight: 400 }}>
+                    {profileData.source === 'import' ? '📥 导入' : '🤖 AI生成'} · {new Date(profileData.analyzedAt).toLocaleDateString('zh-CN')} {new Date(profileData.analyzedAt).toLocaleTimeString('zh-CN', {hour:'2-digit',minute:'2-digit'})}
+                  </span>
+                )}
               </span>
               <button
                 onClick={async () => {

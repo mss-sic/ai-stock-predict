@@ -175,6 +175,12 @@ export const uploadKline = (file: File) => {
   return api.post('/import/kline', fd, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 120000 });
 };
 
+export const uploadProfile = (file: File) => {
+  const fd = new FormData();
+  fd.append('file', file);
+  return api.post('/import/profile', fd, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 120000 });
+};
+
 export const uploadPrediction = (file: File) => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
