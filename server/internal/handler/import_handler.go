@@ -42,12 +42,6 @@ func (h *ImportHandler) Upload(c *gin.Context) {
 		return
 	}
 
-	// Trigger async AI batch scoring for imported stocks
-	if len(result.StockCodes) > 0 && h.aiH != nil {
-		uid, _ := c.Get("userId")
-		h.aiH.BatchScoreStocks(result.StockCodes, uid.(uint))
-	}
-
 	response.Success(c, result)
 }
 
