@@ -342,6 +342,7 @@ export default function StockDetailPage() {
     if (!code) return;
     fetchStockDetail(code).then((r: any) => setStock(r.data?.data ?? r.data));
     fetchKLine(code).then((r: any) => setKlines(r.data?.data || []));
+    fetchProfile(code).then((r: any) => { if (r.data?.data) setProfileData(r.data.data); }).catch(() => {});
     fetchHoldings().then((r: any) => {
       const items = r.data?.data || [];
       const found = items.find((h: any) => h.stockCode === code);
