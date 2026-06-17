@@ -54,8 +54,12 @@ def main():
     success = 0
     failed = 0
 
+    t_start = time.time()
     for idx, (code, name, expected_count) in enumerate(boards):
-        print(f"  [{idx+1}/{len(boards)}] {name} ({code}) | 预期 {expected_count}只...", flush=True, end=' ')
+        elapsed = time.time() - t_start
+        rate = (idx + 1) / max(elapsed, 0.1)
+        eta = (len(boards) - idx - 1) / max(rate, 0.01)
+        print(f"  [{idx+1}/{len(boards)}] {name} ({code}) | 预期 {expected_count}只 | 速度 {rate:.1f}/s | 预计剩余 {eta:.0f}s", flush=True, end=' ')
         
         stocks = fetch_concept_stocks(code)
         
@@ -85,6 +89,7 @@ def main():
             continue
 
         print(f"✅ {len(stocks)}只")
+        print(f"STAT:concept_fetched={len(stocks)},concept_board={name}", flush=True)
         total_inserted += len(stocks)
         total_stocks += len(stocks)
         success += 1
