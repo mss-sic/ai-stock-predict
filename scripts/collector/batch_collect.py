@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """增量采集日K线 — 腾讯前复权API，并发拉取 + 批量upsert"""
-import os, sys, time, json, ssl, urllib.request
+import os, re, sys, time, json, ssl, urllib.request
 from datetime import date
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Lock
@@ -29,6 +29,9 @@ _errors_lock = Lock()
 #  fetch_kline — thread-safe, pure function
 # ──────────────────────────────────────────────
 def fetch_kline(code, days=365):
+    # Validate code format
+    if not re.match(r'^[0-9]{6}$', code):
+        return []
     prefix = "sh" if code.startswith(("6", "9")) else "sz"
     url = f"http://ifzq.gtimg.cn/appstock/app/fqkline/get?param={prefix}{code},day,,,{days},qfq"
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
@@ -152,7 +155,7 @@ def main():
         SELECT b.code, MAX(k.trade_date) as latest
         FROM stocks_basic b
         LEFT JOIN stocks_daily_k k ON b.code = k.code
-        WHERE b.code NOT LIKE '88%'
+        WHERE b.code NOT LIKE '88%' AND b.code ~ '^[0-9]{6}$'
         GROUP BY b.code
         ORDER BY latest NULLS FIRST
     """)
