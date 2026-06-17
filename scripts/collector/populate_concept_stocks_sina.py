@@ -60,6 +60,7 @@ def main():
         rate = (idx + 1) / max(elapsed, 0.1)
         eta = (len(boards) - idx - 1) / max(rate, 0.01)
         print(f"  [{idx+1}/{len(boards)}] {name} ({code}) | 预期 {expected_count}只 | 速度 {rate:.1f}/s | 预计剩余 {eta:.0f}s", flush=True, end=' ')
+        print(f"PROGRESS:{idx+1}/{len(boards)}", flush=True)
         
         stocks = fetch_concept_stocks(code)
         
@@ -89,6 +90,7 @@ def main():
             continue
 
         print(f"✅ {len(stocks)}只")
+        print(f"     📊 关键行为: 新浪API获取 [{name}] 成分股 {len(stocks)}只", flush=True)
         print(f"STAT:concept_fetched={len(stocks)},concept_board={name}", flush=True)
         total_inserted += len(stocks)
         total_stocks += len(stocks)
