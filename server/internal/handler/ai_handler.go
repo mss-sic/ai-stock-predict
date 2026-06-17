@@ -252,6 +252,118 @@ func (h *AIHandler) ScoreStockAgent(code string, uid uint) error {
 }
 
 
+// toolGetMyHoldings returns user's current holdings with cost, quantity, and P&L.
+func (h *AIHandler) toolGetMyHoldings() string {
+	// Note: userID is not passed through executeAgentTool currently.
+	// For MVP, fetch all holdings across users. In production, pass userID.
+	var holdings []struct {
+		ID        uint    `json:"id"`
+		UserID    uint    `json:"userId"`
+		StockCode string  `json:"stockCode"`
+		CostPrice float64 `json:"costPrice"`
+		Quantity  int     `json:"quantity"`
+		BuyDate   string  `json:"buyDate"`
+	}
+	db.MySQL.Raw(`SELECT id, user_id, stock_code, cost_price, quantity, buy_date FROM holdings`).Scan(&holdings)
+
+	if len(holdings) == 0 {
+		return `{"holdings":[],"totalValue":0,"totalCost":0,"totalPnl":0,"totalPnlPct":0,"message":"暂无持仓数据"}`
+	}
+
+	// Enrich with current prices
+	type PriceRow struct {
+		Code  string
+		Close float64
+		Name  string
+	}
+	codes := make([]string, len(holdings))
+	for i, h := range holdings {
+		codes[i] = h.StockCode
+	}
+	inClause := "'" + strings.Join(codes, "','") + "'"
+
+	var prices []PriceRow
+	db.PG.Raw(fmt.Sprintf(`SELECT k.code, k.close, b.name
+		FROM stocks_daily_k k
+		JOIN stocks_basic b ON b.code = k.code
+		WHERE k.code IN (%s)
+		AND k.trade_date = (SELECT MAX(trade_date) FROM stocks_daily_k WHERE code = k.code)`, inClause)).Scan(&prices)
+
+	priceMap := make(map[string]PriceRow)
+	for _, p := range prices {
+		priceMap[p.Code] = p
+	}
+
+	// Calculate P&L
+	type HoldingResult struct {
+		StockCode     string  `json:"stockCode"`
+		StockName     string  `json:"stockName"`
+		CostPrice     float64 `json:"costPrice"`
+		Quantity      int     `json:"quantity"`
+		TotalCost     float64 `json:"totalCost"`
+		CurrentPrice  float64 `json:"currentPrice"`
+		CurrentValue  float64 `json:"currentValue"`
+		Pnl           float64 `json:"pnl"`
+		PnlPct        float64 `json:"pnlPct"`
+		BuyDate       string  `json:"buyDate"`
+	}
+
+	results := make([]HoldingResult, 0, len(holdings))
+	totalCost := 0.0
+	totalValue := 0.0
+	for _, h := range holdings {
+		tc := h.CostPrice * float64(h.Quantity)
+		totalCost += tc
+		p, ok := priceMap[h.StockCode]
+		cv := tc // default to cost
+		if ok && p.Close > 0 {
+			cv = p.Close * float64(h.Quantity)
+			totalValue += cv
+		} else {
+			totalValue += tc
+		}
+		name := h.StockCode
+		if ok && p.Name != "" {
+			name = p.Name
+		}
+		pnl := cv - tc
+		pnlPct := 0.0
+		if tc > 0 {
+			pnlPct = pnl / tc * 100
+		}
+		results = append(results, HoldingResult{
+			StockCode:    h.StockCode,
+			StockName:    name,
+			CostPrice:    h.CostPrice,
+			Quantity:     h.Quantity,
+			TotalCost:    tc,
+			CurrentPrice: p.Close,
+			CurrentValue: cv,
+			Pnl:          pnl,
+			PnlPct:       pnlPct,
+			BuyDate:      h.BuyDate,
+		})
+	}
+
+	totalPnl := totalValue - totalCost
+	totalPnlPct := 0.0
+	if totalCost > 0 {
+		totalPnlPct = totalPnl / totalCost * 100
+	}
+
+	b, _ := json.Marshal(map[string]interface{}{
+		"holdings":     results,
+		"totalValue":   totalValue,
+		"totalCost":    totalCost,
+		"totalPnl":     totalPnl,
+		"totalPnlPct":  totalPnlPct,
+		"count":        len(results),
+	})
+	return string(b)
+}
+
+// buildScoringAgentPrompt builds
+
 // buildScoringAgentPrompt builds the system prompt for agent-based AI scoring.
 func (h *AIHandler) buildScoringAgentPrompt(code string) string {
 	var stock struct{ Name, Industry string }
@@ -265,6 +377,7 @@ func (h *AIHandler) buildScoringAgentPrompt(code string) string {
 	- get_technical: 获取MACD/KDJ/RSI等技术指标
 	- get_financials: 获取财务数据（ROE/EPS/营收利润/现金流等）
 	- get_news: 获取近期新闻和公告
+- get_my_holdings: 获取你的持仓数据（成本、数量、盈亏）
 	
 	六维评分标准（每维1-10分，取工具返回的精确数据）：
 	- fundamentalScore(基本面): 财务健康度（ROE/EPS/利润率/现金流）
@@ -808,6 +921,7 @@ func (h *AIHandler) buildAgentSystemPrompt(code string) string {
 - get_technical: 获取MACD/KDJ/RSI等技术指标
 - get_financials: 获取财务数据（ROE/EPS/营收/利润等）
 - get_news: 获取近期新闻和公告
+- get_my_holdings: 获取你的持仓数据（成本、数量、盈亏）
 
 使用规则：
 1. 分析前务必先调用相关工具获取数据，不要凭空编造
@@ -892,6 +1006,17 @@ func (h *AIHandler) buildAgentTools() []map[string]interface{} {
 				},
 			},
 		},
+		{
+			"type": "function",
+			"function": map[string]interface{}{
+				"name":        "get_my_holdings",
+				"description": "获取用户当前持股数据：成本价、持仓数量、盈亏等，用于分析持仓表现和风险",
+				"parameters": map[string]interface{}{
+					"type":       "object",
+					"properties": map[string]interface{}{},
+				},
+			},
+		},
 	}
 }
 
@@ -925,6 +1050,9 @@ func (h *AIHandler) executeAgentTool(name string, args map[string]interface{}, d
 			limit = int(l)
 		}
 		return h.toolGetNews(code, limit)
+
+	case "get_my_holdings":
+		return h.toolGetMyHoldings()
 
 	default:
 		return `{"error": "unknown tool: ` + name + `"}`
