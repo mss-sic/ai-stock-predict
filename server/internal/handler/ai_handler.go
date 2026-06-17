@@ -829,6 +829,10 @@ func (h *AIHandler) analyzeStreamAgent(c *gin.Context, code, question string, ai
 
 	// Build system prompt for agent mode (without injected data, agent queries itself)
 	sysMsg := h.buildAgentSystemPrompt(code)
+	// Ensure tool instructions are present (custom prompts from DB may omit them)
+	if !strings.Contains(sysMsg, "get_my_holdings") {
+		sysMsg += "\n\n你拥有以下工具可以实时查询数据库：get_stock_price(价格/PE/PB)、get_kline_summary(K线走势)、get_technical(技术指标)、get_financials(财务数据)、get_news(新闻公告)、get_my_holdings(持仓/成本/盈亏)。分析前务必先调用工具获取数据，不要凭空编造。"
+	}
 
 	// Load recent history
 	var history []model.AIConversation

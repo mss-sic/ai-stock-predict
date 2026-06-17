@@ -405,9 +405,9 @@ func init() {
 		Description: "PG: ai_system_configs add enable_tools column",
 		Up: func() error {
 			gormAutoMigrate(PG, &model.AISystemConfig{})
-			safeExec(`ALTER TABLE ai_system_configs ALTER COLUMN enable_tools SET DEFAULT false`)
+			safeExec(`ALTER TABLE ai_system_configs ALTER COLUMN enable_tools SET DEFAULT true`)
 			// Update existing rows to have enable_tools = false if null
-			safeExec(`UPDATE ai_system_configs SET enable_tools = false WHERE enable_tools IS NULL`)
+			safeExec(`UPDATE ai_system_configs SET enable_tools = true WHERE enable_tools IS NULL OR enable_tools = false`)
 			return nil
 		},
 	})
