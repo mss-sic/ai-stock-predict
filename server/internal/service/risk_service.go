@@ -137,16 +137,16 @@ func ScanUserHoldings() (int, error) {
 	var peInfos []PEInfo
 	db.PG.Raw(fmt.Sprintf(`
 		WITH latest_pe AS (
-			SELECT DISTINCT ON (code) code, pe_ttm as pe
+			SELECT DISTINCT ON (code) code, pe as pe
 			FROM stocks_daily_indicator
-			WHERE code = %s AND pe_ttm > 0
+			WHERE code = %s AND pe > 0
 			ORDER BY code, trade_date DESC
 		),
 		ind_avg AS (
-			SELECT sb.industry, AVG(i.pe_ttm) as avg_pe
+			SELECT sb.industry, AVG(i.pe) as avg_pe
 			FROM stocks_daily_indicator i
 			JOIN stocks_basic sb ON sb.code = i.code
-			WHERE i.code = %s AND i.pe_ttm > 0 AND i.pe_ttm < 500
+			WHERE i.code = %s AND i.pe > 0 AND i.pe < 500
 				AND i.trade_date = (SELECT MAX(trade_date) FROM stocks_daily_indicator WHERE code = i.code)
 			GROUP BY sb.industry
 		)
