@@ -2,6 +2,13 @@
 
 ## v1.3.3 (2026-06-18)
 
+### AI 对话
+- **Markdown 表格渲染** — 两个 AI 对话 ReactMarkdown 实例补全 `remarkGfm` 插件 + table/thead/tbody/th/td 组件样式，修复 GFM 表格无法显示
+- **持仓按用户过滤** — `get_my_holdings` 工具透传 userId 至 MySQL 查询，`WHERE user_id = ?` 防止多用户数据混淆
+
+### 数据采集
+- **list 型 API 响应保护** — `fetch_kline` 增加 `isinstance(data/list, list)` 守卫，防止腾讯接口异常返回导致 `.get()` 崩溃
+
 ### 数据采集
 - **采集控制台进度条修复** — 修复进度条始终 0/1 问题：前端 phaseProgress 轮询同步不再要求 phaseCurrent 非 undefined
 - **采集日志优化** — batch_collect.py 每批次输出关键行为日志："通过腾讯获取 0618 日K线 122 条，新入库 22 只"

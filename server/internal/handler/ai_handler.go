@@ -209,7 +209,7 @@ func (h *AIHandler) ScoreStockAgent(code string, uid uint) error {
 		{"role": "user", "content": fmt.Sprintf("请对股票 %s 进行全面六维评分。先调用工具获取各维度数据，再输出JSON结果。", code)},
 	}, tools,
 		func(name string, args map[string]interface{}) string {
-			return h.executeAgentTool(name, args, code)
+			return h.executeAgentTool(name, args, code, uid)
 		},
 		func(chunk string) {
 			fullReply += chunk
@@ -253,9 +253,7 @@ func (h *AIHandler) ScoreStockAgent(code string, uid uint) error {
 
 
 // toolGetMyHoldings returns user's current holdings with cost, quantity, and P&L.
-func (h *AIHandler) toolGetMyHoldings() string {
-	// Note: userID is not passed through executeAgentTool currently.
-	// For MVP, fetch all holdings across users. In production, pass userID.
+func (h *AIHandler) toolGetMyHoldings(userID uint) string {
 	var holdings []struct {
 		ID        uint    `json:"id"`
 		UserID    uint    `json:"userId"`
@@ -264,7 +262,7 @@ func (h *AIHandler) toolGetMyHoldings() string {
 		Quantity  int     `json:"quantity"`
 		BuyDate   string  `json:"buyDate"`
 	}
-	db.MySQL.Raw(`SELECT id, user_id, stock_code, cost_price, quantity, buy_date FROM holdings`).Scan(&holdings)
+	db.MySQL.Raw(`SELECT id, user_id, stock_code, cost_price, quantity, buy_date FROM holdings WHERE user_id = ?`, userID).Scan(&holdings)
 
 	if len(holdings) == 0 {
 		return `{"holdings":[],"totalValue":0,"totalCost":0,"totalPnl":0,"totalPnlPct":0,"message":"暂无持仓数据"}`
@@ -867,7 +865,7 @@ func (h *AIHandler) analyzeStreamAgent(c *gin.Context, code, question string, ai
 
 	err := h.svc.ChatCompletionAgentStream(uid.(uint), messages, aiCfg, tools,
 		func(name string, args map[string]interface{}) string {
-			return h.executeAgentTool(name, args, code)
+			return h.executeAgentTool(name, args, code, uid.(uint))
 		},
 		func(eventType string, data map[string]string) {
 			// Send tool status event to frontend
@@ -1021,7 +1019,7 @@ func (h *AIHandler) buildAgentTools() []map[string]interface{} {
 }
 
 // executeAgentTool executes a single tool call against the database.
-func (h *AIHandler) executeAgentTool(name string, args map[string]interface{}, defaultCode string) string {
+func (h *AIHandler) executeAgentTool(name string, args map[string]interface{}, defaultCode string, userID uint) string {
 	code, ok := args["code"].(string)
 	if !ok || code == "" {
 		code = defaultCode
@@ -1052,7 +1050,7 @@ func (h *AIHandler) executeAgentTool(name string, args map[string]interface{}, d
 		return h.toolGetNews(code, limit)
 
 	case "get_my_holdings":
-		return h.toolGetMyHoldings()
+		return h.toolGetMyHoldings(userID)
 
 	default:
 		return `{"error": "unknown tool: ` + name + `"}`

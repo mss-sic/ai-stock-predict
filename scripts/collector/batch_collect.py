@@ -39,8 +39,13 @@ def fetch_kline(code, days=365):
     try:
         with urllib.request.urlopen(req, timeout=15, context=ctx) as resp:
             data = json.loads(resp.read().decode())
-        return data.get("data", {}).get(f"{prefix}{code}", {}).get("qfqday", []) or \
-               data.get("data", {}).get(f"{prefix}{code}", {}).get("day", []) or []
+        if isinstance(data, list):
+            return []
+        result = data.get("data", {})
+        if isinstance(result, list):
+            return []
+        return result.get(f"{prefix}{code}", {}).get("qfqday", []) or \
+               result.get(f"{prefix}{code}", {}).get("day", []) or []
     except Exception as e:
         with _errors_lock:
             if code not in _fetch_errors:
