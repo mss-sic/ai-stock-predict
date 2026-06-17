@@ -1080,25 +1080,130 @@ func (h *AIHandler) GetProfile(c *gin.Context) {
 	response.Success(c, profile)
 }
 
-// RunProfile triggers AI profile generation for a single stock via collector script
+// RunProfile generates AI stock profile synchronously and returns the result
 func (h *AIHandler) RunProfile(c *gin.Context) {
 	code := c.Param("code")
-	go func() {
-		exec.Command("python3",
-			filepath.Join(scriptsRoot(), "stock_profile_collect.py"),
-			"--code", code,
-		).Run()
-	}()
-	response.SuccessMsg(c, "已触发 "+code+" 简介采集，请稍后刷新查看")
+	uid, _ := c.Get("userId")
+
+	// Build context data
+	dataCtx, _ := h.buildProfileDataContext(code)
+	if dataCtx == nil {
+		response.Error(c, http.StatusOK, response.CodeNotFound, "股票数据不存在")
+		return
+	}
+
+	// Load system prompt
+	cfg := h.loadSystemConfig("stock_profile")
+	sysPrompt := cfg.SystemPrompt
+	if sysPrompt == "" {
+		sysPrompt = h.defaultProfilePrompt()
+	}
+
+	// Call AI
+	reply, err := h.svc.ChatCompletion(uid.(uint), string(dataCtx), []map[string]string{
+		{"role": "system", "content": sysPrompt},
+		{"role": "user", "content": "请输出JSON格式的公司简介。"},
+	})
+	if err != nil {
+		handleAIError(c, err)
+		return
+	}
+
+	// Parse response
+	reply = strings.TrimSpace(reply)
+	reply = strings.TrimPrefix(reply, "```json")
+	reply = strings.TrimPrefix(reply, "```")
+	reply = strings.TrimSuffix(reply, "```")
+	reply = strings.TrimSpace(reply)
+
+	var result struct {
+		ProfileMarkdown string `json:"profileMarkdown"`
+	}
+	if err := json.Unmarshal([]byte(reply), &result); err != nil {
+		response.Error(c, http.StatusOK, response.CodeAIModelError, "AI返回格式异常，请重试")
+		return
+	}
+
+	// Save to DB
+	db.PG.Where("code = ?", code).Assign(map[string]interface{}{
+		"profile_markdown": result.ProfileMarkdown,
+		"analyzed_at":      time.Now(),
+		"updated_at":        time.Now(),
+	}).FirstOrCreate(&model.StockProfile{Code: code})
+
+	response.Success(c, gin.H{"code": code, "profileMarkdown": result.ProfileMarkdown, "analyzedAt": time.Now()})
 }
 
-// RunProfileBatch triggers batch AI profile generation
+// buildProfileDataContext gathers stock data for profile generation
+func (h *AIHandler) buildProfileDataContext(code string) ([]byte, *model.StockBasic) {
+	var stock model.StockBasic
+	if err := db.PG.Where("code = ?", code).First(&stock).Error; err != nil {
+		return nil, nil
+	}
+
+	type KLineRow struct {
+		TradeDate   string
+		Close, Volume, TurnoverRate float64
+	}
+	var klines []KLineRow
+	db.PG.Raw("SELECT TO_CHAR(trade_date,'YYYY-MM-DD') as trade_date, close, volume, turnover_rate FROM stocks_daily_k WHERE code=? ORDER BY trade_date DESC LIMIT 30", code).Scan(&klines)
+
+	type FinRow struct {
+		ReportDate, ReportType string
+		TotalRevenue, NetProfit, RevenueGrowth, ProfitGrowth, ROE, EPS, GrossMargin, NetMargin, DebtRatio float64
+	}
+	var fins []FinRow
+	db.PG.Raw("SELECT TO_CHAR(report_date,'YYYY-MM-DD') as report_date, report_type, total_revenue, net_profit, revenue_growth, profit_growth, roe, eps, gross_margin, net_margin, debt_ratio FROM stock_financials WHERE code=? ORDER BY report_date DESC LIMIT 4", code).Scan(&fins)
+
+	type IndRow struct{ PE, TotalMarketCap float64 }
+	var ind IndRow
+	db.PG.Raw("SELECT pe, total_market_cap FROM stocks_daily_indicator WHERE code=? ORDER BY trade_date DESC LIMIT 1", code).Scan(&ind)
+
+	type NewsRow struct{ Title, PublishDate string }
+	var news []NewsRow
+	db.PG.Raw("SELECT title, TO_CHAR(publish_date,'YYYY-MM-DD') as publish_date FROM stock_news WHERE code=? ORDER BY publish_date DESC LIMIT 10", code).Scan(&news)
+
+	type ShRow struct{ ReportDate string; TotalShareholders, InstitutionRatio float64 }
+	var shs []ShRow
+	db.PG.Raw("SELECT TO_CHAR(report_date,'YYYY-MM-DD') as report_date, total_shareholders, institution_ratio FROM stock_shareholders WHERE code=? ORDER BY report_date DESC LIMIT 3", code).Scan(&shs)
+
+	data := map[string]interface{}{
+		"code": code, "name": stock.Name, "industry": stock.Industry,
+		"conceptTags": stock.ConceptTags,
+		"klines": klines, "financials": fins, "indicator": ind,
+		"news": news, "shareholders": shs,
+	}
+	b, _ := json.Marshal(data)
+	return b, &stock
+}
+
+// defaultProfilePrompt returns the built-in stock profile prompt
+func (h *AIHandler) defaultProfilePrompt() string {
+	return `你是一位专业、客观、严谨的金融投资分析师，精通A股市场。
+你的任务是对给定的股票进行深度分析，生成一份精美的结构化 Markdown 公司简介。
+
+## 简介结构（严格按此顺序）
+1. **🏢 核心特征** — 一句话概括公司定位、盈利模式和当前经营状态
+2. **💼 主营业务** — 业务结构、护城河来源、行业地位
+3. **📊 最新财报** — 表格展示关键财务数据，分析变化原因
+4. **🚀 成长驱动** — 短期和长期增长因素
+5. **⚠️ 风险提示** — 3-5条具体风险
+6. **🔮 未来展望** — 至少2个前瞻方向
+
+## 格式：Markdown 表格/引用/标题，每部分200字
+
+输出严格JSON：{"profileMarkdown":"..."}`
+}
+
+// RunProfileBatch triggers batch AI profile generation (async, for collector)
 func (h *AIHandler) RunProfileBatch(c *gin.Context) {
 	go func() {
-		exec.Command("python3",
+		if err := exec.Command("python3",
 			filepath.Join(scriptsRoot(), "stock_profile_collect.py"),
 			"--batch",
-		).Run()
+		).Run(); err != nil {
+			log.Printf("[profile] batch failed: %v", err)
+		}
 	}()
 	response.SuccessMsg(c, "已触发批量简介采集，请稍后刷新查看")
 }

@@ -924,7 +924,10 @@ const handleChatSend = async (text?: string) => {
             <button
               onClick={async () => {
                 setProfileLoading(true);
-                try { await runProfile(code); setTimeout(async () => { const r = await fetchProfile(code); if (r.data?.data) setProfileData(r.data.data); }, 3000); }
+                try {
+                  const r = await runProfile(code);
+                  if (r.data?.data) setProfileData(r.data.data);
+                } catch {}
                 finally { setProfileLoading(false); }
               }}
               disabled={profileLoading}
