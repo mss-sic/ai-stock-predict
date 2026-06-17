@@ -1,5 +1,6 @@
 # Go
 server/server
+server-bin
 *.exe
 *.test
 *.out
