@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import rehypeRaw from 'rehype-raw';
 import { parseStreamSections, tryParseWidget, WidgetRenderer } from '../components/AIAnalysisCard';
 import { useParams } from 'react-router-dom';
 import { Button, Tag, Input, Tooltip, Modal, Select } from '@arco-design/web-react';
@@ -338,7 +339,7 @@ function SectionCards({ md }: { md: string }) {
             )}
             <div style={{ padding: title ? '0 18px 14px' : '12px 18px' }}>
               <ReactMarkdown
-                remarkPlugins={[remarkGfm]}
+                remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}
                 components={{
                   h1: ({ children }: any) => <h1 style={{ margin: '10px 0 6px', fontSize: 15, fontWeight: 700, color: 'var(--color-text-1)', borderBottom: '1px solid var(--color-border-2)', paddingBottom: 4 }}>{children}</h1>,
                   h2: ({ children }: any) => <h2 style={{ margin: '8px 0 5px', fontSize: 14, fontWeight: 700, color: 'var(--color-text-1)' }}>{children}</h2>,
@@ -1619,7 +1620,7 @@ const handleChatSend = async (text?: string) => {
                                     return w ? <WidgetRenderer key={s.key} w={w} /> : null;
                                   })() : (
                                     <ReactMarkdown key={s.key}
-                                      remarkPlugins={[remarkGfm]}
+                                      remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}
                                       components={{
                                         p: ({ children }: any) => <p style={{ margin: 0 }}>{children}</p>,
                                         strong: ({ children }: any) => <strong style={{ color: 'var(--color-text-1)', fontWeight: 700 }}>{children}</strong>,
@@ -1665,7 +1666,7 @@ const handleChatSend = async (text?: string) => {
                                 const cleanText = m.text?.replace(/\{[^}]*"(?:w|type)"\s*:\s*"(?:signal|risk|plan|list|alert|panel|summary)"[^}]*\}/g, '') || '';
                                 return (
                               <ReactMarkdown
-                                remarkPlugins={[remarkGfm]}
+                                remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}
                                 components={{
                                   p: ({ children }: any) => <p style={{ margin: '0 0 6px', lineHeight: '24px' }}>{children}</p>,
                                   ul: ({ children }: any) => <ul style={{ margin: '6px 0', paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 2 }}>{children}</ul>,
