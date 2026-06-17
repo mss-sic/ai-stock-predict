@@ -15,12 +15,3 @@ cd "$(dirname "$0")"
 docker buildx build --platform linux/amd64 -t "$IMAGE" --push .
 
 echo "推送完成: $IMAGE"
-echo ""
-echo "============================================"
-echo "  服务器更新命令:"
-echo "============================================"
-echo ""
-echo "docker pull $IMAGE"
-echo "cd /opt/ai-stock-predict/docker && docker compose up -d"
-echo "docker cp aip-server:/app/web-dist/. /opt/ai-stock-predict/web-pc/dist/"
-echo ""
