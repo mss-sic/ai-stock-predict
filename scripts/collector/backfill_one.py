@@ -7,7 +7,7 @@ cur = conn.cursor()
 
 code = sys.argv[1] if len(sys.argv) > 1 else '301151'
 prefix = "sh" if code.startswith(("6", "9")) else "sz"
-url = f"https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param={prefix}{code},day,,,1100,qfq"
+url = f"http://ifzq.gtimg.cn/appstock/app/fqkline/get?param={prefix}{code},day,,,1100,qfq"
 req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
 ctx = ssl.create_default_context()
 with urllib.request.urlopen(req, timeout=30, context=ctx) as resp:

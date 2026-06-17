@@ -5,7 +5,7 @@ import argparse, json, sys, time, requests
 def fetch_kline(code, days=365):
     """拉取日K线，优先用腾讯财经（不封IP）"""
     prefix = "sh" if code.startswith(("6", "9")) else "sz"
-    url = f"https://web.ifzq.gtimg.cn/appstock/app/fqkline/get"
+    url = f"http://ifzq.gtimg.cn/appstock/app/fqkline/get"
     params = {
         "param": f"{prefix}{code},day,,,{days},qfq"
     }
