@@ -41,7 +41,7 @@ export default function SettingsPage() {
     if (!editCfg) return;
     setSavingSys(true);
     try {
-      await authFetch(`/api/v1/ai/system-configs/${editCfg.scene}`, {
+      const res = await authFetch(`/api/v1/ai/system-configs/${editCfg.scene}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -54,9 +54,17 @@ export default function SettingsPage() {
           enableTools: editCfg.enableTools,
         }),
       });
+      const json = await res.json();
+      if (json.code !== undefined && json.code !== 0) {
+        throw new Error(json.message || '保存失败');
+      }
       setSysConfigs(prev => prev.map(c => c.scene === editCfg.scene ? editCfg : c));
       setEditingScene(null);
-    } catch (_) {}
+      window.dispatchEvent(new CustomEvent('app:toast', { detail: { type: 'success', message: '提示词保存成功' } }));
+    } catch (err: any) {
+      console.error('[Settings] saveSys failed:', err);
+      window.dispatchEvent(new CustomEvent('app:toast', { detail: { type: 'error', message: err.message || '保存失败' } }));
+    }
     setSavingSys(false);
   };
   const [modelList, setModelList] = useState<string[]>([]);
