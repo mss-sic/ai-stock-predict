@@ -13,7 +13,7 @@ import { authFetch, checkAPIError, fetchStockDetail, fetchKLine, fetchIndicator,
 import KLineChart from '../components/KLineChart';
 import BoardSidebar from '../components/BoardSidebar';
 
-type TabKey = 'forecast' | 'profile' | 'analysis' | 'strategy' | 'technical' | 'trading' | 'financial' | 'shareholder' | 'reports' | 'news';
+type TabKey = 'forecast' | 'analysis' | 'strategy' | 'technical' | 'trading' | 'financial' | 'shareholder' | 'reports' | 'news';
 
 interface ToolStatus { tool: string; label: string; index: number; total: number; turn: number; done?: boolean; startTime?: number }
 interface Message { role: 'user' | 'ai'; text: string; status?: { phase: string; label: string }; toolStatuses?: ToolStatus[]; startTime?: number }
@@ -692,7 +692,6 @@ const handleChatSend = async (text?: string) => {
 
   const tabs: { key: TabKey; label: string; icon: any }[] = [
     { key: 'forecast', label: '预测', icon: TrendingUp },
-    { key: 'profile', label: 'AI简介', icon: Bot },
     { key: 'analysis', label: '分析', icon: Brain },
     { key: 'strategy', label: '策略', icon: Target },
     { key: 'technical', label: 'K线技术', icon: Activity },
@@ -810,103 +809,59 @@ const handleChatSend = async (text?: string) => {
                 <KLineChart data={klines} height={460} markers={markers} splitIdx={predOverlay.splitIdx} predictionLines={predOverlay.lines} predMarkers={predOverlay.markers} costLine={holdingCost} />
               </div>
             </div>
-          {/* ═══ Ensemble + Backtest ═══ */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginTop: 50 }}>
-            {/* Model ensemble breakdown */}
-            <div className="card">
-              <div className="card-header">
-                <span style={{ fontWeight: 600, fontSize: 13 }}>模型集成明细</span>
-                <span className="muted" style={{ fontSize: 11 }}>近60日命中率加权</span>
-              </div>
-              <div style={{ padding: 0 }}>
-                {ensemble ? (
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                    <thead>
-                      <tr style={{ borderBottom: '1px solid var(--color-border-1)', background: 'var(--color-fill-2)' }}>
-                        <th style={{ padding: '6px 10px', textAlign: 'left', fontWeight: 500, color: 'var(--color-text-3)', fontSize: 11 }}>模型</th>
-                        <th style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 500, color: 'var(--color-text-3)', fontSize: 11 }}>命中率</th>
-                        <th style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 500, color: 'var(--color-text-3)', fontSize: 11 }}>权重</th>
-                        <th style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 500, color: 'var(--color-text-3)', fontSize: 11 }}>方向</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {ensemble.rows.map((r, i) => (
-                        <tr key={r.name} style={{ borderBottom: '1px solid var(--color-table-row-border)' }}>
-                          <td style={{ padding: '7px 10px', display: 'flex', alignItems: 'center', gap: 6 }}>
-                            <span style={{ width: 8, height: 8, borderRadius: 2, background: MODEL_COLORS[i], display: 'inline-block', flexShrink: 0 }} />
-                            <span style={{ fontWeight: 500 }}>{r.name}</span>
-                          </td>
-                          <td style={{ padding: '7px 8px', textAlign: 'right', fontWeight: 600, color: r.hitRate >= 0.55 ? 'var(--stock-down)' : r.hitRate >= 0.45 ? 'var(--color-warning-text)' : 'var(--stock-up)' }}>
-                            {(r.hitRate * 100).toFixed(1)}% <span style={{ fontSize: 10, color: 'var(--color-text-3)', fontWeight: 400 }}>{r.total > 0 ? `(${r.hits||0}/${r.total})` : "(无回测数据)"}</span>
-                          </td>
-                          <td style={{ padding: '7px 8px', textAlign: 'right', color: 'var(--color-text-2)' }}>
-                            {(r.weight * 100).toFixed(1)}%
-                          </td>
-                          <td style={{ padding: '7px 8px', textAlign: 'right' }}>
-                            {r.predChg != null ? (
-                              <span style={{ color: r.predChg >= 0 ? 'var(--stock-up)' : 'var(--stock-down)', fontWeight: 600, fontSize: 11 }}>
-                                {r.predChg >= 0 ? '↑' : '↓'}{Math.abs(r.predChg).toFixed(1)}%
-                              </span>
-                            ) : <span className="muted" style={{ fontSize: 11 }}>-</span>}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                    <tfoot>
-                      <tr style={{ background: 'var(--color-fill-2)', fontWeight: 600 }}>
-                        <td style={{ padding: '7px 10px', fontSize: 12 }}>集成结果</td>
-                        <td style={{ padding: '7px 8px', textAlign: 'right', fontSize: 12, color: 'var(--color-primary)' }}>
-                          {(ensemble.avgHitRate * 100).toFixed(1)}%
-                        </td>
-                        <td style={{ padding: '7px 8px', textAlign: 'right', fontSize: 12 }}>100%</td>
-                        <td style={{ padding: '7px 8px', textAlign: 'right', fontSize: 12 }}>
-                          <span style={{ color: ensemble.ensembleChg >= 0 ? 'var(--stock-up)' : 'var(--stock-down)', fontWeight: 700 }}>
-                            {ensemble.ensembleChg >= 0 ? '+' : ''}{ensemble.ensembleChg.toFixed(2)}%
-                          </span>
-                        </td>
-                      </tr>
-                    </tfoot>
-                  </table>
-                ) : (
-                  <div className="muted" style={{ padding: 24, textAlign: 'center', fontSize: 12 }}>暂无预测数据，请先同步算法团队预测数据</div>
-                )}
-              </div>
+                    {/* ═══ AI 简介 ═══ */}
+          <div className="card">
+            <div style={{ padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--color-border-1)' }}>
+              <span style={{ fontSize: 14, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Bot size={14} color="#8b5cf6" /> AI 智能简介
+              </span>
+              <button
+                onClick={async () => {
+                  setProfileLoading(true);
+                  try {
+                    const r = await runProfile(code);
+                    if (r.data?.data) setProfileData(r.data.data);
+                  } catch {}
+                  finally { setProfileLoading(false); }
+                }}
+                disabled={profileLoading}
+                style={{ padding: '2px 10px', borderRadius: 4, border: '1px solid #8b5cf6', background: profileLoading ? 'var(--color-fill-2)' : 'transparent', color: '#8b5cf6', cursor: 'pointer', fontSize: 11, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 3 }}
+              >
+                <RefreshCw size={10} className={profileLoading ? 'spin' : ''} />
+                {profileLoading ? '生成中...' : '更新简介'}
+              </button>
             </div>
-
-            {/* Backtest performance */}
-            <div className="card">
-              <div className="card-header">
-                <span style={{ fontWeight: 600, fontSize: 13 }}>回测表现</span>
-                <span className="muted" style={{ fontSize: 11 }}>近60个交易日</span>
-              </div>
-              <div style={{ padding: '12px 16px' }}>
-                {ensemble ? (
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px 10px' }}>
-                    <div>
-                      <div style={{ fontSize: 10, color: 'var(--color-text-3)', marginBottom: 2 }}>方向命中率</div>
-                      <div style={{ fontSize: 18, fontWeight: 700, color: '#00b42a' }}>{(ensemble.avgHitRate * 100).toFixed(1)}%</div>
-                    </div>
-                    <div>
-                      <div style={{ fontSize: 10, color: 'var(--color-text-3)', marginBottom: 2 }}>夏普比率</div>
-                      <div style={{ fontSize: 18, fontWeight: 700, color: ensemble.sharpe >= 0 ? 'var(--stock-down)' : 'var(--stock-up)' }}>{ensemble.sharpe.toFixed(2)}</div>
-                    </div>
-                    <div>
-                      <div style={{ fontSize: 10, color: 'var(--color-text-3)', marginBottom: 2 }}>平均误差(MAE)</div>
-                      <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--color-text-2)' }}>{(Math.abs(ensemble.ensembleChg) * 0.3).toFixed(2)}%</div>
-                    </div>
-                    <div>
-                      <div style={{ fontSize: 10, color: 'var(--color-text-3)', marginBottom: 2 }}>最大回撤</div>
-                      <div style={{ fontSize: 18, fontWeight: 700, color: '#f53f3f' }}>{Math.abs(ensemble.maxdd).toFixed(1)}%</div>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="muted" style={{ textAlign: 'center', fontSize: 12 }}>数据不足</div>
-                )}
-              </div>
+            <div style={{ padding: '8px 16px 12px' }}>
+              {profileData?.profileMarkdown ? (
+                <ReactMarkdown
+                  components={{
+                    h2: ({ children }: any) => <h2 style={{ fontSize: 14, fontWeight: 700, color: 'var(--color-text-1)', margin: '10px 0 4px', borderBottom: '1px solid var(--color-border-2)', paddingBottom: 2 }}>{children}</h2>,
+                    h3: ({ children }: any) => <h3 style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-1)', margin: '8px 0 2px' }}>{children}</h3>,
+                    p: ({ children }: any) => <p style={{ margin: '2px 0', lineHeight: 1.7, fontSize: 13 }}>{children}</p>,
+                    strong: ({ children }: any) => <strong style={{ color: 'var(--color-text-1)', fontWeight: 700 }}>{children}</strong>,
+                    ul: ({ children }: any) => <ul style={{ margin: '4px 0', paddingLeft: 18, fontSize: 13 }}>{children}</ul>,
+                    ol: ({ children }: any) => <ol style={{ margin: '4px 0', paddingLeft: 18, fontSize: 13 }}>{children}</ol>,
+                    li: ({ children }: any) => <li style={{ margin: '1px 0', lineHeight: 1.6 }}>{children}</li>,
+                    table: ({ children }: any) => <table style={{ width: '100%', borderCollapse: 'collapse', margin: '6px 0', fontSize: 12, border: '1px solid var(--color-border-2)' }}>{children}</table>,
+                    thead: ({ children }: any) => <thead>{children}</thead>,
+                    tbody: ({ children }: any) => <tbody>{children}</tbody>,
+                    th: ({ children }: any) => <th style={{ background: 'var(--color-fill-2)', fontWeight: 600, padding: '4px 8px', textAlign: 'left', border: '1px solid var(--color-border-2)' }}>{children}</th>,
+                    td: ({ children }: any) => <td style={{ padding: '3px 8px', border: '1px solid var(--color-border-2)' }}>{children}</td>,
+                    tr: ({ children }: any) => <tr>{children}</tr>,
+                    blockquote: ({ children }: any) => <blockquote style={{ borderLeft: '3px solid #8b5cf6', background: 'rgba(139,92,246,0.04)', padding: '6px 10px', margin: '6px 0', borderRadius: '0 4px 4px 0', fontSize: 12 }}>{children}</blockquote>,
+                    code: ({ children }: any) => <code style={{ background: 'var(--color-fill-2)', padding: '1px 4px', borderRadius: 3, fontSize: 11, fontFamily: 'monospace' }}>{children}</code>,
+                    hr: () => <hr style={{ border: 'none', borderTop: '1px solid var(--color-border-2)', margin: '8px 0' }} />,
+                  }}
+                >{profileData.profileMarkdown}</ReactMarkdown>
+              ) : (
+                <div style={{ textAlign: 'center', padding: 20, color: 'var(--color-text-3)' }}>
+                  <Bot size={24} style={{ marginBottom: 6, color: 'var(--color-text-4)' }} />
+                  <p style={{ fontSize: 12 }}>点击"更新简介"生成 AI 智能公司简介</p>
+                </div>
+              )}
             </div>
           </div>
           </div>
-
           {/* RIGHT: 历史榜单 */}
           <div style={{ width: 320, flexShrink: 0, position: 'sticky', top: 12, alignSelf: 'start', height: 'calc(100vh - 160px)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             <BoardSidebar stockCode={stock.code} stockName={stock.name} />
@@ -914,62 +869,7 @@ const handleChatSend = async (text?: string) => {
         </div>
       )}
 
-      {/* ── Profile Tab ── */}
-      {tab === 'profile' && (
-        <div className="card">
-          <div style={{ padding: '16px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--color-border-1)' }}>
-            <span style={{ fontSize: 15, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Bot size={16} color="#8b5cf6" /> AI 智能简介
-            </span>
-            <button
-              onClick={async () => {
-                setProfileLoading(true);
-                try {
-                  const r = await runProfile(code);
-                  if (r.data?.data) setProfileData(r.data.data);
-                } catch {}
-                finally { setProfileLoading(false); }
-              }}
-              disabled={profileLoading}
-              style={{ padding: '4px 14px', borderRadius: 6, border: '1px solid #8b5cf6', background: profileLoading ? 'var(--color-fill-2)' : 'transparent', color: '#8b5cf6', cursor: 'pointer', fontSize: 12, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 4 }}
-            >
-              <RefreshCw size={12} className={profileLoading ? 'spin' : ''} />
-              {profileLoading ? '生成中...' : '更新简介'}
-            </button>
-          </div>
-          <div style={{ padding: '12px 20px 20px' }}>
-            {profileData?.profileMarkdown ? (
-              <ReactMarkdown
-                components={{
-                  h2: ({ children }: any) => <h2 style={{ fontSize: 16, fontWeight: 700, color: 'var(--color-text-1)', margin: '16px 0 8px', borderBottom: '1px solid var(--color-border-2)', paddingBottom: 4 }}>{children}</h2>,
-                  h3: ({ children }: any) => <h3 style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text-1)', margin: '12px 0 4px' }}>{children}</h3>,
-                  p: ({ children }: any) => <p style={{ margin: '4px 0', lineHeight: 1.8 }}>{children}</p>,
-                  strong: ({ children }: any) => <strong style={{ color: 'var(--color-text-1)', fontWeight: 700 }}>{children}</strong>,
-                  ul: ({ children }: any) => <ul style={{ margin: '8px 0', paddingLeft: 20 }}>{children}</ul>,
-                  ol: ({ children }: any) => <ol style={{ margin: '8px 0', paddingLeft: 20 }}>{children}</ol>,
-                  li: ({ children }: any) => <li style={{ margin: '2px 0', lineHeight: 1.7 }}>{children}</li>,
-                  table: ({ children }: any) => <table style={{ width: '100%', borderCollapse: 'collapse', margin: '8px 0', fontSize: 13, border: '1px solid var(--color-border-2)' }}>{children}</table>,
-                  thead: ({ children }: any) => <thead>{children}</thead>,
-                  tbody: ({ children }: any) => <tbody>{children}</tbody>,
-                  th: ({ children }: any) => <th style={{ background: 'var(--color-fill-2)', fontWeight: 600, padding: '6px 10px', textAlign: 'left', border: '1px solid var(--color-border-2)' }}>{children}</th>,
-                  td: ({ children }: any) => <td style={{ padding: '5px 10px', border: '1px solid var(--color-border-2)' }}>{children}</td>,
-                  tr: ({ children }: any) => <tr>{children}</tr>,
-                  blockquote: ({ children }: any) => <blockquote style={{ borderLeft: '3px solid #8b5cf6', background: 'rgba(139,92,246,0.05)', padding: '10px 14px', margin: '10px 0', borderRadius: '0 6px 6px 0' }}>{children}</blockquote>,
-                  code: ({ children }: any) => <code style={{ background: 'var(--color-fill-2)', padding: '1px 5px', borderRadius: 3, fontSize: 12, fontFamily: 'monospace' }}>{children}</code>,
-                  hr: () => <hr style={{ border: 'none', borderTop: '1px solid var(--color-border-2)', margin: '12px 0' }} />,
-                }}
-              >{profileData.profileMarkdown}</ReactMarkdown>
-            ) : (
-              <div style={{ textAlign: 'center', padding: 40, color: 'var(--color-text-3)' }}>
-                <Bot size={32} style={{ marginBottom: 8, color: 'var(--color-text-4)' }} />
-                <p style={{ fontSize: 13 }}>点击"更新简介"生成 AI 智能公司简介</p>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-{/* ── Analysis Tab ── */}
+      {/* ── Analysis Tab ── */}
       {tab === 'analysis' && (
         <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
           {/* LEFT: Scoring panel */}
