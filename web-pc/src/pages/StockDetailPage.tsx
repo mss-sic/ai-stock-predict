@@ -294,6 +294,66 @@ function FinBarChart({ data }: { data: any[] }) {
   );
 }
 
+
+
+// ── SectionCards: split profile markdown by ### headers into individual cards ──
+function SectionCards({ md }: { md: string }) {
+  const sections = md.split(/(?=###\s)/);
+  const colors = ['#8b5cf6', '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#6366f1'];
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {sections.filter(s => s.trim()).map((section, i) => {
+        const titleMatch = section.match(/^###\s*(.+)/m);
+        const title = titleMatch ? titleMatch[1] : '';
+        const body = titleMatch ? section.replace(titleMatch[0], '') : section;
+        const color = colors[i % colors.length];
+        return (
+          <div key={i} style={{
+            background: 'var(--color-bg-1)',
+            border: `1px solid var(--color-border-1)`,
+            borderLeft: `3px solid ${color}`,
+            borderRadius: 6,
+            overflow: 'hidden',
+          }}>
+            {title && (
+              <div style={{
+                padding: '8px 14px',
+                fontSize: 13,
+                fontWeight: 600,
+                color: 'var(--color-text-1)',
+                background: `linear-gradient(135deg, ${color}08, transparent)`,
+                borderBottom: '1px solid var(--color-border-1)',
+              }}>
+                {title}
+              </div>
+            )}
+            <div style={{ padding: '8px 14px' }}>
+              <ReactMarkdown
+                components={{
+                  h3: () => null,
+                  p: ({ children }: any) => <p style={{ margin: '2px 0', lineHeight: 1.7, fontSize: 13 }}>{children}</p>,
+                  strong: ({ children }: any) => <strong style={{ color: 'var(--color-text-1)', fontWeight: 700 }}>{children}</strong>,
+                  ul: ({ children }: any) => <ul style={{ margin: '4px 0', paddingLeft: 18, fontSize: 13 }}>{children}</ul>,
+                  ol: ({ children }: any) => <ol style={{ margin: '4px 0', paddingLeft: 18, fontSize: 13 }}>{children}</ol>,
+                  li: ({ children }: any) => <li style={{ margin: '1px 0', lineHeight: 1.6 }}>{children}</li>,
+                  table: ({ children }: any) => <table style={{ width: '100%', borderCollapse: 'collapse', margin: '6px 0', fontSize: 12, border: '1px solid var(--color-border-2)' }}>{children}</table>,
+                  thead: ({ children }: any) => <thead>{children}</thead>,
+                  tbody: ({ children }: any) => <tbody>{children}</tbody>,
+                  th: ({ children }: any) => <th style={{ background: 'var(--color-fill-2)', fontWeight: 600, padding: '4px 8px', textAlign: 'left', border: '1px solid var(--color-border-2)' }}>{children}</th>,
+                  td: ({ children }: any) => <td style={{ padding: '3px 8px', border: '1px solid var(--color-border-2)' }}>{children}</td>,
+                  tr: ({ children }: any) => <tr>{children}</tr>,
+                  blockquote: ({ children }: any) => <blockquote style={{ borderLeft: '3px solid var(--color-border-2)', background: 'var(--color-fill-1)', padding: '6px 10px', margin: '6px 0', borderRadius: 4, fontSize: 12 }}>{children}</blockquote>,
+                  code: ({ children }: any) => <code style={{ background: 'var(--color-fill-2)', padding: '1px 4px', borderRadius: 3, fontSize: 11, fontFamily: 'monospace' }}>{children}</code>,
+                }}
+              >{body}</ReactMarkdown>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function StockDetailPage() {
   const { code } = useParams<{ code: string }>();
   const [stock, setStock] = useState<any>(null);
@@ -837,28 +897,9 @@ const handleChatSend = async (text?: string) => {
                 {profileLoading ? '生成中...' : '更新简介'}
               </button>
             </div>
-            <div style={{ padding: '8px 16px 12px' }}>
+            <div style={{ padding: '8px 12px 12px' }}>
               {profileData?.profileMarkdown ? (
-                <ReactMarkdown
-                  components={{
-                    h2: ({ children }: any) => <h2 style={{ fontSize: 14, fontWeight: 700, color: 'var(--color-text-1)', margin: '10px 0 4px', borderBottom: '1px solid var(--color-border-2)', paddingBottom: 2 }}>{children}</h2>,
-                    h3: ({ children }: any) => <h3 style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-1)', margin: '8px 0 2px' }}>{children}</h3>,
-                    p: ({ children }: any) => <p style={{ margin: '2px 0', lineHeight: 1.7, fontSize: 13 }}>{children}</p>,
-                    strong: ({ children }: any) => <strong style={{ color: 'var(--color-text-1)', fontWeight: 700 }}>{children}</strong>,
-                    ul: ({ children }: any) => <ul style={{ margin: '4px 0', paddingLeft: 18, fontSize: 13 }}>{children}</ul>,
-                    ol: ({ children }: any) => <ol style={{ margin: '4px 0', paddingLeft: 18, fontSize: 13 }}>{children}</ol>,
-                    li: ({ children }: any) => <li style={{ margin: '1px 0', lineHeight: 1.6 }}>{children}</li>,
-                    table: ({ children }: any) => <table style={{ width: '100%', borderCollapse: 'collapse', margin: '6px 0', fontSize: 12, border: '1px solid var(--color-border-2)' }}>{children}</table>,
-                    thead: ({ children }: any) => <thead>{children}</thead>,
-                    tbody: ({ children }: any) => <tbody>{children}</tbody>,
-                    th: ({ children }: any) => <th style={{ background: 'var(--color-fill-2)', fontWeight: 600, padding: '4px 8px', textAlign: 'left', border: '1px solid var(--color-border-2)' }}>{children}</th>,
-                    td: ({ children }: any) => <td style={{ padding: '3px 8px', border: '1px solid var(--color-border-2)' }}>{children}</td>,
-                    tr: ({ children }: any) => <tr>{children}</tr>,
-                    blockquote: ({ children }: any) => <blockquote style={{ borderLeft: '3px solid #8b5cf6', background: 'rgba(139,92,246,0.04)', padding: '6px 10px', margin: '6px 0', borderRadius: '0 4px 4px 0', fontSize: 12 }}>{children}</blockquote>,
-                    code: ({ children }: any) => <code style={{ background: 'var(--color-fill-2)', padding: '1px 4px', borderRadius: 3, fontSize: 11, fontFamily: 'monospace' }}>{children}</code>,
-                    hr: () => <hr style={{ border: 'none', borderTop: '1px solid var(--color-border-2)', margin: '8px 0' }} />,
-                  }}
-                >{profileData.profileMarkdown}</ReactMarkdown>
+                <SectionCards md={profileData.profileMarkdown} />
               ) : (
                 <div style={{ textAlign: 'center', padding: 20, color: 'var(--color-text-3)' }}>
                   <Bot size={24} style={{ marginBottom: 6, color: 'var(--color-text-4)' }} />
