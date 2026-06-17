@@ -29,7 +29,7 @@ function calcRSI(c: number[],p=14) { const r:(number|null)[]=[];let ag=0,al=0;fo
 function calcBOLL(c: number[],p=20,m=2) { const ma=calcMA(c,p);const u:(number|null)[]=[],l:(number|null)[]=[];for(let i=0;i<c.length;i++){if(ma[i]==null){u.push(null);l.push(null);continue}let sq=0;for(let j=i-p+1;j<=i;j++)sq+=(c[j]-ma[i]!)**2;const std=Math.sqrt(sq/p);u.push(ma[i]!+m*std);l.push(ma[i]!-m*std)}return{ma,upper:u,lower:l} }
 
 function fmtVol(v: number): string { if(v>=1e8)return(v/1e8).toFixed(2)+'亿';if(v>=1e4)return(v/1e4).toFixed(0)+'万';return v.toFixed(0) }
-function fmtMoney(v: number): string { if(!v||v===0)return'-';if(v>=1e12)return(v/1e12).toFixed(2)+'万亿';if(v>=1e8)return(v/1e8).toFixed(2)+'亿';if(v>=1e4)return(v/1e4).toFixed(0)+'万';return v.toFixed(0) }
+function fmtMoney(v: number): string { if(!v||v===0)return'-';if(v>=1e12)return(v/1e12).toFixed(2)+'万亿';if(v>=1e8)return(v/1e8).toFixed(2)+'亿';if(v>=1e4)return(v/1e4).toFixed(0)+'万';return v.toFixed(2)+'亿' }
 
 const SUGGEST_COLORS: Record<string,string>={'强烈买入':'var(--stock-up)','买入':'#F77234','增持':'var(--color-warning-text)','持有':'var(--color-text-3)','减持':'#3491FA','卖出':'var(--stock-down)','强烈卖出':'#009A29'};
 const SUGGEST_BG: Record<string,string>={'强烈买入':'rgba(245,63,63,0.12)','买入':'rgba(247,114,52,0.12)','增持':'rgba(255,125,0,0.12)','持有':'rgba(134,144,156,0.10)','减持':'rgba(52,145,250,0.12)','卖出':'rgba(0,180,42,0.12)','强烈卖出':'rgba(0,154,41,0.12)'};
