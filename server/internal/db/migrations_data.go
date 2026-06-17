@@ -472,6 +472,25 @@ func init() {
 		},
 	})
 
+
+	// v018: stock_profile AI system config for company profile generation
+	migrations = append(migrations, Migration{
+		Version:     18,
+		Description: "PG: stock_profile system config for AI company profiles",
+		Up: func() error {
+			profile := model.AISystemConfig{
+				Scene: "stock_profile", Name: "股票简介",
+				SystemPrompt: "你是一位专业、客观、严谨的金融投资分析师，精通A股市场。\n你的任务是对给定的股票进行深度分析，生成一份精美的结构化 Markdown 公司简介。\n\n## 简介结构（严格按此顺序）\n1. **核心特征** — 一句话概括公司定位、盈利模式和当前经营状态\n2. **主营业务** — 业务结构、护城河来源、行业地位\n3. **最新财报** — 表格展示关键财务数据，分析变化原因\n4. **成长驱动** — 短期和长期增长因素\n5. **风险提示** — 3-5条具体风险\n6. **未来展望** — 至少2个前瞻方向\n\n## 格式：Markdown 表格/引用/标题，每部分200字\n\n输出严格JSON：{\"profileMarkdown\":\"...\"}",
+				Temperature: 0.7, MaxTokens: 2048, EnableSearch: true,
+			}
+			var existing model.AISystemConfig
+			if err := PG.Where("scene = ?", profile.Scene).First(&existing).Error; err != nil {
+				PG.Create(&profile)
+			}
+			return nil
+		},
+	})
+
 	log.Printf("[migrate] registered %d migrations", len(migrations))
 
 
