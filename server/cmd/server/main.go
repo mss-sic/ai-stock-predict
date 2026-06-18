@@ -203,6 +203,7 @@ func main() {
 		api.GET("/collector/status", collectorH.Status)
 		api.PUT("/collector/schedule", collectorH.UpdateSchedule)
 		api.POST("/collector/stock/:code", collectorH.StockCollect)
+		api.GET("/collector/stock/:code/:phase", collectorH.CollectStockPhaseSSE)
 		api.POST("/collector/realtime", collectorH.RealtimeQuotes)
 		api.POST("/collector/realtime/:code", collectorH.RealtimeQuoteSingle)
 		api.GET("/collector/reports/:code", collectorH.CollectReports)

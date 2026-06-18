@@ -141,6 +141,66 @@ func (h *CollectorHandler) StockCollect(c *gin.Context) {
 	response.Success(c, gin.H{"message": "单股采集已触发", "stockCode": code, "phases": body.Phases})
 }
 
+// CollectStockPhaseSSE runs single-stock collection synchronously with SSE feedback.
+// Unlike StockCollect (async), this blocks until the collection completes.
+func (h *CollectorHandler) CollectStockPhaseSSE(c *gin.Context) {
+	code := c.Param("code")
+	phase := c.Param("phase")
+	if phase == "" || code == "" {
+		c.JSON(400, gin.H{"error": "missing stock code or phase"})
+		return
+	}
+
+	phaseNames := map[string]string{
+		"shareholder": "股东数据", "financial": "财务数据", "news": "资讯数据",
+	}
+	phaseName := phaseNames[phase]
+	if phaseName == "" {
+		phaseName = phase
+	}
+
+	c.Writer.Header().Set("Content-Type", "text/event-stream")
+	c.Writer.Header().Set("Cache-Control", "no-cache")
+	c.Writer.Header().Set("Connection", "keep-alive")
+	c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
+
+	ctx := c.Request.Context()
+	emit := func(typ, msg, level string) {
+		data, _ := json.Marshal(map[string]string{"type": typ, "message": msg, "level": level})
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+		fmt.Fprintf(c.Writer, "data: %s\n\n", string(data))
+		c.Writer.Flush()
+	}
+
+	emit("log", fmt.Sprintf("开始拉取 %s %s 数据...", code, phaseName), "info")
+
+	err := collector.RunStockCollection(phase, code)
+	if err != nil {
+		emit("error", fmt.Sprintf("%s 采集失败: %v", phaseName, err), "error")
+		return
+	}
+
+	var count int64
+	switch phase {
+	case "shareholder":
+		db.PG.Raw("SELECT count(*) FROM stock_shareholders WHERE code = ?", code).Scan(&count)
+	case "financial":
+		db.PG.Raw("SELECT count(*) FROM stock_financials WHERE code = ?", code).Scan(&count)
+	case "news":
+		db.PG.Raw("SELECT count(*) FROM stock_news WHERE code = ?", code).Scan(&count)
+	}
+
+	if count > 0 {
+		emit("complete", fmt.Sprintf("成功拉取 %d 条 %s", count, phaseName), "success")
+	} else {
+		emit("complete", fmt.Sprintf("该股票暂无%s数据", phaseName), "warn")
+	}
+}
+
 // CollectReports triggers per-stock report collection via Python script
 
 

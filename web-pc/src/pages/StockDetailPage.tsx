@@ -887,6 +887,36 @@ const handleChatSend = async (text?: string) => {
       return;
     }
 
+    // Shareholder / Financial / News use SSE for live feedback
+    const phaseNames: Record<string, string> = { shareholder: '股东数据', financial: '财务数据', news: '资讯数据' };
+    if (phase === 'shareholder' || phase === 'financial' || phase === 'news') {
+      setRefreshingPhase(phase);
+      setRefreshLogs([`正在采集${phaseNames[phase] || phase}...`]);
+      const es = new EventSource(`/api/v1/collector/stock/${code}/${phase}?token=${localStorage.getItem("aip_access_token")||""}`);
+      es.onmessage = (e) => {
+        try {
+          const d = JSON.parse(e.data);
+          setRefreshLogs(prev => [...prev.slice(-50), d.message || '']);
+          if (d.type === 'complete' || d.type === 'error') {
+            es.close();
+            if (phase === 'financial') fetchFinancials(code).then((r: any) => setFinancials(r.data?.data || []));
+            if (phase === 'shareholder') fetchShareholders(code).then((r: any) => setShareholders(r.data?.data || []));
+            if (phase === 'news') fetchStockNews(code, 20).then((r: any) => setStockNews(r.data?.data || []));
+            setRefreshingPhase('');
+          }
+        } catch {}
+      };
+      es.onerror = () => {
+        setRefreshLogs(prev => [...prev.slice(-50), '⚠ 连接中断，正在刷新...']);
+        es.close();
+        if (phase === 'financial') fetchFinancials(code).then((r: any) => setFinancials(r.data?.data || []));
+        if (phase === 'shareholder') fetchShareholders(code).then((r: any) => setShareholders(r.data?.data || []));
+        if (phase === 'news') fetchStockNews(code, 20).then((r: any) => setStockNews(r.data?.data || []));
+        setRefreshingPhase('');
+      };
+      return;
+    }
+
     // Other phases use the POST collector endpoint
     setRefreshingPhase(phase);
     try {
