@@ -4,6 +4,7 @@
 
 ### 前端
 - **股票简介切换刷新** — StockDetailPage 切换股票时 reset profileData 为 null，修复新股票无简介时仍显示旧数据的 bug
+- **AI简介导入代码修复** — UploadProfile 剥离 raw_code 的 sh/sz/bj 前缀再取6位代码，修复 "sh600052" 被截断为 "sh6000" 的bug
 
 ### AI 对话
 - **Markdown 表格渲染** — 两个 AI 对话 ReactMarkdown 实例补全 `remarkGfm` 插件 + table/thead/tbody/th/td 组件样式，修复 GFM 表格无法显示

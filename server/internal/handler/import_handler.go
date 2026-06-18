@@ -139,11 +139,12 @@ func (h *ImportHandler) UploadProfile(c *gin.Context) {
 			// Extract from "301176.SZ" → "301176"
 			code = strings.Split(e.StockCode, ".")[0]
 		}
-		if len(code) < 6 {
+		// Strip market prefix like "sh"/"sz"/"bj" from raw_code
+		code = strings.TrimLeft(code, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
+		if len(code) != 6 {
 			errors++
 			continue
 		}
-		code = code[:6]
 
 		// Parse analysis date, fallback to now
 		analyzedAt := time.Now()
