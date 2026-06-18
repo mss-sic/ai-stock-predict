@@ -1359,25 +1359,37 @@ const handleChatSend = async (text?: string) => {
           {/* RIGHT: Chat */}
           <div className="card" style={{ flex: '2 1 440px', display: 'flex', flexDirection: 'column', minHeight: 480, maxHeight: 640 }}>
             <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span style={{ fontWeight: 600, fontSize: 14 }}><Brain size={14} /> AI对话分析</span>
+              <span style={{ fontWeight: 600, fontSize: 14, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div style={{ width: 22, height: 22, borderRadius: 6, background: 'linear-gradient(135deg, #4F7DF3, #8B5CF6)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Brain size={12} color="#fff" />
+                </div>
+                AI 对话分析
+              </span>
               {msgs.length > 0 && <Button size="mini" type="text" icon={<Trash2 size={12} />} onClick={handleClearChat} style={{ color: 'var(--color-text-3)', fontSize: 11 }}>清除</Button>}
             </div>
             <div ref={chatMessagesRef} className="card-body" style={{ flex: 1, overflow: 'auto', padding: '12px 16px', background: 'var(--color-fill-1)' }}>
               {msgs.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '24px 0' }}>
-                  <Brain size={28} color="#165dff" style={{ marginBottom: 8 }} />
-                  <div style={{ fontWeight: 600, marginBottom: 4, fontSize: 13 }}>智策AI助手</div>
-                  <div className="muted" style={{ marginBottom: 14, fontSize: 12 }}>基于多维数据为 {stock?.name || code} 提供深度分析</div>
+                <div style={{ textAlign: 'center', padding: '32px 16px' }}>
+                  <div style={{
+                    width: 56, height: 56, borderRadius: 16, margin: '0 auto 12px',
+                    background: 'linear-gradient(135deg, rgba(79,125,243,0.12), rgba(139,92,246,0.08))',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    border: '1px solid rgba(79,125,243,0.15)',
+                  }}>
+                    <Brain size={26} color="#4F7DF3" />
+                  </div>
+                  <div style={{ fontWeight: 600, marginBottom: 4, fontSize: 14, color: 'var(--color-text-1)' }}>智策 AI 助手</div>
+                  <div className="muted" style={{ marginBottom: 18, fontSize: 12, color: 'var(--color-text-3)' }}>基于多维数据为 {stock?.name || code} 提供深度分析</div>
                   <div className="row gap8" style={{ justifyContent: 'center', flexWrap: 'wrap' }}>
                     {['分析近期走势和风险', '当前估值是否合理？', '机构持仓变化', '写一份建仓计划'].map((s, i) => (
                       <button key={i} onClick={() => handleChatSend(s)} style={{
-                        fontSize: 12, padding: '6px 16px', borderRadius: 20,
-                        border: '1px solid var(--color-border-2)', background: 'var(--color-bg-1)',
+                        fontSize: 12, padding: '7px 18px', borderRadius: 20,
+                        border: '1px solid var(--color-border-2)', background: 'var(--color-bg-2)',
                         color: 'var(--color-text-2)', cursor: 'pointer',
-                        transition: 'all 0.2s',
+                        transition: 'all 0.25s ease',
                       }}
-                        onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--color-primary)'; e.currentTarget.style.color = 'var(--color-primary)'; }}
-                        onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--color-border-2)'; e.currentTarget.style.color = 'var(--color-text-2)'; }}
+                        onMouseEnter={e => { e.currentTarget.style.borderColor = '#4F7DF3'; e.currentTarget.style.color = '#4F7DF3'; e.currentTarget.style.background = 'rgba(79,125,243,0.04)'; }}
+                        onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--color-border-2)'; e.currentTarget.style.color = 'var(--color-text-2)'; e.currentTarget.style.background = 'var(--color-bg-2)'; }}
                       >{s}</button>
                     ))}
                   </div>
@@ -1387,12 +1399,15 @@ const handleChatSend = async (text?: string) => {
                   {msgs.map((m, i) => (
                     <div key={i} style={{ display: 'flex', gap: 10, flexDirection: m.role === 'user' ? 'row-reverse' : 'row' }}>
                       <div style={{
-                        width: 28, height: 28, borderRadius: 6, flex: 'none',
+                        width: 30, height: 30, borderRadius: 8, flex: 'none',
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        fontSize: 11, fontWeight: 700,
-                        background: m.role === 'ai' ? 'linear-gradient(135deg, var(--arcoblue-6), var(--purple-6))' : 'var(--gray-3)',
-                        color: m.role === 'ai' ? '#fff' : 'var(--gray-8)',
-                      }}>{m.role === 'ai' ? 'AI' : '我'}</div>
+                        fontSize: 12, fontWeight: 700,
+                        background: m.role === 'ai' 
+                          ? 'linear-gradient(135deg, #4F7DF3 0%, #8B5CF6 50%, #A78BFA 100%)' 
+                          : 'linear-gradient(135deg, #86909C 0%, #C9CDD4 100%)',
+                        color: '#fff',
+                        boxShadow: m.role === 'ai' ? '0 2px 8px rgba(79,125,243,0.25)' : '0 1px 4px rgba(0,0,0,0.1)',
+                      }}>{m.role === 'ai' ? <Sparkles size={13} /> : '我'}</div>
                       {(() => {
                         const sections = m.role === 'ai' && m.text ? parseStreamSections(m.text, 0) : [];
                         const hasWidgets = sections.some((s: any) => s.type === 'widget');
@@ -1404,12 +1419,12 @@ const handleChatSend = async (text?: string) => {
                           maxWidth: isFullWidth ? 'none' : '80%',
                           minWidth: 0,
                           padding: isFullWidth ? '0' : '10px 16px',
-                          borderRadius: m.role === 'ai' ? '4px 12px 12px 12px' : '12px 4px 12px 12px',
+                          borderRadius: m.role === 'ai' ? '4px 14px 14px 14px' : '14px 4px 14px 14px',
                           fontSize: 13, lineHeight: '24px',
-                          background: m.role === 'ai' ? (isFullWidth ? 'transparent' : 'var(--color-bg-2)') : 'var(--color-primary)',
+                          background: m.role === 'ai' ? (isFullWidth ? 'transparent' : 'var(--color-bg-2)') : 'linear-gradient(135deg, #4F7DF3, #6D5CF6)',
                           color: m.role === 'ai' ? 'var(--color-text-1)' : '#fff',
                           border: m.role === 'ai' ? (isFullWidth ? 'none' : '1px solid var(--color-border-2)') : 'none',
-                          boxShadow: m.role === 'ai' && !isFullWidth ? '0 1px 3px rgba(0,0,0,0.04)' : 'none',
+                          boxShadow: m.role === 'ai' && !isFullWidth ? '0 1px 4px rgba(0,0,0,0.04)' : (m.role === 'user' ? '0 2px 8px rgba(79,125,243,0.15)' : 'none'),
                           whiteSpace: isFullWidth ? 'normal' : 'pre-wrap',
                           wordBreak: 'break-word',
                         }}>
@@ -1422,6 +1437,7 @@ const handleChatSend = async (text?: string) => {
                             const iconMap: Record<string, string> = {
                               get_stock_price: '📈', get_kline_summary: '📊', get_technical: '🔬',
                               get_financials: '📋', get_news: '📰',
+                              get_shareholders: '👥',
                             };
                             const ts = m.toolStatuses;
                             // ── Parallel tool execution display ──
@@ -1432,16 +1448,20 @@ const handleChatSend = async (text?: string) => {
                               return (
                                 <div style={{
                                   display: 'flex', flexDirection: 'column', gap: 10,
-                                  padding: '14px 18px',
-                                  borderRadius: 12,
-                                  background: allDone ? 'var(--color-fill-1)' : 'var(--color-bg-2)',
-                                  border: allDone ? '1px solid var(--color-border-1)' : '1px solid var(--color-border-2)',
-                                  boxShadow: allDone ? 'none' : '0 2px 12px rgba(0,0,0,0.04)',
+                                  padding: '16px 18px',
+                                  borderRadius: 14,
+                                  background: allDone 
+                                    ? 'linear-gradient(135deg, rgba(0,180,42,0.03), rgba(0,180,42,0.01))'
+                                    : 'linear-gradient(135deg, rgba(59,130,246,0.04), rgba(139,92,246,0.02))',
+                                  border: allDone 
+                                    ? '1px solid rgba(0,180,42,0.12)' 
+                                    : '1px solid rgba(59,130,246,0.12)',
+                                  boxShadow: allDone ? 'none' : '0 2px 16px rgba(59,130,246,0.06), 0 1px 3px rgba(0,0,0,0.03)',
                                   position: 'relative',
                                   overflow: 'hidden',
-                                  animation: 'agentFadeSlide 0.3s ease-out',
-                                  opacity: allDone && m.text ? 0.6 : 1,
-                                  transition: 'all 0.4s ease',
+                                  animation: 'agentFadeSlide 0.35s ease-out',
+                                  opacity: allDone && m.text ? 0.55 : 1,
+                                  transition: 'all 0.5s ease',
                                   marginBottom: m.text ? 12 : 0,
                                 }}>
                                   {!allDone && (
@@ -1501,13 +1521,15 @@ const handleChatSend = async (text?: string) => {
                                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                                     {ts.map((t, ti) => (
                                       <span key={ti} style={{
-                                        display: 'inline-flex', alignItems: 'center', gap: 4,
-                                        padding: '3px 10px', borderRadius: 14,
-                                        fontSize: 11, fontWeight: 500,
-                                        background: t.done ? 'rgba(0,180,42,0.06)' : 'rgba(59,130,246,0.06)',
-                                        color: t.done ? '#00B42A' : '#3B82F6',
-                                        border: `1px solid ${t.done ? 'rgba(0,180,42,0.15)' : 'rgba(59,130,246,0.15)'}`,
-                                        transition: 'all 0.3s ease',
+                                        display: 'inline-flex', alignItems: 'center', gap: 5,
+                                        padding: '4px 12px', borderRadius: 16,
+                                        fontSize: 12, fontWeight: 500,
+                                        background: t.done 
+                                          ? 'linear-gradient(135deg, rgba(0,180,42,0.08), rgba(0,180,42,0.03))'
+                                          : 'linear-gradient(135deg, rgba(59,130,246,0.08), rgba(139,92,246,0.04))',
+                                        color: t.done ? '#00B42A' : '#4F7DF3',
+                                        border: `1px solid ${t.done ? 'rgba(0,180,42,0.18)' : 'rgba(59,130,246,0.18)'}`,
+                                        transition: 'all 0.4s ease',
                                       }}>
                                         <span style={{ fontSize: 12 }}>{t.done ? '✓' : iconMap[t.tool] || '⚡'}</span>
                                         {t.label}
@@ -1522,12 +1544,12 @@ const handleChatSend = async (text?: string) => {
                                       overflow: 'hidden',
                                     }}>
                                       <div style={{
-                                        height: '100%', borderRadius: 1.5,
+                                        height: '100%', borderRadius: 2,
                                         width: `${Math.round((doneCount / ts.length) * 100)}%`,
-                                        background: 'linear-gradient(90deg, #3B82F6, #8B5CF6, #3B82F6)',
-                                        backgroundSize: '200% 100%',
-                                        animation: 'progressFlow 2s ease-in-out infinite',
-                                        transition: 'width 0.5s ease',
+                                        background: 'linear-gradient(90deg, #4F7DF3, #8B5CF6, #A78BFA, #8B5CF6, #4F7DF3)',
+                                        backgroundSize: '300% 100%',
+                                        animation: 'progressFlow 2.5s ease-in-out infinite',
+                                        transition: 'width 0.6s cubic-bezier(0.4, 0, 0.2, 1)',
                                       }} />
                                     </div>
                                   )}
@@ -1539,12 +1561,12 @@ const handleChatSend = async (text?: string) => {
                               return (
                                 <div style={{
                                   display: 'flex', alignItems: 'center', gap: 10,
-                                  padding: '12px 16px',
-                                  borderRadius: 12,
-                                  background: 'var(--color-bg-2)',
-                                  border: '1px solid var(--color-border-2)',
-                                  boxShadow: '0 2px 8px rgba(0,0,0,0.03)',
-                                  animation: 'agentFadeSlide 0.3s ease-out',
+                                  padding: '14px 18px',
+                                  borderRadius: 14,
+                                  background: 'linear-gradient(135deg, rgba(139,92,246,0.04), rgba(79,125,243,0.02))',
+                                  border: '1px solid rgba(139,92,246,0.12)',
+                                  boxShadow: '0 2px 12px rgba(139,92,246,0.05)',
+                                  animation: 'agentFadeSlide 0.35s ease-out',
                                 }}>
                                   <div style={{
                                     width: 32, height: 32, borderRadius: 10,
@@ -1714,11 +1736,12 @@ const handleChatSend = async (text?: string) => {
                           ) : m.text) : (
                             <div style={{
                               display: 'flex', flexDirection: 'column', gap: 8,
-                              padding: '10px 14px', borderRadius: 10,
-                              background: 'var(--color-fill-1)',
-                              border: '1px solid var(--color-border-2)',
+                              padding: '12px 16px', borderRadius: 12,
+                              background: 'linear-gradient(135deg, rgba(139,92,246,0.04), rgba(79,125,243,0.02))',
+                              border: '1px solid rgba(139,92,246,0.12)',
                               position: 'relative', overflow: 'hidden',
-                              animation: 'agentFadeSlide 0.3s ease-out',
+                              boxShadow: '0 2px 12px rgba(139,92,246,0.05)',
+                              animation: 'agentFadeSlide 0.35s ease-out',
                             }}>
                               <div style={{
                                 position: 'absolute', left: 0, right: 0, height: 2,
@@ -1739,7 +1762,7 @@ const handleChatSend = async (text?: string) => {
                                 </div>
                                 <div>
                                   <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-1)', display: 'flex', alignItems: 'center', gap: 8 }}>
-                                    AI 分析引擎已启动
+                                    🧠 AI 分析引擎已启动
                                     <span style={{ display: 'inline-flex', gap: 3 }}>
                                       {[0,1,2].map(d => (
                                         <span key={d} style={{

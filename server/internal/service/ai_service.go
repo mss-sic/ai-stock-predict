@@ -545,6 +545,7 @@ func (s *AIService) ChatCompletionAgentStream(userID uint, history []map[string]
 				case "get_technical": toolLabel = "计算技术指标"
 				case "get_financials": toolLabel = "读取财务数据"
 				case "get_news": toolLabel = "检索最新资讯"
+				case "get_shareholders": toolLabel = "股东户数查询"
 				}
 				onEvent("tool_start", map[string]string{
 					"tool": toolName, "label": toolLabel,
