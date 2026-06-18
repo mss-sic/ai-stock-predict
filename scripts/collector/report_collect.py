@@ -57,7 +57,7 @@ def main():
         print("没有研报数据", flush=True)
         return
 
-    total_pages = min(200, (total_hits // 50) + 1)
+    total_pages = (total_hits // 50) + 1
     print(f"研报: {total_hits}篇, {total_pages}页 ({begin} ~ {end})", flush=True)
 
     stored, start_ts = 0, time.time()
