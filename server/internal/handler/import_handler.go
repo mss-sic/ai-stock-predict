@@ -182,6 +182,19 @@ func (h *ImportHandler) UploadProfile(c *gin.Context) {
 	}
 
 	log.Printf("[profile-import] imported %d, updated %d, errors %d from %s", imported, updated, errors, file.Filename)
+
+	// Record import history
+	status := "success"
+	if imported+updated == 0 {
+		status = "failed"
+	}
+	db.MySQL.Create(&model.ImportLog{
+		FileName:     file.Filename,
+		RowsImported: imported + updated,
+		Status:       status,
+		ImportedAt:   time.Now(),
+	})
+
 	response.Success(c, gin.H{
 		"total":    len(entries),
 		"imported": imported,
