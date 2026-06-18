@@ -486,6 +486,7 @@ export default function StockDetailPage() {
 
   useEffect(() => {
     if (!code) return;
+    setProfileData(null);
     fetchStockDetail(code).then((r: any) => setStock(r.data?.data ?? r.data));
     fetchKLine(code).then((r: any) => setKlines(r.data?.data || []));
     fetchProfile(code).then((r: any) => { if (r.data?.data) setProfileData(r.data.data); }).catch(() => {});

@@ -2,6 +2,9 @@
 
 ## v1.3.3 (2026-06-18)
 
+### 前端
+- **股票简介切换刷新** — StockDetailPage 切换股票时 reset profileData 为 null，修复新股票无简介时仍显示旧数据的 bug
+
 ### AI 对话
 - **Markdown 表格渲染** — 两个 AI 对话 ReactMarkdown 实例补全 `remarkGfm` 插件 + table/thead/tbody/th/td 组件样式，修复 GFM 表格无法显示
 - **持仓按用户过滤** — `get_my_holdings` 工具透传 userId 至 MySQL 查询，`WHERE user_id = ?` 防止多用户数据混淆
