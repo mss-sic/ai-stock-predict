@@ -525,8 +525,10 @@ func (h *BoardHandler) ConceptHeatmap(c *gin.Context) {
 			COUNT(CASE WHEN sc2.close > sc2.prev_close THEN 1 END) as up_count,
 			COUNT(CASE WHEN sc2.close < sc2.prev_close THEN 1 END) as down_count
 		FROM concept_boards cb
+		
 		LEFT JOIN stock_concepts sc ON sc.concept_code = cb.concept_code
 		LEFT JOIN stock_changes sc2 ON sc2.code = sc.code
+		WHERE cb.concept_type = 'concept'
 		GROUP BY cb.concept_code, cb.concept_name, cb.concept_type, cb.stock_count
 		ORDER BY cb.stock_count DESC
 	`).Rows()
