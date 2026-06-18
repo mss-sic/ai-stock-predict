@@ -204,10 +204,12 @@ func (h *AIHandler) ScoreStockAgent(code string, uid uint) error {
 	tools := h.buildAgentTools()
 	
 	var fullReply string
+	aiCfg := h.loadSystemConfig("stock_score")
 	err := h.svc.ChatCompletionAgent(uid, []map[string]string{
 		{"role": "system", "content": sysMsg},
 		{"role": "user", "content": fmt.Sprintf("请对股票 %s 进行全面六维评分。先调用工具获取各维度数据，再输出JSON结果。", code)},
-	}, tools,
+	
+	}, tools, aiCfg,
 		func(name string, args map[string]interface{}) string {
 			return h.executeAgentTool(name, args, code, uid)
 		},
@@ -734,6 +736,9 @@ func (h *AIHandler) UpdateSystemConfig(c *gin.Context) {
 		MaxTokens    *int     `json:"maxTokens"`
 		EnableSearch *bool    `json:"enableSearch"`
 		EnableTools  *bool    `json:"enableTools"`
+		AgentModelName *string  `json:"agentModelName"`
+		AgentBaseURL   *string  `json:"agentBaseURL"`
+		AgentAPIKey    *string  `json:"agentAPIKey"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		response.BadRequest(c, "参数错误")
@@ -752,6 +757,9 @@ func (h *AIHandler) UpdateSystemConfig(c *gin.Context) {
 	if body.MaxTokens != nil { updates["max_tokens"] = *body.MaxTokens }
 	if body.EnableSearch != nil { updates["enable_search"] = *body.EnableSearch }
 	if body.EnableTools != nil { updates["enable_tools"] = *body.EnableTools }
+	if body.AgentModelName != nil { updates["agent_model_name"] = *body.AgentModelName }
+	if body.AgentBaseURL != nil { updates["agent_base_url"] = *body.AgentBaseURL }
+	if body.AgentAPIKey != nil { updates["agent_api_key"] = *body.AgentAPIKey }
 	db.PG.Model(&cfg).Updates(updates)
 	response.SuccessMsg(c, "ok")
 }

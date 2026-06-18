@@ -13,8 +13,12 @@ type AISystemConfig struct {
 	MaxTokens    int       `gorm:"default:2048" json:"maxTokens"`
 	EnableSearch bool      `gorm:"default:true" json:"enableSearch"`
 	EnableTools  bool      `gorm:"default:false" json:"enableTools"`
-	CreatedAt    time.Time `json:"createdAt"`
-	UpdatedAt    time.Time `json:"updatedAt"`
+	// Agent 专用模型配置（用于工具调用模式，适合长文阅读如 Kimi）
+	AgentModelName string    `gorm:"size:100" json:"agentModelName"` // 工具模式模型名，空=使用 ModelName
+	AgentBaseURL   string    `gorm:"size:200" json:"agentBaseURL"`   // 工具模式 API 地址
+	AgentAPIKey    string    `gorm:"size:200" json:"agentAPIKey"`    // 工具模式 API Key
+	CreatedAt      time.Time `json:"createdAt"`
+	UpdatedAt      time.Time `json:"updatedAt"`
 }
 
 func (AISystemConfig) TableName() string { return "ai_system_configs" }

@@ -500,6 +500,17 @@ func init() {
 		},
 	})
 
+	
+	// v019: agent model config columns for ai_system_configs
+	migrations = append(migrations, Migration{
+		Version:     19,
+		Description: "PG: ai_system_configs add agent model columns",
+		Up: func() error {
+			gormAutoMigrate(PG, &model.AISystemConfig{})
+			return nil
+		},
+	})
+
 	log.Printf("[migrate] registered %d migrations", len(migrations))
 
 

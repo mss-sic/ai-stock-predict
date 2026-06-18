@@ -21,7 +21,7 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
 
   // ── AI System Configs ──
-  interface SysCfg { scene: string; name: string; systemPrompt: string; modelName: string; temperature: number; maxTokens: number; enableSearch: boolean; enableTools: boolean; }
+  interface SysCfg { scene: string; name: string; systemPrompt: string; modelName: string; temperature: number; maxTokens: number; enableSearch: boolean; enableTools: boolean; agentModelName: string; agentBaseURL: string; agentAPIKey: string; }
   const [sysConfigs, setSysConfigs] = useState<SysCfg[]>([]);
   const [editingScene, setEditingScene] = useState<string | null>(null);
   const [editCfg, setEditCfg] = useState<SysCfg | null>(null);
@@ -52,6 +52,9 @@ export default function SettingsPage() {
           maxTokens: editCfg.maxTokens,
           enableSearch: editCfg.enableSearch,
           enableTools: editCfg.enableTools,
+          agentModelName: editCfg.agentModelName,
+          agentBaseURL: editCfg.agentBaseURL,
+          agentAPIKey: editCfg.agentAPIKey,
         }),
       });
       const json = await res.json();
@@ -320,6 +323,16 @@ export default function SettingsPage() {
               </div>
             </div>
 
+
+            {editCfg.enableTools && <>
+              <label style={{ fontSize: 13, fontWeight: 600, marginBottom: 4, display: 'block', color: 'var(--color-text-2)' }}>工具模式专用模型（可选，如 Kimi）</label>
+              <input value={editCfg.agentModelName} onChange={e => setEditCfg({...editCfg, agentModelName: e.target.value})}
+                placeholder="moonshot-v1-8k" style={{ ...inp, marginBottom: 8 }} />
+              <input value={editCfg.agentBaseURL} onChange={e => setEditCfg({...editCfg, agentBaseURL: e.target.value})}
+                placeholder="https://api.moonshot.cn" style={{ ...inp, marginBottom: 8 }} />
+              <input type="password" value={editCfg.agentAPIKey} onChange={e => setEditCfg({...editCfg, agentAPIKey: e.target.value})}
+                placeholder="Agent API Key" style={{ ...inp, marginBottom: 12 }} />
+            </>}
             <label style={label}>模型覆盖（空=用用户配置）</label>
             <input value={editCfg.modelName} onChange={e => setEditCfg({...editCfg, modelName: e.target.value})}
               placeholder="留空则使用用户配置的模型" style={{ ...inp, marginBottom: 16 }} />

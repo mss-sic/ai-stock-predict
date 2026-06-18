@@ -339,12 +339,19 @@ type ToolCallFunction struct {
 // ChatCompletionAgent runs the agent loop with tools.
 // toolExecutor is called for each tool call; it returns the result string.
 // onChunk is called for each text chunk of the final response.
-func (s *AIService) ChatCompletionAgent(userID uint, history []map[string]string, tools []map[string]interface{}, toolExecutor func(name string, args map[string]interface{}) string, onChunk func(chunk string)) error {
+func (s *AIService) ChatCompletionAgent(userID uint, history []map[string]string, tools []map[string]interface{}, sysCfg model.AISystemConfig, toolExecutor func(name string, args map[string]interface{}) string, onChunk func(chunk string)) error {
 	cfg, err := s.GetConfig(userID)
 	if err != nil {
 		return err
 	}
-	if cfg.APIKey == "" {
+	// Agent mode: use dedicated model config if set
+	apiKey := cfg.APIKey
+	baseURL := cfg.BaseURL
+	modelName := cfg.ModelName
+	if sysCfg.AgentAPIKey != "" { apiKey = sysCfg.AgentAPIKey }
+	if sysCfg.AgentBaseURL != "" { baseURL = sysCfg.AgentBaseURL }
+	if sysCfg.AgentModelName != "" { modelName = sysCfg.AgentModelName }
+	if apiKey == "" {
 		return fmt.Errorf("AI API Key未配置")
 	}
 
@@ -361,7 +368,7 @@ func (s *AIService) ChatCompletionAgent(userID uint, history []map[string]string
 	const maxTurns = 8
 	for turn := 0; turn < maxTurns; turn++ {
 		body := map[string]interface{}{
-			"model":       cfg.ModelName,
+			"model":       modelName,
 			"messages":    msgs,
 			"temperature": 0.7,
 			"max_tokens":  2048,
@@ -370,10 +377,10 @@ func (s *AIService) ChatCompletionAgent(userID uint, history []map[string]string
 		}
 
 		b, _ := json.Marshal(body)
-		req, err := http.NewRequest("POST", cfg.BaseURL+"/v1/chat/completions", bytes.NewReader(b))
+		req, err := http.NewRequest("POST", baseURL+"/v1/chat/completions", bytes.NewReader(b))
 		if err != nil { return err }
 		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
+		req.Header.Set("Authorization", "Bearer "+apiKey)
 		client := &http.Client{Timeout: 120 * time.Second}
 		resp, err := client.Do(req)
 		if err != nil { return fmt.Errorf("AI请求失败: %w", err) }
@@ -441,13 +448,16 @@ func (s *AIService) ChatCompletionAgentStream(userID uint, history []map[string]
 	if err != nil {
 		return err
 	}
-	if cfg.APIKey == "" {
-		return fmt.Errorf("AI API Key未配置")
-	}
-
+	// Agent mode: use dedicated model config if set
+	apiKey := cfg.APIKey
+	baseURL := cfg.BaseURL
 	modelName := cfg.ModelName
-	if sysCfg.ModelName != "" {
-		modelName = sysCfg.ModelName
+	if sysCfg.AgentAPIKey != "" { apiKey = sysCfg.AgentAPIKey }
+	if sysCfg.AgentBaseURL != "" { baseURL = sysCfg.AgentBaseURL }
+	if sysCfg.AgentModelName != "" { modelName = sysCfg.AgentModelName }
+	if sysCfg.ModelName != "" && modelName == cfg.ModelName { modelName = sysCfg.ModelName }
+	if apiKey == "" {
+		return fmt.Errorf("AI API Key未配置")
 	}
 
 	msgs := make([]AgentMessage, 0, len(history))
@@ -486,10 +496,10 @@ func (s *AIService) ChatCompletionAgentStream(userID uint, history []map[string]
 			})
 		}
 		b, _ := json.Marshal(body)
-		req, err := http.NewRequest("POST", cfg.BaseURL+"/v1/chat/completions", bytes.NewReader(b))
+		req, err := http.NewRequest("POST", baseURL+"/v1/chat/completions", bytes.NewReader(b))
 		if err != nil { return err }
 		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
+		req.Header.Set("Authorization", "Bearer "+apiKey)
 		client := &http.Client{Timeout: 120 * time.Second}
 		resp, err := client.Do(req)
 		if err != nil { return fmt.Errorf("AI请求失败: %w", err) }
