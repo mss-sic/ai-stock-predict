@@ -36,6 +36,7 @@ func main() {
 	service.InitializeDefaultTasks()
 
 	r := gin.Default()
+	r.MaxMultipartMemory = 100 << 20 // 100MB for large file imports
 	r.Use(corsMiddleware())
 
 	// ── Public routes (no auth) ──
