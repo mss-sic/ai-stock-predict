@@ -224,7 +224,7 @@ export const deleteStrategy = (id: number) => api.delete(`/strategies/${id}`);
 export const reorderStrategies = (ids: number[]) => api.put("/strategies/reorder", { ids });
 export const fetchStrategyConditions = (id: number) => api.get(`/strategies/${id}/conditions`);
 export const saveStrategyConditions = (id: number, conditions: any[]) => api.put(`/strategies/${id}/conditions`, { conditions });
-export const aiGenerateStrategy = (data: any) => api.post("/strategies/ai-generate", data);
+export const aiGenerateStrategy = (data: any) => api.post("/strategies/ai-generate", data, { timeout: 120000 });
 export const optimizePrompt = (prompt: string, style: string) => api.post("/strategies/optimize-prompt", { prompt, style });
 export const fetchIndicators = () => api.get("/strategies/indicators");
 export const fetchIndicatorGuide = () => api.get("/strategies/indicator-guide");
