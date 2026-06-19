@@ -160,12 +160,22 @@ except:
 
 ### 4.2 线上版本同步
 
-修改数据库表结构时：
+修改数据库 Schema 时（TABLE、VIEW、INDEX、FUNCTION、TRIGGER、TYPE、ENUM 等一切 SQL 对象）：
+
+**强制规则：所有 SQL 对象必须通过迁移文件创建，禁止任何形式的旁路创建。**
 
 - 在 `server/internal/db/migrations_data.go` 中新增迁移版本
 - 同时生成独立修复 SQL → `docs/sql-fixes/YYYY-MM-DD_description.sql`
-- 迁移版本号严格递增，描述清晰
+- 迁移版本号严格递增（v025 → v026 → v027 ...），描述清晰
 - **思考**：现有数据如何迁移？是否需要回填脚本？
+
+**Go 模型与 DB 对象一致性检查清单（每次新增/修改 Go struct 时必查）：**
+1. 新增 `model/Xxx.go` → 检查是否有对应的 TABLE/VIEW 创建迁移
+2. 新增 `gormAutoMigrate(&model.Xxx{})` → 确认字段定义与迁移 SQL 一致
+3. Go 中引用了 `db.PG.Table("xxx_view")` → 必须有创建该 VIEW 的迁移
+4. Go 中引用了 `db.PG.Raw("SELECT ... FROM yyy")` 中的表/视图 → 迁移中必须存在
+
+**违规示例（已发生）：** `northbound_daily_view` 在 model / service / Python 脚本中多处引用，但迁移中从未创建 → 线上 500 错误。
 
 ### 4.3 索引
 
