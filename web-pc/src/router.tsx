@@ -17,6 +17,7 @@ import StockListPage from './pages/StockListPage';
 import DataManagementPage from './pages/DataManagementPage';
 import SettingsPage from './pages/SettingsPage';
 import PersonalSettingsPage from "./pages/PersonalSettingsPage";
+import UserCostPage from "./pages/UserCostPage";
 import LoginPage from './pages/LoginPage';
 import AdminPage from './pages/AdminPage';
 import PkListPage from './pages/PkListPage';
@@ -88,6 +89,7 @@ const router = createBrowserRouter([
           { path: 'data', element: <DataManagementPage /> },
           { path: 'settings', element: <SettingsPage /> },
           { path: "profile", element: <PersonalSettingsPage /> },
+          { path: "cost", element: <UserCostPage /> },
           { path: 'admin', element: <AdminPage /> },
           { path: 'pk', element: <PkListPage /> },
           { path: 'pk/:id', element: <PkDetailPage /> },

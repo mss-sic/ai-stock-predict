@@ -1,7 +1,7 @@
 import { useMemo, useState, useCallback, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Input, AutoComplete, Badge, Button, Tag } from '@arco-design/web-react';
-import { Search, Bell, ChevronRight, Home, Clock, User } from 'lucide-react';
+import { Input, AutoComplete, Badge, Button, Tag, Dropdown, Menu } from '@arco-design/web-react';
+import { Search, Bell, ChevronRight, Home, Clock, User, Settings, BarChart3 } from 'lucide-react';
 import { useAuth } from '../services/AuthContext';
 import { searchStock } from '../services/api';
 
@@ -236,27 +236,53 @@ export default function AppTopbar() {
         />
       </Badge>
 
-      {/* ── User ── */}
-      <Button
-        type="text"
-        onClick={() => navigate('/profile')}
-        style={{
-          display: 'flex', alignItems: 'center', gap: 8, padding: '4px 10px',
-          color: 'var(--color-text-2)', borderRadius: 8, flexShrink: 0,
-        }}
+      {/* ── User Dropdown ── */}
+      <Dropdown
+        droplist={
+          <Menu
+            onClickMenuItem={(key) => {
+              if (key === 'profile') navigate('/profile');
+              else if (key === 'cost') navigate('/cost');
+            }}
+            style={{ minWidth: 140 }}
+          >
+            <Menu.Item key="profile">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Settings size={14} style={{ color: 'var(--color-text-2)' }} />
+                <span>个人设置</span>
+              </div>
+            </Menu.Item>
+            <Menu.Item key="cost">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <BarChart3 size={14} style={{ color: 'var(--color-text-2)' }} />
+                <span>AI 调用分析</span>
+              </div>
+            </Menu.Item>
+          </Menu>
+        }
+        trigger="click"
+        position="br"
       >
-        <div style={{
-          width: 28, height: 28, borderRadius: '50%',
-          background: 'linear-gradient(135deg, var(--color-primary), #722ed1)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          color: '#fff', fontSize: 12, fontWeight: 700, flexShrink: 0,
-        }}>
-          {(user?.nickname || user?.username || 'U')[0].toUpperCase()}
-        </div>
-        <span style={{ fontSize: 13, fontWeight: 500 }}>
-          {user?.nickname || user?.username || '用户'}
-        </span>
-      </Button>
+        <Button
+          type="text"
+          style={{
+            display: 'flex', alignItems: 'center', gap: 8, padding: '4px 10px',
+            color: 'var(--color-text-2)', borderRadius: 8, flexShrink: 0, cursor: 'pointer',
+          }}
+        >
+          <div style={{
+            width: 28, height: 28, borderRadius: '50%',
+            background: 'linear-gradient(135deg, var(--color-primary), #722ed1)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            color: '#fff', fontSize: 12, fontWeight: 700, flexShrink: 0,
+          }}>
+            {(user?.nickname || user?.username || 'U')[0].toUpperCase()}
+          </div>
+          <span style={{ fontSize: 13, fontWeight: 500 }}>
+            {user?.nickname || user?.username || '用户'}
+          </span>
+        </Button>
+      </Dropdown>
 
       {/* ── Pulse animation for market dot ── */}
       <style>{`

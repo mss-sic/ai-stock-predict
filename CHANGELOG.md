@@ -49,6 +49,18 @@
 - **DB seed 对齐** — v022 `strategy_gen` seed 精简为与 handler 兼容格式
 
 
+### 用户 AI 调用分析
+
+- **用户级接口** — 新增 `GET /api/v1/cost/logs` / `summary` / `daily` 三个用户级接口（从 JWT 取 userId，非 admin）
+- **汇总卡片** — UserCostPage 顶部 5 张卡片：总花费 / 总 Token / 今日花费 / 今日 Token / 模型调用次数
+- **每日柱状图** — ECharts 堆叠柱状图，按模块分色（chat/stock_score/stock_profile/strategy_gen/strategy_opt），支持切换月份
+- **调用明细** — 分页表格（时间/模块/模型/Token/费用/耗时/状态）+ 模块筛选下拉
+- **用户下拉菜单** — AppTopbar 用户头像改为 Dropdown（个人设置 + AI 调用分析）
+- **页面美化** — 统一 lucide-react 图标（DollarSign/Coins/Calendar/Clock/Cpu/TrendingUp/BarChart3/ListFilter），渐变标题栏，卡片 hover 阴影，表格行 hover 高亮，Badge 半透明彩色背景，等宽字体数据
+- **图表全月刻度** — 柱状图横坐标填充当月所有日期（即使无数据也显示），空数据时显示灰色空柱
+- **AGENTS.md 规范** — 新增第8条「前端 UI 风格规范」：图标/颜色/卡片/表格/字体约束，禁止 emoji 图标和硬编码颜色
+
+
 ## v1.3.3 (2026-06-18)
 
 ### 前端

@@ -71,6 +71,11 @@ func main() {
 		api.GET("/auth/sessions", authH.GetSessions)
 		api.DELETE("/auth/sessions/:id", authH.RevokeSession)
 
+		// User: AI cost analysis
+		api.GET("/cost/logs", costH.GetUserCostLogs)
+		api.GET("/cost/summary", costH.GetUserCostSummary)
+		api.GET("/cost/daily", costH.GetUserCostDaily)
+
 		// Admin: user management
 		admin := api.Group("/admin")
 		admin.Use(handler.AdminMiddleware())

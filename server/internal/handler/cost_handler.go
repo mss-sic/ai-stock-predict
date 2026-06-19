@@ -121,3 +121,116 @@ func (h *CostHandler) UpdateModelPrice(c *gin.Context) {
 	}
 	response.SuccessMsg(c, "价格已更新")
 }
+
+// ── User-scoped cost APIs ──
+
+// GetUserCostLogs returns paginated AI cost logs for the current user
+func (h *CostHandler) GetUserCostLogs(c *gin.Context) {
+	uid := getUID(c)
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("pageSize", "20"))
+	module := c.Query("module")
+	start := c.Query("start")
+	end := c.Query("end")
+
+	if page < 1 { page = 1 }
+	if pageSize < 1 || pageSize > 100 { pageSize = 20 }
+
+	if db.MySQL == nil {
+		response.Success(c, gin.H{"list": []model.AICostLog{}, "total": 0, "page": page, "pageSize": pageSize})
+		return
+	}
+
+	query := db.MySQL.Model(&model.AICostLog{}).Where("user_id = ?", uid)
+	if module != "" {
+		query = query.Where("module = ?", module)
+	}
+	if start != "" {
+		query = query.Where("created_at >= ?", start)
+	}
+	if end != "" {
+		query = query.Where("created_at <= ?", end+" 23:59:59")
+	}
+
+	var total int64
+	query.Count(&total)
+
+	var logs []model.AICostLog
+	query.Order("id DESC").Offset((page - 1) * pageSize).Limit(pageSize).Find(&logs)
+	if logs == nil { logs = []model.AICostLog{} }
+
+	response.Success(c, gin.H{
+		"list": logs, "total": total, "page": page, "pageSize": pageSize,
+	})
+}
+
+// GetUserCostSummary returns aggregated cost statistics for the current user
+func (h *CostHandler) GetUserCostSummary(c *gin.Context) {
+	uid := getUID(c)
+
+	s := struct {
+		TotalCost   float64 `json:"totalCost"`
+		TotalCalls  int64   `json:"totalCalls"`
+		TotalTokens int64   `json:"totalTokens"`
+		TodayCost   float64 `json:"todayCost"`
+		TodayTokens int64   `json:"todayTokens"`
+		ModelCalls  int64   `json:"modelCalls"`
+	}{}
+
+	if db.MySQL == nil {
+		response.Success(c, s)
+		return
+	}
+
+	row := db.MySQL.Model(&model.AICostLog{}).
+		Where("user_id = ? AND success = 1", uid).
+		Select("COALESCE(SUM(cost_amount),0), COUNT(*), COALESCE(SUM(total_tokens),0)").
+		Row()
+	if row != nil {
+		row.Scan(&s.TotalCost, &s.TotalCalls, &s.TotalTokens)
+	}
+
+	today := time.Now().Format("2006-01-02")
+	row = db.MySQL.Model(&model.AICostLog{}).
+		Where("user_id = ? AND success = 1 AND DATE(created_at) = ?", uid, today).
+		Select("COALESCE(SUM(cost_amount),0), COALESCE(SUM(total_tokens),0)").
+		Row()
+	if row != nil {
+		row.Scan(&s.TodayCost, &s.TodayTokens)
+	}
+
+	db.MySQL.Model(&model.AICostLog{}).
+		Where("user_id = ? AND success = 1", uid).
+		Select("COUNT(DISTINCT model_name)").Row().Scan(&s.ModelCalls)
+
+	response.Success(c, s)
+}
+
+// GetUserCostDaily returns daily cost breakdown grouped by module for the current user
+func (h *CostHandler) GetUserCostDaily(c *gin.Context) {
+	uid := getUID(c)
+	month := c.DefaultQuery("month", time.Now().Format("2006-01"))
+
+	type DailyItem struct {
+		Date   string  `json:"date"`
+		Module string  `json:"module"`
+		Cost   float64 `json:"cost"`
+		Tokens int64   `json:"tokens"`
+	}
+
+	if db.MySQL == nil {
+		response.Success(c, []DailyItem{})
+		return
+	}
+
+	var items []DailyItem
+	db.MySQL.Model(&model.AICostLog{}).
+		Where("user_id = ? AND success = 1 AND DATE_FORMAT(created_at, '%Y-%m') = ?", uid, month).
+		Select("DATE_FORMAT(created_at, '%Y-%m-%d') as date, module, COALESCE(SUM(cost_amount),0) as cost, COALESCE(SUM(total_tokens),0) as tokens").
+		Group("date, module").
+		Order("date ASC, module ASC").
+		Scan(&items)
+
+	if items == nil { items = []DailyItem{} }
+	response.Success(c, items)
+}

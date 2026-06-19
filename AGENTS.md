@@ -299,7 +299,45 @@ cd /opt/ai-stock-predict/docker && docker compose up -d
 | 后端 | `server/` | Go + Gin + GORM (PostgreSQL + MySQL) |
 | 采集 | `scripts/collector/` | Python 3.12 + psycopg2 + requests + mootdx |
 | 数据库 | PostgreSQL | `stock_predict` 库 |
-| 部署 | `docker/` | Docker Compose + Nginx |
+| 部署 | `docker/` | Docker Compose + Nginx ||
+
+## 8. 前端 UI 风格规范
+
+### 8.1 图标
+
+- **统一使用 `lucide-react`**，禁止 emoji (📊📈) 和原始 Unicode 作为功能图标
+- 图标大小规范：页面标题 18-20px、卡片/按钮 14-16px、内联 12px
+- 图标颜色优先用 CSS 变量（`'var(--color-text-2)'`）或系统色（`#165DFF`），禁止硬编码杂色
+- 常用图标速查：`Settings/User/BarChart3/DollarSign/Coins/Calendar/Clock/Cpu/TrendingUp/ListFilter/CheckCircle/XCircle`
+
+### 8.2 颜色
+
+- **禁止硬编码颜色值**：优先用 CSS 变量体系
+  - 文字：`--color-text-1`(主) / `--color-text-2`(次) / `--color-text-3`(辅助)
+  - 背景：`--color-bg-1`(基底) / `--color-bg-2`(卡片)
+  - 边框：`--color-border-1`(细分) / `--color-border-2`(通常)
+  - 填充：`--color-fill-1`(浅灰) / `--color-fill-2`(深灰)
+  - 主题：`--color-primary` / `--color-primary-light-*`
+
+### 8.3 卡片规范
+
+- 卡片容器：`background: var(--color-bg-2)` + `border-radius: 10` + `border: 1px solid var(--color-border-2)`
+- 卡片 hover：`boxShadow: '0 2px 12px rgba(0,0,0,0.06)'`
+- 页头图标：渐变圆角方块背景 + 白色图标，如 `background: 'linear-gradient(135deg, #165DFF, #722ED1)'` + `borderRadius: 10`
+
+### 8.4 表格规范
+
+- 表头：`background: var(--color-fill-1)` + `borderBottom: 2px solid var(--color-border-2)`
+- 行 hover：`background: var(--color-fill-1)`
+- 行分隔：`borderBottom: 1px solid var(--color-border-1)`
+- Badge 标签：`borderRadius: 10` + 半透明彩色背景(`color + '15'`)
+
+### 8.5 字体规范
+
+- 数据/金额用等宽字体：`fontFamily: "'SF Mono', 'Inter', monospace"`
+- 页面标题：18px / 700
+- 卡片标签：11-12px
+- 表格内容：11-12px
 
 ### 常用命令速查
 
