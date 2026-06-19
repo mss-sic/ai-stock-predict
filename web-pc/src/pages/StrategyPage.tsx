@@ -332,28 +332,40 @@ export default function StrategyPage() {
     if (!activeId) { toast('warning', '请先选择一个策略'); return; }
     setAiGenerating(true);
     try {
-      const { data: r } = await aiGenerateStrategy({ name: activeStrategy?.name || '当前策略', description: aiDesc, style: aiStyle });
-      const result = r.data;
-      if (result && result.conditions) {
+      const res = await aiGenerateStrategy({ name: activeStrategy?.name || '当前策略', description: aiDesc, style: aiStyle });
+      const result = res.data?.data;
+      // Check for API error response
+      if (res.data?.code !== undefined && res.data?.code !== 0) {
+        toast('error', res.data?.message || 'AI生成失败');
+        setAiGenerating(false);
+        return;
+      }
+      if (result && result.conditions && result.conditions.length > 0) {
         const params: any = {};
         if (result.stopProfit !== undefined) params.stopProfit = result.stopProfit;
         if (result.stopLoss !== undefined) params.stopLoss = result.stopLoss;
         if (result.maxHoldings) params.maxHoldings = result.maxHoldings;
         if (result.description) params.description = result.description;
         await updateStrategy(activeId, params);
-        const cleanConds = (result.conditions || []).map((c: any, i: number) => ({
+        const cleanConds = result.conditions.map((c: any, i: number) => ({
           id: 0, strategyId: activeId, condType: c.condType, indicator: c.indicator,
           operator: c.operator, value: c.value,
           logicGroup: c.logicGroup || 1, sortOrder: i,
         }));
         await saveStrategyConditions(activeId, cleanConds);
+        // Reload conditions directly instead of full reload
+        const { data: condData } = await fetchStrategyConditions(activeId);
+        setConditions(condData?.data || []);
         loadStrategies();
         setShowAIModal(false);
         toast('success', `AI已填充 ${cleanConds.length} 条条件到当前策略`);
       } else {
-        toast('warning', 'AI未生成有效条件，请重试');
+        toast('warning', 'AI未生成有效条件，请细化描述后重试');
       }
-    } catch {}
+    } catch (err: any) {
+      const msg = err?.response?.data?.message || err?.message || 'AI生成失败，请检查模型配置';
+      toast('error', msg);
+    }
     setAiGenerating(false);
   };
 

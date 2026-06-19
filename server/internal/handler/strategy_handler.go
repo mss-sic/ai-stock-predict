@@ -225,7 +225,7 @@ func (h *StrategyHandler) AIGenerate(c *gin.Context) {
 
 	prompt := buildAIGeneratePrompt(indicators, body.Name, body.Description, style)
 
-	reply, err := h.aiSvc.ChatCompletion(uid, prompt, nil)
+	reply, err := h.aiSvc.ChatCompletionWithTokens(uid, prompt, nil, 4096)
 	if err != nil {
 		response.Error(c, 500, response.CodeAIModelError, "AI生成失败: "+err.Error())
 		return
@@ -403,19 +403,22 @@ func buildAIGeneratePrompt(indicators, name, description, style string) string {
 %s
 
 重要规则：
+- 最多生成 6 条条件（买入+卖出合计），确保JSON完整不截断
+- 优先使用 ✅ 全量覆盖的指标（ma_*, rsi, kdj, macd, daily_change, momentum, volume_ratio, turnover_rate），这些回测可用
+- 避免使用 ⚠️ 标注类指标（ai_* 系列覆盖面极窄，大部分股票无数据）
+- 避免使用 🚫 预测类指标（prediction_* 回测不可用）
 - operator 枚举: gte(≥), lte(≤), gt(>), lt(<), eq(=), cross_up(↑上穿), cross_down(↓下穿)
-- cross 类型指标（ma_cross, ema_cross）只能用 cross_up/cross_down 操作符，值用 "5/20" 格式表示短均线/长均线
+- cross 类型指标（ma_cross, ema_cross）只能用 cross_up/cross_down，值用 "5/20" 格式
 - number 类型指标用 gte/lte/gt/lt/eq，值为数字
 - 买入条件 condType="buy"，卖出条件 condType="sell"
-- 同一 logicGroup 内条件为 AND 关系，不同 logicGroup 为 OR 关系
-- 注意数据覆盖：🚫预测类指标回测不可用，⚠️标注类数据覆盖面有限
-- 根据风险偏好 aggressive 可放宽阈值，conservative 收紧阈值
+- 同一 logicGroup 内条件为 AND，不同 logicGroup 为 OR
+- aggressive 放宽阈值，conservative 收紧阈值
 
 用户策略名: %s
 用户描述: %s
 风险偏好: %s
 
-返回纯JSON（无markdown，只返回JSON对象）：
+返回纯JSON（无markdown，不要markdown代码块，只返回JSON对象）：
 {
   "name": "策略名称",
   "description": "策略描述",
@@ -449,7 +452,7 @@ func (h *StrategyHandler) OptimizePrompt(c *gin.Context) {
 	style := body.Style
 	if style == "" { style = "moderate" }
 	prompt := fmt.Sprintf(`你是一个量化交易策略专家。用户想创建一个A股交易策略，但描述比较简略。请将以下用户要求优化为结构化的策略描述，包含：投资风格、选股偏好、买入时机、卖出时机、仓位管理、风险控制等方面。直接用中文输出优化后的描述，不要加任何前缀说明。\n\n用户原始要求：%s\n风险偏好：%s\n\n优化后的策略描述：`, body.Prompt, style)
-	reply, err := h.aiSvc.ChatCompletion(uid, prompt, nil)
+	reply, err := h.aiSvc.ChatCompletionWithTokens(uid, prompt, nil, 4096)
 	if err != nil {
 		response.Error(c, 500, response.CodeAIModelError, "AI优化失败: "+err.Error())
 		return

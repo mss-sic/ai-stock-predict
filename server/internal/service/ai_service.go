@@ -121,6 +121,66 @@ func (s *AIService) ChatCompletion(userID uint, prompt string, history []map[str
 	return content, nil
 }
 
+// ChatCompletionWithTokens is like ChatCompletion but with configurable max_tokens.
+// Use for responses that need longer output (e.g., strategy JSON generation).
+func (s *AIService) ChatCompletionWithTokens(userID uint, prompt string, history []map[string]string, maxTokens int) (string, error) {
+	cfg, err := s.GetConfig(userID)
+	if err != nil {
+		return "", err
+	}
+	if cfg.APIKey == "" {
+		return "", fmt.Errorf("AI API Key未配置，请在设置页面配置")
+	}
+
+	messages := make([]map[string]string, 0, len(history)+1)
+	messages = append(messages, history...)
+	messages = append(messages, map[string]string{"role": "user", "content": prompt})
+
+	body := map[string]interface{}{
+		"model":         cfg.ModelName,
+		"messages":      messages,
+		"temperature":   0.3,
+		"max_tokens":    maxTokens,
+		"enable_search": false,
+	}
+	b, _ := json.Marshal(body)
+	req, err := http.NewRequest("POST", cfg.BaseURL+"/v1/chat/completions", bytes.NewReader(b))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
+	client := &http.Client{Timeout: 120 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("AI请求失败: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		respBody, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("AI API返回 %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var result struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", err
+	}
+	if len(result.Choices) == 0 {
+		return "", fmt.Errorf("AI返回空结果")
+	}
+	content := result.Choices[0].Message.Content
+	if content == "" {
+		return "", fmt.Errorf("AI返回空内容")
+	}
+	return content, nil
+}
+
 // ChatCompletionStream sends a streaming chat completion (user-scoped)
 func (s *AIService) ChatCompletionStream(userID uint, prompt string, history []map[string]string, onChunk func(chunk string)) error {
 	cfg, err := s.GetConfig(userID)
