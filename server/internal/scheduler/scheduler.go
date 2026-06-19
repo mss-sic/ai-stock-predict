@@ -50,6 +50,12 @@ func New(cronExpr string) *Scheduler {
 			log.Printf("[scheduler] risk scan: %d alerts", count)
 		}
 	})
+
+	// Sentiment computation: after market close every trading day (Mon-Fri 15:45)
+	s.cron.AddFunc("0 45 15 * * 1-5", func() {
+		log.Println("[scheduler] computing market sentiment...")
+		collector.RunSentimentComputation()
+	})
 	return s
 }
 

@@ -1,37 +1,33 @@
-# Go
-server/server
-server-bin
-*.exe
-*.test
-*.out
-vendor/
-
-# Node
-node_modules/
-dist/
-.vite/
-
-# IDE
-.idea/
-.vscode/
-*.swp
-*.swo
-
-# OS
-.DS_Store
-Thumbs.db
 
 # Docker
-docker/data/
-
 # Env
-.env
-.env.local
-
+# Go
+# IDE
+# Node
+# OS
 # Python
-__pycache__/
+*.exe
+*.out
 *.pyc
 *.pyo
+*.swo
+*.swp
+*.test
+.DS_Store
+.env
+.env.local
+.idea/
 .venv/
-venv/
+.vite/
+.vscode/
+Thumbs.db
+__pycache__/
+dist/
+docker/data/
+node_modules/
 seed/data/manifest.json
+server-bin
+server/bin/
+server/server
+vendor/
+venv/

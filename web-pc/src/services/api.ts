@@ -148,7 +148,8 @@ export const toggleUser = (userId: number, isActive: boolean) =>
 // ── Stock APIs ──
 export const fetchStocks = (params?: any) => api.get('/stocks', { params });
 export const fetchStockDetail = (code: string) => api.get(`/stocks/${code}`);
-export const fetchKLine = (code: string) => api.get(`/stocks/${code}/kline`);
+export const fetchKLine = (code: string, from?: string, to?: string) => api.get(`/stocks/${code}/kline`, { params: { from, to } });
+export const fetchIndexKLine = (code: string, from?: string, to?: string) => api.get(`/sentiment/index-kline/${code}`, { params: { from, to } });
 export const fetchIndicator = (code: string) => api.get(`/stocks/${code}/indicator`);
 export const fetchSignal = (code: string) => api.get(`/stocks/${code}/signal`);
 export const fetchFinancials = (code: string) => api.get(`/stocks/${code}/financials`);
@@ -361,3 +362,12 @@ export async function authFetchJSON(url: string, options: RequestInit = {}): Pro
   }
   return json;
 }
+
+// ── Market Sentiment ──
+export const fetchLatestSentiment = () => api.get('/sentiment/latest');
+export const fetchSentimentHistory = (days: number = 90) => api.get('/sentiment/history', { params: { days } });
+export const fetchSentimentDetail = (date: string) => api.get('/sentiment/detail', { params: { date } });
+export const fetchSentimentRange = (start: string, end: string) => api.get('/sentiment/range', { params: { start, end } });
+export const fetchNorthbound = (days: number = 30) => api.get('/northbound', { params: { days } });
+
+export const fetchReturnDistribution = () => api.get('/sentiment/distribution');

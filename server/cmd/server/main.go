@@ -51,6 +51,18 @@ func main() {
 	r.POST("/api/v1/auth/refresh", authH.Refresh)
 	r.GET("/api/v1/indices", handler.GetIndices) // public index data
 
+	// Market sentiment (public)
+	sentimentH := &handler.SentimentHandler{}
+	r.GET("/api/v1/sentiment/latest", sentimentH.GetLatest)
+	r.GET("/api/v1/sentiment/history", sentimentH.GetHistory)
+	r.GET("/api/v1/sentiment/detail", sentimentH.GetDetail)
+	r.GET("/api/v1/sentiment/range", sentimentH.GetRange)
+	r.GET("/api/v1/northbound", sentimentH.GetNorthbound)
+	r.GET("/api/v1/northbound/minute", sentimentH.GetNorthboundMinute)
+	r.GET("/api/v1/sentiment/index-kline/:code", sentimentH.GetIndexKLine)
+	r.GET("/api/v1/sentiment/distribution", sentimentH.GetReturnDistribution)
+	r.GET("/api/v1/sentiment/turnover", sentimentH.GetMarketTurnover)
+
 	// ── Concept Board routes ──
 	boardH := handler.NewBoardHandler()
 	r.GET("/api/v1/concept-boards", boardH.ConceptBoards)

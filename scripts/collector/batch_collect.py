@@ -71,7 +71,7 @@ def fetch_one_stock(code, latest, today):
         if len(row) < 6:
             continue
         vol_shou = float(row[5])
-        vol_gu = int(vol_shou * 100)
+        vol_gu = int(vol_shou) if code.startswith("688") else int(vol_shou * 100)
         close_p = float(row[2])
         amt = close_p * float(vol_gu)
         rows.append((

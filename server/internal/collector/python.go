@@ -86,3 +86,35 @@ func FetchBasic(code string) (*BasicData, error) {
 	}
 	return &result, nil
 }
+
+// RunSentimentComputation runs precompute_aggs.py and compute_sentiment.py for daily update.
+func RunSentimentComputation() {
+	log := func(msg string, args ...interface{}) {
+		fmt.Printf("[sentiment] "+msg+"\n", args...)
+	}
+	root := scriptsRoot()
+
+	// Step 1: precompute aggregates
+	log("running precompute_aggs.py...")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "python3", filepath.Join(root, "precompute_aggs.py"))
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		log("precompute_aggs failed: %v\n%s", err, string(out))
+		return
+	}
+	log("precompute_aggs OK: %s", string(out))
+
+	// Step 2: compute sentiment
+	log("running compute_sentiment.py...")
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel2()
+	cmd2 := exec.CommandContext(ctx2, "python3", filepath.Join(root, "compute_sentiment.py"))
+	out2, err2 := cmd2.CombinedOutput()
+	if err2 != nil {
+		log("compute_sentiment failed: %v\n%s", err2, string(out2))
+		return
+	}
+	log("compute_sentiment OK: %s", string(out2))
+}

@@ -116,7 +116,7 @@ def main():
         low_p = float(row[4])
         close_p = float(row[2])
         vol_shou = float(row[5])
-        volume = int(vol_shou * 100)
+        volume = int(vol_shou) if code.startswith("688") else int(vol_shou * 100)
         amount = close_p * volume
 
         # 换手率 = 成交量(股) / 流通股本 × 100

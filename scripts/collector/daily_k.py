@@ -24,7 +24,7 @@ def fetch_kline(code, days=365):
                     "close": float(row[2]),
                     "high": float(row[3]),
                     "low": float(row[4]),
-                    "volume": int(float(row[5]) * 100),
+                    "volume": int(float(row[5])) if code.startswith("688") else int(float(row[5]) * 100),
                 })
         return result
     except Exception as e:

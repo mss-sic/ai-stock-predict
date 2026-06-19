@@ -23,6 +23,8 @@ type StockBasic struct {
 	ConceptTags JSONArray `gorm:"type:jsonb" json:"conceptTags"`
 	ListedDate  *time.Time `json:"listedDate"`
 	TotalShares int64     `json:"totalShares"`
+	BoardType   string    `gorm:"size:5" json:"boardType"`   // sh/kc/sz/cy/bj
+	IsST        bool      `gorm:"default:false" json:"isST"`
 	UpdatedAt   time.Time `json:"updatedAt"`
 }
 
