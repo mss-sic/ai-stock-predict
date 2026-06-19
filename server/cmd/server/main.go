@@ -229,6 +229,7 @@ func main() {
 		api.POST("/ai/profile/:code", aiH.RunProfile)
 		api.POST("/ai/profile-batch", aiH.RunProfileBatch)
 		api.GET("/ai/system-configs", aiH.GetSystemConfigs)
+		api.GET("/ai/system-config-vars", aiH.GetSystemConfigVars)
 		api.GET("/ai/system-configs/:scene", aiH.GetSystemConfig)
 		api.PUT("/ai/system-configs/:scene", aiH.UpdateSystemConfig)
 

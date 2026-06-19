@@ -20,6 +20,8 @@ type AICostLog struct {
 	DurationMs       int       `gorm:"default:0" json:"durationMs"`
 	Success          bool      `gorm:"default:1" json:"success"`
 	ErrorMsg         string    `gorm:"size:500;default:''" json:"errorMsg"`
+	RequestContent   string    `gorm:"type:mediumtext" json:"requestContent"`
+	ResponseContent  string    `gorm:"type:mediumtext" json:"responseContent"`
 	CreatedAt        time.Time `gorm:"index:idx_cost_user_date" json:"createdAt"`
 }
 
@@ -51,10 +53,6 @@ type UsageInfo struct {
 func DefaultModelPrices() []ModelPrice {
 	return []ModelPrice{
 		{ModelName: "deepseek-v4-flash", DisplayName: "DeepSeek V4 Flash", InputPrice: 1.00, OutputPrice: 2.00, CacheHitPrice: 0.02},
-		{ModelName: "deepseek-chat", DisplayName: "DeepSeek V3 (Chat)", InputPrice: 1.00, OutputPrice: 2.00, CacheHitPrice: 0.02},
-		{ModelName: "deepseek-reasoner", DisplayName: "DeepSeek R1 (Reason)", InputPrice: 3.00, OutputPrice: 6.00, CacheHitPrice: 0.025},
-		{ModelName: "moonshot-v1-8k", DisplayName: "Moonshot 8K", InputPrice: 12.00, OutputPrice: 12.00, CacheHitPrice: 0},
-		{ModelName: "moonshot-v1-32k", DisplayName: "Moonshot 32K", InputPrice: 24.00, OutputPrice: 24.00, CacheHitPrice: 0},
-		{ModelName: "moonshot-v1-128k", DisplayName: "Moonshot 128K", InputPrice: 60.00, OutputPrice: 60.00, CacheHitPrice: 0},
+		{ModelName: "deepseek-v4-pro", DisplayName: "DeepSeek V4 Pro", InputPrice: 3.00, OutputPrice: 6.00, CacheHitPrice: 0.025},
 	}
 }

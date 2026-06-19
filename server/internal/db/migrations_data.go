@@ -333,7 +333,7 @@ func init() {
 			defaults := []model.AISystemConfig{
 				{
 					Scene: "chat_analysis", Name: "AI对话分析",
-					SystemPrompt: `你是专业A股分析助手。当前分析标的：%s（%s），行业：%s。
+					SystemPrompt: `你是专业A股分析助手。当前分析标的：__STOCK_CODE__（__STOCK_NAME__），行业：__STOCK_INDUSTRY__。
 
 你拥有以下工具可以实时查询数据库中的精确数据：
 - get_stock_price: 获取最新价格、PE/PB、成交量、市值
@@ -357,11 +357,11 @@ func init() {
 {"w":"panel","t":"标题","rows":[{"k":"指标","v":"数值"}]}
 {"w":"plan","s":支撑价,"r":压力价,"tip":"建议≤20字","pos":30}
 严禁自创格式（如 type/signal 等）或输出<div>等HTML标签，必须使用 w 字段。
-5. 分析截止时间：%s`,
+5. 分析截止时间：__CURRENT_DATE__`,
 					Temperature: 0.7, MaxTokens: 2048, EnableSearch: true,
 				},
 				{
-					Scene: "stock_scoring", Name: "AI综合评分",
+					Scene: "stock_score", Name: "AI综合评分",
 					SystemPrompt: `你是一位资深A股分析师。请全面分析以下股票，从六个维度打分（1-10分），并返回严格JSON格式（不要markdown代码块）：
 六维评分标准：
 - fundamentalScore(基本面): 营收/利润/ROE/现金流等财务健康度
@@ -371,7 +371,7 @@ func init() {
 - technicalScore(技术面): 趋势/均线/MACD/KDJ等指标
 - industryScore(行业景气): 行业周期/政策/景气度
 
-综合评分cScore 0-10分，建议suggestion(强烈买入/买入/增持/持有/减持/卖出/强烈卖出)，风险等级riskLevel(低风险/中低风险/中风险/中高风险/高风险)，riskWarnings风险点数组，summary 80字以内摘要。%s`,
+综合评分cScore 0-10分，建议suggestion(强烈买入/买入/增持/持有/减持/卖出/强烈卖出)，风险等级riskLevel(低风险/中低风险/中风险/中高风险/高风险)，riskWarnings风险点数组，summary 80字以内摘要。__STOCK_DATA__`,
 					Temperature: 0.3, MaxTokens: 1024, EnableSearch: false,
 				},
 			}
@@ -533,7 +533,113 @@ func init() {
 		},
 	})
 
-	log.Printf("[migrate] registered %d migrations", len(migrations))
+	
+	
+	// v021: ai_cost_logs add request/response content columns + update model prices
+	migrations = append(migrations, Migration{
+		Version:     21,
+		Description: "MySQL: ai_cost_logs add request_content/response_content + update model_prices",
+		Up: func() error {
+			if MySQL == nil {
+				return nil
+			}
+			// Auto-migrate new columns
+			gormAutoMigrate(MySQL, &model.AICostLog{})
+			// Seed/update model prices (V4-Flash and V4-Pro only)
+			MySQL.Where("model_name NOT IN ?", []string{"deepseek-v4-flash", "deepseek-v4-pro"}).Delete(&model.ModelPrice{})
+			for _, p := range model.DefaultModelPrices() {
+				var existing model.ModelPrice
+				if err := MySQL.Where("model_name = ?", p.ModelName).First(&existing).Error; err != nil {
+					MySQL.Create(&p)
+				} else {
+					MySQL.Model(&existing).Updates(map[string]interface{}{
+						"input_price": p.InputPrice,
+						"output_price": p.OutputPrice,
+						"cache_hit_price": p.CacheHitPrice,
+						"display_name": p.DisplayName,
+					})
+				}
+			}
+			return nil
+		},
+	})
+
+	
+	
+	// v022: fix stock_score scene name + add strategy_gen/strategy_opt system configs
+	migrations = append(migrations, Migration{
+		Version:     22,
+		Description: "PG: fix stock_score scene rename + add strategy_gen/strategy_opt configs",
+		Up: func() error {
+			// Rename stock_scoring to stock_score if old name exists
+			PG.Exec("UPDATE ai_system_configs SET scene = 'stock_score' WHERE scene = 'stock_scoring'")
+			
+			// Insert strategy_gen config
+			strategyGen := model.AISystemConfig{
+				Scene: "strategy_gen", Name: "策略生成",
+				SystemPrompt: `你是量化策略专家。请根据用户描述的选股/交易思路，结合下方提供的可用指标参考表，生成一套完整的A股策略条件。
+
+策略要求：
+- 策略名称：__STRATEGY_NAME__
+- 策略描述：__STRATEGY_DESC__
+- 投资风格：__STRATEGY_STYLE__（aggressive=激进/放宽阈值, conservative=保守/收紧阈值, moderate=适中）
+
+请在生成条件前仔细阅读「可用指标参考」表和「条件构建规范」，确保每个条件的 indicator 字段、operator 字段、value 值都严格符合参考表中的定义。`,
+				Temperature: 0.7, MaxTokens: 4096, EnableSearch: false,
+			}
+			var existing model.AISystemConfig
+			if err := PG.Where("scene = ?", strategyGen.Scene).First(&existing).Error; err != nil {
+				PG.Create(&strategyGen)
+			}
+			
+			// Insert strategy_opt config
+			strategyOpt := model.AISystemConfig{
+				Scene: "strategy_opt", Name: "策略提示词优化",
+				SystemPrompt: `你是一个量化交易策略专家。用户想创建一个A股交易策略，但描述比较简略。请将以下用户要求优化为结构化的策略描述，包含：投资风格、选股偏好、买入时机、卖出时机、仓位管理、风险控制等方面。直接用中文输出优化后的描述，不要加任何前缀说明。
+
+用户原始要求：__USER_PROMPT__
+风险偏好：__STRATEGY_STYLE__
+
+优化后的策略描述：`,
+				Temperature: 0.7, MaxTokens: 4096, EnableSearch: false,
+			}
+			if err := PG.Where("scene = ?", strategyOpt.Scene).First(&existing).Error; err != nil {
+				PG.Create(&strategyOpt)
+			}
+			
+			return nil
+		},
+	})
+
+	
+	// v023: convert %s placeholders in ai_system_configs to __VAR__ template variables
+	migrations = append(migrations, Migration{
+		Version:     23,
+		Description: "PG: convert %s to __VAR__ in ai_system_configs prompts",
+		Up: func() error {
+			// chat_analysis: convert old positional %s to named __STOCK_CODE__, etc.
+			PG.Exec(`UPDATE ai_system_configs SET system_prompt = REPLACE(system_prompt, '%s（%s），行业：%s', '__STOCK_CODE__（__STOCK_NAME__），行业：__STOCK_INDUSTRY__') WHERE scene = 'chat_analysis'`)
+			PG.Exec(`UPDATE ai_system_configs SET system_prompt = REPLACE(system_prompt, '5. 分析截止时间：%s', '5. 分析截止时间：__CURRENT_DATE__') WHERE scene = 'chat_analysis'`)
+
+			// stock_score: convert remaining %s to __STOCK_DATA__ (after summary line)
+			PG.Exec(`UPDATE ai_system_configs SET system_prompt = REPLACE(system_prompt, '摘要。%s', '摘要。__STOCK_DATA__') WHERE scene = 'stock_score'`)
+
+			// strategy_gen: convert %s sequence
+			PG.Exec(`UPDATE ai_system_configs SET system_prompt = REPLACE(system_prompt, '指标如下：\n%s', '指标如下：\n__INDICATORS__') WHERE scene = 'strategy_gen'`)
+			PG.Exec(`UPDATE ai_system_configs SET system_prompt = REPLACE(system_prompt, '策略名称：%s', '策略名称：__STRATEGY_NAME__') WHERE scene = 'strategy_gen'`)
+			PG.Exec(`UPDATE ai_system_configs SET system_prompt = REPLACE(system_prompt, '策略描述：%s', '策略描述：__STRATEGY_DESC__') WHERE scene = 'strategy_gen'`)
+			PG.Exec(`UPDATE ai_system_configs SET system_prompt = REPLACE(system_prompt, '投资风格：%s', '投资风格：__STRATEGY_STYLE__') WHERE scene = 'strategy_gen'`)
+
+			// strategy_opt: convert %s
+			PG.Exec(`UPDATE ai_system_configs SET system_prompt = REPLACE(system_prompt, '用户原始要求：%s', '用户原始要求：__USER_PROMPT__') WHERE scene = 'strategy_opt'`)
+			PG.Exec(`UPDATE ai_system_configs SET system_prompt = REPLACE(system_prompt, '风险偏好：%s', '风险偏好：__STRATEGY_STYLE__') WHERE scene = 'strategy_opt'`)
+
+			return nil
+		},
+	})
+
+
+log.Printf("[migrate] registered %d migrations", len(migrations))
 
 
 

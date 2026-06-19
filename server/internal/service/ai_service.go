@@ -19,6 +19,16 @@ type AIService struct{}
 
 func NewAIService() *AIService { return &AIService{} }
 
+func getUsername(userID uint) string {
+	var u model.User
+	if err := db.MySQL.Where("id = ?", userID).Select("username").First(&u).Error; err == nil {
+		return u.Username
+	}
+	return ""
+}
+
+
+
 func (s *AIService) GetConfig(userID uint) (*model.AIConfig, error) {
 	var cfg model.AIConfig
 	if err := db.MySQL.Where("user_id = ?", userID).First(&cfg).Error; err != nil {
@@ -52,7 +62,7 @@ func (s *AIService) doChatCompletion(req chatRequest) (*chatResponse, error) {
 	b, _ := json.Marshal(req.Body)
 	httpReq, err := http.NewRequest("POST", req.BaseURL+"/v1/chat/completions", bytes.NewReader(b))
 	if err != nil {
-		recordCostLog(req.UserID, "", req.Module, "NonStream", nil, "", start, err)
+		recordCostLog(req.UserID, getUsername(req.UserID), req.Module, "NonStream", nil, "", start, err, "", "")
 		return nil, err
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
@@ -61,7 +71,7 @@ func (s *AIService) doChatCompletion(req chatRequest) (*chatResponse, error) {
 	client := &http.Client{Timeout: req.Timeout}
 	resp, err := client.Do(httpReq)
 	if err != nil {
-		recordCostLog(req.UserID, "", req.Module, "NonStream", nil, "", start, fmt.Errorf("AI请求失败: %w", err))
+		recordCostLog(req.UserID, getUsername(req.UserID), req.Module, "NonStream", nil, "", start, fmt.Errorf("AI请求失败: %w", err), "", "")
 		return nil, fmt.Errorf("AI请求失败: %w", err)
 	}
 	defer resp.Body.Close()
@@ -69,7 +79,7 @@ func (s *AIService) doChatCompletion(req chatRequest) (*chatResponse, error) {
 	if resp.StatusCode != 200 {
 		respBody, _ := io.ReadAll(resp.Body)
 		err := fmt.Errorf("AI API返回 %d: %s", resp.StatusCode, string(respBody))
-		recordCostLog(req.UserID, "", req.Module, "NonStream", nil, "", start, err)
+		recordCostLog(req.UserID, getUsername(req.UserID), req.Module, "NonStream", nil, "", start, err, "", "")
 		return nil, err
 	}
 
@@ -83,22 +93,22 @@ func (s *AIService) doChatCompletion(req chatRequest) (*chatResponse, error) {
 		Usage model.UsageInfo `json:"usage"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		recordCostLog(req.UserID, "", req.Module, "NonStream", nil, "", start, err)
+		recordCostLog(req.UserID, getUsername(req.UserID), req.Module, "NonStream", nil, "", start, err, "", "")
 		return nil, err
 	}
 	if len(result.Choices) == 0 {
 		err := fmt.Errorf("AI返回空结果")
-		recordCostLog(req.UserID, "", req.Module, "NonStream", nil, result.Model, start, err)
+		recordCostLog(req.UserID, getUsername(req.UserID), req.Module, "NonStream", nil, result.Model, start, err, "", "")
 		return nil, err
 	}
 	content := result.Choices[0].Message.Content
 	if content == "" {
 		err := fmt.Errorf("AI返回空内容，模型可能因提示词过长被截断")
-		recordCostLog(req.UserID, "", req.Module, "NonStream", nil, result.Model, start, err)
+		recordCostLog(req.UserID, getUsername(req.UserID), req.Module, "NonStream", nil, result.Model, start, err, "", "")
 		return nil, err
 	}
 
-	recordCostLog(req.UserID, "", req.Module, "NonStream", &result.Usage, result.Model, start, nil)
+	recordCostLog(req.UserID, getUsername(req.UserID), req.Module, "NonStream", &result.Usage, result.Model, start, nil, "", "")
 	return &chatResponse{Content: content, Usage: &result.Usage, Model: result.Model}, nil
 }
 
@@ -110,7 +120,7 @@ func (s *AIService) doChatCompletionStream(req chatRequest, onChunk func(string)
 	b, _ := json.Marshal(req.Body)
 	httpReq, err := http.NewRequest("POST", req.BaseURL+"/v1/chat/completions", bytes.NewReader(b))
 	if err != nil {
-		recordCostLog(req.UserID, "", req.Module, "Stream", nil, "", start, err)
+		recordCostLog(req.UserID, getUsername(req.UserID), req.Module, "Stream", nil, "", start, err, "", "")
 		return nil, err
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
@@ -119,7 +129,7 @@ func (s *AIService) doChatCompletionStream(req chatRequest, onChunk func(string)
 	client := &http.Client{Timeout: req.Timeout}
 	resp, err := client.Do(httpReq)
 	if err != nil {
-		recordCostLog(req.UserID, "", req.Module, "Stream", nil, "", start, fmt.Errorf("AI请求失败: %w", err))
+		recordCostLog(req.UserID, getUsername(req.UserID), req.Module, "Stream", nil, "", start, fmt.Errorf("AI请求失败: %w", err), "", "")
 		return nil, fmt.Errorf("AI请求失败: %w", err)
 	}
 	defer resp.Body.Close()
@@ -127,7 +137,7 @@ func (s *AIService) doChatCompletionStream(req chatRequest, onChunk func(string)
 	if resp.StatusCode != 200 {
 		respBody, _ := io.ReadAll(resp.Body)
 		err := fmt.Errorf("AI API返回 %d: %s", resp.StatusCode, string(respBody))
-		recordCostLog(req.UserID, "", req.Module, "Stream", nil, "", start, err)
+		recordCostLog(req.UserID, getUsername(req.UserID), req.Module, "Stream", nil, "", start, err, "", "")
 		return nil, err
 	}
 
@@ -171,7 +181,7 @@ func (s *AIService) doChatCompletionStream(req chatRequest, onChunk func(string)
 		}
 	}
 
-	recordCostLog(req.UserID, "", req.Module, "Stream", lastUsage, modelName, start, nil)
+	recordCostLog(req.UserID, getUsername(req.UserID), req.Module, "Stream", lastUsage, modelName, start, nil, "", "")
 	return lastUsage, nil
 }
 
@@ -191,7 +201,7 @@ func (s *AIService) doChatCompletionRaw(req chatRequest, result interface{}) err
 	client := &http.Client{Timeout: req.Timeout}
 	resp, err := client.Do(httpReq)
 	if err != nil {
-		recordCostLog(req.UserID, "", req.Module, "Agent", nil, "", start, fmt.Errorf("AI请求失败: %w", err))
+		recordCostLog(req.UserID, getUsername(req.UserID), req.Module, "Agent", nil, "", start, fmt.Errorf("AI请求失败: %w", err), "", "")
 		return fmt.Errorf("AI请求失败: %w", err)
 	}
 	defer resp.Body.Close()
@@ -199,12 +209,12 @@ func (s *AIService) doChatCompletionRaw(req chatRequest, result interface{}) err
 	if resp.StatusCode != 200 {
 		respBody, _ := io.ReadAll(resp.Body)
 		err := fmt.Errorf("AI API返回 %d: %s", resp.StatusCode, string(respBody))
-		recordCostLog(req.UserID, "", req.Module, "Agent", nil, "", start, err)
+		recordCostLog(req.UserID, getUsername(req.UserID), req.Module, "Agent", nil, "", start, err, "", "")
 		return err
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(result); err != nil {
-		recordCostLog(req.UserID, "", req.Module, "Agent", nil, "", start, err)
+		recordCostLog(req.UserID, getUsername(req.UserID), req.Module, "Agent", nil, "", start, err, "", "")
 		return fmt.Errorf("AI响应解析失败: %w", err)
 	}
 
@@ -213,7 +223,7 @@ func (s *AIService) doChatCompletionRaw(req chatRequest, result interface{}) err
 
 // recordCostLog inserts an AI call record into MySQL ai_cost_logs.
 // Uses a goroutine to avoid blocking the caller.
-func recordCostLog(userID uint, username, module, function string, usage *model.UsageInfo, modelName string, startTime time.Time, callErr error) {
+func recordCostLog(userID uint, username, module, function string, usage *model.UsageInfo, modelName string, startTime time.Time, callErr error, requestBody, responseContent string) {
 	go func() {
 		if db.MySQL == nil {
 			return
@@ -228,6 +238,8 @@ func recordCostLog(userID uint, username, module, function string, usage *model.
 			Function: function,
 			DurationMs: durationMs,
 			Success:  callErr == nil,
+			RequestContent:  requestBody,
+			ResponseContent: responseContent,
 		}
 		if callErr != nil {
 			entry.ErrorMsg = callErr.Error()
@@ -257,6 +269,11 @@ func recordCostLog(userID uint, username, module, function string, usage *model.
 
 // ChatCompletion sends a non-streaming chat completion request (user-scoped)
 func (s *AIService) ChatCompletion(userID uint, prompt string, history []map[string]string) (string, error) {
+	return s.ChatCompletionWithModule(userID, prompt, history, "chat")
+}
+
+// ChatCompletionWithModule sends a non-streaming chat completion request with module tracking
+func (s *AIService) ChatCompletionWithModule(userID uint, prompt string, history []map[string]string, module string) (string, error) {
 	cfg, err := s.GetConfig(userID)
 	if err != nil {
 		return "", err
@@ -280,7 +297,7 @@ func (s *AIService) ChatCompletion(userID uint, prompt string, history []map[str
 			"max_tokens":    2048,
 			"enable_search": true,
 		},
-		Module:  "chat",
+		Module:  module,
 		Timeout: 60 * time.Second,
 	})
 	if err != nil {
@@ -291,6 +308,11 @@ func (s *AIService) ChatCompletion(userID uint, prompt string, history []map[str
 
 // ChatCompletionWithTokens is like ChatCompletion but with configurable max_tokens.
 func (s *AIService) ChatCompletionWithTokens(userID uint, prompt string, history []map[string]string, maxTokens int) (string, error) {
+	return s.ChatCompletionWithTokensModule(userID, prompt, history, maxTokens, "chat")
+}
+
+// ChatCompletionWithTokensModule is like ChatCompletionWithTokens but with module tracking
+func (s *AIService) ChatCompletionWithTokensModule(userID uint, prompt string, history []map[string]string, maxTokens int, module string) (string, error) {
 	cfg, err := s.GetConfig(userID)
 	if err != nil {
 		return "", err
@@ -314,7 +336,7 @@ func (s *AIService) ChatCompletionWithTokens(userID uint, prompt string, history
 			"max_tokens":    maxTokens,
 			"enable_search": false,
 		},
-		Module:  "chat",
+		Module:  module,
 		Timeout: 120 * time.Second,
 	})
 	if err != nil {
@@ -325,6 +347,11 @@ func (s *AIService) ChatCompletionWithTokens(userID uint, prompt string, history
 
 // ChatCompletionStream sends a streaming chat completion (user-scoped)
 func (s *AIService) ChatCompletionStream(userID uint, prompt string, history []map[string]string, onChunk func(chunk string)) error {
+	return s.ChatCompletionStreamWithModule(userID, prompt, history, onChunk, "chat")
+}
+
+// ChatCompletionStreamWithModule sends a streaming chat completion with module tracking
+func (s *AIService) ChatCompletionStreamWithModule(userID uint, prompt string, history []map[string]string, onChunk func(chunk string), module string) error {
 	cfg, err := s.GetConfig(userID)
 	if err != nil {
 		return err
@@ -349,7 +376,7 @@ func (s *AIService) ChatCompletionStream(userID uint, prompt string, history []m
 			"stream":        true,
 			"enable_search": true,
 		},
-		Module:  "chat",
+		Module:  module,
 		Timeout: 60 * time.Second,
 	}, onChunk)
 	return err
@@ -357,6 +384,11 @@ func (s *AIService) ChatCompletionStream(userID uint, prompt string, history []m
 
 // ChatCompletionStreamWithConfig sends a streaming request with system config overrides
 func (s *AIService) ChatCompletionStreamWithConfig(userID uint, prompt string, history []map[string]string, sysCfg model.AISystemConfig, onChunk func(chunk string)) error {
+	return s.ChatCompletionStreamWithConfigModule(userID, prompt, history, sysCfg, onChunk, "chat")
+}
+
+// ChatCompletionStreamWithConfigModule sends a streaming request with config and module tracking
+func (s *AIService) ChatCompletionStreamWithConfigModule(userID uint, prompt string, history []map[string]string, sysCfg model.AISystemConfig, onChunk func(chunk string), module string) error {
 	cfg, err := s.GetConfig(userID)
 	if err != nil {
 		return err
@@ -390,7 +422,7 @@ func (s *AIService) ChatCompletionStreamWithConfig(userID uint, prompt string, h
 		APIKey:  cfg.APIKey,
 		BaseURL: cfg.BaseURL,
 		Body:    body,
-		Module:  "chat",
+		Module:  module,
 		Timeout: 120 * time.Second,
 	}, onChunk)
 	return err
@@ -398,6 +430,11 @@ func (s *AIService) ChatCompletionStreamWithConfig(userID uint, prompt string, h
 
 // ChatCompletionAgent runs the agent loop with tools.
 func (s *AIService) ChatCompletionAgent(userID uint, history []map[string]string, tools []map[string]interface{}, sysCfg model.AISystemConfig, toolExecutor func(name string, args map[string]interface{}) string, onChunk func(chunk string)) error {
+	return s.ChatCompletionAgentWithModule(userID, history, tools, sysCfg, toolExecutor, onChunk, "chat")
+}
+
+// ChatCompletionAgentWithModule runs the agent loop with tools and module tracking
+func (s *AIService) ChatCompletionAgentWithModule(userID uint, history []map[string]string, tools []map[string]interface{}, sysCfg model.AISystemConfig, toolExecutor func(name string, args map[string]interface{}) string, onChunk func(chunk string), module string) error {
 	cfg, err := s.GetConfig(userID)
 	if err != nil {
 		return err
@@ -452,7 +489,7 @@ func (s *AIService) ChatCompletionAgent(userID uint, history []map[string]string
 			APIKey:  apiKey,
 			BaseURL: baseURL,
 			Body:    body,
-			Module:  "chat",
+			Module:  module,
 			Timeout: 120 * time.Second,
 		}, &result); err != nil {
 			return err
@@ -494,16 +531,21 @@ func (s *AIService) ChatCompletionAgent(userID uint, history []map[string]string
 		if choice.Message.Content != "" {
 			onChunk(choice.Message.Content)
 		}
-		recordCostLog(userID, "", "chat", "Agent", &totalUsage, result.Model, agentStart, nil)
+		recordCostLog(userID, getUsername(userID), module, "Agent", &totalUsage, result.Model, agentStart, nil, "", "")
 		return nil
 	}
 	onChunk("\n\n> ⚠️ 分析需要的数据较多，已自动截断。您可以换一种方式提问。")
-	recordCostLog(userID, "", "chat", "Agent", &totalUsage, modelName, agentStart, nil)
+	recordCostLog(userID, getUsername(userID), module, "Agent", &totalUsage, modelName, agentStart, nil, "", "")
 	return nil
 }
 
 // ChatCompletionAgentStream runs the agent loop with SSE event streaming.
 func (s *AIService) ChatCompletionAgentStream(userID uint, history []map[string]string, sysCfg model.AISystemConfig, tools []map[string]interface{}, toolExecutor func(name string, args map[string]interface{}) string, onEvent func(eventType string, data map[string]string), onChunk func(chunk string)) error {
+	return s.ChatCompletionAgentStreamWithModule(userID, history, sysCfg, tools, toolExecutor, onEvent, onChunk, "chat")
+}
+
+// ChatCompletionAgentStreamWithModule runs the agent loop with SSE streaming and module tracking
+func (s *AIService) ChatCompletionAgentStreamWithModule(userID uint, history []map[string]string, sysCfg model.AISystemConfig, tools []map[string]interface{}, toolExecutor func(name string, args map[string]interface{}) string, onEvent func(eventType string, data map[string]string), onChunk func(chunk string), module string) error {
 	cfg, err := s.GetConfig(userID)
 	if err != nil {
 		return err
@@ -574,7 +616,7 @@ func (s *AIService) ChatCompletionAgentStream(userID uint, history []map[string]
 			APIKey:  apiKey,
 			BaseURL: baseURL,
 			Body:    body,
-			Module:  "chat",
+			Module:  module,
 			Timeout: 120 * time.Second,
 		}, &result); err != nil {
 			return err
@@ -653,11 +695,11 @@ func (s *AIService) ChatCompletionAgentStream(userID uint, history []map[string]
 				time.Sleep(30 * time.Millisecond)
 			}
 		}
-		recordCostLog(userID, "", "chat", "AgentStream", &totalUsage, finalModel, agentStart, nil)
+		recordCostLog(userID, getUsername(userID), module, "AgentStream", &totalUsage, finalModel, agentStart, nil, "", "")
 		return nil
 	}
 	onChunk("\n\n> ⚠️ 分析需要的数据较多，已自动截断。您可以换一种方式提问。")
-	recordCostLog(userID, "", "chat", "AgentStream", &totalUsage, finalModel, agentStart, nil)
+	recordCostLog(userID, getUsername(userID), module, "AgentStream", &totalUsage, finalModel, agentStart, nil, "", "")
 	return nil
 }
 

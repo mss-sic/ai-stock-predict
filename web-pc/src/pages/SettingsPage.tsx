@@ -26,12 +26,22 @@ export default function SettingsPage() {
   const [editingScene, setEditingScene] = useState<string | null>(null);
   const [editCfg, setEditCfg] = useState<SysCfg | null>(null);
   const [savingSys, setSavingSys] = useState(false);
+  const [sceneVars, setSceneVars] = useState<Record<string, {Name: string; Desc: string}[]>>({});
 
   useEffect(() => {
     authFetch('/api/v1/ai/system-configs').then(r => r.json()).then(j => {
       if (j.data) setSysConfigs(j.data);
     }).catch(() => {});
   }, []);
+
+  const fetchSceneVars = async () => {
+    try {
+      const r = await authFetch('/api/v1/ai/system-config-vars');
+      const json = await r.json();
+      if (json.data) setSceneVars(json.data);
+    } catch {}
+  };
+  useEffect(() => { fetchSceneVars(); }, []);
 
   const openEditSys = (cfg: SysCfg) => {
     setEditingScene(cfg.scene);
@@ -290,9 +300,24 @@ export default function SettingsPage() {
             <label style={label}>名称</label>
             <input value={editCfg.name} onChange={e => setEditCfg({...editCfg, name: e.target.value})} style={{ ...inp, marginBottom: 12 }} />
 
-            <label style={label}>系统提示词（支持 %s 占位符）</label>
+            <label style={label}>系统提示词（模板变量格式：__变量名__）</label>
             <textarea value={editCfg.systemPrompt} onChange={e => setEditCfg({...editCfg, systemPrompt: e.target.value})}
               style={{ ...inp, marginBottom: 12, minHeight: 160, fontFamily: 'monospace', fontSize: 11, resize: 'vertical' }} />
+
+            {sceneVars[editingScene] && sceneVars[editingScene].length > 0 && (
+              <div style={{ marginBottom: 12, padding: '8px 12px', background: 'var(--color-fill-1)', borderRadius: 8, border: '1px solid var(--color-border-2)' }}>
+                <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 4 }}>可用模板变量：</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {sceneVars[editingScene].map((v: any) => (
+                    <span key={v.Name} title={v.Desc}
+                      onClick={() => setEditCfg({...editCfg, systemPrompt: editCfg.systemPrompt + '__' + v.Name + '__'})}
+                      style={{ display: 'inline-block', padding: '2px 8px', background: 'var(--color-primary-light-1)', color: 'var(--color-primary-light-4)', borderRadius: 12, fontSize: 11, fontFamily: 'monospace', cursor: 'pointer', userSelect: 'none' }}>
+                      __{v.Name}__ {v.Desc}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 12 }}>
               <div>

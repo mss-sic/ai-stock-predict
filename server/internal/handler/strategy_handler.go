@@ -221,11 +221,11 @@ func (h *StrategyHandler) AIGenerate(c *gin.Context) {
 	}
 
 	// Dynamically generated indicator list from Registry for AI prompt
-	indicators := buildAIPromptIndicatorList()
+	indicators := buildIndicatorReference()
 
-	prompt := buildAIGeneratePrompt(indicators, body.Name, body.Description, style)
+	prompt := h.buildAIGeneratePrompt(indicators, body.Name, body.Description, style)
 
-	reply, err := h.aiSvc.ChatCompletionWithTokens(uid, prompt, nil, 4096)
+	reply, err := h.aiSvc.ChatCompletionWithTokensModule(uid, prompt, nil, 4096, "strategy_gen")
 	if err != nil {
 		response.Error(c, 500, response.CodeAIModelError, "AI生成失败: "+err.Error())
 		return
@@ -300,15 +300,22 @@ func (h *StrategyHandler) AIGenerate(c *gin.Context) {
 	response.Success(c, result)
 }
 
-// buildAIPromptIndicatorList generates a compact, structured indicator list from the Registry
-// for AI prompt context. Groups by category and includes operator hints and value ranges.
-func buildAIPromptIndicatorList() string {
+// buildIndicatorReference generates a detailed, structured indicator reference table
+// for AI prompt context. Groups indicators by category with full metadata:
+// field name, label, type, valid operators, value range, description, and usage suggestion.
+func buildIndicatorReference() string {
 	type catGroup struct {
 		name    string
-		entries []string
+		entries []*IndicatorMeta
 	}
 	groups := make(map[string]*catGroup)
-	categoryOrder := []string{"榜单与评分", "AI评分", "技术面-趋势", "技术面-超买超卖", "技术面-量价", "技术面-形态", "估值", "基本面", "资金面", "预测"}
+	categoryOrder := []string{
+		"榜单与评分", "AI评分",
+		"技术面-趋势", "技术面-趋势系统",
+		"技术面-超买超卖",
+		"技术面-量价", "技术面-波动", "技术面-形态",
+		"估值", "基本面", "资金面", "预测",
+	}
 
 	for _, m := range IndicatorRegistry {
 		group, ok := groups[m.Category]
@@ -316,108 +323,282 @@ func buildAIPromptIndicatorList() string {
 			group = &catGroup{name: m.Category}
 			groups[m.Category] = group
 		}
-		// Format: key(unit), with type hints for cross
-		entry := m.Key
-		if m.Type == "cross" {
-			entry += "(type=cross,ops=cross_up/cross_down,val=5/20格式)"
+		group.entries = append(group.entries, m)
+	}
+
+	opSymbol := func(op string) string {
+		switch op {
+		case "gte": return "≥"
+		case "lte": return "≤"
+		case "gt": return ">"
+		case "lt": return "<"
+		case "eq": return "="
+		case "cross_up": return "↑上穿"
+		case "cross_down": return "↓下穿"
+		default: return op
 		}
-		// Add value range hint based on indicator
-		switch m.Key {
-		case "algo_score", "ai_score", "ai_fundamental", "ai_technical", "ai_valuation", "ai_growth", "ai_industry", "ai_capital":
-			entry += "[0-10]"
-		case "rsi", "rsi_6", "rsi_12", "rsi_24":
-			entry += "[0-100,>70超买/<30超卖]"
-		case "kdj_k", "kdj_d", "kdj_j":
-			entry += "[0-100]"
-		case "boll_position":
-			entry += "[0-100,>80上轨/<20下轨]"
-		case "cci":
-			entry += "[-300~300,>100超买/<-100超卖]"
-		case "williams_r":
-			entry += "[-100~0]"
-		case "mfi":
-			entry += "[0-100]"
-		case "volume_ratio":
-			entry += "[>2放量/<0.5缩量]"
-		case "turnover_rate":
-			entry += "[%]"
-		case "adx":
-			entry += "[0-100,>25趋势强]"
-		case "pe_percentile", "pb_percentile":
-			entry += "[0-100,<30低估]"
-		case "ma_cross", "ema_cross":
-			entry += "(cross,val格式=5/20)"
-		case "daily_change", "momentum_5", "momentum_20", "gap_pct":
-			entry += "[%]"
-		case "pe":
-			entry += "[>0,<20低估]"
-		case "pb":
-			entry += "[>0,<2低估]"
-		case "roe":
-			entry += "[%,>15优秀]"
-		case "debt_ratio":
-			entry += "[%,<60安全]"
-		case "total_market_cap":
-			entry += "[元,大盘>1e11]"
-		case "prediction_upside":
-			entry += "[%,>10看涨]"
-		case "prediction_consensus":
-			entry += "[0-1,>0.6看涨]"
+	}
+	opsJoin := func(ops []string) string {
+		parts := make([]string, len(ops))
+		for i, o := range ops {
+			parts[i] = opSymbol(o)
 		}
-		group.entries = append(group.entries, entry)
+		return strings.Join(parts, "/")
 	}
 
 	var sb strings.Builder
+	sb.WriteString("## 可用指标参考（共 ")
+	sb.WriteString(strconv.Itoa(len(IndicatorRegistry)))
+	sb.WriteString(" 项）\n\n")
+
 	for _, cat := range categoryOrder {
-		if g, ok := groups[cat]; ok && len(g.entries) > 0 {
-			sb.WriteString(g.name)
-			sb.WriteString(": ")
-			sb.WriteString(strings.Join(g.entries, ", "))
-			sb.WriteString("\n")
+		g, ok := groups[cat]
+		if !ok || len(g.entries) == 0 {
+			continue
 		}
-	}
-	// Handle categories not in the ordered list
-	for _, g := range groups {
-		found := false
-		for _, c := range categoryOrder {
-			if c == g.name {
-				found = true
-				break
+		// Sort entries within category by key
+		sort.Slice(g.entries, func(i, j int) bool {
+			return g.entries[i].Key < g.entries[j].Key
+		})
+		sb.WriteString("### ")
+		sb.WriteString(g.name)
+		sb.WriteString("\n\n")
+		sb.WriteString("| 字段名 | 名称 | 类型 | 可用操作符 | 值域 | 用途 | 说明 |\n")
+		sb.WriteString("|--------|------|------|-----------|------|------|------|\n")
+		for _, m := range g.entries {
+			typeStr := m.Type
+			valueRange := buildValueRangeHint(m)
+			useFor := ""
+			switch m.UseFor {
+			case "buy": useFor = "买入"
+			case "sell": useFor = "卖出"
+			case "both": useFor = "买卖"
 			}
+			sb.WriteString("| `")
+			sb.WriteString(m.Key)
+			sb.WriteString("` | ")
+			sb.WriteString(m.Label)
+			sb.WriteString(" | ")
+			sb.WriteString(typeStr)
+			sb.WriteString(" | ")
+			sb.WriteString(opsJoin(m.Operators))
+			sb.WriteString(" | ")
+			sb.WriteString(valueRange)
+			sb.WriteString(" | ")
+			sb.WriteString(useFor)
+			sb.WriteString(" | ")
+			sb.WriteString(m.Desc)
+			if m.Suggestion != "" {
+				sb.WriteString("。")
+				sb.WriteString(m.Suggestion)
+			}
+			if !m.BacktestSafe {
+				sb.WriteString("（回测禁用）")
+			}
+			sb.WriteString(" |\n")
 		}
-		if !found && len(g.entries) > 0 {
-			sb.WriteString(g.name)
-			sb.WriteString(": ")
-			sb.WriteString(strings.Join(g.entries, ", "))
-			sb.WriteString("\n")
-		}
+		sb.WriteString("\n")
 	}
 	return sb.String()
 }
 
+// buildValueRangeHint returns a concise value range hint from indicator metadata
+func buildValueRangeHint(m *IndicatorMeta) string {
+	switch m.Key {
+	// Score types
+	case "algo_score", "ai_score", "ai_fundamental", "ai_technical",
+		"ai_valuation", "ai_growth", "ai_industry", "ai_capital":
+		return "0-10"
+	// RSI family
+	case "rsi", "rsi_6", "rsi_12", "rsi_24":
+		return "0-100（>70超买/<30超卖）"
+	// KDJ family
+	case "kdj_k", "kdj_d", "kdj_j":
+		return "0-100"
+	// Bollinger
+	case "boll_position":
+		return "0-100（>80上轨/<20下轨）"
+	case "boll_width":
+		return "%（变大=波动加剧）"
+	case "boll_squeeze":
+		return "%（越小=即将突破）"
+	case "boll_upper", "boll_middle", "boll_lower":
+		return "元（股价相关）"
+	// CCI
+	case "cci":
+		return "-300~300（>100超买/<-100超卖）"
+	// Williams
+	case "williams_r":
+		return "-100~0（>-20超买/<-80超卖）"
+	// MFI
+	case "mfi":
+		return "0-100（>80超买/<20超卖）"
+	// Volume
+	case "volume_ratio":
+		return ">0（>2放量/<0.5缩量）"
+	case "volume_ma_ratio":
+		return ">0（>1.2放量）"
+	case "turnover_rate":
+		return "%（>5活跃/<1冷清）"
+	// ADX/DMI
+	case "adx":
+		return "0-100（>25趋势强）"
+	case "dmi_plus", "dmi_minus":
+		return "0-100（PDI>MDI=多头）"
+	// Cross types
+	case "ma_cross", "ema_cross":
+		return "短/长周期，如 5/20"
+	case "macd":
+		return "金叉/死叉信号（仅cross_up/cross_down）"
+	// MA values
+	case "ma_5", "ma_10", "ma_20", "ma_30", "ma_60":
+		return "元（股价均线值）"
+	// MACD components
+	case "macd_dif", "macd_dea":
+		return "元（MACD指标值）"
+	// Percentile
+	case "pe_percentile", "pb_percentile":
+		return "0-100（<30低估/>70高估）"
+	// MA derived
+	case "ma_convergence":
+		return "%（越小=均线粘合）"
+	case "ma_deviation":
+		return "%（正=股价高于均线）"
+	// Daily change / momentum
+	case "daily_change", "momentum_5", "momentum_20":
+		return "%（正=上涨）"
+	// Gap
+	case "gap_pct":
+		return "%（正=向上跳空）"
+	// Drawdown
+	case "drawdown_20":
+		return "%（负=回撤，越小越好）"
+	// Price position
+	case "price_position_20", "price_position_60":
+		return "%（100=最高价附近）"
+	// High-low range
+	case "high_low_range":
+		return "%（日内振幅）"
+	// New high
+	case "new_high_20":
+		return "0/1（1=创20日新高）"
+	// Consecutive
+	case "consecutive_days":
+		return "天（正=连涨/负=连跌）"
+	// Up days ratio
+	case "up_days_ratio":
+		return "0-1（>0.6偏强）"
+	// Trend strength
+	case "trend_strength":
+		return "0-1（>0.6趋势明确）"
+	// Index relative
+	case "index_relative":
+		return "%（正=跑赢大盘）"
+	// Volume trend
+	case "volume_trend":
+		return "0-1（>0.6量能向上）"
+	// VWAP
+	case "vwap_deviation":
+		return "%（正=高于加权均价）"
+	// ATR
+	case "atr":
+		return "元（波动绝对值）"
+	case "atr_pct":
+		return "%（波动率，>3高波动）"
+	// PE/PB/PS
+	case "pe":
+		return "倍（>0，<20低估）"
+	case "pb":
+		return "倍（>0，<2低估）"
+	case "ps":
+		return "倍"
+	// Fundamentals
+	case "roe":
+		return "%（>15优秀）"
+	case "eps":
+		return "元"
+	case "revenue_growth":
+		return "%（>20高增长）"
+	case "profit_growth":
+		return "%（>20高增长）"
+	case "gross_margin":
+		return "%（>40优秀）"
+	case "net_margin":
+		return "%（>15优秀）"
+	case "debt_ratio":
+		return "%（<60安全）"
+	// Market cap
+	case "total_market_cap":
+		return "元（大盘>1e11）"
+	// Shareholder
+	case "shareholder_change":
+		return "%（负=减少=筹码集中）"
+	case "inst_hold_ratio":
+		return "%（>30机构看好）"
+	// Prediction
+	case "prediction_upside":
+		return "%（>10看涨）"
+	case "prediction_consensus":
+		return "0-1（>0.6看涨）"
+	// Streak / signal
+	case "streak_count":
+		return "次数（≥3持续关注）"
+	case "signal_value":
+		return "比值（>0.5偏多）"
+	// PSY
+	case "psy_12", "psy_ma":
+		return "0-100（>75超买/<25超卖）"
+	default:
+		if m.Type == "cross" {
+			return "信号（仅cross_up/cross_down）"
+		}
+		if m.Unit == "%" {
+			return "%"
+		}
+		if m.Unit == "元" {
+			return "元"
+		}
+		if m.Unit == "倍" {
+			return "倍"
+		}
+		return m.Unit
+	}
+}
+
+// GetIndicatorList returns all indicator metadata sorted by category+key (for API/tool use)
+func GetIndicatorList() []*IndicatorMeta {
+	result := make([]*IndicatorMeta, 0, len(IndicatorRegistry))
+	for _, m := range IndicatorRegistry {
+		result = append(result, m)
+	}
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].Category != result[j].Category {
+			return result[i].Category < result[j].Category
+		}
+		return result[i].Key < result[j].Key
+	})
+	return result
+}
+// loadSystemConfig loads AI system config for a scene, returning defaults if not found
+func (h *StrategyHandler) loadSystemConfig(scene string) model.AISystemConfig {
+	var cfg model.AISystemConfig
+	if err := db.PG.Where("scene = ?", scene).First(&cfg).Error; err != nil {
+		return model.AISystemConfig{
+			Scene: scene,
+			SystemPrompt: "",
+			Temperature: 0.7,
+			MaxTokens: 4096,
+		}
+	}
+	return cfg
+}
+
 // buildAIGeneratePrompt constructs the full AI prompt with indicator context.
-func buildAIGeneratePrompt(indicators, name, description, style string) string {
-	return fmt.Sprintf(`你是量化策略专家。根据用户描述生成A股策略JSON。
-
-可用指标（按分类，含值域和操作符）：
-%s
-
-重要规则：
-- 最多生成 6 条条件（买入+卖出合计），确保JSON完整不截断
-- 优先使用 ✅ 全量覆盖的指标（ma_*, rsi, kdj, macd, daily_change, momentum, volume_ratio, turnover_rate），这些回测可用
-- 避免使用 ⚠️ 标注类指标（ai_* 系列覆盖面极窄，大部分股票无数据）
-- 避免使用 🚫 预测类指标（prediction_* 回测不可用）
-- operator 枚举: gte(≥), lte(≤), gt(>), lt(<), eq(=), cross_up(↑上穿), cross_down(↓下穿)
-- cross 类型指标（ma_cross, ema_cross）只能用 cross_up/cross_down，值用 "5/20" 格式
-- number 类型指标用 gte/lte/gt/lt/eq，值为数字
-- 买入条件 condType="buy"，卖出条件 condType="sell"
-- 同一 logicGroup 内条件为 AND，不同 logicGroup 为 OR
-- aggressive 放宽阈值，conservative 收紧阈值
-
-用户策略名: %s
-用户描述: %s
-风险偏好: %s
-
+func (h *StrategyHandler) buildAIGeneratePrompt(indicators, name, description, style string) string {
+	cfg := h.loadSystemConfig("strategy_gen")
+	basePrompt := cfg.SystemPrompt
+	if basePrompt == "" {
+		basePrompt = `你是量化策略专家。根据用户描述生成A股策略JSON。
 返回纯JSON（无markdown，不要markdown代码块，只返回JSON对象）：
 {
   "name": "策略名称",
@@ -426,10 +607,60 @@ func buildAIGeneratePrompt(indicators, name, description, style string) string {
   "stopLoss": -8,
   "maxHoldings": 10,
   "conditions": [
-    {"condType": "buy", "indicator": "algo_score", "operator": "gte", "value": 6, "logicGroup": 1, "sortOrder": 0},
-    {"condType": "sell", "indicator": "rsi", "operator": "gte", "value": 80, "logicGroup": 1, "sortOrder": 0}
+    {"condType": "buy", "indicator": "algo_score", "operator": "gte", "value": 6, "logicGroup": 1, "sortOrder": 0}
   ]
-}`, indicators, name, description, style)
+}`
+	}
+	
+	indicatorRules := `__INDICATORS__
+
+## 条件构建规范
+
+请严格根据上方「可用指标参考」表构建每一条条件：
+
+### 字段映射规则
+- ` + "`indicator`" + ` → 必须使用参考表「字段名」列的值（如 ` + "`algo_score`" + `、` + "`rsi`" + `、` + "`daily_change`" + `）
+- ` + "`operator`" + ` → 必须使用参考表「可用操作符」列中的某一个，英文映射为：
+  ≥→gte, ≤→lte, >→gt, <→lt, =→eq, ↑上穿→cross_up, ↓下穿→cross_down
+- ` + "`value`" + ` → 必须使用参考表「值域」列建议的数值范围
+- ` + "`condType`" + ` → 参考表「用途」列：买入→buy, 卖出→sell, 买卖→两者均可
+
+### 类型特殊规则
+- **cross 类型**（ma_cross/ema_cross/macd）：operator 只能用 cross_up 或 cross_down，value 为 "短/长" 如 "5/20"
+- **评分类型**（algo_score/ai_*）：value 0-10，建议买入 ≥6、卖出 ≤3
+- **RSI/KDJ**：value 0-100，超买>70 卖出、超卖<30 买入
+- **pe/pb**：单位是倍，<20低估可买入，>50高估考虑卖出
+- **% 单位指标**：value 直接写数字如 5 表示 5%
+- **元单位指标**（ma_*/boll_*/macd_*）：value 是股价绝对值
+- **信号/比值型**（new_high_20/volume_trend）：value 为 0 或 1
+
+### 数量与组织规则
+- 最多生成 12 条条件（买入+卖出合计）
+- 同一 logicGroup 内条件为 AND 关系，不同 logicGroup 为 OR 关系
+- 根据投资风格调整阈值：aggressive(激进) 放宽阈值，conservative(保守) 收紧阈值
+
+### 输出格式（纯JSON，无markdown代码块）
+{
+  "name": "策略名称",
+  "description": "策略描述（≤50字）",
+  "stopProfit": 15,
+  "stopLoss": -8,
+  "maxHoldings": 10,
+  "conditions": [
+    {"condType": "buy", "indicator": "algo_score", "operator": "gte", "value": 6, "logicGroup": 1, "sortOrder": 0},
+    {"condType": "buy", "indicator": "rsi", "operator": "lt", "value": 40, "logicGroup": 1, "sortOrder": 1},
+    {"condType": "sell", "indicator": "daily_change", "operator": "lt", "value": -5, "logicGroup": 2, "sortOrder": 2}
+  ]
+}`
+	
+	fullPrompt := basePrompt + "\n\n" + indicatorRules + "\n\n用户策略名: __STRATEGY_NAME__\n用户描述: __STRATEGY_DESC__\n风险偏好: __STRATEGY_STYLE__"
+	vars := map[string]string{
+		"INDICATORS": indicators,
+		"STRATEGY_NAME": name,
+		"STRATEGY_DESC": description,
+		"STRATEGY_STYLE": style,
+	}
+	return renderPrompt(fullPrompt, vars)
 }
 
 // ── Prompt Optimizer ──
@@ -451,8 +682,13 @@ func (h *StrategyHandler) OptimizePrompt(c *gin.Context) {
 	}
 	style := body.Style
 	if style == "" { style = "moderate" }
-	prompt := fmt.Sprintf(`你是一个量化交易策略专家。用户想创建一个A股交易策略，但描述比较简略。请将以下用户要求优化为结构化的策略描述，包含：投资风格、选股偏好、买入时机、卖出时机、仓位管理、风险控制等方面。直接用中文输出优化后的描述，不要加任何前缀说明。\n\n用户原始要求：%s\n风险偏好：%s\n\n优化后的策略描述：`, body.Prompt, style)
-	reply, err := h.aiSvc.ChatCompletionWithTokens(uid, prompt, nil, 4096)
+	sysCfg := h.loadSystemConfig("strategy_opt")
+	optPrompt := sysCfg.SystemPrompt
+	if optPrompt == "" {
+		optPrompt = "请将以下用户要求优化为结构化的策略描述，包含：投资风格、选股偏好、买入时机、卖出时机、仓位管理、风险控制等方面。\n\n用户原始要求：__USER_PROMPT__\n风险偏好：__STRATEGY_STYLE__\n\n优化后的策略描述："
+	}
+	prompt := renderPrompt(optPrompt, map[string]string{"USER_PROMPT": body.Prompt, "STRATEGY_STYLE": style})
+	reply, err := h.aiSvc.ChatCompletionWithTokensModule(uid, prompt, nil, 4096, "strategy_opt")
 	if err != nil {
 		response.Error(c, 500, response.CodeAIModelError, "AI优化失败: "+err.Error())
 		return

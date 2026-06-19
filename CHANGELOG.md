@@ -1,5 +1,54 @@
 # Changelog
 
+## v1.4.0 (2026-06-19)
+
+### AI 对话
+
+- **get_shareholders 中文标签** — ai_service.go tool switch 补全 `get_shareholders → 股东户数查询`，修复 Agent 工具调用显示英文
+- **get_shareholders 图标** — 前端 iconMap 新增 `👥` 图标，修复工具卡片缺图标
+- **对话样式优化** — 工具状态卡片渐变背景+柔色边框；消息头像 Sparkles 图标+渐变+发光；用户气泡蓝紫渐变；空状态 Brain 图标居中卡片；进度条多彩流动动画
+
+### AI 策略生成
+
+- **JSON 截断修复** — 新增 `ChatCompletionWithTokens`，策略生成 max_tokens 4096（原 2048），解决 "unexpected end of JSON input"
+- **前端 30s 超时** — `aiGenerateStrategy` axios timeout 120s（原全局 30s），匹配后端耗时
+- **条件消失修复** — 保存后直接 `fetchStrategyConditions` 重载，不再间接触发；空 `catch` → 具体错误 toast
+- **提示词优化** — 限制最多 6 条条件，三级标注指标覆盖度（✅全量/⚠️窄/🚫不可回测），引导优先用 ma_/rsi/kdj/macd
+
+### 数据刷新
+
+- **股东/财务/资讯刷新不更新** — 后端新增 `CollectStockPhaseSSE` SSE 端点（GET `/collector/stock/:code/:phase`），同步执行替代 `go func()` 异步；前端改用 EventSource 实时采集日志，完成后自动 reload
+- **研报覆盖仅 2359 只** — report_collect.py 去除 `min(200, ...)` 200 页硬上限，支持全量 42000+ 篇研报拉取
+
+### AI 花费明细
+
+- **统一底层重构** — ai_service.go 抽取 `doChatCompletion` / `doChatCompletionStream` / `doChatCompletionRaw` 三个公共函数，6 个公开方法改为薄壳；每次调用自动解析 `usage` 字段并异步写入 `ai_cost_logs`
+- **花费记录** — 新增 MySQL 表 `ai_cost_logs`（用户/模块/模型/Token/缓存命中/费用/耗时/状态）+ `model_prices`（DeepSeek 官方价格种子：V4 Flash/Chat/R1 + Moonshot 三档）
+- **管理端页面** — AdminPage 新增「AI 花费明细」Tab：汇总卡片（总费用/今日/本月/调用次数）+ 筛选（日期/用户/模块）+ 明细表格 + 价格管理面板
+- **费用公式** — 按 DeepSeek 官方 `(cache_miss×输入价 + cache_hit×缓存价 + completion×输出价) / 1e6`
+
+### Agent 模型配置
+
+- **独立 Agent 模型** — model/handler/service 三层新增 `AgentModelName` / `AgentBaseURL` / `AgentAPIKey`，chat_analysis 场景可选配 Kimi 等独立模型用于工具调用模式
+- **前端配置入口** — SettingsPage 系统配置弹窗新增「工具模式专用模型」区域（条件显示，enableTools=true 时展开）
+
+### 系统提示词
+
+- **模板变量迁移** — 全部提示词从 `%s` 位置占位符升级为 `__VAR__` 命名模板变量；新增 `ScenePromptVars` 映射（5 个场景各含可用变量）+ `renderPrompt()` 替换引擎
+- **前端变量提示** — SettingsPage 提示词编辑弹窗新增「可用模板变量」标签栏（按场景显示，点击插入变量）；标签文字更新为「模板变量格式：__变量名__」
+- **API 端点** — 新增 `GET /api/v1/ai/system-config-vars` 返回所有场景的可用变量定义
+- **DB 迁移 v023** — 自动转换 `ai_system_configs` 表中已存在的 `%s` 占位符为对应 `__VAR__`
+- **种子数据同步** — v006/v022 迁移的默认提示词全部改为 `__VAR__` 格式
+
+### AI 策略生成（指标参考升级）
+
+- **富指标参考表** — `buildIndicatorReference()` 替代旧压缩格式，输出按分类的结构化 Markdown 表格：字段名/名称/类型/可用操作符/值域/用途/说明（共 80+ 指标，12 个分类）
+- **值域提示** — 新增 `buildValueRangeHint()`，每个指标精确值域（如 RSI `0-100（>70超买/<30超卖）`、pe `倍（>0，<20低估）`）
+- **条件构建规范** — `indicatorRules` 全面升级：字段映射规则、类型特殊规则（cross/评分/百分号/元单位）、数量与组织规则、完整 JSON 输出示例
+- **指标查询函数** — 新增 `GetIndicatorList()` 可复用函数，返回排序后的全部指标元数据
+- **DB seed 对齐** — v022 `strategy_gen` seed 精简为与 handler 兼容格式
+
+
 ## v1.3.3 (2026-06-18)
 
 ### 前端
