@@ -1,12 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { listUsers, createUser, resetUserPassword, toggleUser, kickUser, fetchLoginLogs } from '../services/api';
+import { listUsers, createUser, resetUserPassword, toggleUser, kickUser, fetchLoginLogs, fetchCostLogs, fetchCostSummary, fetchModelPrices, updateModelPrice } from '../services/api';
 import { useAuth } from '../services/AuthContext';
 import {
   Users, Plus, Key, Ban, CheckCircle, XCircle, LogOut,
-  LogIn, UserX, AlertCircle, FileText,
+  LogIn, UserX, AlertCircle, FileText, Coins, DollarSign,
 } from 'lucide-react';
-import { Tabs, Select, Pagination } from '@arco-design/web-react';
+import { Tabs, Select, Pagination, Button } from '@arco-design/web-react';
 
 interface UserRecord {
   id: number; username: string; role: string; isActive: boolean;
@@ -129,6 +129,7 @@ export default function AdminPage() {
         <Tabs activeTab={activeTab} onChange={setActiveTab} type="rounded">
           <Tabs.TabPane key="users" title={<span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Users size={15} /> 用户管理</span>} />
           <Tabs.TabPane key="logs" title={<span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><FileText size={15} /> 登录日志</span>} />
+          <Tabs.TabPane key="cost" title={<span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Coins size={15} /> AI花费明细</span>} />
         </Tabs>
       </div>
 

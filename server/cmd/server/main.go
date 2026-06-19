@@ -41,6 +41,7 @@ func main() {
 
 	// ── Public routes (no auth) ──
 	authH := handler.NewAuthHandler()
+	costH := handler.NewCostHandler()
 	// Internal API for algo team sync (no auth, internal only)
 	internalH := handler.NewInternalHandler()
 	r.POST("/api/v1/internal/predictions/sync", internalH.SyncPredictions)
@@ -80,6 +81,10 @@ func main() {
 			admin.POST("/users/toggle", authH.ToggleUser)
 			admin.POST("/users/kick", authH.KickUser)
 			admin.GET("/login-logs", authH.ListLoginLogs)
+			admin.GET("/cost-logs", costH.GetCostLogs)
+			admin.GET("/cost-summary", costH.GetCostSummary)
+			admin.GET("/model-prices", costH.GetModelPrices)
+			admin.PUT("/model-prices/:model_name", costH.UpdateModelPrice)
 			admin.GET("/data-stats", handler.GetDataStats)
 			admin.GET("/data-stats/:type/detail", handler.GetDataDetail)
 			admin.POST("/risks/scan", handler.NewRiskHandler().Scan)

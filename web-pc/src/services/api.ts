@@ -125,6 +125,10 @@ export const revokeSession = (id: number) => api.delete(`/auth/sessions/${id}`);
 export const heartbeat = () => api.post('/auth/heartbeat');
 
 export const fetchLoginLogs = (params?: any) => api.get('/admin/login-logs', { params });
+export const fetchCostLogs = (params?: any) => api.get("/admin/cost-logs", { params });
+export const fetchCostSummary = (params?: any) => api.get("/admin/cost-summary", { params });
+export const fetchModelPrices = () => api.get("/admin/model-prices");
+export const updateModelPrice = (modelName: string, data: any) => api.put(`/admin/model-prices/${modelName}`, data);
 
 export const kickUser = (userId: number) => api.post('/admin/users/kick', { userId });
 
