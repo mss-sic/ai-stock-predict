@@ -511,6 +511,28 @@ func init() {
 		},
 	})
 
+	
+	// v020: ai_cost_logs + model_prices for AI cost tracking
+	migrations = append(migrations, Migration{
+		Version:     20,
+		Description: "MySQL: ai_cost_logs and model_prices tables",
+		Up: func() error {
+			if MySQL == nil {
+				return nil
+			}
+			gormAutoMigrate(MySQL, &model.AICostLog{}, &model.ModelPrice{})
+
+			// Seed default model prices from DeepSeek official pricing
+			for _, p := range model.DefaultModelPrices() {
+				var existing model.ModelPrice
+				if err := MySQL.Where("model_name = ?", p.ModelName).First(&existing).Error; err != nil {
+					MySQL.Create(&p)
+				}
+			}
+			return nil
+		},
+	})
+
 	log.Printf("[migrate] registered %d migrations", len(migrations))
 
 
