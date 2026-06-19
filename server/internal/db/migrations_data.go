@@ -768,6 +768,17 @@ func init() {
 				&model.SentimentWeights{},
 			)
 
+			// ============================================================
+			// 7. Create northbound_daily_view
+			// ============================================================
+			safeExec(`CREATE OR REPLACE VIEW northbound_daily_view AS
+				SELECT trade_date,
+					MAX(hgt_cumulative) - MIN(hgt_cumulative) AS hgt_net,
+					MAX(sgt_cumulative) - MIN(sgt_cumulative) AS sgt_net,
+					MAX(hgt_cumulative) - MIN(hgt_cumulative) + MAX(sgt_cumulative) - MIN(sgt_cumulative) AS total_net
+				FROM northbound_minute
+				GROUP BY trade_date`)
+
 			return nil
 		},
 	})
