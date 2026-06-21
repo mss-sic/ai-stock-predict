@@ -89,62 +89,57 @@ function scoreZone(score: number): { label: string; color: string; bg: string } 
 }
 
 // ── Semi-Circular Gauge ──
-function SentimentGauge({ score }: { score: number }) {
-  const radius = 90;
-  const strokeWidth = 14;
-  const cx = 100, cy = 100;
-  const startAngle = -180, endAngle = 0;
-  const angleRange = endAngle - startAngle;
-
-  const zones = [
-    { start: 0, end: 30, color: '#ef4444' },
-    { start: 30, end: 50, color: '#f97316' },
-    { start: 50, end: 70, color: '#eab308' },
-    { start: 70, end: 100, color: '#22c55e' },
-  ];
-
-  const polarToCartesian = (angle: number, r: number) => ({
-    x: cx + r * Math.cos((angle * Math.PI) / 180),
-    y: cy + r * Math.sin((angle * Math.PI) / 180),
-  });
-
-  const describeArc = (startA: number, endA: number, r: number) => {
-    const s = polarToCartesian(endA, r), e = polarToCartesian(startA, r);
-    const large = endA - startA <= 180 ? '0' : '1';
-    return `M ${s.x} ${s.y} A ${r} ${r} 0 ${large} 0 ${e.x} ${e.y}`;
-  };
-
-  const needleAngle = startAngle + (score / 100) * angleRange;
-  const needleTip = polarToCartesian(needleAngle, radius - 5);
-  const needleBase1 = polarToCartesian(needleAngle + 90, 12);
-  const needleBase2 = polarToCartesian(needleAngle - 90, 12);
-  const zone = scoreZone(score);
+// ── Circular Score Ring ──
+function ScoreRing({ score, zone, suggestion }: { score: number; zone: { label: string; color: string; bg: string }; suggestion: { text: string; color: string } | null }) {
+  const r = 72; const circ = 2 * Math.PI * r;
+  const offset = circ * (1 - score / 100);
 
   return (
-    <div style={{ position: 'relative', width: 200, height: 130 }}>
-      <svg viewBox="0 0 200 120" style={{ width: 200, height: 120 }}>
-        <path d={describeArc(startAngle, endAngle, radius)} fill="none"
-          stroke="var(--color-fill-2)" strokeWidth={strokeWidth} strokeLinecap="round" />
-        {zones.map(z => {
-          const sa = startAngle + (z.start / 100) * angleRange;
-          const ea = startAngle + (z.end / 100) * angleRange;
-          return <path key={z.start} d={describeArc(sa, ea, radius)} fill="none"
-            stroke={z.color} strokeWidth={strokeWidth} strokeLinecap="butt" opacity={0.85} />;
-        })}
-        <polygon points={`${needleTip.x},${needleTip.y} ${needleBase1.x},${needleBase1.y} ${needleBase2.x},${needleBase2.y}`}
-          fill="var(--color-text-1)" />
-        <circle cx={cx} cy={cy} r={5} fill="var(--color-text-1)" />
-      </svg>
-      <div style={{
-        position: 'absolute', bottom: 8, left: 0, right: 0, textAlign: 'center',
-      }}>
-        <div style={{ fontSize: 24, fontWeight: 700, color: zone.color, lineHeight: 1.1 }}>{score.toFixed(0)}</div>
-        <div style={{ fontSize: 12, color: zone.color, fontWeight: 600 }}>{zone.label}</div>
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+      <div style={{ position: 'relative', width: 164, height: 164 }}>
+        <svg viewBox="0 0 164 164" style={{ width: 164, height: 164, transform: 'rotate(-90deg)' }}>
+          <circle cx={82} cy={82} r={r} fill="none" stroke="var(--color-fill-2)" strokeWidth={10} />
+          <defs>
+            <linearGradient id="scoreGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+              <stop offset="0%" stopColor="#ef4444" />
+              <stop offset="30%" stopColor="#f97316" />
+              <stop offset="50%" stopColor="#eab308" />
+              <stop offset="70%" stopColor="#22c55e" />
+            </linearGradient>
+          </defs>
+          <circle cx={82} cy={82} r={r} fill="none" stroke="url(#scoreGrad)"
+            strokeWidth={10} strokeLinecap="round"
+            strokeDasharray={circ} strokeDashoffset={offset}
+            style={{ transition: 'stroke-dashoffset 0.8s ease' }} />
+        </svg>
+        <div style={{
+          position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+        }}>
+          <span style={{ fontSize: 42, fontWeight: 700, color: zone.color, lineHeight: 1, fontFamily: "'SF Mono', 'Inter', monospace" }}>
+            {score.toFixed(0)}
+          </span>
+          <span style={{ fontSize: 13, fontWeight: 600, color: zone.color, marginTop: 2 }}>{zone.label}</span>
+        </div>
       </div>
+      {suggestion && (
+        <div style={{ maxWidth: 200, textAlign: 'center', fontSize: 11, fontWeight: 500, color: suggestion.color, lineHeight: 1.4 }}>
+          💡 {suggestion.text}
+        </div>
+      )}
     </div>
   );
 }
 
+function StatCard({ label, value, sub, color }: { label: string; value: string; sub?: string; color: string }) {
+  return (
+    <div style={{ background: 'var(--color-fill-1)', borderRadius: 8, padding: '10px 14px', borderLeft: `3px solid ${color}` }}>
+      <div style={{ fontSize: 10, color: 'var(--color-text-3)', marginBottom: 2, textTransform: 'uppercase', letterSpacing: 0.5 }}>{label}</div>
+      <div style={{ fontSize: 18, fontWeight: 700, color, fontFamily: "'SF Mono', 'Inter', monospace" }}>{value}</div>
+      {sub && <div style={{ fontSize: 10, color: 'var(--color-text-3)', marginTop: 1 }}>{sub}</div>}
+    </div>
+  );
+}
 function SnapCard({ label, value, sub, icon, color, bg }: {
   label: string; value: string; sub?: string; icon: React.ReactNode; color?: string; bg?: string;
 }) {
@@ -442,24 +437,34 @@ export default function SentimentDashboard() {
         </div>
       )}
 
-      {/* ── Gauge + Stats Row ── */}
+      {/* ── Score + Stats Panel ── */}
       <div style={{
-        display: 'flex', gap: 24, marginBottom: 20,
+        display: 'flex', gap: 28, marginBottom: 20,
         background: 'var(--color-bg-2)', borderRadius: 12,
-        border: '1px solid var(--color-border-2)', padding: '20px 28px',
-        alignItems: 'center', flexWrap: 'wrap',
+        border: '1px solid var(--color-border-2)', padding: '24px 28px',
+        alignItems: 'flex-start', flexWrap: 'wrap',
       }}>
-        <SentimentGauge score={latest.compositeScore} />
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px 32px', flex: 1 }}>
+        <ScoreRing score={latest.compositeScore} zone={zone} suggestion={suggestion} />
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, flex: 1, minWidth: 360 }}>
           {stats && (<>
-            <StatItem label="情绪加速度" value={stats.diff > 0 ? `+${stats.diff.toFixed(1)}` : stats.diff.toFixed(1)}
-              icon={stats.diff > 0 ? <ChevronUp size={14} /> : stats.diff < 0 ? <ChevronDown size={14} /> : <Minus size={14} />}
-              color={stats.diff > 0 ? '#22c55e' : stats.diff < 0 ? '#ef4444' : 'var(--color-text-2)'} />
-            <StatItem label="5日情绪均值" value={stats.ma5.toFixed(1)} color="var(--color-text-1)" />
-            <StatItem label="20日情绪均值" value={stats.ma20.toFixed(1)} color="var(--color-text-1)" />
-            <StatItem label="区间最高(亢奋)" value={stats.max.toFixed(0)} color="#22c55e" />
-            <StatItem label="区间最低(恐惧)" value={stats.min.toFixed(0)} color="#ef4444" />
-            <StatItem label="数据天数" value={`${history.length}天`} color="var(--color-text-2)" />
+            <StatCard label="情绪加速度" value={stats.diff > 0 ? `+${stats.diff.toFixed(1)}` : stats.diff.toFixed(1)}
+              sub={stats.diff > 2 ? '加速回暖' : stats.diff < -2 ? '加速恶化' : '平稳'}
+              color={stats.diff > 0 ? '#22c55e' : stats.diff < 0 ? '#ef4444' : '#9ca3af'} />
+            <StatCard label="5日情绪" value={stats.ma5.toFixed(1)}
+              sub={`vs 当前 ${(latest.compositeScore - stats.ma5) >= 0 ? '+' : ''}${(latest.compositeScore - stats.ma5).toFixed(1)}`}
+              color={latest.compositeScore >= stats.ma5 ? '#22c55e' : '#ef4444'} />
+            <StatCard label="20日情绪" value={stats.ma20.toFixed(1)}
+              sub={`vs 当前 ${(latest.compositeScore - stats.ma20) >= 0 ? '+' : ''}${(latest.compositeScore - stats.ma20).toFixed(1)}`}
+              color={latest.compositeScore >= stats.ma20 ? '#22c55e' : '#ef4444'} />
+            <StatCard label="区间最高" value={stats.max.toFixed(0)}
+              sub={`距当前 ${(stats.max - latest.compositeScore).toFixed(0)} 点`}
+              color="#22c55e" />
+            <StatCard label="区间最低" value={stats.min.toFixed(0)}
+              sub={`距当前 ${(latest.compositeScore - stats.min).toFixed(0)} 点`}
+              color="#ef4444" />
+            <StatCard label="数据范围" value={`${history.length}天`}
+              sub={latest.tradeDate?.slice(0, 10) || ''}
+              color="var(--color-text-2)" />
           </>)}
         </div>
       </div>
