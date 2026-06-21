@@ -29,15 +29,15 @@ interface SentimentData {
 
 // 9 core indicators only (northbound & capital_flow excluded)
 const SUB_INDICATORS = [
-  { key: 'breadthScore', label: '市场广度', icon: Layers, desc: '上涨+MA20占比', weight: 18.3 },
-  { key: 'styleRiskScore', label: '风格偏好', icon: Target, desc: '中证1000 vs 沪深300', weight: 17.5 },
-  { key: 'activityScore', label: '成交活跃', icon: Activity, desc: '成交额/20日均', weight: 4.9 },
-  { key: 'profitScore', label: '赚钱效应', icon: DollarSign, desc: '5日上涨+60日新低', weight: 6.0 },
-  { key: 'volatilityScore', label: '波动率', icon: Zap, desc: '沪深300 20日波动', weight: 17.9 },
-  { key: 'strengthScore', label: '价格强度', icon: TrendingUp, desc: '52周新高占比', weight: 4.9 },
-  { key: 'riskAppetiteScore', label: '风险偏好', icon: Shield, desc: '股债收益差', weight: 4.9 },
-  { key: 'limitSentimentScore', label: '涨跌停', icon: BarChart3, desc: '涨停比+炸板率', weight: 9.0 },
-    { key: 'sectorDiffusionScore', label: '板块扩散', icon: Layers, desc: '上涨行业占比', weight: 16.8 },
+  { key: 'breadthScore', label: '市场广度', icon: Layers, desc: '涨家数+MA20以上占比', weight: 18.3 },
+  { key: 'styleRiskScore', label: '风格偏好', icon: Target, desc: '小盘-大盘收益差(5日+20日)', weight: 17.5 },
+  { key: 'activityScore', label: '成交活跃', icon: Activity, desc: '今日成交额÷20日均值', weight: 4.9 },
+  { key: 'profitScore', label: '赚钱效应', icon: DollarSign, desc: '5日涨占比+新低惩罚', weight: 6.0 },
+  { key: 'volatilityScore', label: '波动率', icon: Zap, desc: '非对称波动(熊=恐惧/牛=亢奋)', weight: 17.9 },
+  { key: 'strengthScore', label: '价格强度', icon: TrendingUp, desc: '创52周新高家数占比', weight: 4.9 },
+  { key: 'riskAppetiteScore', label: '风险偏好', icon: Shield, desc: '沪深300收益-国债ETF收益', weight: 4.9 },
+  { key: 'limitSentimentScore', label: '涨跌停', icon: BarChart3, desc: '涨停比+炸板率+昨涨收益', weight: 9.0 },
+    { key: 'sectorDiffusionScore', label: '板块扩散', icon: Layers, desc: '上涨行业数÷全行业数', weight: 16.8 },
 ];
 
 const INDICATOR_SPECS = [
@@ -45,8 +45,8 @@ const INDICATOR_SPECS = [
     detail: '不看指数涨跌，纯粹衡量多少股票在涨、多少站上20日均线。广度越高=上涨越真实，非权重股拉指数。', source: 'market_daily_agg.up_count / ma20_count / total_stocks' },
   { label: '风格风险偏好', weight: '17.5%', formula: '0.5 × (中证1000收益₅日 - 沪深300收益₅日) + 0.5 × (中证1000收益₂₀日 - 沪深300收益₂₀日)', 
     detail: '小盘vs大盘相对强弱。正值=小盘跑赢（risk-on），负值=大盘防御（risk-off）。', source: 'IDX000852 / IDX000300 日K线' },
-  { label: '波动率情绪', weight: '17.9%', formula: 'std(沪深300日收益₂₀日) × √252 × 方向修正',
-    detail: '沪深300年化波动率。方向修正：上涨时略微放大（亢奋波动）、下跌时不修正（恐慌真实）。波动越高=市场越不安。', source: 'IDX000300 日K线' },
+  { label: '波动率情绪', weight: '17.9%', formula: 'std(沪深300日收益₂₀日) × √252，评分非对称',
+    detail: '沪深300年化波动率。非对称评分机制：熊市(20日收益<0)中高波动=恐惧→低分；牛市(20日收益>0)中高波动=亢奋→高分。这避免了「所有高波动都算坏事」的误区，区分了恐慌性波动和兴奋性波动。', source: 'IDX000300 日K线 + 20日收益方向判断' },
   { label: '板块扩散', weight: '16.8%', formula: '上涨行业数 ÷ 全行业数',
     detail: '有多少行业板块当日平均涨幅>0。全面开花=可持续，少数行业独涨=结构性行情。', source: 'concept_boards (industry) → stock_concepts → stocks_daily_k' },
   { label: '涨跌停情绪', weight: '9.0%', formula: '0.4 × 涨停比 + 0.3 × (1-炸板率) + 0.3 × 昨涨得分',
