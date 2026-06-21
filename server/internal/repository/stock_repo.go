@@ -48,6 +48,20 @@ type MarketSnapshot struct {
 	Change       float64 `json:"change"`
 	ChangePct    float64 `json:"changePct"`
 	CompositeScore float64 `json:"compositeScore"`
+	ShAmount     float64 `json:"shAmount"`   // 上证成交额 亿元
+	SzAmount     float64 `json:"szAmount"`   // 深证成交额 亿元
+	CyAmount     float64 `json:"cyAmount"`   // 创业板成交额 亿元
+	KcAmount     float64 `json:"kcAmount"`   // 科创板成交额 亿元
+	BjAmount     float64 `json:"bjAmount"`   // 北交所成交额 亿元
+	ShUp         int     `json:"shUp"`
+	ShDown       int     `json:"shDown"`
+	ShFlat       int     `json:"shFlat"`
+	SzUp         int     `json:"szUp"`
+	SzDown       int     `json:"szDown"`
+	SzFlat       int     `json:"szFlat"`
+	CyUp         int     `json:"cyUp"`
+	CyDown       int     `json:"cyDown"`
+	CyFlat       int     `json:"cyFlat"`
 }
 
 func (r *StockRepo) List(industry, keyword, boardType, sortBy, sortDir string, offset, limit int) ([]StockListRow, int64, error) {
@@ -159,6 +173,71 @@ func (r *StockRepo) GetMarketSnapshot() (*MarketSnapshot, error) {
 	if snap.PrevAmount > 0 {
 		snap.ChangePct = (snap.Amount - snap.PrevAmount) / snap.PrevAmount * 100
 	}
+	// Fetch per-board turnover amounts (aggregated from individual stocks)
+	type boardAmt struct {
+		BoardType string  `gorm:"column:board_type"`
+		Amount    float64 `gorm:"column:amount"`
+	}
+	var bamts []boardAmt
+	db.PG.Raw(`
+		SELECT b.board_type, SUM(k.amount) / 1e8 AS amount
+		FROM stocks_daily_k k
+		JOIN stocks_basic b ON b.code = k.code
+		WHERE k.trade_date = ?::date
+		GROUP BY b.board_type
+	`, snap.TradeDate).Scan(&bamts)
+	for _, ba := range bamts {
+		switch ba.BoardType {
+		case "sh":
+			snap.ShAmount += ba.Amount
+		case "sz":
+			snap.SzAmount += ba.Amount
+		case "cy":
+			snap.CyAmount += ba.Amount
+			snap.SzAmount += ba.Amount // 深证 = 深主 + 创业
+		case "kc":
+			snap.KcAmount += ba.Amount
+			snap.ShAmount += ba.Amount // 上证 = 沪主 + 科创
+		case "bj":
+			snap.BjAmount = ba.Amount
+		}
+	}
+
+	// Fetch per-board up/down/flat counts (optimized with fixed-date joins)
+	var prevDate time.Time
+	db.PG.Raw("SELECT MAX(trade_date) FROM stocks_daily_k WHERE code !~ '^IDX' AND trade_date < ?::date", snap.TradeDate).Scan(&prevDate)
+	type boardUD struct {
+		BoardType string `gorm:"column:board_type"`
+		Up        int    `gorm:"column:up_cnt"`
+		Down      int    `gorm:"column:down_cnt"`
+		Flat      int    `gorm:"column:flat_cnt"`
+	}
+	var buds []boardUD
+	db.PG.Raw(`
+		SELECT b.board_type,
+			COUNT(*) FILTER (WHERE k.close > p.close) AS up_cnt,
+			COUNT(*) FILTER (WHERE k.close < p.close) AS down_cnt,
+			COUNT(*) FILTER (WHERE k.close = p.close OR p.close IS NULL) AS flat_cnt
+		FROM stocks_daily_k k
+		JOIN stocks_basic b ON b.code = k.code
+		LEFT JOIN stocks_daily_k p ON p.code = k.code AND p.trade_date = ?::date
+		WHERE k.trade_date = ?::date
+		GROUP BY b.board_type
+	`, prevDate, snap.TradeDate).Scan(&buds)
+	for _, bd := range buds {
+		switch bd.BoardType {
+		case "sh":
+			snap.ShUp += bd.Up; snap.ShDown += bd.Down; snap.ShFlat += bd.Flat
+		case "sz":
+			snap.SzUp += bd.Up; snap.SzDown += bd.Down; snap.SzFlat += bd.Flat
+		case "cy":
+			snap.CyUp = bd.Up; snap.CyDown = bd.Down; snap.CyFlat = bd.Flat
+			snap.SzUp += bd.Up; snap.SzDown += bd.Down; snap.SzFlat += bd.Flat
+		case "kc":
+			snap.ShUp += bd.Up; snap.ShDown += bd.Down; snap.ShFlat += bd.Flat
+		}
+	}
+
 	return &snap, nil
 }
 

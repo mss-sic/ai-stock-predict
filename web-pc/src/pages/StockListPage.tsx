@@ -50,11 +50,30 @@ interface Snapshot {
   totalStocks: number; limitUpCount: number; limitDownCount: number;
   amount: number; prevAmount: number; change: number; changePct: number;
   compositeScore: number;
+  shAmount?: number; szAmount?: number; cyAmount?: number;
+  kcAmount?: number; bjAmount?: number;
+  shUp?: number; shDown?: number; shFlat?: number;
+  szUp?: number; szDown?: number; szFlat?: number;
+  cyUp?: number; cyDown?: number; cyFlat?: number;
 }
 
-interface IndexData { name: string; code: string; val: number; chg: number; chgPct: number; }
+interface IndexData { name: string; code: string; val: number; chg: number; chgPct: number; high?: number; low?: number; open?: number; amount?: number; }
 
 // ── Helpers ──
+
+const idxAmountMap: Record<string, keyof Snapshot> = {
+  '000001': 'shAmount',
+  '399001': 'szAmount',
+  '399006': 'cyAmount',
+};
+
+function getBoardStats(idx: IndexData, snap: Snapshot | null): { up: number; down: number; flat: number } | null {
+  if (!snap) return null;
+  if (idx.code === '000001' && snap.shUp != null) return { up: snap.shUp!, down: snap.shDown!, flat: snap.shFlat! };
+  if (idx.code === '399001' && snap.szUp != null) return { up: snap.szUp!, down: snap.szDown!, flat: snap.szFlat! };
+  if (idx.code === '399006' && snap.cyUp != null) return { up: snap.cyUp!, down: snap.cyDown!, flat: snap.cyFlat! };
+  return null;
+}
 function formatAmount(yi: number | null | undefined): string {
   if (yi == null || isNaN(yi) || yi === 0) return '—';
   if (yi >= 10000) return (yi / 10000).toFixed(2) + '万亿';
@@ -335,104 +354,142 @@ export default function StockListPage() {
       </div>
 
       {/* ── Market Snapshot Cards ── */}
-      <div style={{
-        display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-        gap: 12, marginBottom: 16,
-      }}>
-        {/* Index cards */}
-        {indices.slice(0, 3).map((idx) => {
-          const isUp = idx.chgPct >= 0;
-          const color = isUp ? 'var(--stock-up)' : 'var(--stock-down)';
-          const bg = isUp ? 'var(--stock-up-soft)' : 'var(--stock-down-soft)';
-          return (
-            <div key={idx.code} className="card" style={{
-              padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 6,
-            }}>
-              <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>{idx.name}</span>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-                <span style={{ fontSize: 22, fontWeight: 700, fontFamily: "'SF Mono', monospace", color: 'var(--color-text-1)' }}>
-                  {idx.val?.toFixed(2)}
-                </span>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 16 }}>
+        {/* Row 1: Three index cards */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+          {indices.slice(0, 3).map((idx) => {
+            const isUp = idx.chgPct >= 0;
+            const color = isUp ? 'var(--stock-up)' : 'var(--stock-down)';
+            const bg = isUp ? 'var(--stock-up-soft)' : 'var(--stock-down-soft)';
+            const boardAmtKey = idxAmountMap[idx.code];
+            const boardAmount = boardAmtKey && snapshot ? snapshot[boardAmtKey] : undefined;
+            return (
+              <div key={idx.code} className="card" style={{ padding: '14px 18px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {/* Header: name + change */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-1)' }}>{idx.name}</span>
+                  <span style={{
+                    color, background: bg, borderRadius: 5, padding: '2px 8px',
+                    fontFamily: "'SF Mono', monospace", fontWeight: 700, fontSize: 13,
+                    display: 'inline-flex', alignItems: 'center', gap: 3,
+                  }}>
+                    {isUp ? <ArrowUp size={12} /> : <ArrowDown size={12} />}
+                    {formatPct(idx.chgPct)}
+                  </span>
+                </div>
+                {/* Price + change amount */}
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+                  <span style={{ fontSize: 28, fontWeight: 800, fontFamily: "'SF Mono', monospace", color: 'var(--color-text-1)', lineHeight: 1 }}>
+                    {idx.val?.toFixed(2)}
+                  </span>
+                  <span style={{ fontSize: 13, color, fontFamily: "'SF Mono', monospace", fontWeight: 600 }}>
+                    {isUp ? '+' : ''}{idx.chg?.toFixed(2)}
+                  </span>
+                </div>
+                {/* OHLC row */}
+                {(idx.high != null || idx.low != null) && (
+                  <div style={{ display: 'flex', gap: 16, fontSize: 11, color: 'var(--color-text-2)' }}>
+                    {idx.open != null && <span>今开 <b style={{ color: 'var(--color-text-1)', fontFamily: "'SF Mono', monospace" }}>{idx.open.toFixed(2)}</b></span>}
+                    {idx.high != null && <span>最高 <b style={{ color: 'var(--stock-up)', fontFamily: "'SF Mono', monospace" }}>{idx.high.toFixed(2)}</b></span>}
+                    {idx.low != null && <span>最低 <b style={{ color: 'var(--stock-down)', fontFamily: "'SF Mono', monospace" }}>{idx.low.toFixed(2)}</b></span>}
+                  </div>
+                )}
+                {/* Turnover */}
+                {boardAmount != null && boardAmount > 0 && (
+                  <div style={{ display: 'flex', gap: 4, fontSize: 11, color: 'var(--color-text-3)', borderTop: '1px solid var(--color-border-1)', paddingTop: 6 }}>
+                    <DollarSign size={12} style={{ color: 'var(--color-text-3)' }} />
+                    <span>成交 <b style={{ color: 'var(--color-text-1)', fontFamily: "'SF Mono', monospace" }}>{formatAmount(boardAmount)}</b></span>
+                  </div>
+                )}
+                {(() => {
+                  const bs = getBoardStats(idx, snapshot);
+                  if (!bs) return null;
+                  const total = bs.up + bs.down + bs.flat || 1;
+                  return (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 3, borderTop: '1px solid var(--color-border-1)', paddingTop: 6 }}>
+                      <div style={{ display: 'flex', gap: 10, fontSize: 11 }}>
+                        <span style={{ color: 'var(--stock-up)' }}>涨 {bs.up}</span>
+                        <span style={{ color: 'var(--stock-down)' }}>跌 {bs.down}</span>
+                        <span style={{ color: 'var(--color-text-3)' }}>平 {bs.flat}</span>
+                      </div>
+                      <div style={{ height: 3, borderRadius: 2, display: 'flex', overflow: 'hidden' }}>
+                        <div style={{ width: `${(bs.up / total * 100).toFixed(0)}%`, background: 'var(--stock-up)' }} />
+                        <div style={{ width: `${(bs.flat / total * 100).toFixed(0)}%`, background: 'var(--gray-4)' }} />
+                        <div style={{ flex: 1, background: 'var(--stock-down)' }} />
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                <span style={{
-                  color, background: bg, borderRadius: 4, padding: '1px 6px',
-                  fontFamily: "'SF Mono', monospace", fontWeight: 600, fontSize: 12,
-                  display: 'inline-flex', alignItems: 'center', gap: 2,
-                }}>
-                  {isUp ? <ArrowUp size={11} /> : <ArrowDown size={11} />}
-                  {formatPct(idx.chgPct)}
-                </span>
-                <span style={{
-                  color, fontFamily: "'SF Mono', monospace", fontSize: 12, fontWeight: 500,
-                }}>
-                  {isUp ? '+' : ''}{idx.chg?.toFixed(2)}
-                </span>
-              </div>
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
 
-        {/* Up/Down/Flat card */}
+        {/* Row 2: Market aggregate stats */}
         {snapshot && (
-          <div className="card" style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>涨跌统计</span>
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: 12 }}>
-              <span style={{ fontSize: 22, fontWeight: 700, color: 'var(--stock-up)' }}>
-                {snapshot.upCount}<span style={{ fontSize: 12, fontWeight: 400 }}>涨</span>
-              </span>
-              <span style={{ fontSize: 22, fontWeight: 700, color: 'var(--stock-down)' }}>
-                {snapshot.downCount}<span style={{ fontSize: 12, fontWeight: 400 }}>跌</span>
-              </span>
-              <span style={{ fontSize: 18, fontWeight: 600, color: 'var(--color-text-3)' }}>
-                {snapshot.flatCount}<span style={{ fontSize: 11 }}>平</span>
-              </span>
+          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 12 }}>
+            {/* Total turnover card */}
+            <div className="card" style={{ padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 16 }}>
+              <div style={{
+                width: 40, height: 40, borderRadius: 10,
+                background: 'linear-gradient(135deg, var(--color-primary), #722ED1)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+              }}>
+                <DollarSign size={20} color="#fff" />
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 2 }}>两市成交额</div>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                  <span style={{ fontSize: 20, fontWeight: 700, fontFamily: "'SF Mono', monospace", color: 'var(--color-text-1)' }}>
+                    {formatAmount(snapshot.amount)}
+                  </span>
+                  <span style={{
+                    fontSize: 12, fontFamily: "'SF Mono', monospace",
+                    color: snapshot.change >= 0 ? 'var(--stock-up)' : 'var(--stock-down)',
+                  }}>
+                    {snapshot.change >= 0 ? '+' : ''}{formatAmount(Math.abs(snapshot.change ?? 0))} ({snapshot.changePct >= 0 ? '+' : ''}{(snapshot.changePct ?? 0).toFixed(1)}%)
+                  </span>
+                </div>
+              </div>
             </div>
-            {snapshot.totalStocks > 0 && (
-              <div style={{ height: 4, borderRadius: 2, display: 'flex', overflow: 'hidden', marginTop: 4 }}>
+
+            {/* Up/Down stats card */}
+            <div className="card" style={{ padding: '14px 18px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div style={{ fontSize: 11, color: 'var(--color-text-3)' }}>涨跌统计 · {snapshot.totalStocks}只</div>
+              <div style={{ display: 'flex', gap: 14, alignItems: 'baseline' }}>
+                <span style={{ fontSize: 18, fontWeight: 700, color: 'var(--stock-up)', fontFamily: "'SF Mono', monospace" }}>
+                  {snapshot.upCount}<span style={{ fontSize: 11, fontWeight: 400 }}> 涨</span>
+                </span>
+                <span style={{ fontSize: 18, fontWeight: 700, color: 'var(--stock-down)', fontFamily: "'SF Mono', monospace" }}>
+                  {snapshot.downCount}<span style={{ fontSize: 11, fontWeight: 400 }}> 跌</span>
+                </span>
+                <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text-3)' }}>
+                  {snapshot.flatCount}<span style={{ fontSize: 10 }}> 平</span>
+                </span>
+              </div>
+              <div style={{ height: 4, borderRadius: 2, display: 'flex', overflow: 'hidden' }}>
                 <div style={{ width: `${(snapshot.upCount / snapshot.totalStocks * 100).toFixed(0)}%`, background: 'var(--stock-up)', transition: 'width 0.3s' }} />
                 <div style={{ width: `${(snapshot.flatCount / snapshot.totalStocks * 100).toFixed(0)}%`, background: 'var(--gray-4)' }} />
                 <div style={{ flex: 1, background: 'var(--stock-down)' }} />
               </div>
-            )}
-          </div>
-        )}
-
-        {/* Limit up/down card */}
-        {snapshot && (
-          <div className="card" style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>涨跌停</span>
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: 12 }}>
-              <span style={{ fontSize: 22, fontWeight: 700, color: 'var(--stock-up)' }}>
-                {snapshot.limitUpCount}<span style={{ fontSize: 12, fontWeight: 400 }}>涨停</span>
-              </span>
-              <span style={{ fontSize: 22, fontWeight: 700, color: 'var(--stock-down)' }}>
-                {snapshot.limitDownCount}<span style={{ fontSize: 12, fontWeight: 400 }}>跌停</span>
-              </span>
             </div>
-          </div>
-        )}
 
-        {/* Amount card */}
-        {snapshot && (
-          <div className="card" style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>两市成交额</span>
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-              <span style={{ fontSize: 20, fontWeight: 700, fontFamily: "'SF Mono', monospace", color: 'var(--color-text-1)' }}>
-                {formatAmount(snapshot.amount)}
-              </span>
+            {/* Limit up/down card */}
+            <div className="card" style={{ padding: '14px 18px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div style={{ fontSize: 11, color: 'var(--color-text-3)' }}>涨跌停</div>
+              <div style={{ display: 'flex', gap: 14, alignItems: 'baseline' }}>
+                <span style={{ fontSize: 18, fontWeight: 700, color: 'var(--stock-up)', fontFamily: "'SF Mono', monospace" }}>
+                  {snapshot.limitUpCount}<span style={{ fontSize: 11, fontWeight: 400 }}> 涨停</span>
+                </span>
+                <span style={{ fontSize: 18, fontWeight: 700, color: 'var(--stock-down)', fontFamily: "'SF Mono', monospace" }}>
+                  {snapshot.limitDownCount}<span style={{ fontSize: 11, fontWeight: 400 }}> 跌停</span>
+                </span>
+              </div>
             </div>
-            <span style={{
-              fontSize: 11, fontFamily: "'SF Mono', monospace",
-              color: snapshot.change >= 0 ? 'var(--stock-up)' : 'var(--stock-down)',
-            }}>
-              较上一日 {snapshot.change >= 0 ? '+' : ''}{formatAmount(Math.abs(snapshot.change ?? 0))} ({snapshot.changePct >= 0 ? '+' : ''}{(snapshot.changePct ?? 0).toFixed(1)}%)
-            </span>
           </div>
         )}
       </div>
-
-      {/* ── Board Type Tabs ── */}
+{/* ── Board Type Tabs ── */}
       <div className="card mb16">
         <div style={{
           display: 'flex', alignItems: 'center', gap: 4, padding: '8px 16px',
