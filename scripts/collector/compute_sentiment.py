@@ -131,12 +131,12 @@ def compute_one(cur, td_str, stocks, stock_lookup):
     n60_ratio = a["n60"] / total
     profit = 0.6 * up5_ratio + 0.4 * (1 - n60_ratio)
 
-    # 5. Volatility
+    # 5. Volatility (raw: annualized 20-day std)
     vol = load_index_vol(cur, "IDX000300", td_str, 20)
     annual_vol = vol * math.sqrt(252)
     ret20 = load_index_ret(cur, "IDX000300", td_str, 20)
-    direction = 1 if ret20 > 0 else -1
-    vol_adj = annual_vol * (1 + 0.2 * direction * min(abs(ret20)*10, 1))
+    vol_adj = annual_vol
+    vol_dir = 1 if ret20 > 0 else -1
 
     # 6. Price Strength
     strength = a["n52"] / total
@@ -222,7 +222,7 @@ def compute_one(cur, td_str, stocks, stock_lookup):
     return {
         "trade_date": td_str,
         "breadth": breadth, "style_risk": style_risk, "activity": activity,
-        "profit": profit, "volatility": vol_adj, "strength": strength,
+        "profit": profit, "volatility": vol_adj, "vol_dir": vol_dir, "strength": strength,
         "risk_appetite": risk_app, "limit_sent": limit_sent, "sector_diff": sector_diff,
         "northbound": nb, "capital_flow": cf,
         "up": a["up"], "down": a["down"],
@@ -286,6 +286,9 @@ def main():
         row = [td]
         for k in keys:
             pct = score_maps[k].get(td, 0.5)
+            # Asymmetric volatility: invert percentile in bear markets
+            if k == "volatility" and d.get("vol_dir", 1) < 0:
+                pct = 1.0 - pct
             score = round(pct * 100, 2)
             row.append(d[k])
             row.append(score)
