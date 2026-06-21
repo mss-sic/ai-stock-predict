@@ -226,7 +226,6 @@ export default function SentimentDashboard() {
     if (history.length === 0) return {};
     const dates = history.map(d => d.tradeDate?.slice(0, 10) || '');
 
-    // Main sentiment series — pick composite or sub-indicator
     const mainLabel = SUB_TREND_OPTIONS.find(o => o.key === selectedSubKey)?.label || '情绪';
     const mainValues = history.map(d => (d as any)[selectedSubKey] ?? null);
 
@@ -235,6 +234,11 @@ export default function SentimentDashboard() {
     idxKlines.forEach(k => { idxMap[k.tradeDate] = k.close; });
     const idxValues = dates.map(d => idxMap[d] ?? null);
     const idxLabel = INDEX_OPTIONS.find(i => i.code === selectedIndex)?.label || '';
+
+    // Extreme points: mark values <=30 or >=70
+    const extremePoints = mainValues
+      .map((v, i) => v !== null && (v <= 30 || v >= 70) ? { coord: [i, v], value: v } : null)
+      .filter(Boolean) as { coord: [number, number]; value: number }[];
 
     return {
       tooltip: {
@@ -269,25 +273,34 @@ export default function SentimentDashboard() {
           lineStyle: { width: 2.5, color: '#165DFF' }, itemStyle: { color: '#165DFF' },
           areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
             colorStops: [{ offset: 0, color: 'rgba(22,93,255,0.25)' }, { offset: 1, color: 'rgba(22,93,255,0.02)' }] } },
+          markLine: {
+            silent: true, symbol: 'none',
+            lineStyle: { type: 'dashed', width: 1 },
+            label: { fontSize: 10, color: 'var(--color-text-3)' },
+            data: [
+              { yAxis: 30, lineStyle: { color: 'rgba(239,68,68,0.5)' }, label: { formatter: '恐惧线 30' } },
+              { yAxis: 70, lineStyle: { color: 'rgba(34,197,94,0.5)' }, label: { formatter: '亢奋线 70' } },
+            ],
+          },
           markArea: {
             silent: true,
             data: [
-              [{ yAxis: 0, itemStyle: { color: 'rgba(239,68,68,0.08)' } }, { yAxis: 30 }],
-              [{ yAxis: 70, itemStyle: { color: 'rgba(34,197,94,0.08)' } }, { yAxis: 100 }],
+              [{ yAxis: 0, itemStyle: { color: 'rgba(239,68,68,0.06)' } }, { yAxis: 30 }],
+              [{ yAxis: 70, itemStyle: { color: 'rgba(34,197,94,0.06)' } }, { yAxis: 100 }],
             ],
-            label: { show: true, position: 'insideTop', fontSize: 10, color: 'var(--color-text-3)',
-              formatter: (p: any) => p.name === '恐惧区' ? '恐惧' : p.name === '亢奋区' ? '亢奋' : '' },
           },
-        },
-        { name: '极端值', type: 'scatter', data: mainValues.map((v: number|null, i: number) => 
-            (v !== null && (v <= 30 || v >= 70)) ? [dates[i], v, dates[i]] : null).filter(Boolean),
-          yAxisIndex: 0, symbolSize: 10, symbol: 'circle',
-          itemStyle: { borderColor: '#fff', borderWidth: 1.5,
-            color: (params: any) => params.value?.[1] <= 30 ? '#ef4444' : '#22c55e' },
-          tooltip: { formatter: (p: any) => {
-            const v = p.value?.[1]; const d = p.value?.[2];
-            return `<b>${d}</b><br/>情绪: <b>${v?.toFixed(0)}</b> ${v<=30?'🔴 极度恐惧':'🟢 极度亢奋'}`;
-          }},
+          markPoint: {
+            data: extremePoints,
+            symbol: 'pin', symbolSize: 24,
+            itemStyle: {
+              color: (params: any) => params.data.value <= 30 ? '#ef4444' : '#22c55e',
+            },
+            label: {
+              show: true, fontSize: 10, fontWeight: 600,
+              color: '#fff',
+              formatter: (params: any) => params.data.value?.toFixed(0) || '',
+            },
+          },
         },
         { name: idxLabel, type: 'line', yAxisIndex: 1, data: idxValues, smooth: true, symbol: 'none',
           lineStyle: { color: '#5470c6', width: 1.5, type: 'dashed' }, itemStyle: { color: '#5470c6' } },
