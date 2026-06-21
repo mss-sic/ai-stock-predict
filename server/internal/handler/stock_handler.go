@@ -5,11 +5,11 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/ai-stock-predict/server/internal/collector"
 	"github.com/ai-stock-predict/server/internal/repository"
 	"github.com/ai-stock-predict/server/internal/service"
-	"github.com/gin-gonic/gin"
-	"github.com/ai-stock-predict/server/internal/collector"
 	"github.com/ai-stock-predict/server/pkg/response"
+	"github.com/gin-gonic/gin"
 )
 
 type StockHandler struct {
@@ -23,13 +23,81 @@ func (h *StockHandler) List(c *gin.Context) {
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("pageSize", "20"))
 	industry := c.Query("industry")
 	keyword := c.Query("keyword")
+	boardType := c.Query("boardType")
+	sortBy := c.Query("sortBy")
+	sortDir := c.DefaultQuery("sortDir", "desc")
 
-	stocks, total, err := h.svc.List(industry, keyword, page, pageSize)
+	stocks, total, err := h.svc.List(industry, keyword, boardType, sortBy, sortDir, page, pageSize)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"data": stocks, "total": total, "page": page, "pageSize": pageSize})
+}
+
+// MarketSnapshot returns aggregate market overview for the latest trading day.
+func (h *StockHandler) MarketSnapshot(c *gin.Context) {
+	snap, err := h.svc.GetMarketSnapshot()
+	if err != nil {
+		response.InternalError(c, "获取市场快照失败: "+err.Error())
+		return
+	}
+	response.Success(c, snap)
+}
+
+// Ranking returns top stocks sorted by the given field.
+func (h *StockHandler) Ranking(c *gin.Context) {
+	boardType := c.Query("boardType")
+	sortBy := c.DefaultQuery("sortBy", "chgPct")
+	ascStr := c.DefaultQuery("asc", "false")
+	limitStr := c.DefaultQuery("limit", "50")
+
+	limit, err := strconv.Atoi(limitStr)
+	if err != nil || limit < 1 || limit > 200 {
+		limit = 50
+	}
+	asc := ascStr == "true"
+
+	rows, err := h.svc.GetRanking(boardType, sortBy, limit, asc)
+	if err != nil {
+		response.InternalError(c, "获取排行失败: "+err.Error())
+		return
+	}
+	if rows == nil {
+		rows = []repository.StockListRow{}
+	}
+	response.Success(c, rows)
+}
+
+// Unusual returns stocks with unusual activity.
+func (h *StockHandler) Unusual(c *gin.Context) {
+	boardType := c.Query("boardType")
+	limitStr := c.DefaultQuery("limit", "20")
+
+	limit, err := strconv.Atoi(limitStr)
+	if err != nil || limit < 1 || limit > 100 {
+		limit = 20
+	}
+
+	rows, err := h.svc.GetUnusual(boardType, limit)
+	if err != nil {
+		response.InternalError(c, "获取异动数据失败: "+err.Error())
+		return
+	}
+	if rows == nil {
+		rows = []repository.UnusualRow{}
+	}
+	response.Success(c, rows)
+}
+
+// BoardTypeCounts returns stock counts per board type.
+func (h *StockHandler) BoardTypeCounts(c *gin.Context) {
+	counts, err := h.svc.GetBoardTypeCounts()
+	if err != nil {
+		response.InternalError(c, "获取板块统计失败: "+err.Error())
+		return
+	}
+	response.Success(c, counts)
 }
 
 func (h *StockHandler) GetDetail(c *gin.Context) {
@@ -73,8 +141,6 @@ func (h *StockHandler) GetSignal(c *gin.Context) {
 	}
 	response.Success(c, signal)
 }
-
-
 
 func (h *StockHandler) GetFinancials(c *gin.Context) {
 	code := c.Param("code")

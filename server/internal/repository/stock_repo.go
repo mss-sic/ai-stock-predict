@@ -1,6 +1,8 @@
 package repository
 
 import (
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/ai-stock-predict/server/internal/db"
@@ -9,23 +11,333 @@ import (
 
 type StockRepo struct{}
 
-func (r *StockRepo) List(industry string, keyword string, offset, limit int) ([]model.StockBasic, int64, error) {
-	var stocks []model.StockBasic
+// StockListRow enriched stock list row with latest daily K data.
+type StockListRow struct {
+	Code         string  `json:"code"`
+	Name         string  `json:"name"`
+	Industry     string  `json:"industry"`
+	BoardType    string  `json:"boardType"`
+	IsST         bool    `json:"isST"`
+	Close        float64 `json:"close"`
+	ChgPct       float64 `json:"chgPct"`
+	Volume       int64   `json:"volume"`
+	Amount       float64 `json:"amount"`
+	TurnoverRate float64 `json:"turnoverRate"`
+	TradeDate    string  `json:"tradeDate"`
+}
+
+// UnusualRow represents a stock with unusual activity.
+type UnusualRow struct {
+	StockListRow
+	UnusualTypes []string `json:"unusualTypes"`
+	Amplitude    float64  `json:"amplitude"`
+	AvgVol20     int64    `json:"avgVol20"`
+}
+
+// MarketSnapshot holds aggregate market overview data.
+type MarketSnapshot struct {
+	TradeDate    string `json:"tradeDate"`
+	UpCount      int    `json:"upCount"`
+	DownCount    int    `json:"downCount"`
+	FlatCount    int    `json:"flatCount"`
+	TotalStocks  int    `json:"totalStocks"`
+	LimitUpCount int    `json:"limitUpCount"`
+	LimitDownCount int  `json:"limitDownCount"`
+	Amount       float64 `json:"amount"`     // 亿元
+	PrevAmount   float64 `json:"prevAmount"` // 上一交易日成交额 亿元
+	Change       float64 `json:"change"`
+	ChangePct    float64 `json:"changePct"`
+	CompositeScore float64 `json:"compositeScore"`
+}
+
+func (r *StockRepo) List(industry, keyword, boardType, sortBy, sortDir string, offset, limit int) ([]StockListRow, int64, error) {
+	var rows []StockListRow
 	var total int64
-	q := db.PG.Model(&model.StockBasic{})
+
+	// Find the two most recent trading dates (one query)
+	var latestDate, prevDate time.Time
+	db.PG.Raw("SELECT MAX(trade_date) FROM stocks_daily_k WHERE code !~ '^IDX'").Scan(&latestDate)
+	db.PG.Raw("SELECT MAX(trade_date) FROM stocks_daily_k WHERE code !~ '^IDX' AND trade_date < ?", latestDate).Scan(&prevDate)
+
+	// Build WHERE clause for stocks_basic
+	where := " WHERE sb.code !~ '^IDX'"
+	countArgs := []interface{}{}
+
 	if industry != "" {
-		q = q.Where("industry = ?", industry)
+		where += " AND sb.industry = ?"
+		countArgs = append(countArgs, industry)
 	}
 	if keyword != "" {
-		q = q.Where("code LIKE ? OR name LIKE ?", keyword+"%", "%"+keyword+"%")
+		where += " AND (sb.code LIKE ? OR sb.name LIKE ?)"
+		countArgs = append(countArgs, keyword+"%", "%"+keyword+"%")
 	}
-	if err := q.Count(&total).Error; err != nil {
+	if boardType != "" {
+		switch boardType {
+		case "main":
+			where += " AND sb.board_type IN ('sh','sz')"
+		case "cy":
+			where += " AND sb.board_type = 'cy'"
+		case "kc":
+			where += " AND sb.board_type = 'kc'"
+		case "bj":
+			where += " AND sb.board_type = 'bj'"
+		case "etf-bond":
+			where += " AND sb.board_type IN ('etf','bond')"
+		}
+	}
+
+	// Fast count — only on stocks_basic, no join needed
+	countSQL := "SELECT COUNT(*) FROM stocks_basic sb" + where
+	if err := db.PG.Raw(countSQL, countArgs...).Scan(&total).Error; err != nil {
 		return nil, 0, err
 	}
-	if err := q.Offset(offset).Limit(limit).Find(&stocks).Error; err != nil {
+
+	// Sort
+	orderBy := " ORDER BY sb.code ASC"
+	switch sortBy {
+	case "chgPct":
+		orderBy = " ORDER BY COALESCE((k.close - NULLIF(p.close, 0)) / NULLIF(p.close, 0) * 100, 0)"
+	case "volume":
+		orderBy = " ORDER BY COALESCE(k.volume, 0)"
+	case "amount":
+		orderBy = " ORDER BY COALESCE(k.amount, 0)"
+	case "turnoverRate":
+		orderBy = " ORDER BY COALESCE(k.turnover_rate, 0)"
+	}
+	if strings.ToUpper(sortDir) == "ASC" {
+		orderBy += " ASC"
+	} else if sortBy != "" {
+		orderBy += " DESC"
+	}
+	orderBy += " NULLS LAST, sb.code ASC"
+
+	// Efficient: use fixed-date equality joins instead of DISTINCT ON
+	// k = latest trading date, p = previous trading date (both fixed calendar dates)
+	selectSQL := fmt.Sprintf(`SELECT sb.code, sb.name, COALESCE(sb.industry, '') AS industry, COALESCE(sb.board_type, '') AS board_type, COALESCE(sb.is_st, false) AS is_st,
+			COALESCE(k.close, 0) AS close,
+			COALESCE((k.close - NULLIF(p.close, 0)) / NULLIF(p.close, 0) * 100, 0) AS chg_pct,
+			COALESCE(k.volume, 0) AS volume,
+			COALESCE(k.amount, 0) AS amount,
+			COALESCE(k.turnover_rate, 0) AS turnover_rate,
+			TO_CHAR('%s'::date, 'YYYY-MM-DD') AS trade_date
+		FROM stocks_basic sb
+		LEFT JOIN stocks_daily_k k ON k.code = sb.code AND k.trade_date = ?::date
+		LEFT JOIN stocks_daily_k p ON p.code = sb.code AND p.trade_date = ?::date
+		%s %s LIMIT ? OFFSET ?`, latestDate.Format("2006-01-02"), where, orderBy)
+
+	allArgs := append([]interface{}{latestDate, prevDate}, countArgs...)
+	allArgs = append(allArgs, limit, offset)
+	if err := db.PG.Raw(selectSQL, allArgs...).Scan(&rows).Error; err != nil {
 		return nil, 0, err
 	}
-	return stocks, total, nil
+	return rows, total, nil
+}
+
+// GetMarketSnapshot returns aggregate market overview for the latest trading day.
+func (r *StockRepo) GetMarketSnapshot() (*MarketSnapshot, error) {
+	var snap MarketSnapshot
+	err := db.PG.Raw(`
+		SELECT
+			TO_CHAR(a.trade_date, 'YYYY-MM-DD') AS trade_date,
+			COALESCE(a.up_count, 0) AS up_count,
+			COALESCE(a.down_count, 0) AS down_count,
+			COALESCE(a.total_stocks - a.up_count - a.down_count, 0) AS flat_count,
+			COALESCE(a.total_stocks, 0) AS total_stocks,
+			COALESCE(s.limit_up_count, 0) AS limit_up_count,
+			COALESCE(s.limit_down_count, 0) AS limit_down_count,
+			COALESCE((SELECT SUM(amount) FROM stocks_daily_k WHERE trade_date = a.trade_date AND code !~ '^IDX') / 1e8, 0) AS amount,
+			COALESCE((SELECT SUM(amount) FROM stocks_daily_k WHERE trade_date = (SELECT MAX(trade_date) FROM market_daily_agg WHERE trade_date < a.trade_date) AND code !~ '^IDX') / 1e8, 0) AS prev_amount,
+			COALESCE(s.composite_score, 0) AS composite_score
+		FROM market_daily_agg a
+		LEFT JOIN market_sentiment s ON s.trade_date = a.trade_date
+		ORDER BY a.trade_date DESC LIMIT 1
+	`).Scan(&snap).Error
+	if err != nil {
+		return nil, err
+	}
+	snap.Change = snap.Amount - snap.PrevAmount
+	if snap.PrevAmount > 0 {
+		snap.ChangePct = (snap.Amount - snap.PrevAmount) / snap.PrevAmount * 100
+	}
+	return &snap, nil
+}
+
+// GetRanking returns top stocks by the given sort field.
+func (r *StockRepo) GetRanking(boardType, sortBy string, limit int, asc bool) ([]StockListRow, error) {
+	var rows []StockListRow
+
+	// Find the two most recent trading dates
+	var latestDate, prevDate time.Time
+	db.PG.Raw("SELECT MAX(trade_date) FROM stocks_daily_k WHERE code !~ '^IDX'").Scan(&latestDate)
+	db.PG.Raw("SELECT MAX(trade_date) FROM stocks_daily_k WHERE code !~ '^IDX' AND trade_date < ?", latestDate).Scan(&prevDate)
+
+	direction := "DESC"
+	if asc {
+		direction = "ASC"
+	}
+
+	where := " WHERE sb.code !~ '^IDX' AND sb.is_st = false"
+	args := []interface{}{latestDate, prevDate}
+
+	if boardType != "" {
+		switch boardType {
+		case "main":
+			where += " AND sb.board_type IN ('sh','sz')"
+		case "cy":
+			where += " AND sb.board_type = 'cy'"
+		case "kc":
+			where += " AND sb.board_type = 'kc'"
+		case "bj":
+			where += " AND sb.board_type = 'bj'"
+		case "etf-bond":
+			where += " AND sb.board_type IN ('etf','bond')"
+		}
+	}
+
+	orderExpr := "COALESCE((k.close - NULLIF(p.close, 0)) / NULLIF(p.close, 0) * 100, 0)"
+	switch sortBy {
+	case "chgPct":
+		orderExpr = "COALESCE((k.close - NULLIF(p.close, 0)) / NULLIF(p.close, 0) * 100, 0)"
+	case "volume":
+		orderExpr = "COALESCE(k.volume, 0)"
+	case "amount":
+		orderExpr = "COALESCE(k.amount, 0)"
+	case "turnoverRate":
+		orderExpr = "COALESCE(k.turnover_rate, 0)"
+	}
+
+	query := fmt.Sprintf(`SELECT sb.code, sb.name, COALESCE(sb.industry, '') AS industry, COALESCE(sb.board_type, '') AS board_type, COALESCE(sb.is_st, false) AS is_st,
+			COALESCE(k.close, 0) AS close,
+			COALESCE((k.close - NULLIF(p.close, 0)) / NULLIF(p.close, 0) * 100, 0) AS chg_pct,
+			COALESCE(k.volume, 0) AS volume,
+			COALESCE(k.amount, 0) AS amount,
+			COALESCE(k.turnover_rate, 0) AS turnover_rate,
+			TO_CHAR('%s'::date, 'YYYY-MM-DD') AS trade_date
+		FROM stocks_basic sb
+		LEFT JOIN stocks_daily_k k ON k.code = sb.code AND k.trade_date = ?::date
+		LEFT JOIN stocks_daily_k p ON p.code = sb.code AND p.trade_date = ?::date
+		%s ORDER BY %s %s NULLS LAST LIMIT ?`, latestDate.Format("2006-01-02"), where, orderExpr, direction)
+
+	args = append(args, limit)
+	if err := db.PG.Raw(query, args...).Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+// GetUnusual returns stocks with unusual activity on the latest trading day.
+func (r *StockRepo) GetUnusual(boardType string, limit int) ([]UnusualRow, error) {
+	var rows []UnusualRow
+
+	var latestDate, prevDate time.Time
+	db.PG.Raw("SELECT MAX(trade_date) FROM stocks_daily_k WHERE code !~ '^IDX'").Scan(&latestDate)
+	db.PG.Raw("SELECT MAX(trade_date) FROM stocks_daily_k WHERE code !~ '^IDX' AND trade_date < ?", latestDate).Scan(&prevDate)
+
+	where := " WHERE sb.code !~ '^IDX' AND sb.is_st = false"
+	args := []interface{}{latestDate, prevDate, prevDate}
+
+	if boardType != "" {
+		switch boardType {
+		case "main":
+			where += " AND sb.board_type IN ('sh','sz')"
+		case "cy":
+			where += " AND sb.board_type = 'cy'"
+		case "kc":
+			where += " AND sb.board_type = 'kc'"
+		case "bj":
+			where += " AND sb.board_type = 'bj'"
+		case "etf-bond":
+			where += " AND sb.board_type IN ('etf','bond')"
+		}
+	}
+
+	query := fmt.Sprintf(`SELECT sb.code, sb.name, COALESCE(sb.industry, '') AS industry, COALESCE(sb.board_type, '') AS board_type, COALESCE(sb.is_st, false) AS is_st,
+		COALESCE(k.close, 0) AS close,
+		COALESCE((k.close - NULLIF(p.close, 0)) / NULLIF(p.close, 0) * 100, 0) AS chg_pct,
+		COALESCE(k.volume, 0) AS volume,
+		COALESCE(k.amount, 0) AS amount,
+		COALESCE(k.turnover_rate, 0) AS turnover_rate,
+		TO_CHAR(k.trade_date, 'YYYY-MM-DD') AS trade_date,
+		COALESCE((k.high - k.low) / NULLIF(p.close, 0) * 100, 0) AS amplitude,
+		COALESCE(avg20.avg_vol, 0) AS avg_vol20
+		FROM stocks_basic sb
+		LEFT JOIN stocks_daily_k k ON k.code = sb.code AND k.trade_date = ?::date
+		LEFT JOIN stocks_daily_k p ON p.code = sb.code AND p.trade_date = ?::date
+		LEFT JOIN LATERAL (
+			SELECT AVG(t.volume)::BIGINT AS avg_vol FROM (
+				SELECT volume FROM stocks_daily_k
+				WHERE code = sb.code AND trade_date < ?::date
+				ORDER BY trade_date DESC LIMIT 20
+			) t
+		) avg20 ON true
+		%s
+		ORDER BY ABS(COALESCE((k.close - NULLIF(p.close, 0)) / NULLIF(p.close, 0) * 100, 0)) DESC
+		LIMIT ?`, where)
+
+	args = append(args, limit)
+	if err := db.PG.Raw(query, args...).Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+
+	// Attach unusual type labels
+	for i := range rows {
+		var flags []string
+		chgAbs := rows[i].ChgPct
+		if chgAbs < 0 {
+			chgAbs = -chgAbs
+		}
+
+		// Volume surge: today vol > 20-day avg * 2
+		if rows[i].AvgVol20 > 0 && rows[i].Volume > rows[i].AvgVol20*2 {
+			flags = append(flags, "放量")
+		}
+		// Price surge: depends on board
+		bt := rows[i].BoardType
+		threshold := 7.0
+		if bt == "kc" || bt == "cy" {
+			threshold = 14.0
+		} else if bt == "bj" {
+			threshold = 27.0
+		}
+		if chgAbs > threshold {
+			if rows[i].ChgPct > 0 {
+				flags = append(flags, "急涨")
+			} else {
+				flags = append(flags, "急跌")
+			}
+		}
+		// Amplitude surge
+		if rows[i].Amplitude > 10 {
+			flags = append(flags, "高振幅")
+		}
+		rows[i].UnusualTypes = flags
+	}
+
+	// Filter to rows that actually have unusual flags
+	var filtered []UnusualRow
+	for _, r := range rows {
+		if len(r.UnusualTypes) > 0 {
+			filtered = append(filtered, r)
+		}
+	}
+	return filtered, nil
+}
+
+// GetBoardTypeCounts returns stock counts per board type.
+func (r *StockRepo) GetBoardTypeCounts() (map[string]int64, error) {
+	type row struct {
+		BoardType string `gorm:"column:board_type"`
+		Cnt       int64  `gorm:"column:cnt"`
+	}
+	var rows []row
+	db.PG.Raw(`SELECT COALESCE(board_type, 'other') AS board_type, COUNT(*) AS cnt
+		FROM stocks_basic WHERE code !~ '^IDX' GROUP BY board_type`).Scan(&rows)
+
+	result := make(map[string]int64)
+	for _, r := range rows {
+		result[r.BoardType] = r.Cnt
+	}
+	return result, nil
 }
 
 func (r *StockRepo) GetByCode(code string) (*model.StockBasic, error) {

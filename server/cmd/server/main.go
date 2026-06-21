@@ -122,6 +122,10 @@ func main() {
 		// Stocks
 		stockH := handler.NewStockHandler()
 		api.GET("/stocks", stockH.List)
+		api.GET("/stocks/market-snapshot", stockH.MarketSnapshot)
+		api.GET("/stocks/ranking", stockH.Ranking)
+		api.GET("/stocks/unusual", stockH.Unusual)
+		api.GET("/stocks/board-type-counts", stockH.BoardTypeCounts)
 		api.GET("/stocks/:code", stockH.GetDetail)
 		api.GET("/stocks/:code/kline", stockH.GetKLine)
 		api.GET("/stocks/:code/indicator", stockH.GetIndicator)

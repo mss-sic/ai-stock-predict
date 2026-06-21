@@ -146,6 +146,18 @@ export const toggleUser = (userId: number, isActive: boolean) =>
   api.post('/admin/users/toggle', { userId, isActive });
 
 // ── Stock APIs ──
+// Market snapshot (public)
+export const fetchMarketSnapshot = () => api.get("/stocks/market-snapshot");
+
+// Stock ranking
+export const fetchStockRanking = (params?: any) => api.get("/stocks/ranking", { params });
+
+// Unusual activity
+export const fetchUnusualStocks = (params?: any) => api.get("/stocks/unusual", { params });
+
+// Board type counts
+export const fetchBoardTypeCounts = () => api.get("/stocks/board-type-counts");
+
 export const fetchStocks = (params?: any) => api.get('/stocks', { params });
 export const fetchStockDetail = (code: string) => api.get(`/stocks/${code}`);
 export const fetchKLine = (code: string, from?: string, to?: string) => api.get(`/stocks/${code}/kline`, { params: { from, to } });

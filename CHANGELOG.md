@@ -1,4 +1,31 @@
-# Changelog
+
+## v1.5.0 (2026-06-21)
+
+### 行情中心 — 股票列表页重构
+
+- **市场快照卡片** — 顶部实时指数行情（上证/深证/创业板）+ 涨跌家数统计 + 涨跌停计数 + 两市成交额（较上一日变化），10s 轮询刷新
+- **板块分类 Tab** — 全部 / 沪深主板 / 创业板 / 科创板 / 北交所 / ETF国债，Tab 显示各板块股票数量 badge
+- **排行切换** — 涨幅榜 / 跌幅榜 / 成交额榜 / 换手率榜 / 异动监控，多维度快速定位
+- **增强表格** — 现价 / 涨跌幅红绿着色 / 成交额 / 换手率 / 行业，支持排序和分页
+- **异动标记** — 放量（量>20日均量×2）/ 急涨急跌（按板块阈值）/ 高振幅（>10%）自动标注彩色 Tag
+
+### 后端 API 新增
+
+- `GET /api/v1/stocks/market-snapshot` — 全市场快照（涨跌家数/涨停数/成交额/情绪分）
+- `GET /api/v1/stocks/ranking` — 涨跌排行（支持 boardType/sortBy/asc/limit）
+- `GET /api/v1/stocks/unusual` — 异动监控（放量/急涨跌/高振幅自动识别）
+- `GET /api/v1/stocks/board-type-counts` — 各板块股票数量统计
+- 股票列表 API 增强：`boardType` / `sortBy` / `sortDir` 参数，JOIN K线获取实时涨跌幅
+
+### 性能优化
+
+- 股票列表查询从关联子查询 O(n²) 优化为固定日期等值 JOIN O(n)
+- `prev_k` 从 DISTINCT ON 全表扫描改为主键等值查询
+
+### 数据修复
+
+- v025 migration：ETF/国债 board_type 回填 + stocks_basic 补充债券 ETF（511010/511090/511520）
+- 修复 market-snapshot SQL 引用 market_sentiment.limit_up_count（原错误引用 market_daily_agg）
 
 ## v1.4.0 (2026-06-19)
 

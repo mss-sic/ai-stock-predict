@@ -784,6 +784,23 @@ func init() {
 	})
 
 
+
+	// v025: ETF board_type backfill
+	Register(Migration{
+		Version:     25,
+		Description: "PG: backfill ETF/bond board_type on stocks_basic",
+		Up: func() error {
+			// Bond ETFs (国债ETF)
+			safeExec(`UPDATE stocks_basic SET board_type = 'bond' WHERE code LIKE '511%' AND board_type IS NULL`)
+			safeExec(`UPDATE stocks_basic SET board_type = 'bond' WHERE code LIKE '1596%' AND board_type IS NULL`)
+			// General ETFs (code not matching sh/sz/kc/cy/bj/bond patterns and not IDX)
+			safeExec(`UPDATE stocks_basic SET board_type = 'etf' WHERE code LIKE '51%' AND board_type IS NULL AND code !~ '^IDX'`)
+			safeExec(`UPDATE stocks_basic SET board_type = 'etf' WHERE code LIKE '159%' AND board_type IS NULL AND code !~ '^IDX'`)
+			safeExec(`UPDATE stocks_basic SET board_type = 'etf' WHERE code LIKE '56%' AND board_type IS NULL AND code !~ '^IDX'`)
+			safeExec(`UPDATE stocks_basic SET board_type = 'etf' WHERE code LIKE '58%' AND board_type IS NULL AND code !~ '^IDX'`)
+			return nil
+		},
+	})
 log.Printf("[migrate] registered %d migrations", len(migrations))
 
 
