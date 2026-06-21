@@ -265,9 +265,30 @@ export default function SentimentDashboard() {
       ],
       series: [
         { name: mainLabel, type: 'line', data: mainValues, smooth: true, symbol: 'circle', symbolSize: 3,
+          yAxisIndex: 0,
           lineStyle: { width: 2.5, color: '#165DFF' }, itemStyle: { color: '#165DFF' },
           areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
-            colorStops: [{ offset: 0, color: 'rgba(22,93,255,0.25)' }, { offset: 1, color: 'rgba(22,93,255,0.02)' }] } } },
+            colorStops: [{ offset: 0, color: 'rgba(22,93,255,0.25)' }, { offset: 1, color: 'rgba(22,93,255,0.02)' }] } },
+          markArea: {
+            silent: true,
+            data: [
+              [{ yAxis: 0, itemStyle: { color: 'rgba(239,68,68,0.08)' } }, { yAxis: 30 }],
+              [{ yAxis: 70, itemStyle: { color: 'rgba(34,197,94,0.08)' } }, { yAxis: 100 }],
+            ],
+            label: { show: true, position: 'insideTop', fontSize: 10, color: 'var(--color-text-3)',
+              formatter: (p: any) => p.name === '恐惧区' ? '恐惧' : p.name === '亢奋区' ? '亢奋' : '' },
+          },
+        },
+        { name: '极端值', type: 'scatter', data: mainValues.map((v: number|null, i: number) => 
+            (v !== null && (v <= 30 || v >= 70)) ? [dates[i], v, dates[i]] : null).filter(Boolean),
+          yAxisIndex: 0, symbolSize: 10, symbol: 'circle',
+          itemStyle: { borderColor: '#fff', borderWidth: 1.5,
+            color: (params: any) => params.value?.[1] <= 30 ? '#ef4444' : '#22c55e' },
+          tooltip: { formatter: (p: any) => {
+            const v = p.value?.[1]; const d = p.value?.[2];
+            return `<b>${d}</b><br/>情绪: <b>${v?.toFixed(0)}</b> ${v<=30?'🔴 极度恐惧':'🟢 极度亢奋'}`;
+          }},
+        },
         { name: idxLabel, type: 'line', yAxisIndex: 1, data: idxValues, smooth: true, symbol: 'none',
           lineStyle: { color: '#5470c6', width: 1.5, type: 'dashed' }, itemStyle: { color: '#5470c6' } },
       ],
@@ -287,6 +308,24 @@ export default function SentimentDashboard() {
       min: Math.min(...scores),
     };
   }, [history]);
+
+  const suggestion = useMemo(() => {
+    if (!latest || history.length < 2) return null;
+    const s = latest.compositeScore;
+    const prev = history[history.length - 2]?.compositeScore || s;
+    const delta = s - prev;
+    const improving = delta > 2;
+    const worsening = delta < -2;
+    if (s < 25 && improving) return { text: '恐惧底 + 情绪改善 → 历史反弹概率最高', color: '#22c55e' };
+    if (s < 25) return { text: '市场极度恐惧 → 历史次日上涨概率58%，不宜恐慌抛售', color: '#f97316' };
+    if (s < 40 && worsening) return { text: '情绪低迷且继续恶化 → 等待企稳信号', color: '#ef4444' };
+    if (s < 40) return { text: '市场偏恐惧 → 关注超跌优质标的', color: '#f97316' };
+    if (s > 75 && worsening) return { text: '亢奋顶 + 情绪回落 → 注意冲高回落风险', color: '#ef4444' };
+    if (s > 75) return { text: '市场极度亢奋 → 抱团行情注意松动信号', color: '#22c55e' };
+    if (s > 60 && improving) return { text: '情绪持续回暖 → 趋势可能延续', color: '#22c55e' };
+    if (s > 60) return { text: '市场偏乐观 → 注意仓位管理', color: '#eab308' };
+    return { text: '情绪中性 → 市场无明显方向，关注结构性机会', color: 'var(--color-text-2)' };
+  }, [latest, history]);
 
   const distOption = useMemo(() => {
     if (distribution.length === 0) return {};
@@ -443,6 +482,15 @@ export default function SentimentDashboard() {
           </div>
         </div>
         <ReactECharts option={chartOption} style={{ height: 280 }} />
+        {suggestion && (
+          <div style={{
+            marginTop: 8, padding: '6px 14px', borderRadius: 6, fontSize: 12,
+            background: suggestion.color + '10', border: '1px solid ' + suggestion.color + '30',
+            color: suggestion.color, textAlign: 'center', fontWeight: 500,
+          }}>
+            💡 {suggestion.text}
+          </div>
+        )}
         <div style={{ display: 'flex', gap: 12, justifyContent: 'center', marginTop: 8, fontSize: 11 }}>
           {[{ color: '#ef4444', label: '悲观 0-30' }, { color: '#f97316', label: '谨慎 30-50' },
             { color: '#eab308', label: '中性 50-70' }, { color: '#22c55e', label: '乐观 70-100' }]
