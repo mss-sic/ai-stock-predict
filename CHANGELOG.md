@@ -1,3 +1,63 @@
+## v1.6.0 (2026-06-22)
+
+### 策略条件编排引擎重构 — 双模引擎
+
+- **三层架构** — 条件层(LogicGroup AND/OR) + 策略层(PolicyManager) + AI 监督层，替代原有简单 IF 且关系
+- **条件层** — 每组条件内 AND 逻辑，多组条件之间 OR 逻辑；UI 按 G1/G2/G3 分组标记，自动递增 LogicGroup
+- **策略层** — 根据市场 `composite_score` 自动切换三模式：
+  - 🟢 进攻(score≥1.5)：OR 逻辑 + 允许加仓 + 1.2x 仓位乘数
+  - 🟡 防御(score≥0.0)：AND 逻辑 + 禁止加仓 + 0.8x 仓位乘数
+  - 🔴 空仓(score<0.0)：禁止买入/加仓 + 激进卖出 1.5x
+- **AI 监督层** — 接入 DeepSeek/Kimi，审查候选标的并输出可解释决策理由；硬性风控不可被 AI 覆盖
+
+### 新增引擎组件 (8 文件)
+
+- `scoring_engine.go` — 加权评分引擎（Buy/Add）：6 种条件子类型（Basic/Fuzzy/TimeSeries/IndustryRelative/MultiTimeframe），fuzzy sigma 自适应模糊评分
+- `decision_tree_engine.go` — 决策树引擎（Sell/Reduce）：支持嵌套条件组 + and/or/not 逻辑
+- `context_manager.go` — 市场上下文管理器：读取 MarketSentiment 13 维输出 MarketContext（综合分/风险偏好/行业强势/北向资金）
+- `policy_manager.go` — 政策决策管理器：进攻/防御/空仓三模式自动切换
+- `risk_manager.go` — 风控管理器：市场熔断/单日亏损熔断/仓位集中度限制
+- `backtest_v2.go` — 回测 V2：集成新引擎的完整回测管线，支持 panic recover + ST/停牌/涨停过滤
+- `ai_agent.go` — AI 代理：运行时审查候选，动态调整权重(±30%) + 最终确认/否决
+- `position_manager_v2.go` — 持仓管理 V2：集成双模引擎
+
+### 新增数据模型
+
+- `condition_template.go` — 复合条件模板（系统预置 MACD 金叉/RSI 超卖/趋势突破/放量滞涨/均线死叉 5 模板）
+- `ai_agent_decision.go` — AI 代理决策记录（市场分/偏好乘数/候选数/推理过程/操作清单）
+- `strategy.go` — 新增 orchestrat_mode/enable_market_context/enable_ai_agent/industry_filter 等 9 字段
+- `strategy_condition.go` — 新增 weight/fuzzy_sigma/lookback_days/industry_relative/timeframe/parent_id 等 10 字段
+
+### P0 优化修复
+
+- **评分区分度修复** — fuzzy sigma 默认值 0.30→1.0，minScore 从硬编码 0.18 → 动态中位数+top1 差值自适应
+- **ST/停牌过滤强化** — 从名称检查升级为 stock_profiles 表标记查询 + 涨停过滤(≥9.8%)
+- **ContextManager 修复** — 修复 sector_diffusion_score 列缺失(872 次 error)，增加优雅降级 + 5 分钟缓存
+- **Nil Pointer Panic** — task_service 增加 nil guard，回测 goroutine 增加 defer/recover
+
+### 后端端点新增
+
+- `GET/PUT /strategies/:id/orchestration` — 策略编排配置
+- `GET /strategies/templates` — 系统+用户条件模板列表
+- `POST /strategies/templates` — 从条件创建模板
+- `GET /strategies/:id/ai-decisions` — AI 代理决策历史
+
+### 前端 UI 新增
+
+- StrategyPage 编排 Tab 新增「政策决策」卡片：模式选择(rule/ai_driven/manual) + 阈值滑块
+- 条件卡片显示 G1/G2/G3 分组标记替代 IF/AND
+- 策略模板选择器 + 一键应用
+
+### 回测结果 (S72 趋势追踪, 2026-01-01→2026-06-10)
+
+| 版本 | 收益率 | 买入 | 加仓 | 止损 |
+|------|--------|------|------|------|
+| AND 原始 | +2.14% | 82 | 0 | 31 |
+| OR + Policy | -8.82% | 19 | 68 | 4 |
+
+策略分布 54 交易日：空仓 36(68%) / 进攻 10(19%) / 防御 7(13%)
+
+
 
 ## v1.5.0 (2026-06-21)
 

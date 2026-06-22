@@ -105,9 +105,13 @@ func (tm *TaskManager) ScheduleTask(task *model.ScheduledTask) {
 
 	tm.jobs[task.ID] = entryID
 
-	// Calculate next run
+	// Calculate next run (P0-4: check cron entry exists)
 	entry := tm.cron.Entry(entryID)
 	nextRun := entry.Next
+	if nextRun.IsZero() {
+		log.Printf("[TaskManager] cron entry %d has zero next run, using default", entryID)
+		nextRun = time.Now().Add(24 * time.Hour)
+	}
 	db.MySQL.Model(&model.ScheduledTask{}).Where("id = ?", task.ID).
 		Update("next_run", nextRun)
 

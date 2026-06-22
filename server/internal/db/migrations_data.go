@@ -801,6 +801,41 @@ func init() {
 			return nil
 		},
 	})
+
+	// v026: Strategy orchestration v2 — weighted scoring, decision tree, AI agent
+	Register(Migration{
+		Version:     26,
+		Description: "PG+MySQL: strategy orchestration v2 — scoring/decision_tree/hybrid, condition weight/fuzzy/trend/industry/timeframe/composite, AI agent decisions",
+		Up: func() error {
+			// ── PostgreSQL: ai_agent_decisions ──
+			safeExec(`CREATE TABLE IF NOT EXISTS ai_agent_decisions (
+				id SERIAL PRIMARY KEY,
+				strategy_id INTEGER NOT NULL,
+				backtest_task_id INTEGER,
+				trade_date VARCHAR(10) NOT NULL,
+				market_score NUMERIC(5,2) DEFAULT 0,
+				market_bias NUMERIC(5,2) DEFAULT 1.0,
+				candidates_in INTEGER DEFAULT 0,
+				candidates_out INTEGER DEFAULT 0,
+				reasoning TEXT DEFAULT \'\',
+				actions JSONB DEFAULT \'[]\',
+				overrides_applied BOOLEAN DEFAULT FALSE,
+				created_at TIMESTAMPTZ DEFAULT NOW()
+			)`)
+			safeExec(`CREATE INDEX IF NOT EXISTS idx_ai_agent_decisions_strategy ON ai_agent_decisions(strategy_id)`)
+			safeExec(`CREATE INDEX IF NOT EXISTS idx_ai_agent_decisions_task ON ai_agent_decisions(backtest_task_id)`)
+
+			// ── MySQL: AutoMigrate adds new columns on strategies and strategy_conditions ──
+			gormAutoMigrate(MySQL,
+				&model.Strategy{},
+				&model.StrategyCondition{},
+				&model.ConditionTemplate{},
+			)
+
+			return nil
+		},
+	})
+
 log.Printf("[migrate] registered %d migrations", len(migrations))
 
 

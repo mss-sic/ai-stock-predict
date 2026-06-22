@@ -218,6 +218,12 @@ func main() {
 		api.GET("/strategies/:id/backtest/tasks/:taskId/stock-analysis", strategyH.BacktestStockAnalysis)
 		api.GET("/strategies/backtest-history", strategyH.BacktestHistory)
 		api.DELETE("/strategies/backtest-history/:id", strategyH.DeleteBacktestResult)
+		api.GET("/strategies/:id/orchestration", strategyH.GetOrchestration)
+		api.PUT("/strategies/:id/orchestration", strategyH.SaveOrchestration)
+		api.GET("/strategies/templates", strategyH.ListTemplates)
+		api.POST("/strategies/templates", strategyH.CreateTemplate)
+		api.GET("/strategies/:id/ai-decisions", strategyH.ListAIDecisions)
+		api.POST("/strategies/:id/ai-review", strategyH.AIReview)
 		api.GET("/strategies/stock-pool", strategyH.StockPool)
 
 		// Collector

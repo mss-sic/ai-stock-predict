@@ -114,6 +114,9 @@ type dcPosition struct {
 	BuyPrice float64
 	Quantity int
 	BuyDate  string
+	// P0-3: Score-decay sell tracking
+	dangerDays  int     // consecutive days with sell danger
+	dangerAccum float64 // accumulated danger score
 }
 
 // ── DayAssessment ──

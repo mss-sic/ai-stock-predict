@@ -14,6 +14,7 @@ type IndicatorMeta struct {
 	Suggestion   string   `json:"suggestion"`
 	UseFor       string   `json:"useFor"`       // buy, sell, both
 	DataSource   string   `json:"dataSource"`   // stocks_daily_k, stocks_daily_indicator, etc.
+	IndustryRelativeSupport bool     `json:"industryRelativeSupport"` // 是否支持行业相对阈值
 }
 
 // IndicatorRegistry is the single source of truth for all trading indicators.
@@ -418,19 +419,19 @@ var IndicatorRegistry = map[string]*IndicatorMeta{
 		Key: "pe", Label: "市盈率", Category: "估值", Unit: "倍", Type: "number",
 		Operators: []string{"gte", "lte", "gt", "lt"},
 		Desc: "当前市盈率", BacktestSafe: true, DataNote: "📊 ~3500只股票覆盖，2024-07起有历史数据",
-		Suggestion: "买入建议 < 20，成长股可适当放宽", UseFor: "both", DataSource: "stocks_daily_indicator",
+		Suggestion: "买入建议 < 20，成长股可适当放宽", IndustryRelativeSupport: true, UseFor: "both", DataSource: "stocks_daily_indicator",
 	},
 	"pb": {
 		Key: "pb", Label: "市净率", Category: "估值", Unit: "倍", Type: "number",
 		Operators: []string{"gte", "lte", "gt", "lt"},
 		Desc: "当前市净率", BacktestSafe: true, DataNote: "📊 ~3500只股票覆盖，2024-07起有历史数据",
-		Suggestion: "买入建议 < 3，金融股可参考PB", UseFor: "both", DataSource: "stocks_daily_indicator",
+		Suggestion: "买入建议 < 3，金融股可参考PB", IndustryRelativeSupport: true, UseFor: "both", DataSource: "stocks_daily_indicator",
 	},
 	"ps": {
 		Key: "ps", Label: "市销率", Category: "估值", Unit: "倍", Type: "number",
 		Operators: []string{"gte", "lte", "gt", "lt"},
 		Desc: "当前市销率", BacktestSafe: true, DataNote: "📊 ~3500只股票覆盖，2024-07起有历史数据",
-		Suggestion: "买入建议 < 2，成长股可适当放宽", UseFor: "both", DataSource: "stocks_daily_indicator",
+		Suggestion: "买入建议 < 2，成长股可适当放宽", IndustryRelativeSupport: true, UseFor: "both", DataSource: "stocks_daily_indicator",
 	},
 	"pe_percentile": {
 		Key: "pe_percentile", Label: "PE历史分位", Category: "估值", Unit: "%", Type: "number",

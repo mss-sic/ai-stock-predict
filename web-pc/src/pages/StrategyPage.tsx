@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Button, Input, InputNumber, Modal, Table, Select, Popconfirm, Tooltip, DatePicker, Message, Tag } from '@arco-design/web-react';
-import { Target, Plus, Trash2, GripVertical, Play, Brain, BarChart4, TrendingUp, Shield, Settings, Sparkles, Beaker } from 'lucide-react';
+import { Target, Plus, Trash2, GripVertical, Play, Brain, BarChart4, TrendingUp, Shield, Settings, Sparkles, Beaker, Gauge, Factory, GitBranch, Layers, SlidersHorizontal } from 'lucide-react';
 import {
   fetchStrategies, createStrategy, updateStrategy, deleteStrategy, reorderStrategies,
   fetchStrategyConditions, saveStrategyConditions, aiGenerateStrategy, optimizePrompt,
   fetchIndicators, runBacktest, fetchBacktestHistory, testIndicator,
   startBacktest, getBacktestStatus, cancelBacktest, fetchBacktestTasks,
+  fetchOrchestration, saveOrchestration, fetchConditionTemplates, createConditionTemplate, fetchAIDecisions,
 } from '../services/api';
 
 type CondType = 'buy' | 'add' | 'sell' | 'reduce';
@@ -45,7 +46,7 @@ export default function StrategyPage() {
   const [activeStrategy, setActiveStrategy] = useState<any>(null);
   const [conditions, setConditions] = useState<any[]>([]);
   const [indicators, setIndicators] = useState<any[]>([]);
-  const [tab, setTab] = useState<'conditions' | 'backtest'>('conditions');
+  const [tab, setTab] = useState<'conditions' | 'backtest' | 'orchestration'>('conditions');
   const [condTab, setCondTab] = useState<CondType>('buy');
   const [showAdd, setShowAdd] = useState(false);
   const [newName, setNewName] = useState('');
@@ -74,6 +75,25 @@ export default function StrategyPage() {
 
   // Indicator test state
   const [testModalVisible, setTestModalVisible] = useState(false);
+  const [orchTab, setOrchTab] = useState(false); // orchestration panel expand state
+  const [orchConfig, setOrchConfig] = useState<any>({
+    orchestrationMode: 'hybrid',
+    enableMarketContext: false,
+    marketCompositeMin: -2.0,
+    marketPositionBias: 1.0,
+    enableAIAgent: false,
+    aiAgentMode: 'advisory',
+    aiAgentReviewScope: 'all',
+    aiAgentMaxDailyTrades: 5,
+    industryFilter: '',
+    enableSectorRotation: false,
+    policyMode: 'rule',
+    aggressiveThreshold: 1.5,
+    defensiveThreshold: 0.0,
+  });
+  const [orchSaving, setOrchSaving] = useState(false);
+  const [condAdvOpen, setCondAdvOpen] = useState<Record<number, boolean>>({});
+
   const [testCond, setTestCond] = useState<any>(null);
   const [testStock, setTestStock] = useState('');
   const [testDate, setTestDate] = useState('');
@@ -113,6 +133,8 @@ export default function StrategyPage() {
       fetchStrategyConditions(s.id).then(({ data: r }: any) => setConditions(r.data || [])).catch(() => {});
       fetchBacktestHistory(s.id).then(({ data: r }: any) => setBtHistory(r.data || [])).catch(() => {});
       fetchBacktestTasks(s.id).then(({ data: r }: any) => setBtTasks(r.data || [])).catch(() => {});
+      fetchOrchestration(s.id).then(({ data: r }: any) => { if (r.data) setOrchConfig(r.data); }).catch(() => {});
+      fetchConditionTemplates().then(() => {}).catch(() => {});
     }
   }, [activeId, strategies]);
 
@@ -151,6 +173,9 @@ export default function StrategyPage() {
   const filteredConds = (t: CondType) => conditions.filter((c: any) => c.condType === t);
 
   const addCondition = (ct: CondType) => {
+    // Auto-increment LogicGroup: find max group for this condType, +1
+    const sameType = conditions.filter((c: any) => c.condType === ct);
+    const maxGroup = sameType.reduce((max: number, c: any) => Math.max(max, c.logicGroup || 1), 0);
     setConditions([...conditions, {
       id: -(Date.now()),
       strategyId: activeId,
@@ -158,7 +183,7 @@ export default function StrategyPage() {
       indicator: 'algo_score',
       operator: 'gte',
       value: 0,
-      logicGroup: 1,
+      logicGroup: maxGroup + 1,
       sortOrder: filteredConds(ct).length,
     }]);
   };
@@ -807,6 +832,9 @@ export default function StrategyPage() {
               <button className={tab === 'backtest' ? 'active' : ''} onClick={() => setTab('backtest')}>
                 <BarChart4 size={13} style={{ marginRight: 4 }} />策略回测
               </button>
+              <button className={tab === 'orchestration' ? 'active' : ''} onClick={() => setTab('orchestration')}>
+                <SlidersHorizontal size={13} style={{ marginRight: 4 }} />编排模式
+              </button>
             </div>
 
             {tab === 'conditions' ? (
@@ -892,15 +920,24 @@ export default function StrategyPage() {
                         >
                           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                           {/* Logic connector */}
-                          <div style={{
-                            minWidth: 36, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            borderRadius: 14, fontSize: 11, fontWeight: 700,
-                            background: idx === 0 ? 'var(--color-info-bg)' : 'var(--color-fill-2)',
-                            color: idx === 0 ? 'var(--color-info-text)' : 'var(--color-text-3)',
-                            letterSpacing: 0.5,
-                          }}>
-                            {idx === 0 ? 'IF' : 'AND'}
-                          </div>
+                          {(() => {
+                            // Determine if this starts a new LogicGroup
+                            const curGroup = c.logicGroup || 1;
+                            const prevCond = idx > 0 ? filteredConds(condTab)[idx-1] : null;
+                            const prevGroup = prevCond ? (prevCond.logicGroup || 1) : 0;
+                            const isNewGroup = prevGroup !== curGroup;
+                            return (
+                            <div style={{
+                              minWidth: 36, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              borderRadius: 14, fontSize: 11, fontWeight: 700,
+                              background: isNewGroup ? 'var(--color-info-bg)' : 'var(--color-fill-2)',
+                              color: isNewGroup ? 'var(--color-info-text)' : 'var(--color-text-3)',
+                              letterSpacing: 0.5, cursor: 'pointer',
+                            }} title={isNewGroup ? '条件组 ' + curGroup + ' (OR)' : '组内 AND'}>
+                              {isNewGroup ? 'G' + curGroup : 'AND'}
+                            </div>
+                            );
+                          })()}
 
                           {/* Indicator selector with safety badge */}
                           <Tooltip content={<div style={{maxWidth:260}}>{info?.desc}<br/><span style={{color:'var(--color-text-3)',fontSize:11}}>{info?.dataNote}</span></div>} position="bottom">
@@ -1019,6 +1056,121 @@ export default function StrategyPage() {
                               </div>
                             </div>
                           )}
+                          {/* ── Advanced Options (V2) ── */}
+                          {(() => {
+                            const isOpen = condAdvOpen[globalIdx] || false;
+                            const ct = c.condType as CondType;
+                            const isBuyOrAdd = ct === 'buy' || ct === 'add';
+                            const isSellOrReduce = ct === 'sell' || ct === 'reduce';
+                            const isScoringMode = (orchConfig.orchestrationMode || 'hybrid') === 'scoring' || (orchConfig.orchestrationMode || 'hybrid') === 'hybrid';
+                            const isDtreeMode = (orchConfig.orchestrationMode || 'hybrid') === 'decision_tree' || (orchConfig.orchestrationMode || 'hybrid') === 'hybrid';
+                            const showWeight = isScoringMode && isBuyOrAdd;
+                            const showFuzzy = isScoringMode;
+                            const showTimeSeries = isScoringMode;
+                            const showIndustryRel = info?.industryRelativeSupport;
+                            const showTimeframe = isScoringMode;
+                            const showTreeOp = isDtreeMode && isSellOrReduce;
+                            const showComposite = isDtreeMode;
+                            const hasAdvanced = showWeight || showFuzzy || showTimeSeries || showIndustryRel || showTimeframe || showTreeOp || showComposite;
+
+                            return (
+                              <div style={{ marginTop: 4, borderTop: '1px solid var(--color-border-1)', paddingTop: 6 }}>
+                                <div
+                                  onClick={() => setCondAdvOpen(prev => ({ ...prev, [globalIdx]: !isOpen }))}
+                                  style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--color-text-3)', userSelect: 'none' }}
+                                >
+                                  <Layers size={11} />
+                                  高级选项
+                                  {hasAdvanced && <span style={{ background: 'var(--color-primary-light-1)', color: '#165DFF', borderRadius: 4, padding: '0 4px', fontSize: 10 }}>已配置</span>}
+                                  <span style={{ marginLeft: 'auto', transform: isOpen ? 'rotate(180deg)' : '', transition: 'transform 0.2s' }}>▼</span>
+                                </div>
+                                {isOpen && (
+                                  <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 8, padding: '8px 12px', background: 'var(--color-fill-1)', borderRadius: 6 }}>
+                                    {/* Weight (scoring mode, buy/add) */}
+                                    {showWeight && (
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                        <span style={{ fontSize: 11, color: 'var(--color-text-3)', minWidth: 60 }}>权重</span>
+                                        <InputNumber value={c.weight || 1} onChange={v => updateCondition(globalIdx, 'weight', v ?? 1)}
+                                          min={0} max={5} step={0.5} style={{ width: 80 }} size="mini" />
+                                        <span style={{ fontSize: 10, color: 'var(--color-text-3)' }}>0-5, 默认1.0</span>
+                                      </div>
+                                    )}
+                                    {/* Fuzzy Sigma (scoring mode) */}
+                                    {showFuzzy && (
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                        <span style={{ fontSize: 11, color: 'var(--color-text-3)', minWidth: 60 }}>模糊阈值</span>
+                                        <InputNumber value={c.fuzzySigma || 0} onChange={v => updateCondition(globalIdx, 'fuzzySigma', v ?? 0)}
+                                          min={0} max={10} step={0.5} style={{ width: 80 }} size="mini" />
+                                        <span style={{ fontSize: 10, color: 'var(--color-text-3)' }}>0=二元判断, &gt;0 部分匹配</span>
+                                      </div>
+                                    )}
+                                    {/* Time Series: lookback + consecutive days (scoring mode) */}
+                                    {showTimeSeries && (
+                                      <>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                          <span style={{ fontSize: 11, color: 'var(--color-text-3)', minWidth: 60 }}>回溯天数</span>
+                                          <InputNumber value={c.lookbackDays || 1} onChange={v => updateCondition(globalIdx, 'lookbackDays', v ?? 1)}
+                                            min={1} max={60} style={{ width: 80 }} size="mini" />
+                                        </div>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                          <span style={{ fontSize: 11, color: 'var(--color-text-3)', minWidth: 60 }}>连续满足</span>
+                                          <InputNumber value={c.consecutiveDays || 1} onChange={v => updateCondition(globalIdx, 'consecutiveDays', v ?? 1)}
+                                            min={1} max={30} style={{ width: 80 }} size="mini" />
+                                          <span style={{ fontSize: 10, color: 'var(--color-text-3)' }}>天</span>
+                                        </div>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                          <span style={{ fontSize: 11, color: 'var(--color-text-3)', minWidth: 60 }}>趋势方向</span>
+                                          <Select value={c.trendDirection || 'none'} onChange={v => updateCondition(globalIdx, 'trendDirection', v)}
+                                            style={{ width: 120 }} size="mini"
+                                            options={[
+                                              { label: '不关注', value: 'none' },
+                                              { label: '改善中', value: 'improving' },
+                                              { label: '恶化中', value: 'deteriorating' },
+                                            ]} />
+                                        </div>
+                                      </>
+                                    )}
+                                    {/* Industry Relative */}
+                                    {showIndustryRel && (
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                        <span style={{ fontSize: 11, color: 'var(--color-text-3)', minWidth: 60 }}>行业相对</span>
+                                        <input type="checkbox" checked={c.industryRelative || false}
+                                          onChange={e => updateCondition(globalIdx, 'industryRelative', e.target.checked)}
+                                          style={{ accentColor: '#165DFF' }} />
+                                        <span style={{ fontSize: 10, color: 'var(--color-text-3)' }}>阈值相对行业中位数</span>
+                                      </div>
+                                    )}
+                                    {/* Timeframe (scoring mode) */}
+                                    {showTimeframe && (
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                        <span style={{ fontSize: 11, color: 'var(--color-text-3)', minWidth: 60 }}>K线周期</span>
+                                        <Select value={c.timeframe || 'daily'} onChange={v => updateCondition(globalIdx, 'timeframe', v)}
+                                          style={{ width: 100 }} size="mini"
+                                          options={[
+                                            { label: '日线', value: 'daily' },
+                                            { label: '周线', value: 'weekly' },
+                                            { label: '月线', value: 'monthly' },
+                                          ]} />
+                                      </div>
+                                    )}
+                                    {/* Tree Operator (decision tree mode, sell/reduce) */}
+                                    {showTreeOp && (
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                        <span style={{ fontSize: 11, color: 'var(--color-text-3)', minWidth: 60 }}>条件逻辑</span>
+                                        <Select value={c.treeOperator || 'and'} onChange={v => updateCondition(globalIdx, 'treeOperator', v)}
+                                          style={{ width: 100 }} size="mini"
+                                          options={[
+                                            { label: 'AND', value: 'and' },
+                                            { label: 'OR', value: 'or' },
+                                            { label: 'NOT', value: 'not' },
+                                          ]} />
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })()}
                         </div>
                       );
                     })
@@ -1040,6 +1192,206 @@ export default function StrategyPage() {
                     </Button>
                   </div>
                 )}
+              </>
+            ) : tab === 'orchestration' ? (
+
+              <>
+                {/* Orchestration Panel */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginBottom: 16 }}>
+                  <div style={{ padding: '14px 18px', background: 'var(--color-bg-1)', borderRadius: 10, border: '1px solid var(--color-border-1)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                      <SlidersHorizontal size={16} style={{ color: '#165DFF' }} />
+                      <span style={{ fontSize: 14, fontWeight: 600 }}>编排引擎</span>
+                    </div>
+
+                    {/* Orchestration Mode */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
+                      <span style={{ fontSize: 12, color: 'var(--color-text-3)', minWidth: 70 }}>编排模式</span>
+                      <Select
+                        value={orchConfig.orchestrationMode || 'hybrid'}
+                        onChange={v => setOrchConfig((prev: any) => ({ ...prev, orchestrationMode: v }))}
+                        style={{ width: 180 }}
+                        size="small"
+                        options={[
+                          { label: '混合模式 (买入评分+卖出决策树)', value: 'hybrid' },
+                          { label: '纯评分模式', value: 'scoring' },
+                          { label: '纯决策树模式', value: 'decision_tree' },
+                          { label: '传统 AND/OR (兼容)', value: 'legacy' },
+                        ]}
+                      />
+                    </div>
+
+                    {/* Mode descriptions */}
+                    <div style={{ marginBottom: 10, padding: '8px 12px', background: 'var(--color-fill-1)', borderRadius: 6, fontSize: 11, color: 'var(--color-text-3)', lineHeight: 1.6 }}>
+                      {orchConfig.orchestrationMode === 'scoring' && '📊 所有条件按权重评分，总分达阈值触发。支持模糊阈值、行业相对、时序分析。'}
+                      {orchConfig.orchestrationMode === 'decision_tree' && '🌳 条件按决策树求值，支持 and/or/not 嵌套。精确表达复杂退出逻辑。'}
+                      {(orchConfig.orchestrationMode === 'hybrid' || !orchConfig.orchestrationMode) && '🔄 买入/加仓走加权评分，卖出/减仓走决策树。效果最优的推荐模式。'}
+                      {orchConfig.orchestrationMode === 'legacy' && '📋 传统 IF-AND 二元判断，保持向后兼容。'}
+                    </div>
+                  </div>
+
+                  {/* Market Context */}
+                  <div style={{ padding: '14px 18px', background: 'var(--color-bg-1)', borderRadius: 10, border: '1px solid var(--color-border-1)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                      <Gauge size={16} style={{ color: '#722ED1' }} />
+                      <span style={{ fontSize: 14, fontWeight: 600 }}>市场上下文感知</span>
+                      <div style={{ flex: 1 }} />
+                      <Tag color={orchConfig.enableMarketContext ? 'green' : 'gray'} size="small">
+                        {orchConfig.enableMarketContext ? '已启用' : '未启用'}
+                      </Tag>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>启用</span>
+                      <input type="checkbox" checked={orchConfig.enableMarketContext || false}
+                        onChange={e => setOrchConfig((prev: any) => ({ ...prev, enableMarketContext: e.target.checked }))}
+                        style={{ accentColor: '#165DFF' }} />
+                    </div>
+                    {orchConfig.enableMarketContext && (
+                      <div style={{ marginTop: 10, display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>熔断阈值</span>
+                          <InputNumber value={orchConfig.marketCompositeMin || -2} onChange={v => setOrchConfig((prev: any) => ({ ...prev, marketCompositeMin: v ?? -2 }))}
+                            min={-5} max={5} step={0.5} style={{ width: 80 }} size="small" />
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>仓位乘数</span>
+                          <InputNumber value={orchConfig.marketPositionBias || 1} onChange={v => setOrchConfig((prev: any) => ({ ...prev, marketPositionBias: v ?? 1 }))}
+                            min={0.5} max={1.5} step={0.1} style={{ width: 80 }} size="small" />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* AI Agent */}
+                  <div style={{ padding: '14px 18px', background: 'var(--color-bg-1)', borderRadius: 10, border: '1px solid var(--color-border-1)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                      <Brain size={16} style={{ color: '#FF7D00' }} />
+                      <span style={{ fontSize: 14, fontWeight: 600 }}>AI 代理监督</span>
+                      <div style={{ flex: 1 }} />
+                      <Tag color={orchConfig.enableAIAgent ? 'orangered' : 'gray'} size="small">
+                        {orchConfig.enableAIAgent ? '已启用' : '未启用'}
+                      </Tag>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>启用</span>
+                      <input type="checkbox" checked={orchConfig.enableAIAgent || false}
+                        onChange={e => setOrchConfig((prev: any) => ({ ...prev, enableAIAgent: e.target.checked }))}
+                        style={{ accentColor: '#165DFF' }} />
+                    </div>
+                    {orchConfig.enableAIAgent && (
+                      <div style={{ marginTop: 10, display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>模式</span>
+                          <Select value={orchConfig.aiAgentMode || 'advisory'} onChange={v => setOrchConfig((prev: any) => ({ ...prev, aiAgentMode: v }))}
+                            style={{ width: 120 }} size="small"
+                            options={[
+                              { label: '仅审查 (advisory)', value: 'advisory' },
+                              { label: '自动执行 (auto)', value: 'auto' },
+                            ]} />
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>审查范围</span>
+                          <Select value={orchConfig.aiAgentReviewScope || 'all'} onChange={v => setOrchConfig((prev: any) => ({ ...prev, aiAgentReviewScope: v }))}
+                            style={{ width: 110 }} size="small"
+                            options={[
+                              { label: '全部', value: 'all' },
+                              { label: '仅买入', value: 'buy_only' },
+                              { label: '仅卖出', value: 'sell_only' },
+                            ]} />
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>日最大交易</span>
+                          <InputNumber value={orchConfig.aiAgentMaxDailyTrades || 5} onChange={v => setOrchConfig((prev: any) => ({ ...prev, aiAgentMaxDailyTrades: v ?? 5 }))}
+                            min={1} max={20} style={{ width: 70 }} size="small" />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Policy Manager v3 */}
+                  <div style={{ padding: '14px 18px', background: 'var(--color-bg-1)', borderRadius: 10, border: '1px solid var(--color-border-1)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                      <Shield size={16} style={{ color: '#F7BA1E' }} />
+                      <span style={{ fontSize: 14, fontWeight: 600 }}>政策决策</span>
+                      <div style={{ flex: 1 }} />
+                      <Tag color={orchConfig.policyMode === 'rule' ? 'blue' : 'purple'} size="small">
+                        {orchConfig.policyMode === 'rule' ? '规则引擎' : orchConfig.policyMode === 'ai_driven' ? 'AI驱动' : '手动'}
+                      </Tag>
+                    </div>
+                    <div style={{ marginBottom: 8 }}>
+                      <span style={{ fontSize: 12, color: 'var(--color-text-3)', marginRight: 8 }}>决策模式</span>
+                      <Select value={orchConfig.policyMode || 'rule'} onChange={v => setOrchConfig((prev: any) => ({ ...prev, policyMode: v }))}
+                        style={{ width: 140 }} size="small"
+                        options={[
+                          { label: '规则引擎', value: 'rule' },
+                          { label: 'AI驱动', value: 'ai_driven' },
+                          { label: '手动设置', value: 'manual' },
+                        ]} />
+                    </div>
+                    <div style={{ marginBottom: 4, padding: '8px 12px', background: 'var(--color-fill-1)', borderRadius: 6, fontSize: 11, color: 'var(--color-text-3)', lineHeight: 1.6 }}>
+                      {orchConfig.policyMode === 'rule' && '根据市场情绪综合分自动切换：≥进攻阈值→进攻模式（可买可加），≥防御阈值→防御模式（可买不可加），<防御阈值→空仓（仅平仓）。'}
+                      {orchConfig.policyMode === 'ai_driven' && 'AI 根据市场环境+持仓状态综合判断，输出三态决策及置信度。需启用 AI Agent。'}
+                      {orchConfig.policyMode === 'manual' && '手动在回测时选择固定策略模式。'}
+                    </div>
+                    {(orchConfig.policyMode === 'rule' || orchConfig.policyMode === 'ai_driven') && (
+                      <div style={{ marginTop: 8, display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{ fontSize: 11, color: 'var(--color-success-text)' }}>🟢 进攻阈值</span>
+                          <InputNumber value={orchConfig.aggressiveThreshold ?? 1.5} onChange={v => setOrchConfig((prev: any) => ({ ...prev, aggressiveThreshold: v ?? 1.5 }))}
+                            min={0} max={5} step={0.5} style={{ width: 70 }} size="small" />
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{ fontSize: 11, color: 'var(--color-warning-text)' }}>🟡 防御阈值</span>
+                          <InputNumber value={orchConfig.defensiveThreshold ?? 0} onChange={v => setOrchConfig((prev: any) => ({ ...prev, defensiveThreshold: v ?? 0 }))}
+                            min={-5} max={5} step={0.5} style={{ width: 70 }} size="small" />
+                        </div>
+                      </div>
+                    )}
+                    <div style={{ marginTop: 8, fontSize: 10, color: 'var(--color-text-4)' }}>
+                      当前阈值: 综合分 ≥{orchConfig.aggressiveThreshold ?? 1.5}→进攻 | ≥{orchConfig.defensiveThreshold ?? 0}→防御 | &lt;{orchConfig.defensiveThreshold ?? 0}→空仓
+                    </div>
+                  </div>
+
+                  {/* Industry */}
+                  <div style={{ padding: '14px 18px', background: 'var(--color-bg-1)', borderRadius: 10, border: '1px solid var(--color-border-1)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                      <Factory size={16} style={{ color: '#00B42A' }} />
+                      <span style={{ fontSize: 14, fontWeight: 600 }}>行业上下文</span>
+                    </div>
+                    <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>行业过滤</span>
+                        <Input value={orchConfig.industryFilter || ''} onChange={v => setOrchConfig((prev: any) => ({ ...prev, industryFilter: v }))}
+                          style={{ width: 240 }} size="small" placeholder="逗号分隔，空=全部行业" />
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>板块轮动</span>
+                        <input type="checkbox" checked={orchConfig.enableSectorRotation || false}
+                          onChange={e => setOrchConfig((prev: any) => ({ ...prev, enableSectorRotation: e.target.checked }))}
+                          style={{ accentColor: '#165DFF' }} />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Save Button */}
+                  <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                    <Button size="small" type="primary" loading={orchSaving}
+                      onClick={async () => {
+                        if (!activeId) return;
+                        setOrchSaving(true);
+                        try {
+                          await saveOrchestration(activeId, orchConfig);
+                          window.dispatchEvent(new CustomEvent('app:toast', { detail: { type: 'success', message: '编排配置已保存' } }));
+                        } catch (e) {
+                          window.dispatchEvent(new CustomEvent('app:toast', { detail: { type: 'error', message: '保存失败' } }));
+                        } finally {
+                          setOrchSaving(false);
+                        }
+                      }}>
+                      保存编排配置
+                    </Button>
+                  </div>
+                </div>
               </>
             ) : (
               <>

@@ -244,6 +244,15 @@ export const saveStrategyConditions = (id: number, conditions: any[]) => api.put
 export const aiGenerateStrategy = (data: any) => api.post("/strategies/ai-generate", data, { timeout: 120000 });
 export const optimizePrompt = (prompt: string, style: string) => api.post("/strategies/optimize-prompt", { prompt, style });
 export const fetchIndicators = () => api.get("/strategies/indicators");
+
+// ── Strategy Orchestration v2 ──
+export const fetchOrchestration = (id: number) => api.get(`/strategies/${id}/orchestration`);
+export const saveOrchestration = (id: number, data: any) => api.put(`/strategies/${id}/orchestration`, data);
+export const fetchConditionTemplates = () => api.get("/strategies/templates");
+export const createConditionTemplate = (data: any) => api.post("/strategies/templates", data);
+export const fetchAIDecisions = (id: number) => api.get(`/strategies/${id}/ai-decisions`);
+export const triggerAIReview = (id: number) => api.post(`/strategies/${id}/ai-review`);
+
 export const fetchIndicatorGuide = () => api.get("/strategies/indicator-guide");
 export const testIndicator = (data: any) => api.post("/strategies/test-indicator", data);
 export const runBacktest = (id: number, startDate: string, endDate: string, stockCodes?: string[]) => api.post(`/strategies/${id}/backtest`, { startDate, endDate, stockCodes });
