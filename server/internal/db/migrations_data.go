@@ -836,6 +836,17 @@ func init() {
 		},
 	})
 
+
+	// v027: Add Policy Manager v3 fields to MySQL strategies table
+	Register(Migration{
+		Version:     27,
+		Description: "MySQL: strategies add policy_mode, aggressive_threshold, defensive_threshold, policy_aggressive, policy_defensive, policy_cash columns",
+		Up: func() error {
+			gormAutoMigrate(MySQL, &model.Strategy{})
+			return nil
+		},
+	})
+
 log.Printf("[migrate] registered %d migrations", len(migrations))
 
 

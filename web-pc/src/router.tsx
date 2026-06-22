@@ -24,6 +24,7 @@ import AdminPage from './pages/AdminPage';
 import PkListPage from './pages/PkListPage';
 import PkDetailPage from './pages/PkDetailPage';
 import PkAdminPage from './pages/PkAdminPage';
+import BacktestDetailPage from "./pages/BacktestDetailPage";
 import PkEntryDetailPage from './pages/PkEntryDetailPage';
 
 function ErrorBoundary() {
@@ -96,6 +97,7 @@ const router = createBrowserRouter([
           { path: 'pk', element: <PkListPage /> },
           { path: 'pk/:id', element: <PkDetailPage /> },
           { path: 'pk/create', element: <PkAdminPage /> },
+          { path: 'strategy/backtest/:id', element: <BacktestDetailPage /> },
           { path: 'pk/:id/entry/:entryId', element: <PkEntryDetailPage /> },
           { path: '*', element: <Navigate to="/" replace /> },
         ],

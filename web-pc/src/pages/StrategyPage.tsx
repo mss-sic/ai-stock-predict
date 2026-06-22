@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Button, Input, InputNumber, Modal, Table, Select, Popconfirm, Tooltip, DatePicker, Message, Tag } from '@arco-design/web-react';
 import { Target, Plus, Trash2, GripVertical, Play, Brain, BarChart4, TrendingUp, Shield, Settings, Sparkles, Beaker, Gauge, Factory, GitBranch, Layers, SlidersHorizontal } from 'lucide-react';
 import {
@@ -41,6 +42,7 @@ const CROSS_PRESETS: Record<string, Array<{label: string, operator: string, valu
 const COND_COLORS: Record<CondType, string> = { buy: 'var(--stock-up)', add: 'var(--color-warning-text)', sell: 'var(--stock-down)', reduce: 'var(--color-info-text)' };
 
 export default function StrategyPage() {
+  const navigate = useNavigate();
   const [strategies, setStrategies] = useState<any[]>([]);
   const [activeId, setActiveId] = useState<number | null>(null);
   const [activeStrategy, setActiveStrategy] = useState<any>(null);
@@ -112,14 +114,14 @@ export default function StrategyPage() {
       if (list.length > 0 && !activeId) {
         setActiveId(list[0].id);
       }
-    } catch {}
+    } catch (err) { console.error('[StrategyPage] load failed:', err); }
   }, [activeId]);
 
   const loadIndicators = useCallback(async () => {
     try {
       const { data: r } = await fetchIndicators();
       setIndicators(r.data || []);
-    } catch {}
+    } catch (err) { console.error('[StrategyPage] indicators load failed:', err); }
   }, []);
 
   useEffect(() => { loadStrategies(); loadIndicators(); }, []);
@@ -147,7 +149,7 @@ export default function StrategyPage() {
       setNewName('');
       loadStrategies();
       toast('success', '策略已创建');
-    } catch {}
+    } catch (err) { console.error('[StrategyPage] op failed:', err); }
   };
 
   const handleDelete = async (id: number) => {
@@ -159,7 +161,7 @@ export default function StrategyPage() {
       }
       loadStrategies();
       toast('success', '已删除');
-    } catch {}
+    } catch (err) { console.error('[StrategyPage] op failed:', err); }
   };
 
   const handleUpdateStrategy = async (field: string, value: any) => {
@@ -167,15 +169,14 @@ export default function StrategyPage() {
     try {
       await updateStrategy(activeId, { [field]: value });
       loadStrategies();
-    } catch {}
+    } catch (err) { console.error('[StrategyPage] op failed:', err); }
   };
 
   const filteredConds = (t: CondType) => conditions.filter((c: any) => c.condType === t);
 
-  const addCondition = (ct: CondType) => {
-    // Auto-increment LogicGroup: find max group for this condType, +1
-    const sameType = conditions.filter((c: any) => c.condType === ct);
-    const maxGroup = sameType.reduce((max: number, c: any) => Math.max(max, c.logicGroup || 1), 0);
+  const addConditionToGroup = (ct: CondType, groupId: number) => {
+    const sameGroup = conditions.filter((c: any) => c.condType === ct && (c.logicGroup || 1) === groupId);
+    const maxSort = sameGroup.reduce((max: number, c: any) => Math.max(max, c.sortOrder || 0), -1);
     setConditions([...conditions, {
       id: -(Date.now()),
       strategyId: activeId,
@@ -183,9 +184,30 @@ export default function StrategyPage() {
       indicator: 'algo_score',
       operator: 'gte',
       value: 0,
-      logicGroup: maxGroup + 1,
-      sortOrder: filteredConds(ct).length,
+      logicGroup: groupId,
+      sortOrder: maxSort + 1,
     }]);
+  };
+
+  const addConditionGroup = (ct: CondType) => {
+    const sameType = conditions.filter((c: any) => c.condType === ct);
+    const maxGroup = sameType.length > 0 ? sameType.reduce((max: number, c: any) => Math.max(max, c.logicGroup || 1), 0) : 0;
+    const newGroup = maxGroup + 1;
+    setConditions([...conditions, {
+      id: -(Date.now()),
+      strategyId: activeId,
+      condType: ct,
+      indicator: 'algo_score',
+      operator: 'gte',
+      value: 0,
+      logicGroup: newGroup,
+      sortOrder: 0,
+    }]);
+    return newGroup;
+  };
+
+  const removeConditionGroup = (ct: CondType, groupId: number) => {
+    setConditions(prev => prev.filter((c: any) => !(c.condType === ct && (c.logicGroup || 1) === groupId)));
   };
 
   // Smart defaults per indicator: operator + value when user selects a new indicator
@@ -350,7 +372,7 @@ export default function StrategyPage() {
       // Reload
       const { data: r } = await fetchStrategyConditions(activeId);
       setConditions(r.data || []);
-    } catch {}
+    } catch (err) { console.error('[StrategyPage] op failed:', err); }
   };
 
   const handleAIGenerate = async () => {
@@ -401,7 +423,7 @@ export default function StrategyPage() {
       const { data: r } = await optimizePrompt(aiDesc, aiStyle);
       const optimized = r.data?.optimized || '';
       if (optimized) { setAiDesc(optimized); toast('success', 'AI已优化策略描述'); }
-    } catch {}
+    } catch (err) { console.error('[StrategyPage] op failed:', err); }
     setAiOptimizing(false);
   };
 
@@ -888,304 +910,348 @@ export default function StrategyPage() {
                       background: 'linear-gradient(135deg, var(--color-fill-2) 0%, var(--color-fill-1) 100%)',
                       borderRadius: 12, border: '1.5px dashed var(--color-border-1)',
                     }}>
-                      <div style={{ fontSize: 36, marginBottom: 8 }}>📋</div>
+                      <div style={{ fontSize: 36, marginBottom: 8 }}><Layers size={36} style={{ color: 'var(--color-text-3)' }} /></div>
                       <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text-2)', marginBottom: 4 }}>
                         暂无{COND_LABELS[condTab]}
                       </div>
                       <div style={{ fontSize: 12, color: 'var(--color-text-3)', marginBottom: 12 }}>
-                        添加因子条件来定义何时触发{COND_LABELS[condTab]}
+                        新建条件组来定义触发规则（组内 AND · 组间 OR）
                       </div>
-                      <Button size="small" type="outline" icon={<Plus size={12} />} onClick={() => addCondition(condTab)}>
-                        添加条件
+                      <Button size="small" type="outline" icon={<Plus size={12} />} onClick={() => addConditionGroup(condTab)}>
+                        新建条件组
                       </Button>
                     </div>
                   ) : (
-                    filteredConds(condTab).map((c: any, idx: number) => {
-                      const globalIdx = conditions.indexOf(c);
-                      const info = getIndicatorInfo(c.indicator);
-                      const isCross = info?.type === 'cross';
-                      const safeTag = info?.backtestSafe ? '🟢' : (info?.dataNote?.startsWith('🚫') ? '🚫' : '🟡');
-                      return (
-                        <div key={c.id || idx} style={{
-                          display: 'flex', flexDirection: 'column', gap: 6,
-                          padding: '10px 14px',
-                          background: 'var(--color-bg-1)',
-                          borderRadius: 10,
-                          border: '1px solid var(--color-border-1)',
-                          boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
-                          transition: 'box-shadow 0.2s',
-                        }}
-                        onMouseEnter={e => (e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.08)')}
-                        onMouseLeave={e => (e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.04)')}
-                        >
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                          {/* Logic connector */}
-                          {(() => {
-                            // Determine if this starts a new LogicGroup
-                            const curGroup = c.logicGroup || 1;
-                            const prevCond = idx > 0 ? filteredConds(condTab)[idx-1] : null;
-                            const prevGroup = prevCond ? (prevCond.logicGroup || 1) : 0;
-                            const isNewGroup = prevGroup !== curGroup;
-                            return (
+                    (() => {
+                      // Group conditions by logicGroup for card rendering
+                      const grouped = filteredConds(condTab).reduce((acc: Record<number, any[]>, c: any) => {
+                        const g = c.logicGroup || 1;
+                        if (!acc[g]) acc[g] = [];
+                        acc[g].push(c);
+                        return acc;
+                      }, {} as Record<number, any[]>);
+                      const groupIds = Object.keys(grouped).map(Number).sort((a, b) => a - b);
+
+                      return groupIds.map((gid, gIdx) => {
+                        const groupConds = grouped[gid];
+                        const isLastGroup = gIdx === groupIds.length - 1;
+                        return (
+                          <React.Fragment key={gid}>
+                            {/* Group card */}
                             <div style={{
-                              minWidth: 36, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                              borderRadius: 14, fontSize: 11, fontWeight: 700,
-                              background: isNewGroup ? 'var(--color-info-bg)' : 'var(--color-fill-2)',
-                              color: isNewGroup ? 'var(--color-info-text)' : 'var(--color-text-3)',
-                              letterSpacing: 0.5, cursor: 'pointer',
-                            }} title={isNewGroup ? '条件组 ' + curGroup + ' (OR)' : '组内 AND'}>
-                              {isNewGroup ? 'G' + curGroup : 'AND'}
+                              background: 'var(--color-bg-2)',
+                              borderRadius: 10,
+                              border: '1px solid var(--color-border-2)',
+                              overflow: 'hidden',
+                            }}>
+                              {/* Group header */}
+                              <div style={{
+                                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                                padding: '8px 14px',
+                                background: 'var(--color-fill-1)',
+                                borderBottom: '1px solid var(--color-border-1)',
+                              }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                  <span style={{
+                                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                                    minWidth: 28, height: 24, borderRadius: 12,
+                                    background: 'var(--color-info-bg)',
+                                    color: 'var(--color-info-text)',
+                                    fontSize: 11, fontWeight: 700, padding: '0 8px',
+                                  }}>
+                                    G{gid}
+                                  </span>
+                                  <span style={{ fontSize: 11, color: 'var(--color-text-3)' }}>
+                                    {groupConds.length} 条条件 (AND)
+                                  </span>
+                                </div>
+                                <Popconfirm title="删除整组条件？" onOk={() => removeConditionGroup(condTab, gid)}>
+                                  <Button size="mini" type="text" style={{ color: 'var(--color-text-3)' }} icon={<Trash2 size={12} />} />
+                                </Popconfirm>
+                              </div>
+                              {/* Group body: condition list */}
+                              <div style={{ padding: '8px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                {groupConds.map((c: any, cIdx: number) => {
+                                  const globalIdx = conditions.indexOf(c);
+                                  const info = getIndicatorInfo(c.indicator);
+                                  const isCross = info?.type === 'cross';
+                                  const safeTag = info?.backtestSafe ? '🟢' : (info?.dataNote?.startsWith('🚫') ? '🚫' : '🟡');
+                                  return (
+                                    <div key={c.id || cIdx} style={{
+                                      display: 'flex', flexDirection: 'column', gap: 6,
+                                      padding: '8px 12px',
+                                      background: 'var(--color-bg-1)',
+                                      borderRadius: 8,
+                                      border: '1px solid var(--color-border-1)',
+                                    }}>
+                                      {/* Condition row */}
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                                        {/* Indicator selector */}
+                                        <Tooltip content={<div style={{maxWidth:260}}>{info?.desc}<br/><span style={{color:'var(--color-text-3)',fontSize:11}}>{info?.dataNote}</span></div>} position="bottom">
+                                          <Select
+                                            value={c.indicator}
+                                            onChange={v => handleIndicatorChange(globalIdx, v)}
+                                            style={{ width: 180 }}
+                                            size="small"
+                                            placeholder="选择指标"
+                                            options={indicators.map((ind: any) => ({
+                                              label: `${ind.backtestSafe ? '🟢' : (ind.dataNote?.startsWith('🚫') ? '🚫' : '🟡')} ${ind.label}`,
+                                              value: ind.key,
+                                            }))}
+                                          />
+                                        </Tooltip>
+
+                                        {/* Cross-type: semantic preset dropdown */}
+                                        {isCross ? (
+                                          (() => {
+                                            const presets = (CROSS_PRESETS[c.indicator] || []).filter((p: any) => p.operator);
+                                            const matched = presets.find((p: any) => p.operator === c.operator && p.value === c.value);
+                                            return (
+                                              <Select value={matched ? matched.label : '__custom__'} onChange={(v: string) => {
+                                                if (v === '__custom__') { updateCondition(globalIdx, 'operator', 'cross_up'); updateCondition(globalIdx, 'value', -1); return; }
+                                                const p = presets.find((x: any) => x.label === v);
+                                                if (p) { updateCondition(globalIdx, 'operator', p.operator); updateCondition(globalIdx, 'value', p.value); }
+                                              }} style={{ width: 240 }} size="small"
+                                              options={[...presets.map((p: any) => ({ label: p.label, value: p.label })), { label: '自定义...', value: '__custom__' }]} />
+                                            );
+                                          })()
+                                        ) : (
+                                          <>
+                                            <Select value={c.operator} onChange={v => updateCondition(globalIdx, 'operator', v)} style={{ width: 110 }} size="small"
+                                              options={getOperators(c.indicator).map((op: string) => {
+                                                const opLabels: Record<string, string> = { gte: '≥ 大于等于', lte: '≤ 小于等于', gt: '> 大于', lt: '< 小于', eq: '= 等于', cross_up: '↑ 上穿', cross_down: '↓ 下穿' };
+                                                return { label: opLabels[op] || op, value: op };
+                                              })} />
+                                            {c.indicator === 'total_market_cap' ? (
+                                            <InputNumber
+                                              value={c.value / 100000000}
+                                              onChange={v => updateCondition(globalIdx, 'value', (v ?? 0) * 100000000)}
+                                              style={{ width: 110, fontFamily: 'monospace' }}
+                                              size="small"
+                                              placeholder="市值(亿)"
+                                              suffix="亿"
+                                              step={10}
+                                            />
+                                          ) : c.indicator === 'new_high_20' ? (
+                                            <Select value={c.value} onChange={v => updateCondition(globalIdx, 'value', v ?? 0)} style={{ width: 90 }} size="small"
+                                              options={[{ label: '是', value: 1 }, { label: '否', value: 0 }]} />
+                                          ) : (
+                                            <InputNumber
+                                              value={c.value}
+                                              onChange={v => updateCondition(globalIdx, 'value', v ?? 0)}
+                                              style={{ width: 90, fontFamily: 'monospace' }}
+                                              size="small"
+                                              placeholder="阈值"
+                                              suffix={(() => { const u = info?.unit; if (!u) return undefined; if (u === '分' || u === '次数') return undefined; return u; })()}
+                                            />
+                                          )}
+                                          </>
+                                        )}
+
+                                        {/* Data tag */}
+                                        <Tooltip content={info?.dataNote || ''}>
+                                          <span style={{ fontSize: 11, color: 'var(--color-text-3)', cursor: 'help' }}>{safeTag}</span>
+                                        </Tooltip>
+
+                                        {/* Test indicator */}
+                                        <Tooltip content="用历史数据测试该指标是否准确触发">
+                                          <Button size="mini" type="text" style={{ color: 'var(--color-text-3)', padding: '0 4px' }} icon={<Beaker size={13} />}
+                                            onClick={() => openTestModal(c)}
+                                          />
+                                        </Tooltip>
+
+                                        <div style={{ flex: 1 }} />
+
+                                        {/* Delete condition */}
+                                        <Popconfirm title="移除该条件？" onOk={() => removeCondition(globalIdx)}>
+                                          <Button size="mini" type="text" style={{ color: 'var(--color-text-3)', padding: '0 4px' }} icon={<Trash2 size={13} />} />
+                                        </Popconfirm>
+                                      </div>
+                                      {/* Indicator suggestion */}
+                                      {info?.suggestion && c.indicator && (
+                                        <div style={{ fontSize: 11, color: 'var(--color-info-text)', lineHeight: 1.5, paddingLeft: 4 }}>
+                                          💡 {info.suggestion}
+                                        </div>
+                                      )}
+                                      {/* Indicator detail panel */}
+                                      {info && c.indicator && (
+                                        <div style={{ padding: '6px 12px', background: 'var(--color-fill-2)', borderRadius: 6, borderLeft: '3px solid var(--color-border-1)' }}>
+                                          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                                            <span style={{ fontSize: 11, color: 'var(--color-text-3)', whiteSpace: 'nowrap', marginTop: 1 }}>{safeTag}</span>
+                                            <div style={{ flex: 1 }}>
+                                              <div style={{ fontSize: 12, color: 'var(--color-text-2)', lineHeight: 1.5 }}>
+                                                {info.desc}
+                                                {info.unit && <span style={{ marginLeft: 6, padding: '0 6px', background: 'var(--color-fill-1)', borderRadius: 4, fontSize: 10, color: 'var(--color-text-3)' }}>{info.unit}</span>}
+                                                {info.type === 'cross' && <span style={{ marginLeft: 6, padding: '0 6px', background: '#fff7e6', borderRadius: 4, fontSize: 10, color: '#d48806' }}>交叉</span>}
+                                              </div>
+                                              {info.dataNote && !info.dataNote.startsWith('✅') && <div style={{ marginTop: 4, fontSize: 11, color: 'var(--color-warning-text)', lineHeight: 1.5 }}>📌 {info.dataNote}</div>}
+                                            </div>
+                                          </div>
+                                        </div>
+                                      )}
+                                      {/* Cross custom mode inputs */}
+                                      {isCross && (() => {
+                                        const presets = (CROSS_PRESETS[c.indicator] || []).filter((p: any) => p.operator);
+                                        return !presets.some((p: any) => p.operator === c.operator && p.value === c.value);
+                                      })() && (
+                                        <div style={{ display: 'flex', gap: 8 }}>
+                                          <Select value={c.operator} onChange={v => updateCondition(globalIdx, 'operator', v)} style={{ width: 110 }} size="small"
+                                            options={[{ label: '↑ 上穿 (金叉)', value: 'cross_up' }, { label: '↓ 下穿 (死叉)', value: 'cross_down' }]} />
+                                          <Input value={typeof c.value === 'number' ? `${Math.floor(c.value)}/${Math.round((c.value - Math.floor(c.value)) * 1000)}` : String(c.value)}
+                                            onChange={v => updateCondition(globalIdx, 'value', v)} style={{ width: 80, fontFamily: 'monospace' }} size="small" placeholder="如 5/20" />
+                                        </div>
+                                      )}
+                                      {/* Advanced Options V2 */}
+                                      {(() => {
+                                        const isOpen = condAdvOpen[globalIdx] || false;
+                                        const isScoringMode = (orchConfig.orchestrationMode || 'hybrid') === 'scoring' || (orchConfig.orchestrationMode || 'hybrid') === 'hybrid';
+                                        const isDecisionTreeMode = orchConfig.orchestrationMode === 'decision_tree';
+                                        const showWeight = isScoringMode && (c.condType === 'buy' || c.condType === 'add');
+                                        const showFuzzy = isScoringMode;
+                                        const showLookback = true;
+                                        const showConsecutive = true;
+                                        const showTrend = c.condType === 'buy' || c.condType === 'add';
+                                        const showIndustryRel = ['pe_ttm', 'pb', 'ps_ttm', 'roe', 'roa', 'debt_ratio'].includes(c.indicator);
+                                        const showTimeframe = isScoringMode;
+                                        const showTreeOp = isDecisionTreeMode && (c.condType === 'sell' || c.condType === 'reduce');
+                                        const hasAdv = showWeight || showFuzzy || showLookback || showConsecutive || showTrend || showIndustryRel || showTimeframe || showTreeOp;
+                                        if (!hasAdv) return null;
+                                        return (
+                                          <div style={{ marginTop: 4 }}>
+                                            <Button size="mini" type="text" style={{ fontSize: 10, color: 'var(--color-text-3)', padding: '0 2px' }}
+                                              onClick={() => setCondAdvOpen(prev => ({ ...prev, [globalIdx]: !isOpen }))}>
+                                              {isOpen ? '收起高级' : '高级选项'} {isOpen ? '▴' : '▾'}
+                                            </Button>
+                                            {isOpen && (
+                                              <div style={{ marginTop: 6, padding: '8px 12px', background: 'var(--color-fill-2)', borderRadius: 6, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                                {showWeight && (
+                                                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                                    <span style={{ fontSize: 11, color: 'var(--color-text-3)', minWidth: 60 }}>权重</span>
+                                                    <InputNumber value={c.weight || 1.0} onChange={v => updateCondition(globalIdx, 'weight', v ?? 1.0)}
+                                                      style={{ width: 80 }} size="mini" min={0} max={5} step={0.5} />
+                                                  </div>
+                                                )}
+                                                {showFuzzy && (
+                                                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                                    <span style={{ fontSize: 11, color: 'var(--color-text-3)', minWidth: 60 }}>模糊评分</span>
+                                                    <InputNumber value={c.fuzzySigma || 0} onChange={v => updateCondition(globalIdx, 'fuzzySigma', v ?? 0)}
+                                                      style={{ width: 80 }} size="mini" min={0} max={5} step={0.5} />
+                                                    <span style={{ fontSize: 10, color: 'var(--color-text-3)' }}>σ, 0=精确</span>
+                                                  </div>
+                                                )}
+                                                {showLookback && (
+                                                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                                    <span style={{ fontSize: 11, color: 'var(--color-text-3)', minWidth: 60 }}>回溯天数</span>
+                                                    <InputNumber value={c.lookbackDays || 1} onChange={v => updateCondition(globalIdx, 'lookbackDays', v ?? 1)}
+                                                      style={{ width: 80 }} size="mini" min={1} max={60} />
+                                                  </div>
+                                                )}
+                                                {showConsecutive && (
+                                                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                                    <span style={{ fontSize: 11, color: 'var(--color-text-3)', minWidth: 60 }}>连续天数</span>
+                                                    <InputNumber value={c.consecutiveDays || 1} onChange={v => updateCondition(globalIdx, 'consecutiveDays', v ?? 1)}
+                                                      style={{ width: 80 }} size="mini" min={1} max={10} />
+                                                  </div>
+                                                )}
+                                                {showTrend && (
+                                                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                                    <span style={{ fontSize: 11, color: 'var(--color-text-3)', minWidth: 60 }}>趋势方向</span>
+                                                    <Select value={c.trendDirection || 'none'} onChange={v => updateCondition(globalIdx, 'trendDirection', v)}
+                                                      style={{ width: 120 }} size="mini"
+                                                      options={[
+                                                        { label: '不关注', value: 'none' },
+                                                        { label: '改善中', value: 'improving' },
+                                                        { label: '恶化中', value: 'deteriorating' },
+                                                      ]} />
+                                                  </div>
+                                                )}
+                                                {showIndustryRel && (
+                                                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                                    <span style={{ fontSize: 11, color: 'var(--color-text-3)', minWidth: 60 }}>行业相对</span>
+                                                    <input type="checkbox" checked={c.industryRelative || false}
+                                                      onChange={e => updateCondition(globalIdx, 'industryRelative', e.target.checked)}
+                                                      style={{ accentColor: '#165DFF' }} />
+                                                    <span style={{ fontSize: 10, color: 'var(--color-text-3)' }}>阈值相对行业中位数</span>
+                                                  </div>
+                                                )}
+                                                {showTimeframe && (
+                                                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                                    <span style={{ fontSize: 11, color: 'var(--color-text-3)', minWidth: 60 }}>K线周期</span>
+                                                    <Select value={c.timeframe || 'daily'} onChange={v => updateCondition(globalIdx, 'timeframe', v)}
+                                                      style={{ width: 100 }} size="mini"
+                                                      options={[
+                                                        { label: '日线', value: 'daily' },
+                                                        { label: '周线', value: 'weekly' },
+                                                        { label: '月线', value: 'monthly' },
+                                                      ]} />
+                                                  </div>
+                                                )}
+                                                {showTreeOp && (
+                                                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                                    <span style={{ fontSize: 11, color: 'var(--color-text-3)', minWidth: 60 }}>条件逻辑</span>
+                                                    <Select value={c.treeOperator || 'and'} onChange={v => updateCondition(globalIdx, 'treeOperator', v)}
+                                                      style={{ width: 100 }} size="mini"
+                                                      options={[
+                                                        { label: 'AND', value: 'and' },
+                                                        { label: 'OR', value: 'or' },
+                                                        { label: 'NOT', value: 'not' },
+                                                      ]} />
+                                                  </div>
+                                                )}
+                                              </div>
+                                            )}
+                                          </div>
+                                        );
+                                      })()}
+                                    </div>
+                                  );
+                                })}
+                                {/* Add condition to this group */}
+                                <Button size="mini" type="dashed" icon={<Plus size={11} />}
+                                  onClick={() => addConditionToGroup(condTab, gid)}
+                                  style={{ alignSelf: 'flex-start', fontSize: 11 }}>
+                                  添加条件
+                                </Button>
+                              </div>
                             </div>
-                            );
-                          })()}
-
-                          {/* Indicator selector with safety badge */}
-                          <Tooltip content={<div style={{maxWidth:260}}>{info?.desc}<br/><span style={{color:'var(--color-text-3)',fontSize:11}}>{info?.dataNote}</span></div>} position="bottom">
-                            <Select
-                              value={c.indicator}
-                              onChange={v => handleIndicatorChange(globalIdx, v)}
-                              style={{ width: 180 }}
-                              size="small"
-                              placeholder="选择指标"
-                              options={indicators.map((ind: any) => ({
-                                label: `${ind.backtestSafe ? '🟢' : (ind.dataNote?.startsWith('🚫') ? '🚫' : '🟡')} ${ind.label}`,
-                                value: ind.key,
-                              }))}
-                            />
-                          </Tooltip>
-
-                          {/* Cross-type: semantic preset dropdown */}
-                          {isCross ? (
-                            (() => {
-                              const presets = (CROSS_PRESETS[c.indicator] || []).filter((p: any) => p.operator);
-                              const matched = presets.find((p: any) => p.operator === c.operator && p.value === c.value);
-                              return (
-                                <Select value={matched ? matched.label : '__custom__'} onChange={(v: string) => {
-                                  if (v === '__custom__') { updateCondition(globalIdx, 'operator', 'cross_up'); updateCondition(globalIdx, 'value', -1); return; }
-                                  const p = presets.find((x: any) => x.label === v);
-                                  if (p) { updateCondition(globalIdx, 'operator', p.operator); updateCondition(globalIdx, 'value', p.value); }
-                                }} style={{ width: 240 }} size="small"
-                                options={[...presets.map((p: any) => ({ label: p.label, value: p.label })), { label: '自定义...', value: '__custom__' }]} />
-                              );
-                            })()
-                          ) : (
-                            <>
-                              <Select value={c.operator} onChange={v => updateCondition(globalIdx, 'operator', v)} style={{ width: 110 }} size="small"
-                                options={getOperators(c.indicator).map((op: string) => {
-                                  const opLabels: Record<string, string> = { gte: '≥ 大于等于', lte: '≤ 小于等于', gt: '> 大于', lt: '< 小于', eq: '= 等于', cross_up: '↑ 上穿', cross_down: '↓ 下穿' };
-                                  return { label: opLabels[op] || op, value: op };
-                                })} />
-                              {c.indicator === 'total_market_cap' ? (
-                              <InputNumber
-                                value={c.value / 100000000}
-                                onChange={v => updateCondition(globalIdx, 'value', (v ?? 0) * 100000000)}
-                                style={{ width: 110, fontFamily: 'monospace' }}
-                                size="small"
-                                placeholder="市值(亿)"
-                                suffix="亿"
-                                step={10}
-                              />
-                            ) : c.indicator === 'new_high_20' ? (
-                              <Select value={c.value} onChange={v => updateCondition(globalIdx, 'value', v ?? 0)} style={{ width: 90 }} size="small"
-                                options={[{ label: '是', value: 1 }, { label: '否', value: 0 }]} />
-                            ) : (
-                              <InputNumber
-                                value={c.value}
-                                onChange={v => updateCondition(globalIdx, 'value', v ?? 0)}
-                                style={{ width: 90, fontFamily: 'monospace' }}
-                                size="small"
-                                placeholder="阈值"
-                                suffix={(() => { const u = info?.unit; if (!u) return undefined; if (u === '分' || u === '次数') return undefined; return u; })()}
-                              />
+                            {/* OR separator between groups */}
+                            {!isLastGroup && (
+                              <div style={{
+                                display: 'flex', alignItems: 'center', gap: 8, padding: '0 4px',
+                              }}>
+                                <div style={{ flex: 1, height: 0, borderTop: '1px dashed var(--color-border-2)' }} />
+                                <span style={{
+                                  fontSize: 10, fontWeight: 700, color: 'var(--color-warning-text)',
+                                  padding: '2px 10px', borderRadius: 10,
+                                  background: 'var(--color-fill-2)', letterSpacing: 1,
+                                }}>或</span>
+                                <div style={{ flex: 1, height: 0, borderTop: '1px dashed var(--color-border-2)' }} />
+                              </div>
                             )}
-                          </>
-                          )}
-
-                          {/* If cross custom mode, show manual inputs */}
-                          {isCross && (() => {
-                            const presets = (CROSS_PRESETS[c.indicator] || []).filter((p: any) => p.operator);
-                            return !presets.some((p: any) => p.operator === c.operator && p.value === c.value);
-                          })() && (
-                            <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                              <Select value={c.operator} onChange={v => updateCondition(globalIdx, 'operator', v)} style={{ width: 110 }} size="small"
-                                options={[{ label: '↑ 上穿 (金叉)', value: 'cross_up' }, { label: '↓ 下穿 (死叉)', value: 'cross_down' }]} />
-                              <Input value={typeof c.value === 'number' ? `${Math.floor(c.value)}/${Math.round((c.value - Math.floor(c.value)) * 1000)}` : String(c.value)}
-                                onChange={v => updateCondition(globalIdx, 'value', v)} style={{ width: 80, fontFamily: 'monospace' }} size="small" placeholder="如 5/20" />
-                            </div>
-                          )}
-
-                          {/* Data tag */}
-                          <Tooltip content={info?.dataNote || ''}>
-                            <span style={{ fontSize: 11, color: 'var(--color-text-3)', cursor: 'help' }}>{safeTag}</span>
-                          </Tooltip>
-
-                          {/* Test indicator */}
-                          <Tooltip content="用历史数据测试该指标是否准确触发">
-                            <Button size="mini" type="text" style={{ color: 'var(--color-text-3)', padding: '0 4px' }} icon={<Beaker size={13} />}
-                              onClick={() => openTestModal(c)}
-                            />
-                          </Tooltip>
-
-                          {/* Spacer */}
-                          <div style={{ flex: 1 }} />
-
-                          {/* Delete */}
-                          <Popconfirm title="移除该条件？" onOk={() => removeCondition(globalIdx)}>
-                            <Button size="mini" type="text" style={{ color: 'var(--color-text-3)', padding: '0 4px' }} icon={<Trash2 size={13} />} />
-                          </Popconfirm>
-                          </div>
-                          {/* Indicator suggestion — shown below condition row */}
-                          {info?.suggestion && c.indicator && (
-                            <div style={{ marginTop: 6, fontSize: 11, color: 'var(--color-info-text)', lineHeight: 1.5, paddingLeft: 4 }}>
-                              💡 {info.suggestion}
-                            </div>
-                          )}
-                          {/* Indicator detail panel */}
-                          {info && c.indicator && (
-                            <div style={{ marginTop: 6, padding: '8px 12px', background: 'var(--color-fill-2)', borderRadius: 6, borderLeft: '3px solid var(--color-border-1)' }}>
-                              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-                                <span style={{ fontSize: 11, color: 'var(--color-text-3)', whiteSpace: 'nowrap', marginTop: 1 }}>{safeTag}</span>
-                                <div style={{ flex: 1 }}>
-                                  <div style={{ fontSize: 12, color: 'var(--color-text-2)', lineHeight: 1.5 }}>
-                                    {info.desc}
-                                    {info.unit && <span style={{ marginLeft: 6, padding: '0 6px', background: 'var(--color-fill-1)', borderRadius: 4, fontSize: 10, color: 'var(--color-text-3)' }}>{info.unit}</span>}
-                                    {info.type === 'cross' && <span style={{ marginLeft: 6, padding: '0 6px', background: '#fff7e6', borderRadius: 4, fontSize: 10, color: '#d48806' }}>交叉</span>}
-                                  </div>
-                                  {info.dataNote && !info.dataNote.startsWith('✅') && <div style={{ marginTop: 4, fontSize: 11, color: 'var(--color-warning-text)', lineHeight: 1.5 }}>📌 {info.dataNote}</div>}
-                                </div>
-                              </div>
-                            </div>
-                          )}
-                          {/* ── Advanced Options (V2) ── */}
-                          {(() => {
-                            const isOpen = condAdvOpen[globalIdx] || false;
-                            const ct = c.condType as CondType;
-                            const isBuyOrAdd = ct === 'buy' || ct === 'add';
-                            const isSellOrReduce = ct === 'sell' || ct === 'reduce';
-                            const isScoringMode = (orchConfig.orchestrationMode || 'hybrid') === 'scoring' || (orchConfig.orchestrationMode || 'hybrid') === 'hybrid';
-                            const isDtreeMode = (orchConfig.orchestrationMode || 'hybrid') === 'decision_tree' || (orchConfig.orchestrationMode || 'hybrid') === 'hybrid';
-                            const showWeight = isScoringMode && isBuyOrAdd;
-                            const showFuzzy = isScoringMode;
-                            const showTimeSeries = isScoringMode;
-                            const showIndustryRel = info?.industryRelativeSupport;
-                            const showTimeframe = isScoringMode;
-                            const showTreeOp = isDtreeMode && isSellOrReduce;
-                            const showComposite = isDtreeMode;
-                            const hasAdvanced = showWeight || showFuzzy || showTimeSeries || showIndustryRel || showTimeframe || showTreeOp || showComposite;
-
-                            return (
-                              <div style={{ marginTop: 4, borderTop: '1px solid var(--color-border-1)', paddingTop: 6 }}>
-                                <div
-                                  onClick={() => setCondAdvOpen(prev => ({ ...prev, [globalIdx]: !isOpen }))}
-                                  style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--color-text-3)', userSelect: 'none' }}
-                                >
-                                  <Layers size={11} />
-                                  高级选项
-                                  {hasAdvanced && <span style={{ background: 'var(--color-primary-light-1)', color: '#165DFF', borderRadius: 4, padding: '0 4px', fontSize: 10 }}>已配置</span>}
-                                  <span style={{ marginLeft: 'auto', transform: isOpen ? 'rotate(180deg)' : '', transition: 'transform 0.2s' }}>▼</span>
-                                </div>
-                                {isOpen && (
-                                  <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 8, padding: '8px 12px', background: 'var(--color-fill-1)', borderRadius: 6 }}>
-                                    {/* Weight (scoring mode, buy/add) */}
-                                    {showWeight && (
-                                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                        <span style={{ fontSize: 11, color: 'var(--color-text-3)', minWidth: 60 }}>权重</span>
-                                        <InputNumber value={c.weight || 1} onChange={v => updateCondition(globalIdx, 'weight', v ?? 1)}
-                                          min={0} max={5} step={0.5} style={{ width: 80 }} size="mini" />
-                                        <span style={{ fontSize: 10, color: 'var(--color-text-3)' }}>0-5, 默认1.0</span>
-                                      </div>
-                                    )}
-                                    {/* Fuzzy Sigma (scoring mode) */}
-                                    {showFuzzy && (
-                                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                        <span style={{ fontSize: 11, color: 'var(--color-text-3)', minWidth: 60 }}>模糊阈值</span>
-                                        <InputNumber value={c.fuzzySigma || 0} onChange={v => updateCondition(globalIdx, 'fuzzySigma', v ?? 0)}
-                                          min={0} max={10} step={0.5} style={{ width: 80 }} size="mini" />
-                                        <span style={{ fontSize: 10, color: 'var(--color-text-3)' }}>0=二元判断, &gt;0 部分匹配</span>
-                                      </div>
-                                    )}
-                                    {/* Time Series: lookback + consecutive days (scoring mode) */}
-                                    {showTimeSeries && (
-                                      <>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                          <span style={{ fontSize: 11, color: 'var(--color-text-3)', minWidth: 60 }}>回溯天数</span>
-                                          <InputNumber value={c.lookbackDays || 1} onChange={v => updateCondition(globalIdx, 'lookbackDays', v ?? 1)}
-                                            min={1} max={60} style={{ width: 80 }} size="mini" />
-                                        </div>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                          <span style={{ fontSize: 11, color: 'var(--color-text-3)', minWidth: 60 }}>连续满足</span>
-                                          <InputNumber value={c.consecutiveDays || 1} onChange={v => updateCondition(globalIdx, 'consecutiveDays', v ?? 1)}
-                                            min={1} max={30} style={{ width: 80 }} size="mini" />
-                                          <span style={{ fontSize: 10, color: 'var(--color-text-3)' }}>天</span>
-                                        </div>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                          <span style={{ fontSize: 11, color: 'var(--color-text-3)', minWidth: 60 }}>趋势方向</span>
-                                          <Select value={c.trendDirection || 'none'} onChange={v => updateCondition(globalIdx, 'trendDirection', v)}
-                                            style={{ width: 120 }} size="mini"
-                                            options={[
-                                              { label: '不关注', value: 'none' },
-                                              { label: '改善中', value: 'improving' },
-                                              { label: '恶化中', value: 'deteriorating' },
-                                            ]} />
-                                        </div>
-                                      </>
-                                    )}
-                                    {/* Industry Relative */}
-                                    {showIndustryRel && (
-                                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                        <span style={{ fontSize: 11, color: 'var(--color-text-3)', minWidth: 60 }}>行业相对</span>
-                                        <input type="checkbox" checked={c.industryRelative || false}
-                                          onChange={e => updateCondition(globalIdx, 'industryRelative', e.target.checked)}
-                                          style={{ accentColor: '#165DFF' }} />
-                                        <span style={{ fontSize: 10, color: 'var(--color-text-3)' }}>阈值相对行业中位数</span>
-                                      </div>
-                                    )}
-                                    {/* Timeframe (scoring mode) */}
-                                    {showTimeframe && (
-                                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                        <span style={{ fontSize: 11, color: 'var(--color-text-3)', minWidth: 60 }}>K线周期</span>
-                                        <Select value={c.timeframe || 'daily'} onChange={v => updateCondition(globalIdx, 'timeframe', v)}
-                                          style={{ width: 100 }} size="mini"
-                                          options={[
-                                            { label: '日线', value: 'daily' },
-                                            { label: '周线', value: 'weekly' },
-                                            { label: '月线', value: 'monthly' },
-                                          ]} />
-                                      </div>
-                                    )}
-                                    {/* Tree Operator (decision tree mode, sell/reduce) */}
-                                    {showTreeOp && (
-                                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                        <span style={{ fontSize: 11, color: 'var(--color-text-3)', minWidth: 60 }}>条件逻辑</span>
-                                        <Select value={c.treeOperator || 'and'} onChange={v => updateCondition(globalIdx, 'treeOperator', v)}
-                                          style={{ width: 100 }} size="mini"
-                                          options={[
-                                            { label: 'AND', value: 'and' },
-                                            { label: 'OR', value: 'or' },
-                                            { label: 'NOT', value: 'not' },
-                                          ]} />
-                                      </div>
-                                    )}
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })()}
-                        </div>
-                      );
-                    })
+                          </React.Fragment>
+                        );
+                      });
+                    })()
                   )}
                 </div>
 
                 {/* Action bar */}
                 {filteredConds(condTab).length > 0 && (
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                    <Button size="small" icon={<Plus size={12} />} type="dashed" onClick={() => addCondition(condTab)}>
-                      添加条件
+                    <Button size="small" icon={<Plus size={12} />} type="dashed" onClick={() => addConditionGroup(condTab)}>
+                      新建条件组
                     </Button>
                     <div style={{ flex: 1 }} />
                     <span style={{ fontSize: 11, color: 'var(--color-text-3)' }}>
-                      共 {filteredConds(condTab).length} 条 · AND 逻辑
+                      {(() => {
+                        const grp = filteredConds(condTab).reduce((acc: Record<number, any[]>, c: any) => {
+                          const g = c.logicGroup || 1;
+                          if (!acc[g]) acc[g] = [];
+                          acc[g].push(c);
+                          return acc;
+                        }, {} as Record<number, any[]>);
+                        return `共 ${Object.keys(grp).length} 组 · ${filteredConds(condTab).length} 条条件`;
+                      })()}
                     </span>
                     <Button size="small" type="primary" onClick={saveConditions} style={{ borderRadius: 8 }}>
                       保存条件
@@ -1193,7 +1259,7 @@ export default function StrategyPage() {
                   </div>
                 )}
               </>
-            ) : tab === 'orchestration' ? (
+            ) : tab === "orchestration" ? (
 
               <>
                 {/* Orchestration Panel */}
@@ -1569,6 +1635,10 @@ export default function StrategyPage() {
                       rowKey="id"
                       pagination={false}
                       size="small"
+                      onRow={(record: any) => ({
+                        onClick: () => record.id && navigate(`/strategy/backtest/${record.id}`),
+                        style: { cursor: 'pointer' },
+                      })}
                     />
                   </div>
                 )}

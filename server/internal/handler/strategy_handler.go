@@ -3344,6 +3344,19 @@ func (h *StrategyHandler) DeleteBacktestResult(c *gin.Context) {
 	response.SuccessMsg(c, "已删除")
 }
 
+// GetBacktestResult returns a single backtest result by ID
+func (h *StrategyHandler) GetBacktestResult(c *gin.Context) {
+	uid := getUID(c)
+	id, _ := strconv.Atoi(c.Param("id"))
+	var result model.BacktestResult
+	if db.MySQL.Where("id = ? AND user_id = ?", id, uid).First(&result).Error != nil {
+		response.NotFound(c, "记录不存在")
+		return
+	}
+	result.StockPoolLabel = resolveStockPoolLabel(result.StockPool, result.StockPoolParams)
+	response.Success(c, result)
+}
+
 // StockPool returns available stock pools for backtest selection
 func (h *StrategyHandler) StockPool(c *gin.Context) {
 	uid := getUID(c)

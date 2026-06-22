@@ -11,9 +11,15 @@ interface KLineItem {
 
 interface Marker {
   i: number;
-  type: 'board' | 'buy' | 'sell';
+  type: 'board' | 'buy' | 'sell' | 't';
   label?: string;
   rank?: number;
+  price?: number;
+  buyPrice?: number;
+  sellPrice?: number;
+  quantity?: number;
+  buyQty?: number;
+  sellQty?: number;
 }
 
 interface PredictionLine {
@@ -29,6 +35,11 @@ interface PredMarker {
   label?: string;
   color?: string;
   price?: number;
+  buyPrice?: number;
+  sellPrice?: number;
+  quantity?: number;
+  buyQty?: number;
+  sellQty?: number;
 }
 
 interface Props {
@@ -604,6 +615,19 @@ export default function KLineChart({
               </g>
             );
           }
+          if (m.type === 't') {
+            // T-trade: orange diamond below candle
+            const my = candleLow + 14;
+            const DIAMOND_COLOR = '#FF7D00';
+            return (
+              <g key={'mk'+k}>
+                <line x1={x} y1={candleLow} x2={x} y2={my + 10} stroke={DIAMOND_COLOR} strokeWidth="1.5" opacity="0.8" />
+                <rect x={x - 6} y={my - 6} width={12} height={12} rx={2} fill={DIAMOND_COLOR} stroke="#fff" strokeWidth="1.5" style={{cursor:'pointer'}} onClick={() => onMarkerClick?.(m.i)} transform={'rotate(45 ' + x + ' ' + my + ')'} />
+                <text x={x} y={my + 3.5} fontSize="9" fill="#fff" textAnchor="middle" fontWeight="700">T</text>
+                <text x={x} y={my + 22} fontSize="10" fill={DIAMOND_COLOR} textAnchor="middle" fontWeight="600">{m.label || ''}</text>
+              </g>
+            );
+          }
           // Board markers
           const BOARD_PURPLE = '#9333ea';
           const bmy = candleHigh - 8;
@@ -840,6 +864,40 @@ export default function KLineChart({
             </div>
           )}
           {hoverIdx != null && (() => { const bm = markers.find(m => m.type === 'board' && m.i === hoverIdx); return bm?.rank != null ? (<div style={{ color: 'var(--purple-6)', fontWeight: 600, marginTop: 2 }}>🏆 榜单第 {bm.rank} 名</div>) : null; })()}
+          {hoverIdx != null && (() => {
+            const buyM = markers.find(m => m.type === 'buy' && m.i === hoverIdx && m.price != null);
+            const sellM = markers.find(m => m.type === 'sell' && m.i === hoverIdx && m.price != null);
+            const t = buyM || sellM;
+            if (t) {
+              const qtyStr = t.quantity != null ? ' × ' + t.quantity + '股' : '';
+              return (
+                <div style={{ color: buyM ? UP : DOWN, fontWeight: 600, marginTop: 2 }}>
+                  {buyM ? '买入' : '卖出'} ¥{t.price!.toFixed(2)}{qtyStr}
+                </div>
+              );
+            }
+            return null;
+          })()}
+          {hoverIdx != null && (() => {
+            const tM = markers.find(m => m.type === 't' && m.i === hoverIdx);
+            if (!tM || tM.buyPrice == null || tM.sellPrice == null) return null;
+            const buyQty = tM.buyQty || 0;
+            const sellQty = tM.sellQty || 0;
+            const buyAmt = tM.buyPrice * buyQty;
+            const sellAmt = tM.sellPrice * sellQty;
+            const tProfit = sellAmt - buyAmt;
+            const tProfitPct = buyAmt > 0 ? (tProfit / buyAmt) * 100 : 0;
+            return (
+              <div style={{ marginTop: 2 }}>
+                <div style={{ color: '#FF7D00', fontWeight: 600 }}>做T</div>
+                <div style={{ color: UP }}>买入 ¥{tM.buyPrice.toFixed(2)} × {buyQty}股</div>
+                <div style={{ color: DOWN }}>卖出 ¥{tM.sellPrice.toFixed(2)} × {sellQty}股</div>
+                <div style={{ color: tProfit >= 0 ? UP : DOWN, fontWeight: 600 }}>
+                  收益 {tProfit >= 0 ? '+' : ''}{tProfit.toFixed(2)} ({tProfitPct >= 0 ? '+' : ''}{tProfitPct.toFixed(2)}%)
+                </div>
+              </div>
+            );
+          })()}
         </div>
       )}
     </div>
