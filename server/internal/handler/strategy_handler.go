@@ -123,6 +123,8 @@ func (h *StrategyHandler) Update(c *gin.Context) {
 	if v, ok := raw["buyPositionPct"]; ok { if n, _ := toFloat64(v); n > 0 { updates["buy_position_pct"] = n } }
 	if v, ok := raw["addPositionPct"]; ok { if n, _ := toFloat64(v); n > 0 { updates["add_position_pct"] = n } }
 	if v, ok := raw["reducePositionPct"]; ok { if n, _ := toFloat64(v); n > 0 { updates["reduce_position_pct"] = n } }
+	if v, ok := raw["positionConcentrationLimit"]; ok { if n, _ := toFloat64(v); n > 0 { updates["position_concentration_limit"] = n } }
+	if v, ok := raw["maxDailyLoss"]; ok { if n, _ := toFloat64(v); n < 0 { updates["max_daily_loss"] = n } }
 	if v, ok := raw["investmentType"]; ok && v != "" { updates["investment_type"] = v }
 	if _, ok := raw["regularAmount"]; ok { updates["regular_amount"] = raw["regularAmount"] }
 	if v, ok := raw["regularInterval"]; ok && v != "" { updates["regular_interval"] = v }
@@ -1541,6 +1543,21 @@ func getNextDate(kc *KlineCache, date string) string {
 	return kc.dates[idx+1]
 }
 
+// tradingDaysBetween returns the number of trading days between date1 and date2.
+// Returns -1 if either date is not in cache.
+func (kc *KlineCache) tradingDaysBetween(date1, date2 string) int {
+	idx1, ok1 := kc.dateIdx[date1]
+	idx2, ok2 := kc.dateIdx[date2]
+	if !ok1 || !ok2 {
+		return -1
+	}
+	diff := idx2 - idx1
+	if diff < 0 {
+		return -diff
+	}
+	return diff
+}
+
 // GetNextClose returns the close price on the next trading day after the given date.
 func (kc *KlineCache) GetNextClose(code, date string) float64 {
 	idx, ok := kc.dateIdx[date]
@@ -2562,19 +2579,38 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 					Reason: "满足卖出条件",
 				})
 			} else if evalConds(reduceConds, pos.Code, date) {
-				reduceQty := int(float64(pos.Quantity) * reducePct / 100)
-				if reduceQty > 0 {
-					signals = append(signals, model.BacktestSignal{
-						TaskID: task.ID, StrategyID: task.StrategyID, UserID: task.UserID,
-						SignalDate: date, ExecDate: getNextDate(kcache, date),
-						StockCode: pos.Code, StockName: pos.Name,
-						ActionType: "reduce",
-						PlannedPrice: kcache.GetClose(pos.Code, date),
-						PlannedQty: reduceQty,
-						PlannedAmount: kcache.GetClose(pos.Code, date) * float64(reduceQty),
-						Status: "pending",
-						Reason: fmt.Sprintf("满足减仓条件 (%.0f%%)", reducePct),
-					})
+				// Cooldown guard: skip reduce if already reduced within cooldown
+				if pos.LastReduceDate != "" && kcache.tradingDaysBetween(pos.LastReduceDate, date) <= REDUCE_COOLDOWN_DAYS {
+					// skip — within cooldown
+				} else {
+					reduceQty := int(float64(pos.Quantity) * reducePct / 100)
+					if reduceQty > 0 && pos.Quantity-reduceQty < MIN_REDUCE_QTY && pos.Quantity-reduceQty > 0 {
+						// Convert to full sell to avoid fragmentation
+						reduceQty = pos.Quantity
+						signals = append(signals, model.BacktestSignal{
+							TaskID: task.ID, StrategyID: task.StrategyID, UserID: task.UserID,
+							SignalDate: date, ExecDate: getNextDate(kcache, date),
+							StockCode: pos.Code, StockName: pos.Name,
+							ActionType: "sell",
+							PlannedPrice: kcache.GetClose(pos.Code, date),
+							PlannedQty: reduceQty,
+							PlannedAmount: kcache.GetClose(pos.Code, date) * float64(reduceQty),
+							Status: "pending",
+							Reason: fmt.Sprintf("满足减仓条件 (%.0f%%, 减仓会碎片化转为清仓)", reducePct),
+						})
+					} else if reduceQty >= MIN_REDUCE_QTY {
+						signals = append(signals, model.BacktestSignal{
+							TaskID: task.ID, StrategyID: task.StrategyID, UserID: task.UserID,
+							SignalDate: date, ExecDate: getNextDate(kcache, date),
+							StockCode: pos.Code, StockName: pos.Name,
+							ActionType: "reduce",
+							PlannedPrice: kcache.GetClose(pos.Code, date),
+							PlannedQty: reduceQty,
+							PlannedAmount: kcache.GetClose(pos.Code, date) * float64(reduceQty),
+							Status: "pending",
+							Reason: fmt.Sprintf("满足减仓条件 (%.0f%%)", reducePct),
+						})
+					}
 				}
 			}
 		}
@@ -2601,6 +2637,9 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 					continue
 				}
 				plannedQty := int(buyAmountPerStock / closePrice / 100) * 100
+				if plannedQty < 100 && buyAmountPerStock >= closePrice*100 {
+					plannedQty = 100
+				}
 				if plannedQty <= 0 {
 					continue
 				}
@@ -2803,6 +2842,7 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 			stampTax := reduceAmount * STAMP_TAX_RATE
 			*cash -= commission + stampTax
 			pos.Quantity -= reduceQty
+			pos.LastReduceDate = sig.ExecDate // mark cooldown start
 			if pos.Quantity <= 0 {
 				delete(positions, sig.StockCode)
 			}

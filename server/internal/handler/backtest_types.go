@@ -10,6 +10,11 @@ const (
 	ActionReduce ActionType = "reduce"
 	ActionBuy    ActionType = "buy"
 	ActionAdd    ActionType = "add"
+
+	// REDUCE_COOLDOWN_DAYS prevents repeated reduce signals within N trading days
+	REDUCE_COOLDOWN_DAYS = 5
+	// MIN_REDUCE_QTY is the minimum shares for a reduce; below this, skip or sell all
+	MIN_REDUCE_QTY = 10
 )
 
 func (a ActionType) Label() string {
@@ -47,6 +52,7 @@ type dcPosition struct {
 	BuyDate     string
 	dangerDays  int
 	dangerAccum float64
+	LastReduceDate string
 }
 
 // dcStockInfo is a minimal stock entry used in scoring/decision universes.

@@ -207,10 +207,14 @@ func generateSignalsV2(
 			continue // skip reduce if sell triggered
 		}
 
-		// Reduce check
+		// Reduce check (with cooldown and minimum qty guard against fragmentation)
 		reduceTriggered := false
 		reduceReason := fmt.Sprintf("满足减仓条件 (%.0f%%)", reducePct)
-		if decisionTreeReduce != nil {
+
+		// Cooldown guard: skip if reduced within REDUCE_COOLDOWN_DAYS trading days
+		if pos.LastReduceDate != "" && kcache.tradingDaysBetween(pos.LastReduceDate, date) <= REDUCE_COOLDOWN_DAYS {
+			reduceTriggered = false
+		} else if decisionTreeReduce != nil {
 			reduceTriggered, reduceReason = decisionTreeReduce.Evaluate(pos.Code, date)
 		} else {
 			reduceTriggered = evalConds(reduceConds, pos.Code, date)
@@ -220,7 +224,19 @@ func generateSignalsV2(
 			closePrice := kcache.GetClose(pos.Code, date)
 			if closePrice > 0 {
 				reduceQty := int(float64(pos.Quantity) * reducePct / 100)
-				if reduceQty > 0 {
+				// Fragmentation guard: if reduce drops below MIN_REDUCE_QTY, convert to full sell
+				if reduceQty > 0 && pos.Quantity-reduceQty < MIN_REDUCE_QTY && pos.Quantity-reduceQty > 0 {
+					// Convert reduce to full sell to avoid holding fractional scraps
+					reduceQty = pos.Quantity
+					signals = append(signals, model.BacktestSignal{
+						TaskID: task.ID, StrategyID: task.StrategyID, UserID: task.UserID,
+						SignalDate: date, ExecDate: getNextDate(kcache, date),
+						StockCode: pos.Code, StockName: pos.Name,
+						ActionType: "sell", PlannedPrice: closePrice, PlannedQty: reduceQty,
+						PlannedAmount: closePrice * float64(reduceQty),
+						Status: "pending", Reason: reduceReason + " (减仓会碎片化，转为清仓)",
+					})
+				} else if reduceQty >= MIN_REDUCE_QTY {
 					signals = append(signals, model.BacktestSignal{
 						TaskID: task.ID, StrategyID: task.StrategyID, UserID: task.UserID,
 						SignalDate: date, ExecDate: getNextDate(kcache, date),
@@ -411,6 +427,9 @@ func generateSignalsV2(
 					closePrice := kcache.GetClose(bc.code, date)
 					if closePrice <= 0 { continue }
 					plannedQty := int(buyAmountPerStock / closePrice / 100) * 100
+					if plannedQty < 100 {
+						plannedQty = 100
+					}
 					newMV := closePrice * float64(plannedQty)
 					if totalEquity > 0 && newMV/totalEquity > s.PositionConcentrationLimit {
 						log.Printf("[backtest_v2] RISK date=%s %s would exceed %.0f%% position limit, skip", date, bc.code, s.PositionConcentrationLimit*100)
@@ -467,12 +486,19 @@ func generateSignalsV2(
 			}
 		}
 			// P0-5: Position concentration — single stock max 25%% of total equity
-			newMV := closePrice * float64(int(buyAmountPerStock/closePrice/100)*100)
+			qtyCheck := int(buyAmountPerStock/closePrice/100) * 100
+			if qtyCheck < 100 {
+				qtyCheck = 100
+			}
+			newMV := closePrice * float64(qtyCheck)
 			if totalEquity > 0 && s.PositionConcentrationLimit > 0 && newMV/totalEquity > s.PositionConcentrationLimit {
 				log.Printf("[backtest_v2] date=%s %s would exceed 25%% position limit, skip", date, bc.code)
 				continue
 			}
 			plannedQty := int(buyAmountPerStock / closePrice / 100) * 100
+					if plannedQty < 100 {
+						plannedQty = 100
+					}
 			if plannedQty <= 0 { continue }
 			signals = append(signals, model.BacktestSignal{
 				TaskID: task.ID, StrategyID: task.StrategyID, UserID: task.UserID,
