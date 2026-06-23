@@ -132,6 +132,7 @@ func generateSignalsV2(
 
 	// ── Stop-profit / Stop-loss checks ──
 	for _, pos := range positions {
+		if pos.Quantity <= 0 { continue }
 		closePrice := kcache.GetClose(pos.Code, date)
 		if closePrice <= 0 { continue }
 		if pos.BuyDate == date { continue }
@@ -241,7 +242,11 @@ func generateSignalsV2(
 	}
 
 	{ // scope for goto-friendly declarations
-	slotCount := maxHold - len(positions)
+	activePositions := 0
+	for _, p := range positions {
+		if p.Quantity > 0 { activePositions++ }
+	}
+	slotCount := maxHold - activePositions
 	if slotCount > 0 && cash > 0 {
 		// Apply policy position bias
 		effectiveBuyPct := buyPct
@@ -260,7 +265,7 @@ func generateSignalsV2(
 			// V2 Scoring Engine
 			scoringUniverse := make([]dcStockInfo, 0)
 			for _, si := range universe {
-				if _, held := positions[si.Code]; held { continue }
+				if pos, held := positions[si.Code]; held && pos.Quantity > 0 { continue }
 				// P0-2: Skip limit-up stocks (daily_change >= 9.8% ≈涨停)
 				if chg := kcache.GetDailyChange(si.Code, date); chg >= 9.8 {
 					continue
@@ -322,7 +327,7 @@ func generateSignalsV2(
 		} else if decisionTreeBuy != nil {
 			for _, si := range universe {
 				if boughtThisRound >= slotCount { break }
-				if _, held := positions[si.Code]; held { continue }
+				if pos, held := positions[si.Code]; held && pos.Quantity > 0 { continue }
 				if kcache.GetDailyChange(si.Code, date) >= 9.8 { continue }
 				if isSTStock(si.Name) { continue }
 				triggered, reason := decisionTreeBuy.Evaluate(si.Code, date)
@@ -334,7 +339,7 @@ func generateSignalsV2(
 			// Legacy evalConds
 			for _, si := range universe {
 				if boughtThisRound >= slotCount { break }
-				if _, held := positions[si.Code]; held { continue }
+				if pos, held := positions[si.Code]; held && pos.Quantity > 0 { continue }
 				if kcache.GetDailyChange(si.Code, date) >= 9.8 { continue }
 				if isSTStock(si.Name) { continue }
 				// Policy-aware buy logic

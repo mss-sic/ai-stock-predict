@@ -52,17 +52,18 @@ type ScoreDistribution struct {
 }
 
 // AdaptiveMinScore computes a dynamic minimum score threshold.
-// Returns median + (top1 - median) * 0.3, but never lower than 0.20.
+// Uses top-quintile mean as reference, with hard floor at 0.30 (30% of weight max).
+// When all scores are low (narrow distribution), raises the bar to filter noise.
 func (d ScoreDistribution) AdaptiveMinScore() float64 {
 	if d.Count == 0 {
-		return 0.20
+		return 0.30
 	}
 	gap := d.Top1 - d.Median
-	minScore := d.Median + gap*0.3
-	if minScore < 0.20 {
-		minScore = 0.20
+	dynamicMin := d.Median + gap*0.5 // stricter: use 50% of gap
+	if dynamicMin < 0.30 {
+		dynamicMin = 0.30
 	}
-	return minScore
+	return dynamicMin
 }
 
 // ScoringEngine evaluates conditions with weighted scoring.
@@ -288,15 +289,18 @@ func (se *ScoringEngine) ScoreStock(
 		}
 	}
 
-	// P0-1: Normalize by number of conditions (not weight sum)
-	// This creates natural differentiation: more conditions passing → higher score
-	numConditions := float64(len(se.conditions))
-	if numConditions > 0 {
-		result.TotalScore = (weightedSum / numConditions) * se.ctx.MarketBias
+	// Normalize by total configured weight (sum of all condition weights)
+	// weightedSum already only includes passing conditions, so no additional pass-ratio penalty.
+	// All conditions passing → score ≈ 1.0 × MarketBias (typically 1.0–1.5)
+	totalConfigWeight := 0.0
+	for _, c := range rootConds {
+		totalConfigWeight += c.Weight
+	}
+	if totalConfigWeight > 0 && weightedSum > 0 {
+		result.TotalScore = (weightedSum / totalConfigWeight) * se.ctx.MarketBias
 	} else {
 		result.TotalScore = 0
 	}
-	_ = numConditions // keep for debug if needed
 
 	return result
 }

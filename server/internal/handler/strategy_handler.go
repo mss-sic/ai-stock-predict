@@ -1823,46 +1823,42 @@ func preloadIndicators(conds []model.StrategyCondition, codes []string, startDat
 
 	// Batch preload: MACD
 	if needPreload["macd"] || needPreload["macd_dif"] || needPreload["macd_dea"] {
-		log.Printf("[backtest] batch preloading MACD/DIF/DEA for %d stocks...", len(codes))
+		log.Printf("[backtest] batch preloading MACD/DIF/DEA (real EMA) for %d stocks...", len(codes))
 		inClause := db.CodesToInClause(codes)
-		query := fmt.Sprintf(`
-			WITH klines AS (
-				SELECT code, TO_CHAR(trade_date, 'YYYY-MM-DD') as date, close FROM stocks_daily_k
-				WHERE code IN (%s) AND trade_date BETWEEN ? AND ?
-			), ema AS (
-				SELECT code, date,
-					AVG(close) OVER (PARTITION BY code ORDER BY date ROWS BETWEEN 11 PRECEDING AND CURRENT ROW) as ema12,
-					AVG(close) OVER (PARTITION BY code ORDER BY date ROWS BETWEEN 25 PRECEDING AND CURRENT ROW) as ema26
-				FROM klines
-			), macd_calc AS (
-				SELECT code, date,
-					ema12 - ema26 as dif,
-					AVG(ema12 - ema26) OVER (PARTITION BY code ORDER BY date ROWS BETWEEN 8 PRECEDING AND CURRENT ROW) as dea
-				FROM ema
-			)
-			SELECT code, date, dif, dea, dif - dea as hist
-			FROM macd_calc WHERE dif IS NOT NULL
-		`, inClause)
-		type MACDRow struct {
+		type CloseRow struct {
 			Code  string
 			Date  string
-			DIF   float64
-			DEA   float64
-			Hist  float64
+			Close float64
 		}
-		var rows []MACDRow
-		if err := db.PG.Raw(query, startDate, endDate).Scan(&rows).Error; err != nil {
-			log.Printf("[backtest] MACD preload failed: %v", err)
+		var closes []CloseRow
+		closeQuery := fmt.Sprintf(
+			"SELECT code, TO_CHAR(trade_date,'YYYY-MM-DD') as date, close FROM stocks_daily_k WHERE code IN (%s) AND trade_date BETWEEN ? AND ? ORDER BY code, trade_date",
+			inClause)
+		if err := db.PG.Raw(closeQuery, startDate, endDate).Scan(&closes).Error; err != nil {
+			log.Printf("[backtest] MACD close fetch failed: %v", err)
 		} else {
-			for _, r := range rows {
-				if needPreload["macd"] {
-					cache.set("macd", r.Code, r.Date, r.Hist)
-				}
-				if needPreload["macd_dif"] {
-					cache.set("macd_dif", r.Code, r.Date, r.DIF)
-				}
-				if needPreload["macd_dea"] {
-					cache.set("macd_dea", r.Code, r.Date, r.DEA)
+			codeCloses := map[string][]struct{ date string; close float64 }{}
+			for _, c := range closes {
+				codeCloses[c.Code] = append(codeCloses[c.Code], struct{ date string; close float64 }{c.Date, c.Close})
+			}
+			const alpha12, alpha26, alphaDea = 0.1538, 0.0741, 0.2
+			for code, rows := range codeCloses {
+				if len(rows) < 12 { continue }
+				var ema12, ema26, dea float64
+				ema12, ema26 = rows[0].close, rows[0].close
+				for i, r := range rows {
+					if i == 0 {
+						ema12, ema26 = r.close, r.close
+					} else {
+						ema12 = alpha12*r.close + (1-alpha12)*ema12
+						ema26 = alpha26*r.close + (1-alpha26)*ema26
+					}
+					dif := ema12 - ema26
+					if i == 0 { dea = dif } else { dea = alphaDea*dif + (1-alphaDea)*dea }
+					hist := dif - dea
+					if needPreload["macd"] { cache.set("macd", code, r.date, hist) }
+					if needPreload["macd_dif"] { cache.set("macd_dif", code, r.date, dif) }
+					if needPreload["macd_dea"] { cache.set("macd_dea", code, r.date, dea) }
 				}
 			}
 		}
@@ -2323,10 +2319,15 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 		universeCodes[i] = s.Code
 	}
 
-	// P1: Extend kline preloading 150 days before endDate for momentum lookback
-	// Must cover momentum_20 + consecutive_days + potential backtest window
+	// P1: Extend kline preloading for indicator lookback
+	extStart, _ := time.Parse("2006-01-02", startDate)
 	extEnd, _ := time.Parse("2006-01-02", endDate)
-	preloadStart := extEnd.AddDate(0, 0, -80).Format("2006-01-02")
+	preloadFromStart := extStart.AddDate(0, 0, -100)
+	preloadFromEnd := extEnd.AddDate(0, 0, -80)
+	preloadStart := preloadFromEnd.Format("2006-01-02")
+	if preloadFromStart.Before(preloadFromEnd) {
+		preloadStart = preloadFromStart.Format("2006-01-02")
+	}
 	kcache := preloadKline(universeCodes, preloadStart, endDate)
 	allDates := kcache.dates
 	// Debug: verify preload

@@ -58,14 +58,15 @@ def backfill_stock(conn, code, since=None):
         return 0
 
     # Compute EMA recursively
-    ema12 = rows[0][1]  # first close as seed
-    ema26 = rows[0][1]
+    ema12 = float(rows[0][1])  # first close as seed
+    ema26 = float(rows[0][1])
     dif = 0.0
     dea = 0.0
     is_first = True
 
     updates = []
-    for trade_date, close in rows:
+    for trade_date, close_raw in rows:
+        close = float(close_raw)
         if is_first:
             is_first = False
             dif = ema12 - ema26
