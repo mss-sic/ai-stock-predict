@@ -94,24 +94,56 @@ func NewScoringEngine(
 		kcache:     kcache,
 		industry:   make(map[string]map[string]float64),
 	}
-	// Pre-load industry percentiles for industry-relative conditions
-	se.loadIndustryBenchmarks()
+	// Industry benchmarks are loaded per-date in ScoreAll
 	return se
 }
 
-// loadIndustryBenchmarks pre-fetches industry median values for all industry-relative conditions.
-func (se *ScoringEngine) loadIndustryBenchmarks() {
-	// Collect unique (indicator, date) pairs needed
-	needed := make(map[string][]string) // date -> indicators
+// loadIndustryBenchmarks pre-fetches industry median values for a given date.
+// Called once per ScoreAll invocation to avoid N+1 per-stock queries.
+func (se *ScoringEngine) loadIndustryBenchmarks(date string) {
+	// Only preload for indicators that have industry-relative conditions
+	indicatorsToLoad := make(map[string]bool)
 	for _, c := range se.conditions {
 		if c.IndustryRelative {
-			// Use empty date as placeholder — resolved during scoring per date
-			key := c.Indicator
-			if _, ok := needed["__any__"]; !ok {
-				needed["__any__"] = make([]string, 0)
-			}
-			needed["__any__"] = append(needed["__any__"], key)
+			indicatorsToLoad[c.Indicator] = true
 		}
+	}
+	if len(indicatorsToLoad) == 0 {
+		return
+	}
+
+	for indicator := range indicatorsToLoad {
+		col := indicatorColumn(indicator)
+		if col == "" {
+			continue
+		}
+		sql := fmt.Sprintf(`SELECT sb.industry, PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY di.%s)
+			FROM stocks_daily_indicator di
+			JOIN stocks_basic sb ON sb.code = di.code
+			WHERE di.trade_date = ? AND sb.industry IS NOT NULL AND sb.industry != ''
+			GROUP BY sb.industry`, col)
+		rows, err := db.PG.Raw(sql, date).Rows()
+		if err != nil {
+			continue
+		}
+		for rows.Next() {
+			var industry string
+			var median float64
+			if err := rows.Scan(&industry, &median); err == nil && median > 0 {
+				cacheKey := indicator + "_" + date + "_" + industry
+				if _, ok := se.industry[indicator+"_"+date]; !ok {
+					se.industry[indicator+"_"+date] = make(map[string]float64)
+				}
+				se.industry[indicator+"_"+date][industry] = median
+				// Also set in the old format for getIndustryBenchmark
+				oldKey := indicator + "_" + date
+				if _, ok := se.industry[oldKey]; !ok {
+					se.industry[oldKey] = make(map[string]float64)
+				}
+				se.industry[oldKey][cacheKey] = median
+			}
+		}
+		rows.Close()
 	}
 }
 
@@ -142,12 +174,10 @@ func (se *ScoringEngine) getIndustryBenchmark(code, indicator, date string) floa
 	}
 
 	var median float64
-	err := db.PG.Raw(fmt.Sprintf(`
-		SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY %s)
+	err := db.PG.Raw(fmt.Sprintf(`SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY %s)
 		FROM stocks_daily_indicator di
 		JOIN stocks_basic sb ON sb.code = di.code
-		WHERE sb.industry = ? AND di.trade_date = ?
-	`, col), industry, date).Scan(&median).Error
+		WHERE sb.industry = ? AND di.trade_date = ?`, col), industry, date).Scan(&median).Error
 	if err != nil || median <= 0 {
 		return 0
 	}
@@ -179,6 +209,8 @@ func (se *ScoringEngine) ScoreAll(
 	evalSingle func(model.StrategyCondition, string, string) bool,
 	evalSingleWithValue func(model.StrategyCondition, string, string) (bool, float64),
 ) []ScoreResult {
+	// Batch-preload industry benchmarks for this date
+	se.loadIndustryBenchmarks(date)
 	results := make([]ScoreResult, 0, len(universe))
 
 	for _, stock := range universe {
@@ -321,7 +353,7 @@ func (se *ScoringEngine) scoreCondition(
 
 	// Trend direction bonus
 	if cond.TrendDirection != "" && cond.TrendDirection != "none" {
-		trendBonus := se.trendBonus(cond, code, date, evalSingle)
+		trendBonus := se.trendBonus(cond, code, date)
 		cs.Score += trendBonus
 		if trendBonus != 0 {
 			cs.Detail += fmt.Sprintf(" 趋势修正%+.2f", trendBonus)
@@ -439,52 +471,70 @@ func (se *ScoringEngine) scoreTimeSeries(
 	code, date string,
 	evalSingle func(model.StrategyCondition, string, string) bool,
 ) float64 {
-	if cond.LookbackDays <= 1 && cond.ConsecutiveDays <= 1 {
-		return 1.0
-	}
-
 	lookback := cond.LookbackDays
-	if lookback < 1 {
+	if lookback <= 0 {
 		lookback = 1
 	}
 
-	// Get date range — simplified: use the lookback count
-	// In production, this would iterate over actual trading dates
+	// Get previous dates from kcache
+	var prevDates []string
+	if se.kcache != nil && len(se.kcache.dates) > 0 {
+		for i, d := range se.kcache.dates {
+			if d == date && i >= lookback {
+				prevDates = se.kcache.dates[i-lookback : i]
+				break
+			}
+		}
+	}
+
+	if len(prevDates) == 0 {
+		// No history — evaluate current date only
+		if evalSingle != nil && evalSingle(cond, code, date) {
+			return 1.0
+		}
+		return 0.0
+	}
+
 	passCount := 0
-	consecutiveFail := 0
-	maxConsecutive := 0
-	currentConsecutive := 0
+	consecutive := 0
 
-	// For simplicity, evaluate the current date (1 pass/fail)
-	// Full implementation would iterate over prior dates
-	// This is a stub — full implementation requires date iteration support
-	passed := false
+	for _, d := range prevDates {
+		passed := false
+		if evalSingle != nil {
+			passed = evalSingle(cond, code, d)
+		}
+		if passed {
+			passCount++
+			consecutive++
+		} else {
+			consecutive = 0
+		}
+	}
+
+	// Also evaluate current date
+	currentPassed := false
 	if evalSingle != nil {
-		passed = evalSingle(cond, code, date)
+		currentPassed = evalSingle(cond, code, date)
 	}
-	if passed {
-		passCount = 1
-		currentConsecutive = 1
-	} else {
-		consecutiveFail = 1
+	if currentPassed {
+		passCount++
+		consecutive++
 	}
 
-	_ = passCount
-	_ = maxConsecutive
-	_ = currentConsecutive
+	score := float64(passCount) / float64(lookback+1)
 
-	// Compute score: ratio of passed days + consecutive bonus
-	score := float64(passCount) / float64(lookback)
-
-	// Consecutive bonus: if current is passing and streak ≥ ConsecutiveDays
+	// Consecutive bonus/penalty
 	if cond.ConsecutiveDays > 1 {
-		if consecutiveFail > 0 {
-			score *= 0.5 // penalty for streak break
+		if consecutive < cond.ConsecutiveDays {
+			score *= 0.5 // penalty for not meeting consecutive requirement
 		}
 	}
 
 	if score > 1.0 {
 		score = 1.0
+	}
+	if score < 0.0 {
+		score = 0.0
 	}
 	return score
 }
@@ -493,13 +543,42 @@ func (se *ScoringEngine) scoreTimeSeries(
 func (se *ScoringEngine) trendBonus(
 	cond model.StrategyCondition,
 	code, date string,
-	evalSingle func(model.StrategyCondition, string, string) bool,
 ) float64 {
-	if cond.TrendDirection == "improving" {
-		return 0.1
+	if cond.TrendDirection == "" || cond.TrendDirection == "none" {
+		return 0
 	}
-	if cond.TrendDirection == "deteriorating" {
-		return -0.1
+	// Compute 5-day momentum for trend direction
+	if se.kcache == nil {
+		return 0
+	}
+	cur := se.kcache.GetClose(code, date)
+	if cur <= 0 {
+		return 0
+	}
+	// Find approximate 5-day-ago close from kcache dates
+	dates := se.kcache.dates
+	idx := -1
+	for i, d := range dates {
+		if d == date {
+			idx = i
+			break
+		}
+	}
+	if idx < 5 {
+		return 0
+	}
+	prev := se.kcache.GetClose(code, dates[idx-5])
+	if prev <= 0 {
+		return 0
+	}
+	momentum := (cur - prev) / prev
+	if cond.TrendDirection == "improving" && momentum > 0.01 {
+		bonus := math.Min(momentum*5, 0.15)
+		return bonus
+	}
+	if cond.TrendDirection == "deteriorating" && momentum < -0.01 {
+		bonus := math.Max(momentum*5, -0.15)
+		return bonus
 	}
 	return 0
 }

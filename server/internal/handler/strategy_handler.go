@@ -711,7 +711,8 @@ func (h *StrategyHandler) GetOrchestration(c *gin.Context) {
 		"aiAgentReviewScope": s.AIAgentReviewScope, "aiAgentMaxDailyTrades": s.AIAgentMaxDailyTrades,
 		"industryFilter": s.IndustryFilter, "enableSectorRotation": s.EnableSectorRotation,
 		"policyMode": s.PolicyMode,
-		"aggressiveThreshold": s.AggressiveThreshold, "defensiveThreshold": s.DefensiveThreshold,
+		"defensiveThreshold": s.DefensiveThreshold,
+		"policyAggressive": s.PolicyAggressive, "policyDefensive": s.PolicyDefensive, "policyCash": s.PolicyCash,
 	})
 }
 
@@ -734,6 +735,9 @@ func (h *StrategyHandler) SaveOrchestration(c *gin.Context) {
 	if v, ok := body["policyMode"]; ok { updates["policy_mode"] = v }
 	if v, ok := body["aggressiveThreshold"]; ok { updates["aggressive_threshold"] = v }
 	if v, ok := body["defensiveThreshold"]; ok { updates["defensive_threshold"] = v }
+	if v, ok := body["policyAggressive"]; ok { if b, err := json.Marshal(v); err == nil { updates["policy_aggressive"] = string(b) } }
+	if v, ok := body["policyDefensive"]; ok { if b, err := json.Marshal(v); err == nil { updates["policy_defensive"] = string(b) } }
+	if v, ok := body["policyCash"]; ok { if b, err := json.Marshal(v); err == nil { updates["policy_cash"] = string(b) } }
 	db.MySQL.Model(&model.Strategy{}).Where("id = ? AND user_id = ?", id, uid).Updates(updates)
 	response.SuccessMsg(c, "编排配置已保存")
 }
@@ -2209,6 +2213,13 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 			})
 		}
 	}()
+	// Transaction cost constants (A-share market)
+	const (
+		STAMP_TAX_RATE  = 0.0005  // 卖出印花税 0.05%
+		COMMISSION_RATE = 0.00025 // 券商佣金 万分之2.5
+		MIN_COMMISSION  = 5.0     // 最低佣金 5元
+	)
+
 	// Mark as running
 	now := time.Now()
 	db.MySQL.Model(task).Updates(map[string]interface{}{
@@ -2258,7 +2269,8 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 	// Record initial capital on task
 	db.MySQL.Model(task).Update("initial_capital", capital)
 	if maxHold <= 0 { maxHold = 20 }
-	useV2 := s.OrchestrationMode != "" && s.OrchestrationMode != "legacy"
+	// Default to V2 (hybrid) for all strategies unless explicitly set to legacy
+	useV2 := s.OrchestrationMode != "legacy"
 
 	updateProgress(0, task.TotalDays, fmt.Sprintf("初始资金: ¥%.0f | 最大持股: %d", capital, maxHold), "")
 
@@ -2665,6 +2677,9 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 			}
 
 			*cash -= actualAmount
+			// Deduct buy commission (no stamp tax on buy)
+			buyCommission := math.Max(actualAmount*COMMISSION_RATE, MIN_COMMISSION)
+			*cash -= buyCommission
 			positions[sig.StockCode] = &dcPosition{
 				Code: sig.StockCode, Name: sig.StockName,
 				BuyPrice: openPrice, Quantity: actualQty, BuyDate: sig.ExecDate,
@@ -2698,6 +2713,9 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 				return nil
 			}
 			*cash -= actualAmount
+			// Deduct buy commission (no stamp tax on buy)
+			addCommission := math.Max(actualAmount*COMMISSION_RATE, MIN_COMMISSION)
+			*cash -= addCommission
 			if pos, ok := positions[sig.StockCode]; ok {
 				totalCost := pos.BuyPrice*float64(pos.Quantity) + actualAmount
 				pos.Quantity += actualQty
@@ -2736,6 +2754,11 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 				pnlPct = (openPrice - pos.BuyPrice) / pos.BuyPrice * 100
 			}
 			*cash += openPrice * float64(sellQty)
+			// Deduct transaction costs
+			sellAmount := openPrice * float64(sellQty)
+			commission := math.Max(sellAmount*COMMISSION_RATE, MIN_COMMISSION)
+			stampTax := sellAmount * STAMP_TAX_RATE
+			*cash -= commission + stampTax
 			delete(positions, sig.StockCode)
 
 			sig.ExecPrice = openPrice
@@ -2773,6 +2796,11 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 				pnlPct = (openPrice - pos.BuyPrice) / pos.BuyPrice * 100
 			}
 			*cash += openPrice * float64(reduceQty)
+			// Deduct transaction costs
+			reduceAmount := openPrice * float64(reduceQty)
+			commission := math.Max(reduceAmount*COMMISSION_RATE, MIN_COMMISSION)
+			stampTax := reduceAmount * STAMP_TAX_RATE
+			*cash -= commission + stampTax
 			pos.Quantity -= reduceQty
 			if pos.Quantity <= 0 {
 				delete(positions, sig.StockCode)
@@ -2800,6 +2828,7 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 	positions = make(map[string]*dcPosition)
 	var allTrades []backtestTrade
 	var equityPoints []map[string]interface{}
+	var dailyReturns []float64
 	prevDayEquity := capital
 
 	// Pre-load pending signals from DB (for resumed tasks)
@@ -2894,6 +2923,13 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 				if closePrice <= 0 {
 					// No price data — sell at cost price as fallback
 					closePrice = pos.BuyPrice
+				}
+
+				// Check if stock is limit-down (cannot sell)
+				if dailyChange := kcache.GetDailyChange(code, date); dailyChange <= -9.8 {
+					// Limit-down: cannot liquidate, keep position record
+					log.Printf("[backtest] date=%s code=%s limit-down, skip forced liquidation", date, code)
+					continue
 				}
 				sellAmount := closePrice * float64(pos.Quantity)
 				pnl := (closePrice - pos.BuyPrice) * float64(pos.Quantity)
@@ -3050,6 +3086,7 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 				dailyRet = (totalEquity - prevEquity) / prevEquity * 100
 			}
 		}
+		dailyReturns = append(dailyReturns, dailyRet)
 		cumRet := (totalEquity - capital) / capital * 100
 		peak := capital
 		for _, eq := range equityPoints {
@@ -3095,8 +3132,24 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 		if dd > maxDD { maxDD = dd }
 	}
 
+	// Sharpe Ratio: annualized (mean daily return / std dev of daily returns) * sqrt(252)
 	sharpe := 0.0
-	if totalReturn > 0 { sharpe = (totalReturn / 100) / (math.Sqrt(float64(totalDays)) * 0.15) * math.Sqrt(252) }
+	if len(dailyReturns) > 1 {
+		mean := 0.0
+		for _, r := range dailyReturns {
+			mean += r
+		}
+		mean /= float64(len(dailyReturns))
+		variance := 0.0
+		for _, r := range dailyReturns {
+			diff := r - mean
+			variance += diff * diff
+		}
+		stdDev := math.Sqrt(variance / float64(len(dailyReturns)-1))
+		if stdDev > 1e-9 {
+			sharpe = (mean / stdDev) * math.Sqrt(252)
+		}
+	}
 
 	// Compute indicator coverage
 	usedIndicators := make(map[string]bool)
@@ -4038,19 +4091,19 @@ func getIndicatorValue(cond model.StrategyCondition, code, date string) float64 
 
 	// ── AI六维评分 ──
 	case "ai_score":
-		return getAIScore(code, "composite_score")
+		return getAIScore(code, "composite_score", date)
 	case "ai_fundamental":
-		return getAIScore(code, "fundamental_score")
+		return getAIScore(code, "fundamental_score", date)
 	case "ai_technical":
-		return getAIScore(code, "technical_score")
+		return getAIScore(code, "technical_score", date)
 	case "ai_valuation":
-		return getAIScore(code, "valuation_score")
+		return getAIScore(code, "valuation_score", date)
 	case "ai_growth":
-		return getAIScore(code, "growth_score")
+		return getAIScore(code, "growth_score", date)
 	case "ai_industry":
-		return getAIScore(code, "industry_score")
+		return getAIScore(code, "industry_score", date)
 	case "ai_capital":
-		return getAIScore(code, "capital_score")
+		return getAIScore(code, "capital_score", date)
 
 	// ── 技术面 — 趋势类 ──
 	case "daily_change":
@@ -4262,9 +4315,9 @@ func getClosePriceOn(code, date string) float64 {
 	return close
 }
 
-func getAIScore(code, field string) float64 {
+func getAIScore(code, field, date string) float64 {
 	var score float64
-	db.PG.Raw(fmt.Sprintf("SELECT COALESCE(%s,0) FROM ai_stock_scores WHERE code = ? ORDER BY created_at DESC LIMIT 1", field), code).Scan(&score)
+	db.PG.Raw(fmt.Sprintf("SELECT COALESCE(%s,0) FROM ai_stock_scores WHERE code = ? AND created_at <= ?::date ORDER BY created_at DESC LIMIT 1", field), code, date).Scan(&score)
 	return score
 }
 
@@ -4353,18 +4406,25 @@ func checkMACross(code, date string, ma1, ma2 int) float64 {
 func checkMACD(code, date string) float64 {
 	var cross int
 	db.PG.Raw(`WITH klines AS (
-		SELECT trade_date, close FROM stocks_daily_k
+		SELECT trade_date, close,
+			row_number() OVER (ORDER BY trade_date ASC) as rn
+		FROM stocks_daily_k
 		WHERE code = ? AND trade_date <= ?::date ORDER BY trade_date ASC
-	), ema AS (
-		SELECT trade_date,
-			AVG(close) OVER (ORDER BY trade_date ASC ROWS BETWEEN 11 PRECEDING AND CURRENT ROW) as ma12,
-			AVG(close) OVER (ORDER BY trade_date ASC ROWS BETWEEN 25 PRECEDING AND CURRENT ROW) as ma26
-		FROM klines
+	), ema_calc AS (
+		SELECT trade_date, close, rn,
+			close AS ema12, close AS ema26
+		FROM klines WHERE rn = 1
+		UNION ALL
+		SELECT k.trade_date, k.close, k.rn,
+			0.1538 * k.close + 0.8462 * e.ema12,
+			0.0741 * k.close + 0.9259 * e.ema26
+		FROM ema_calc e
+		JOIN klines k ON k.rn = e.rn + 1
 	), macd AS (
 		SELECT trade_date,
-			ma12 - ma26 as dif,
-			AVG(ma12 - ma26) OVER (ORDER BY trade_date ASC ROWS BETWEEN 8 PRECEDING AND CURRENT ROW) as dea
-		FROM ema
+			ema12 - ema26 as dif,
+			0.2 * (ema12 - ema26) + 0.8 * COALESCE(LAG(ema12 - ema26) OVER (ORDER BY trade_date ASC), ema12 - ema26) as dea
+		FROM ema_calc
 	)
 	SELECT CASE
 		WHEN dif > dea AND LAG(dif) OVER (ORDER BY trade_date ASC) <= LAG(dea) OVER (ORDER BY trade_date ASC) THEN 1
@@ -4377,15 +4437,22 @@ func checkMACD(code, date string) float64 {
 func getMACDDIF(code, date string) float64 {
 	var dif float64
 	db.PG.Raw(`WITH klines AS (
-		SELECT trade_date, close FROM stocks_daily_k
+		SELECT trade_date, close,
+			row_number() OVER (ORDER BY trade_date ASC) as rn
+		FROM stocks_daily_k
 		WHERE code = ? AND trade_date <= ?::date ORDER BY trade_date ASC
-	), ema AS (
-		SELECT trade_date,
-			AVG(close) OVER (ORDER BY trade_date ASC ROWS BETWEEN 11 PRECEDING AND CURRENT ROW) as ma12,
-			AVG(close) OVER (ORDER BY trade_date ASC ROWS BETWEEN 25 PRECEDING AND CURRENT ROW) as ma26
-		FROM klines
+	), ema_calc AS (
+		SELECT trade_date, close, rn,
+			close AS ema12, close AS ema26
+		FROM klines WHERE rn = 1
+		UNION ALL
+		SELECT k.trade_date, k.close, k.rn,
+			0.1538 * k.close + 0.8462 * e.ema12,
+			0.0741 * k.close + 0.9259 * e.ema26
+		FROM ema_calc e
+		JOIN klines k ON k.rn = e.rn + 1
 	)
-	SELECT COALESCE(ma12 - ma26, 0) FROM ema ORDER BY trade_date DESC LIMIT 1
+	SELECT COALESCE(ema12 - ema26, 0) FROM ema_calc ORDER BY trade_date DESC LIMIT 1
 	`, code, date).Scan(&dif)
 	return dif
 }
@@ -4393,18 +4460,25 @@ func getMACDDIF(code, date string) float64 {
 func getMACDDEA(code, date string) float64 {
 	var dea float64
 	db.PG.Raw(`WITH klines AS (
-		SELECT trade_date, close FROM stocks_daily_k
+		SELECT trade_date, close,
+			row_number() OVER (ORDER BY trade_date ASC) as rn
+		FROM stocks_daily_k
 		WHERE code = ? AND trade_date <= ?::date ORDER BY trade_date ASC
-	), ema AS (
-		SELECT trade_date,
-			AVG(close) OVER (ORDER BY trade_date ASC ROWS BETWEEN 11 PRECEDING AND CURRENT ROW) as ma12,
-			AVG(close) OVER (ORDER BY trade_date ASC ROWS BETWEEN 25 PRECEDING AND CURRENT ROW) as ma26
-		FROM klines
+	), ema_calc AS (
+		SELECT trade_date, close, rn,
+			close AS ema12, close AS ema26
+		FROM klines WHERE rn = 1
+		UNION ALL
+		SELECT k.trade_date, k.close, k.rn,
+			0.1538 * k.close + 0.8462 * e.ema12,
+			0.0741 * k.close + 0.9259 * e.ema26
+		FROM ema_calc e
+		JOIN klines k ON k.rn = e.rn + 1
 	), macd AS (
 		SELECT trade_date,
-			ma12 - ma26 as dif,
-			AVG(ma12 - ma26) OVER (ORDER BY trade_date ASC ROWS BETWEEN 8 PRECEDING AND CURRENT ROW) as dea
-		FROM ema
+			ema12 - ema26 as dif,
+			0.2 * (ema12 - ema26) + 0.8 * COALESCE(LAG(ema12 - ema26) OVER (ORDER BY trade_date ASC), ema12 - ema26) as dea
+		FROM ema_calc
 	)
 	SELECT COALESCE(dea, 0) FROM macd ORDER BY trade_date DESC LIMIT 1
 	`, code, date).Scan(&dea)

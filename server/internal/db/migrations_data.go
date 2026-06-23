@@ -1,6 +1,7 @@
 package db
 
 import (
+	"fmt"
 	"log"
 	"strings"
 
@@ -841,6 +842,50 @@ func init() {
 	Register(Migration{
 		Version:     27,
 		Description: "MySQL: strategies add policy_mode, aggressive_threshold, defensive_threshold, policy_aggressive, policy_defensive, policy_cash columns",
+		Up: func() error {
+			gormAutoMigrate(MySQL, &model.Strategy{})
+			return nil
+		},
+	})
+
+	// v028: MACD precomputed columns on stocks_daily_k for real EMA-based computation
+	Register(Migration{
+		Version:     28,
+		Description: "PG: stocks_daily_k add ema12, ema26, macd_dif, macd_dea precomputed columns",
+		Up: func() error {
+			for _, col := range []struct{ name, typ string }{
+				{"ema12", "NUMERIC(12,4)"},
+				{"ema26", "NUMERIC(12,4)"},
+				{"macd_dif", "NUMERIC(12,4)"},
+				{"macd_dea", "NUMERIC(12,4)"},
+			} {
+				if err := PG.Exec(fmt.Sprintf("ALTER TABLE stocks_daily_k ADD COLUMN IF NOT EXISTS %s %s", col.name, col.typ)).Error; err != nil {
+					log.Printf("[migrate:v028] add column %s: %v", col.name, err)
+				}
+			}
+			// Create index on the new columns for fast lookups
+			for _, col := range []string{"ema12", "ema26", "macd_dif", "macd_dea"} {
+				idxName := fmt.Sprintf("idx_stocks_daily_k_%s", col)
+				PG.Exec(fmt.Sprintf("CREATE INDEX IF NOT EXISTS %s ON stocks_daily_k(code, trade_date, %s)", idxName, col))
+			}
+			return nil
+		},
+	})
+
+	// v029: Strategy risk limit fields
+	Register(Migration{
+		Version:     29,
+		Description: "MySQL: strategies add position_concentration_limit, max_daily_loss columns",
+		Up: func() error {
+			gormAutoMigrate(MySQL, &model.Strategy{})
+			return nil
+		},
+	})
+
+	// v030: Strategy soft-delete support
+	Register(Migration{
+		Version:     30,
+		Description: "MySQL: strategies add deleted_at column for soft-delete",
 		Up: func() error {
 			gormAutoMigrate(MySQL, &model.Strategy{})
 			return nil

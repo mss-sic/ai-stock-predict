@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button, Input, InputNumber, Modal, Table, Select, Popconfirm, Tooltip, DatePicker, Message, Tag } from '@arco-design/web-react';
-import { Target, Plus, Trash2, GripVertical, Play, Brain, BarChart4, TrendingUp, Shield, Settings, Sparkles, Beaker, Gauge, Factory, GitBranch, Layers, SlidersHorizontal } from 'lucide-react';
+import { Target, Plus, Trash2, GripVertical, Play, Brain, BarChart4, Shield, Settings, Sparkles, Beaker, Gauge, Factory, Layers, SlidersHorizontal, Search } from 'lucide-react';
 import {
   fetchStrategies, createStrategy, updateStrategy, deleteStrategy, reorderStrategies,
   fetchStrategyConditions, saveStrategyConditions, aiGenerateStrategy, optimizePrompt,
@@ -9,6 +9,8 @@ import {
   startBacktest, getBacktestStatus, cancelBacktest, fetchBacktestTasks,
   fetchOrchestration, saveOrchestration, fetchConditionTemplates, createConditionTemplate, fetchAIDecisions,
 } from '../services/api';
+import TemplateSelector, { STRATEGY_TEMPLATES } from './TemplateSelector';
+import IndicatorPicker from './IndicatorPicker';
 
 type CondType = 'buy' | 'add' | 'sell' | 'reduce';
 const COND_LABELS: Record<CondType, string> = { buy: '买入条件', add: '加仓条件', sell: '卖出条件', reduce: '减仓条件' };
@@ -80,8 +82,8 @@ export default function StrategyPage() {
   const [orchTab, setOrchTab] = useState(false); // orchestration panel expand state
   const [orchConfig, setOrchConfig] = useState<any>({
     orchestrationMode: 'hybrid',
-    enableMarketContext: false,
-    marketCompositeMin: -2.0,
+    enableMarketContext: true,
+    marketCompositeMin: -3.0,
     marketPositionBias: 1.0,
     enableAIAgent: false,
     aiAgentMode: 'advisory',
@@ -92,8 +94,12 @@ export default function StrategyPage() {
     policyMode: 'rule',
     aggressiveThreshold: 1.5,
     defensiveThreshold: 0.0,
+    policyAggressive: { buyPct: 20, addPct: 15, reducePct: 60, stopProfit: 25, stopLoss: -8, allowAdd: true, buyLogic: 'or', addLogic: 'or' },
+    policyDefensive: { buyPct: 10, addPct: 0, reducePct: 50, stopProfit: 15, stopLoss: -5, allowAdd: false, buyLogic: 'and', addLogic: 'and' },
+    policyCash: { buyPct: 0, addPct: 0, reducePct: 80, stopProfit: 10, stopLoss: -3, allowAdd: false, buyLogic: 'and', addLogic: 'and' },
   });
   const [orchSaving, setOrchSaving] = useState(false);
+  const [activeRegime, setActiveRegime] = useState('policyAggressive');
   const [condAdvOpen, setCondAdvOpen] = useState<Record<number, boolean>>({});
 
   const [testCond, setTestCond] = useState<any>(null);
@@ -101,6 +107,10 @@ export default function StrategyPage() {
   const [testDate, setTestDate] = useState('');
   const [testResult, setTestResult] = useState<any>(null);
   const [testLoading, setTestLoading] = useState(false);
+  const [selectedTemplate, setSelectedTemplate] = useState<string | null>(null);
+  const [templatePopulating, setTemplatePopulating] = useState(false);
+
+
 
   const toast = (type: string, msg: string) => {
     window.dispatchEvent(new CustomEvent('app:toast', { detail: { type, message: msg } }));
@@ -142,14 +152,39 @@ export default function StrategyPage() {
 
   const handleAdd = async () => {
     if (!newName.trim()) return;
+    if (!selectedTemplate) { toast('warning', '请选择一个策略模板'); return; }
+    setTemplatePopulating(true);
     try {
       const { data: r } = await createStrategy(newName.trim());
-      setActiveId(r.data.id);
+      const sid = r.data.id;
+      setActiveId(sid);
+      const tmpl = STRATEGY_TEMPLATES[selectedTemplate];
+      if (tmpl) {
+        const allConds = [...(tmpl.buyConds || []), ...(tmpl.sellConds || [])];
+        const cleanConds = allConds.map((c: any, i: number) => ({
+          id: 0, strategyId: sid, condType: c.condType, indicator: c.indicator,
+          operator: c.operator, value: c.value,
+          logicGroup: c.logicGroup || 1, sortOrder: i,
+          weight: c.weight, lookbackDays: c.lookbackDays, industryRelative: c.industryRelative,
+        }));
+        if (cleanConds.length > 0) {
+          await saveStrategyConditions(sid, cleanConds);
+        }
+        if (tmpl.regimes) {
+          await saveOrchestration(sid, {
+            orchestrationMode: 'hybrid',
+            enableMarketContext: true,
+            ...tmpl.regimes,
+          });
+        }
+      }
       setShowAdd(false);
       setNewName('');
+      setSelectedTemplate(null);
       loadStrategies();
-      toast('success', '策略已创建');
-    } catch (err) { console.error('[StrategyPage] op failed:', err); }
+      toast('success', `策略「${newName.trim()}」已创建 (${tmpl?.label || '自定义'})`);
+    } catch (err) { console.error('[StrategyPage] op failed:', err); toast('error', '创建失败'); }
+    finally { setTemplatePopulating(false); }
   };
 
   const handleDelete = async (id: number) => {
@@ -988,16 +1023,12 @@ export default function StrategyPage() {
                                       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                                         {/* Indicator selector */}
                                         <Tooltip content={<div style={{maxWidth:260}}>{info?.desc}<br/><span style={{color:'var(--color-text-3)',fontSize:11}}>{info?.dataNote}</span></div>} position="bottom">
-                                          <Select
+                                          <IndicatorPicker
                                             value={c.indicator}
                                             onChange={v => handleIndicatorChange(globalIdx, v)}
-                                            style={{ width: 180 }}
+                                            indicators={indicators}
                                             size="small"
-                                            placeholder="选择指标"
-                                            options={indicators.map((ind: any) => ({
-                                              label: `${ind.backtestSafe ? '🟢' : (ind.dataNote?.startsWith('🚫') ? '🚫' : '🟡')} ${ind.label}`,
-                                              value: ind.key,
-                                            }))}
+                                            style={{ width: 180 }}
                                           />
                                         </Tooltip>
 
@@ -1120,20 +1151,24 @@ export default function StrategyPage() {
                                           <div style={{ marginTop: 4 }}>
                                             <Button size="mini" type="text" style={{ fontSize: 10, color: 'var(--color-text-3)', padding: '0 2px' }}
                                               onClick={() => setCondAdvOpen(prev => ({ ...prev, [globalIdx]: !isOpen }))}>
-                                              {isOpen ? '收起高级' : '高级选项'} {isOpen ? '▴' : '▾'}
+                                              {isOpen ? '收起高级选项' : '高级选项 ▸'} {isOpen ? '▴' : '▾'}
                                             </Button>
                                             {isOpen && (
                                               <div style={{ marginTop: 6, padding: '8px 12px', background: 'var(--color-fill-2)', borderRadius: 6, display: 'flex', flexDirection: 'column', gap: 6 }}>
                                                 {showWeight && (
                                                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                                    <span style={{ fontSize: 11, color: 'var(--color-text-3)', minWidth: 60 }}>权重</span>
+                                                    <Tooltip content="该条件在总分中的权重（0~5），越高对最终买卖决策影响越大">
+                                                    <span style={{ fontSize: 11, color: 'var(--color-text-3)', minWidth: 60, cursor: 'help', borderBottom: '1px dotted var(--color-text-3)' }}>权重</span>
+                                                  </Tooltip>
                                                     <InputNumber value={c.weight || 1.0} onChange={v => updateCondition(globalIdx, 'weight', v ?? 1.0)}
                                                       style={{ width: 80 }} size="mini" min={0} max={5} step={0.5} />
                                                   </div>
                                                 )}
                                                 {showFuzzy && (
                                                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                                    <span style={{ fontSize: 11, color: 'var(--color-text-3)', minWidth: 60 }}>模糊评分</span>
+                                                    <Tooltip content="模糊度 σ：0=精确阈值判断，越大越宽松（如 PE<15 在 σ=2 时 PE=16.5 也能部分得分）">
+                                                    <span style={{ fontSize: 11, color: 'var(--color-text-3)', minWidth: 60, cursor: 'help', borderBottom: '1px dotted var(--color-text-3)' }}>模糊评分</span>
+                                                  </Tooltip>
                                                     <InputNumber value={c.fuzzySigma || 0} onChange={v => updateCondition(globalIdx, 'fuzzySigma', v ?? 0)}
                                                       style={{ width: 80 }} size="mini" min={0} max={5} step={0.5} />
                                                     <span style={{ fontSize: 10, color: 'var(--color-text-3)' }}>σ, 0=精确</span>
@@ -1141,21 +1176,27 @@ export default function StrategyPage() {
                                                 )}
                                                 {showLookback && (
                                                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                                    <span style={{ fontSize: 11, color: 'var(--color-text-3)', minWidth: 60 }}>回溯天数</span>
+                                                    <Tooltip content="统计过去 N 个交易日中该条件成立的占比，用于时序评分（如 N=5 中 4 天成立 → 80% 得分）">
+                                                    <span style={{ fontSize: 11, color: 'var(--color-text-3)', minWidth: 60, cursor: 'help', borderBottom: '1px dotted var(--color-text-3)' }}>回溯天数</span>
+                                                  </Tooltip>
                                                     <InputNumber value={c.lookbackDays || 1} onChange={v => updateCondition(globalIdx, 'lookbackDays', v ?? 1)}
                                                       style={{ width: 80 }} size="mini" min={1} max={60} />
                                                   </div>
                                                 )}
                                                 {showConsecutive && (
                                                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                                    <span style={{ fontSize: 11, color: 'var(--color-text-3)', minWidth: 60 }}>连续天数</span>
+                                                    <Tooltip content="要求条件连续 N 天成立才给满分，否则得分减半。用于过滤昙花一现的假信号">
+                                                    <span style={{ fontSize: 11, color: 'var(--color-text-3)', minWidth: 60, cursor: 'help', borderBottom: '1px dotted var(--color-text-3)' }}>连续天数</span>
+                                                  </Tooltip>
                                                     <InputNumber value={c.consecutiveDays || 1} onChange={v => updateCondition(globalIdx, 'consecutiveDays', v ?? 1)}
                                                       style={{ width: 80 }} size="mini" min={1} max={10} />
                                                   </div>
                                                 )}
                                                 {showTrend && (
                                                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                                    <span style={{ fontSize: 11, color: 'var(--color-text-3)', minWidth: 60 }}>趋势方向</span>
+                                                    <Tooltip content="额外加分：改善中→近期动量向上加分，恶化中→近期动量向下减分。用于过滤逆势信号">
+                                                    <span style={{ fontSize: 11, color: 'var(--color-text-3)', minWidth: 60, cursor: 'help', borderBottom: '1px dotted var(--color-text-3)' }}>趋势方向</span>
+                                                  </Tooltip>
                                                     <Select value={c.trendDirection || 'none'} onChange={v => updateCondition(globalIdx, 'trendDirection', v)}
                                                       style={{ width: 120 }} size="mini"
                                                       options={[
@@ -1167,7 +1208,9 @@ export default function StrategyPage() {
                                                 )}
                                                 {showIndustryRel && (
                                                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                                    <span style={{ fontSize: 11, color: 'var(--color-text-3)', minWidth: 60 }}>行业相对</span>
+                                                    <Tooltip content="开启后，阈值自动相对行业中位数调整（如 PE < 行业中位数 50% 而非固定值 15）">
+                                                    <span style={{ fontSize: 11, color: 'var(--color-text-3)', minWidth: 60, cursor: 'help', borderBottom: '1px dotted var(--color-text-3)' }}>行业相对</span>
+                                                  </Tooltip>
                                                     <input type="checkbox" checked={c.industryRelative || false}
                                                       onChange={e => updateCondition(globalIdx, 'industryRelative', e.target.checked)}
                                                       style={{ accentColor: '#165DFF' }} />
@@ -1176,19 +1219,23 @@ export default function StrategyPage() {
                                                 )}
                                                 {showTimeframe && (
                                                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                                    <span style={{ fontSize: 11, color: 'var(--color-text-3)', minWidth: 60 }}>K线周期</span>
+                                                    <Tooltip content="周线/月线回测暂不支持，仅实盘可用">
+                                                      <span style={{ fontSize: 11, color: 'var(--color-text-3)', minWidth: 60, cursor: 'help', borderBottom: '1px dotted var(--color-text-3)' }}>K线周期</span>
+                                                    </Tooltip>
                                                     <Select value={c.timeframe || 'daily'} onChange={v => updateCondition(globalIdx, 'timeframe', v)}
                                                       style={{ width: 100 }} size="mini"
                                                       options={[
                                                         { label: '日线', value: 'daily' },
-                                                        { label: '周线', value: 'weekly' },
-                                                        { label: '月线', value: 'monthly' },
+                                                        { label: '周线 ⚠', value: 'weekly', disabled: true },
+                                                        { label: '月线 ⚠', value: 'monthly', disabled: true },
                                                       ]} />
                                                   </div>
                                                 )}
                                                 {showTreeOp && (
                                                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                                    <span style={{ fontSize: 11, color: 'var(--color-text-3)', minWidth: 60 }}>条件逻辑</span>
+                                                    <Tooltip content="该条件与上级条件的逻辑关系：AND=同时满足，OR=任一满足，NOT=反转条件">
+                                                    <span style={{ fontSize: 11, color: 'var(--color-text-3)', minWidth: 60, cursor: 'help', borderBottom: '1px dotted var(--color-text-3)' }}>条件逻辑</span>
+                                                  </Tooltip>
                                                     <Select value={c.treeOperator || 'and'} onChange={v => updateCondition(globalIdx, 'treeOperator', v)}
                                                       style={{ width: 100 }} size="mini"
                                                       options={[
@@ -1417,6 +1464,79 @@ export default function StrategyPage() {
                       当前阈值: 综合分 ≥{orchConfig.aggressiveThreshold ?? 1.5}→进攻 | ≥{orchConfig.defensiveThreshold ?? 0}→防御 | &lt;{orchConfig.defensiveThreshold ?? 0}→空仓
                     </div>
                   </div>
+                  {/* Regime parameter editor */}
+                  <div style={{ marginTop: 12, padding: '12px 14px', background: 'var(--color-fill-1)', borderRadius: 8 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text-2)', marginBottom: 8 }}>
+                      📐 各模式参数配置
+                    </div>
+                    {/* Regime tabs */}
+                    {(() => {
+                      const regimes = [
+                        { key: 'policyAggressive', label: '🟢 进攻', color: '#00B42A' },
+                        { key: 'policyDefensive', label: '🟡 防御', color: '#F7BA1E' },
+                        { key: 'policyCash', label: '🔴 空仓', color: '#F53F3F' },
+                      ];
+                      const regimeData = orchConfig[activeRegime] || {};
+                      const updateRegime = (field: string, val: any) => {
+                        setOrchConfig((prev: any) => ({
+                          ...prev,
+                          [activeRegime]: { ...(prev[activeRegime] || {}), [field]: val }
+                        }));
+                      };
+                      return (
+                        <div>
+                          <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
+                            {regimes.map(r => (
+                              <div key={r.key} onClick={() => setActiveRegime(r.key)}
+                                style={{
+                                  flex: 1, padding: '6px 10px', cursor: 'pointer', borderRadius: 6,
+                                  textAlign: 'center', fontSize: 11, fontWeight: activeRegime === r.key ? 700 : 500,
+                                  background: activeRegime === r.key ? r.color + '18' : 'var(--color-fill-2)',
+                                  border: activeRegime === r.key ? '1.5px solid ' + r.color : '1px solid transparent',
+                                  color: activeRegime === r.key ? r.color : 'var(--color-text-3)',
+                                  transition: 'all 0.15s',
+                                }}
+                              >{r.label}</div>
+                            ))}
+                          </div>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <span style={{ fontSize: 11, color: 'var(--color-text-3)', width: 50 }}>买入%</span>
+                              <InputNumber value={regimeData.buyPct ?? 15} onChange={v => updateRegime('buyPct', v ?? 15)}
+                                min={0} max={100} suffix="%" style={{ width: 80 }} size="small" />
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <span style={{ fontSize: 11, color: 'var(--color-text-3)', width: 50 }}>加仓%</span>
+                              <InputNumber value={regimeData.addPct ?? 10} onChange={v => updateRegime('addPct', v ?? 0)}
+                                min={0} max={100} suffix="%" style={{ width: 80 }} size="small" />
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <span style={{ fontSize: 11, color: 'var(--color-text-3)', width: 50 }}>减仓%</span>
+                              <InputNumber value={regimeData.reducePct ?? 50} onChange={v => updateRegime('reducePct', v ?? 50)}
+                                min={0} max={100} suffix="%" style={{ width: 80 }} size="small" />
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <span style={{ fontSize: 11, color: 'var(--color-text-3)', width: 50 }}>止盈%</span>
+                              <InputNumber value={regimeData.stopProfit ?? 15} onChange={v => updateRegime('stopProfit', v ?? 15)}
+                                min={0} max={200} suffix="%" style={{ width: 80 }} size="small" />
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <span style={{ fontSize: 11, color: 'var(--color-text-3)', width: 50 }}>止损%</span>
+                              <InputNumber value={regimeData.stopLoss ?? -7} onChange={v => updateRegime('stopLoss', v ?? -7)}
+                                max={0} suffix="%" style={{ width: 80 }} size="small" />
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <span style={{ fontSize: 11, color: 'var(--color-text-3)' }}>允许加仓</span>
+                              <input type="checkbox" checked={regimeData.allowAdd ?? false}
+                                onChange={e => updateRegime('allowAdd', e.target.checked)}
+                                style={{ accentColor: '#165DFF' }} />
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+
 
                   {/* Industry */}
                   <div style={{ padding: '14px 18px', background: 'var(--color-bg-1)', borderRadius: 10, border: '1px solid var(--color-border-1)' }}>
@@ -1686,8 +1806,19 @@ export default function StrategyPage() {
       </div>
 
       {/* Add Strategy Modal */}
-      <Modal visible={showAdd} title="新建策略" onOk={handleAdd} onCancel={() => setShowAdd(false)} okText="创建">
-        <Input placeholder="策略名称" value={newName} onChange={setNewName} style={{ width: '100%' }} />
+      <Modal
+        visible={showAdd}
+        title="新建策略"
+        onOk={handleAdd}
+        onCancel={() => { setShowAdd(false); setSelectedTemplate(null); }}
+        okText="创建"
+        confirmLoading={templatePopulating}
+        okButtonProps={{ disabled: !selectedTemplate || !newName.trim() }}
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <TemplateSelector selected={selectedTemplate} onSelect={setSelectedTemplate} />
+          <Input placeholder="策略名称" value={newName} onChange={setNewName} style={{ width: '100%' }} />
+        </div>
       </Modal>
 
       {/* AI Generate Modal */}

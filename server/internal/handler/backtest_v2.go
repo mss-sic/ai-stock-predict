@@ -63,6 +63,7 @@ func generateSignalsV2(
 	if addPct <= 0 { addPct = 10 }
 	reducePct := s.ReducePositionPct
 	if reducePct <= 0 { reducePct = 50 }
+
 	maxHold := s.MaxHoldings
 	if maxHold <= 0 { maxHold = 20 }
 
@@ -97,6 +98,15 @@ func generateSignalsV2(
 	}
 	if s.EnableMarketContext || true { // always enable policy in v3
 		policy = policyMgr.DeterminePolicy(mktCtx)
+
+	// ── Apply regime parameter overrides ──
+	if policy != nil && policy.RegimeParams != nil {
+		if v, ok := policy.RegimeParams["buyPct"].(float64); ok && v > 0 { buyPct = v }
+		if v, ok := policy.RegimeParams["addPct"].(float64); ok && v > 0 { addPct = v }
+		if v, ok := policy.RegimeParams["reducePct"].(float64); ok && v > 0 { reducePct = v }
+		if v, ok := policy.RegimeParams["stopProfit"].(float64); ok { s.StopProfit = v }
+		if v, ok := policy.RegimeParams["stopLoss"].(float64); ok { s.StopLoss = v }
+	}
 		// Log policy decision
 		log.Printf("[backtest_v2] POLICY date=%s mode=%s buy=%v add=%v bias=%.2f",
 			date, policy.Mode, policy.AllowBuy, policy.AllowAdd, policy.PositionBias)
@@ -265,36 +275,14 @@ func generateSignalsV2(
 				// evalSingleWithValue returns (passed, rawValue) for fuzzy scoring
 					evalWithVal := func(cond model.StrategyCondition, code, date string) (bool, float64) {
 						ind := cond.Indicator
-						// Try cache first (same as evalSingle)
+						// Try cache first
 						if val, ok := icache.get(ind, code, date); ok {
 							return checkOp(val, cond.Operator, cond.Value), val
 						}
-						// Compute raw value + pass/fail for momentum indicators
-						switch ind {
-						case "daily_change":
-							cur := kcache.GetClose(code, date)
-							prev := getPrevClose(kcache, code, date)
-							if prev > 0 && cur > 0 {
-								raw := (cur - prev) / prev * 100
-								return checkOp(raw, cond.Operator, cond.Value), raw
-							}
-						case "momentum_5":
-							cur := kcache.GetClose(code, date)
-							prev := getCloseNDaysAgo(kcache, code, date, 5)
-							if prev > 0 && cur > 0 {
-								raw := (cur - prev) / prev * 100
-								return checkOp(raw, cond.Operator, cond.Value), raw
-							}
-						case "momentum_20":
-							cur := kcache.GetClose(code, date)
-							prev := getCloseNDaysAgo(kcache, code, date, 20)
-							if prev > 0 && cur > 0 {
-								raw := (cur - prev) / prev * 100
-								return checkOp(raw, cond.Operator, cond.Value), raw
-							}
-						}
-						// Fallback to evalSingle (bool only)
-						return evalSingle(cond, code, date), 0
+						// Delegate to getIndicatorValue — covers all 80+ indicators
+						rawVal := getIndicatorValue(cond, code, date)
+						passed := checkOp(rawVal, cond.Operator, cond.Value)
+						return passed, rawVal
 					}
 					results := scoringEng.ScoreAll(scoringUniverse, date,
 						func(c, d string) float64 { return kcache.GetClose(c, d) },
@@ -349,26 +337,85 @@ func generateSignalsV2(
 				if _, held := positions[si.Code]; held { continue }
 				if kcache.GetDailyChange(si.Code, date) >= 9.8 { continue }
 				if isSTStock(si.Name) { continue }
-				if evalConds(buyConds, si.Code, date) {
+				// Policy-aware buy logic
+				buyLogic := "and"
+				if policy != nil && policy.BuyLogic == "or" {
+					buyLogic = "or"
+				}
+				passed := false
+				if buyLogic == "or" {
+					// OR logic: ANY condition in ANY group passes → trigger
+					for _, c := range buyConds {
+						if evalSingle(c, si.Code, date) {
+							passed = true
+							break
+						}
+					}
+				} else {
+					passed = evalConds(buyConds, si.Code, date)
+				}
+				if passed {
 					candidates = append(candidates, buyCandidate{si.Code, si.Name, "满足买入条件", kcache.GetClose(si.Code, date), 0})
 				}
 			}
 		}
 
-		// P0-5: Risk constraint — skip buy if daily loss exceeds 5%
-		totalEquity := cash
-		for _, p := range positions {
-			cp := kcache.GetClose(p.Code, date)
-			if cp > 0 {
-				totalEquity += cp * float64(p.Quantity)
+		// ── Risk Management ──
+		if len(candidates) > 0 {
+			// Compute total equity
+			totalEquity := cash
+			for _, p := range positions {
+				cp := kcache.GetClose(p.Code, date)
+				if cp > 0 {
+					totalEquity += cp * float64(p.Quantity)
+				}
+			}
+
+			// 1. Market Circuit Breaker — block all buys if sentiment below threshold
+			if mktCtx != nil && !mktCtx.TradeAllowed {
+				log.Printf("[backtest_v2] RISK date=%s circuit_breaker: trade not allowed, skip all buys", date)
+				candidates = nil
+			}
+
+			// 2. Daily Loss Limit — skip buys if daily loss exceeds configured limit
+			if len(candidates) > 0 {
+				maxDailyLossAmt := s.InitialCapital * s.MaxDailyLoss
+				if s.MaxDailyLoss >= 0 {
+					maxDailyLossAmt = s.InitialCapital * -0.05
+				}
+				dailyPnlCheck := totalEquity - s.InitialCapital
+				if dailyPnlCheck < maxDailyLossAmt {
+					log.Printf("[backtest_v2] RISK date=%s daily_loss=%.0f exceeds limit=%.0f, skip all buys", date, dailyPnlCheck, maxDailyLossAmt)
+					candidates = nil
+				}
+			}
+
+			// 3. Max Drawdown Protection — block buys when drawdown exceeds 20%%
+			if len(candidates) > 0 && s.InitialCapital > 0 {
+				drawdown := (s.InitialCapital - totalEquity) / s.InitialCapital
+				if drawdown > 0.20 {
+					log.Printf("[backtest_v2] RISK date=%s drawdown=%.1f%% exceeds 20%%, skip all buys", date, drawdown*100)
+					candidates = nil
+				}
+			}
+
+			// 4. Position Concentration — skip individual stocks exceeding limit
+			if len(candidates) > 0 && s.PositionConcentrationLimit > 0 {
+				filtered := make([]buyCandidate, 0, len(candidates))
+				for _, bc := range candidates {
+					closePrice := kcache.GetClose(bc.code, date)
+					if closePrice <= 0 { continue }
+					plannedQty := int(buyAmountPerStock / closePrice / 100) * 100
+					newMV := closePrice * float64(plannedQty)
+					if totalEquity > 0 && newMV/totalEquity > s.PositionConcentrationLimit {
+						log.Printf("[backtest_v2] RISK date=%s %s would exceed %.0f%% position limit, skip", date, bc.code, s.PositionConcentrationLimit*100)
+						continue
+					}
+					filtered = append(filtered, bc)
+				}
+				candidates = filtered
 			}
 		}
-		dailyPnlCheck := totalEquity - 100000 // relative to initial capital
-		if dailyPnlCheck < -5000 {
-			log.Printf("[backtest_v2] date=%s daily_loss=%.0f > 5%%, skip all buys", date, dailyPnlCheck)
-			candidates = nil
-		}
-
 		// P1: AI Agent review of buy candidates (if enabled)
 		if s.EnableAIAgent && len(candidates) > 0 {
 			aiSvc := getAIService()
@@ -405,9 +452,18 @@ func generateSignalsV2(
 			if boughtThisRound >= slotCount { break }
 			closePrice := kcache.GetClose(bc.code, date)
 			if closePrice <= 0 { continue }
+
+		// Compute total equity for position sizing
+		totalEquity := cash
+		for _, p := range positions {
+			cp := kcache.GetClose(p.Code, date)
+			if cp > 0 {
+				totalEquity += cp * float64(p.Quantity)
+			}
+		}
 			// P0-5: Position concentration — single stock max 25%% of total equity
 			newMV := closePrice * float64(int(buyAmountPerStock/closePrice/100)*100)
-			if totalEquity > 0 && newMV/totalEquity > 0.25 {
+			if totalEquity > 0 && s.PositionConcentrationLimit > 0 && newMV/totalEquity > s.PositionConcentrationLimit {
 				log.Printf("[backtest_v2] date=%s %s would exceed 25%% position limit, skip", date, bc.code)
 				continue
 			}
@@ -438,7 +494,23 @@ skipBuys:
 
 		if scoringEng != nil && len(addConds) > 0 {
 			// Use scoring engine: score the stock; add if any condition passes
-			addTriggered = evalConds(addConds, pos.Code, date)
+			// Policy-aware add logic
+			addLogic := "and"
+			if policy != nil && policy.AddLogic == "or" {
+				addLogic = "or"
+			}
+			if addLogic == "or" {
+				// OR logic: ANY condition passes → trigger
+				for _, c := range addConds {
+					if evalSingle(c, pos.Code, date) {
+						addTriggered = true
+						addReason = fmt.Sprintf("条件OR: %s", c.Indicator)
+						break
+					}
+				}
+			} else {
+				addTriggered = evalConds(addConds, pos.Code, date)
+			}
 		} else if decisionTreeBuy != nil {
 			addTriggered, addReason = decisionTreeBuy.Evaluate(pos.Code, date)
 		} else {

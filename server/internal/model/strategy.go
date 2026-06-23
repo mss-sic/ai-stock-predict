@@ -5,14 +5,31 @@ import (
 	"encoding/json"
 	"errors"
 	"time"
+
+	"gorm.io/gorm"
 )
 
 type JSONMap map[string]interface{}
 
 func (j JSONMap) Value() (driver.Value, error) { return json.Marshal(j) }
 func (j *JSONMap) Scan(value interface{}) error {
+	if value == nil {
+		*j = nil
+		return nil
+	}
 	bytes, ok := value.([]byte)
-	if !ok { return errors.New("type assertion to []byte failed") }
+	if !ok {
+		// Try string (some drivers return JSON as string)
+		if s, ok2 := value.(string); ok2 {
+			bytes = []byte(s)
+		} else {
+			return errors.New("type assertion to []byte failed")
+		}
+	}
+	if len(bytes) == 0 || string(bytes) == "null" {
+		*j = nil
+		return nil
+	}
 	return json.Unmarshal(bytes, j)
 }
 
@@ -35,6 +52,10 @@ type Strategy struct {
 
 	// Position sizing method
 	PositionSizing string `gorm:"size:15;default:fixed_pct" json:"positionSizing"` // fixed_pct / equal_weight / kelly
+
+	// Risk limits
+	PositionConcentrationLimit float64 `gorm:"default:0.25" json:"positionConcentrationLimit"` // 单票最大仓位占比 (0-1)
+	MaxDailyLoss               float64 `gorm:"default:-0.05" json:"maxDailyLoss"`               // 单日最大亏损比例 (负数)
 
 	// Investment plan
 	InitialCapital  float64 `gorm:"default:100000" json:"initialCapital"` // 初始资金
@@ -73,6 +94,7 @@ type Strategy struct {
 
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
+	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`
 }
 
 // StrategyCondition defines a single factor condition in a strategy

@@ -37,6 +37,8 @@ type Policy struct {
 	SellPctMult        float64    `json:"sellPctMult"`        // multiply sell percentage (1.0 = normal, >1 = aggressive selling)
 	BuyLogic           string     `json:"buyLogic"`           // "and" or "or" — override condition logic
 	AddLogic           string     `json:"addLogic"`           // "and" or "or"
+		// RegimeParams carries strategy-level overrides from JSONMap
+		RegimeParams       map[string]interface{}  `json:"regimeParams,omitempty"`
 }
 
 // PolicyManager determines the trading policy based on market context.
@@ -119,6 +121,33 @@ func (pm *PolicyManager) DeterminePolicy(ctx *MarketContext) *Policy {
 		p.Reason = fmt.Sprintf("市场熔断(%.1f<%.1f)，强制空仓", score, pm.strategy.MarketCompositeMin)
 		p.AllowBuy = false
 		p.AllowAdd = false
+	}
+
+	// ── Load regime-specific parameters from Strategy JSONMap ──
+	switch p.Mode {
+	case PolicyAggressive:
+		if pm.strategy.PolicyAggressive != nil {
+			p.RegimeParams = pm.strategy.PolicyAggressive
+		}
+	case PolicyDefensive:
+		if pm.strategy.PolicyDefensive != nil {
+			p.RegimeParams = pm.strategy.PolicyDefensive
+		}
+	case PolicyCash:
+		if pm.strategy.PolicyCash != nil {
+			p.RegimeParams = pm.strategy.PolicyCash
+		}
+	}
+	// Apply RegimeParams overrides to policy fields
+	if p.RegimeParams != nil {
+		if v, ok := p.RegimeParams["buyPct"].(float64); ok && v > 0 { p.PositionBias = v / 15.0 }
+		if v, ok := p.RegimeParams["addPct"].(float64); ok { 
+			if v > 0 { p.AllowAdd = true } else { p.AllowAdd = false }
+		}
+		if v, ok := p.RegimeParams["allowAdd"].(bool); ok { p.AllowAdd = v }
+		if v, ok := p.RegimeParams["buyLogic"].(string); ok { p.BuyLogic = v }
+		if v, ok := p.RegimeParams["addLogic"].(string); ok { p.AddLogic = v }
+		if v, ok := p.RegimeParams["reducePct"].(float64); ok && v > 0 { p.ReducePctMult = v / 50.0 }
 	}
 
 	// ── Risk level override ──
