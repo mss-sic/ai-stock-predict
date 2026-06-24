@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ai-stock-predict/server/internal/db"
 	"github.com/ai-stock-predict/server/internal/model"
 	"github.com/ai-stock-predict/server/internal/service"
 )
@@ -46,8 +47,8 @@ func generateSignalsV2(
 		date, s.OrchestrationMode, len(buyConds), len(sellConds), len(addConds), len(reduceConds), len(universe), len(positions), cash, isLastDay)
 	insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, 10,
 		"system", "info", "", "",
-		fmt.Sprintf("决策引擎启动 | mode=%s buyConds=%d sellConds=%d universe=%d stocks",
-			s.OrchestrationMode, len(buyConds), len(sellConds), len(universe)), nil)
+		fmt.Sprintf("▸ 市场扫描 | %d只股票 %d条买入条件 %d条卖出条件",
+			len(universe), len(buyConds), len(sellConds)), nil)
 
 	// P0-4: Panic recovery for backtest goroutine
 	defer func() {
@@ -102,8 +103,15 @@ func generateSignalsV2(
 			mktCtx = ctx
 		}
 	}
+	// Define human-readable mode name for logging (available throughout function)
+	var modeCN string
+
 	if s.EnableMarketContext { // policy controlled by strategy config
 		policy = policyMgr.DeterminePolicy(mktCtx)
+
+	// Set modeCN based on policy
+	modeCN = map[string]string{"aggressive":"进攻","defensive":"防御","cash":"空仓","neutral":"中性"}[string(policy.Mode)]
+	if modeCN == "" { modeCN = "未知" }
 
 	// ── Apply regime parameter overrides ──
 	if policy != nil && policy.RegimeParams != nil {
@@ -116,10 +124,14 @@ func generateSignalsV2(
 		// Log policy decision
 		log.Printf("[backtest_v2] POLICY date=%s mode=%s buy=%v add=%v bias=%.2f",
 			date, policy.Mode, policy.AllowBuy, policy.AllowAdd, policy.PositionBias)
+		buyStr := "允许买入"
+		if !policy.AllowBuy { buyStr = "暂停买入" }
+		addStr := ""
+		if !policy.AllowAdd { addStr = " 禁止加仓" }
 		insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, 15,
 			"system", "info", "", "",
-			fmt.Sprintf("风控决策: mode=%s buy=%v add=%v bias=%.2f reason=%s",
-				policy.Mode, policy.AllowBuy, policy.AllowAdd, policy.PositionBias, policy.Reason), nil)
+			fmt.Sprintf("▸ 风控: %s | %s%s | %s",
+				modeCN, buyStr, addStr, policy.Reason), nil)
 		// Apply policy sell multiplier
 		reducePct = reducePct * policy.SellPctMult
 		if reducePct > 100 { reducePct = 100 }
@@ -260,13 +272,30 @@ func generateSignalsV2(
 		}
 	}
 
+	// ── Sell check summary ──
+	sellSignalCount := 0
+	for _, sig := range signals {
+		if sig.ActionType == "sell" || sig.ActionType == "reduce" || sig.ActionType == "stop" {
+			sellSignalCount++
+		}
+	}
+	if len(positions) > 0 && sellSignalCount == 0 {
+		insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, 14,
+			"system", "debug", "", "",
+			fmt.Sprintf("▸ 持仓检查: %d只持仓 无卖出信号 (继续持有)", len(positions)), nil)
+	} else if sellSignalCount > 0 {
+		insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, 14,
+			"system", "info", "", "",
+			fmt.Sprintf("▸ 持仓检查: %d只持仓 %d只触发卖出", len(positions), sellSignalCount), nil)
+	}
+
 	// ── Buy checks (Scoring or legacy) ──
 	// ── Policy guard: skip buys if policy disallows ──
 	if policy != nil && !policy.AllowBuy {
 		log.Printf("[backtest_v2] POLICY_SKIP date=%s mode=%s: buy disabled", date, policy.Mode)
 		insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, 16,
 			"system", "warn", "", "",
-			fmt.Sprintf("风控禁止买入: mode=%s 当前市场环境不满足开仓条件", policy.Mode), nil)
+			fmt.Sprintf("▸ 跳过买入: %s模式 市场环境不满足开仓条件", modeCN), nil)
 		goto skipBuys
 	}
 
@@ -345,40 +374,40 @@ func generateSignalsV2(
 						passed := checkOp(rawVal, cond.Operator, cond.Value)
 						return passed, rawVal
 					}
+				scoreStart := time.Now()
 					results := scoringEng.ScoreAll(scoringUniverse, date,
 						func(c, d string) float64 { return kcache.GetClose(c, d) },
-						evalSingle, evalWithVal)
-				// DEBUG: show first candidate's condition details
-				if len(results) > 0 {
-					top := &results[0]
-					details := make([]string, 0)
-					for _, cs := range top.Breakdown {
-						details = append(details, fmt.Sprintf("%s(w%.1f)=%.2f(%s)", cs.Indicator, cs.Weight, cs.WeightedScore, cs.Detail))
-					}
-					log.Printf("[backtest_v2] TOP_DEBUG date=%s code=%s totalScore=%.2f details=[%s]",
-						date, top.Code, top.TotalScore, joinActions(details))
-				}
-				// P0-1: Adaptive minScore from score distribution
+						evalSingle, evalWithVal,
+						func(scored, total, candidates int) {
+							// Update progress so frontend sees scoring is active
+							updateProgressForScoring(task, date, scored, total, candidates)
+						})
+				scoreElapsed := time.Since(scoreStart)
+				// ── Funnel: universe → scored → topN ──
 				minScore := scoringEng.GetDistribution().AdaptiveMinScore()
-				log.Printf("[backtest_v2] date=%s adaptive_minScore=%.3f (median=%.3f top1=%.3f)",
-					date, minScore, scoringEng.GetDistribution().Median, scoringEng.GetDistribution().Top1)
 				topN := scoringEng.TopN(results, slotCount, minScore)
 				for _, r := range topN {
 					candidates = append(candidates, buyCandidate{r.Code, r.Name,
 						fmt.Sprintf("评分%.1f分", r.TotalScore), r.Price, r.TotalScore})
 				}
-				if len(topN) == 0 && len(results) > 0 {
-					last := len(results) - 1
-					s2, s3 := 0.0, 0.0
-					if last >= 1 { s2 = results[1].TotalScore }
-					if last >= 2 { s3 = results[2].TotalScore }
-					log.Printf("[backtest_v2] date=%s scoring: universe=%d candidates=%d topN=%d minScore=%.2f totalWeight=%.2f top3=[%.2f,%.2f,%.2f]",
-						date, len(scoringUniverse), len(results), len(topN), minScore,
-						results[0].TotalScore, s2, s3)
+				// Funnel log: show the narrowing pipeline
+				funnelMsg := fmt.Sprintf("▸ 评分漏斗: %d只→%d只评分→入围%d只 (minScore=%.1f)",
+					len(scoringUniverse), len(results), len(topN), minScore)
+				if len(topN) > 0 {
+					topNames := make([]string, 0, 3)
+					for i := 0; i < len(topN) && i < 3; i++ {
+						topNames = append(topNames, fmt.Sprintf("%s(%.1f)", topN[i].Code, topN[i].TotalScore))
+					}
+					funnelMsg += fmt.Sprintf(" | Top3: %s | ⏱%.1fs", joinActions(topNames), scoreElapsed.Seconds())
+				} else if len(results) > 0 {
+					funnelMsg += fmt.Sprintf(" | 最高%.1f分未达阈值 | ⏱%.1fs", results[0].TotalScore, scoreElapsed.Seconds())
 				} else {
-					log.Printf("[backtest_v2] date=%s scoring: universe=%d candidates=%d topN=%d minScore=%.2f",
-						date, len(scoringUniverse), len(results), len(topN), minScore)
+					funnelMsg += fmt.Sprintf(" | 无股票通过评分 | ⏱%.1fs", scoreElapsed.Seconds())
 				}
+				insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, 17,
+					"system", "info", "", "", funnelMsg, nil)
+				log.Printf("[backtest_v2] date=%s funnel: universe=%d scored=%d topN=%d minScore=%.2f elapsed=%.1fs",
+					date, len(scoringUniverse), len(results), len(topN), minScore, scoreElapsed.Seconds())
 			}
 		} else if decisionTreeBuy != nil {
 			for _, si := range universe {
@@ -475,7 +504,7 @@ func generateSignalsV2(
 						log.Printf("[backtest_v2] RISK date=%s %s would exceed %.0f%% position limit, skip", date, bc.code, s.PositionConcentrationLimit*100)
 				insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, 18,
 					"signal", "warn", bc.code, bc.name,
-					fmt.Sprintf("持仓限制: %s 将超过%.0f%%单票上限，跳过", bc.code, s.PositionConcentrationLimit*100), nil)
+					fmt.Sprintf("⏭ %s 超单票%.0f%%上限 跳过", bc.code, s.PositionConcentrationLimit*100), nil)
 						continue
 					}
 					filtered = append(filtered, bc)
@@ -541,7 +570,7 @@ func generateSignalsV2(
 				log.Printf("[backtest_v2] date=%s %s would exceed 25%% position limit, skip", date, bc.code)
 			insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, 18,
 				"signal", "warn", bc.code, bc.name,
-				fmt.Sprintf("持仓限制: %s 超过25%%单票上限，跳过", bc.code), nil)
+				fmt.Sprintf("⏭ %s 超25%%上限 跳过", bc.code), nil)
 				continue
 			}
 			plannedQty := int(buyAmountPerStock / closePrice / 100) * 100
@@ -624,7 +653,7 @@ skipAdds:
 	if elapsed > 2*time.Second || len(signals) > 0 {
 		insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, 28,
 			"system", "debug", "", "",
-			fmt.Sprintf("决策耗时: %.1fs 生成%d个信号", elapsed.Seconds(), len(signals)), nil)
+			fmt.Sprintf("⏱ 分析耗时 %.1fs | 生成%d个信号", elapsed.Seconds(), len(signals)), nil)
 	}
 
 	// ── No signals diagnostic ──
@@ -638,16 +667,40 @@ skipAdds:
 		if len(reasons) > 0 { diagReason = strings.Join(reasons, "; ") }
 		insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, 30,
 			"system", "debug", "", "",
-			fmt.Sprintf("当天无信号: %s | 扫描%d股 买入条件%d条 风控=%v",
-				diagReason, len(universe), len(buyConds),
-				policy != nil && !policy.AllowBuy), nil)
+			fmt.Sprintf("▸ 今日无信号: %s | %d只股票无一满足条件",
+				diagReason, len(universe)), nil)
+	}
+
+	// Funnel summary
+	if len(signals) > 0 {
+		buyCount, sellCount := 0, 0
+		for _, sig := range signals {
+			switch sig.ActionType {
+			case "buy", "add": buyCount++
+			case "sell", "reduce", "stop": sellCount++
+			}
+		}
+		insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, 29,
+			"system", "info", "", "",
+			fmt.Sprintf("▸ 决策完成: %d只扫描 → 买入%d 卖出%d",
+				len(universe), buyCount, sellCount), nil)
 	}
 
 	return signals
 }
 
-func init() {
-	log.Printf("[backtest_v2] registered")
+func init() {	log.Printf("[backtest_v2] registered")
+}
+
+// updateProgressForScoring updates the task phase during scoring to show live progress.
+func updateProgressForScoring(task *model.BacktestTask, date string, scored, total, candidates int) {
+	pct := 0.0
+	if total > 0 { pct = float64(scored) / float64(total) * 100 }
+	db.MySQL.Model(task).Updates(map[string]interface{}{
+		"phase":       fmt.Sprintf("%s — 评分中: %d/%d 候选%d", date, scored, total, candidates),
+		"progress_pct": pct,
+		"current_day":  task.CurrentDay,
+	})
 }
 
 func min(a, b int) int {

@@ -2285,7 +2285,7 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 	// Default to V2 (hybrid) for all strategies unless explicitly set to legacy
 	useV2 := s.OrchestrationMode != "legacy"
 
-	updateProgress(0, task.TotalDays, fmt.Sprintf("初始资金: ¥%.0f | 最大持股: %d", capital, maxHold), "")
+	updateProgress(0, task.TotalDays, fmt.Sprintf("初始化: 资金¥%.0f | 最大持股%d只", capital, maxHold), "")
 
 	// Determine stock universe
 	type StockInfo struct {
@@ -2915,11 +2915,11 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 		// Day start log
 		insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, 0,
 			"system", "info", "", "",
-			fmt.Sprintf("━━━ 第%d天 %s 持仓%d只 现金¥%.0f ━━━", di+1, date, len(positions), remainingCash),
+			fmt.Sprintf("━━ 第%d天 %s ━ 持仓%d只 现金¥%.0f", di+1, date, len(positions), remainingCash),
 			nil)
 		// Update progress so frontend sees current day immediately
 		updateProgress(di+1, totalDays,
-			fmt.Sprintf("第%d天 %s — 执行昨日信号 (%d条待执行)", di+1, date, countPendingForDate(&pendingSignals, date)),
+			fmt.Sprintf("执行信号: 第%d天 %s (%d条待执行)", di+1, date, countPendingForDate(&pendingSignals, date)),
 			"")
 
 		// P1: Check cancellation via DB status (not context)
@@ -2994,7 +2994,7 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 
 		// Update progress: signal execution done, moving to generation
 		updateProgress(di+1, totalDays,
-			fmt.Sprintf("第%d天 %s — 生成交易信号 (扫描%d只)", di+1, date, len(universe)),
+			fmt.Sprintf("生成信号: 第%d天 %s (扫描%d只)", di+1, date, len(universe)),
 			"")
 
 		// ============================================================
@@ -3121,8 +3121,8 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 		if len(newSignals) > 0 {
 			insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, 75,
 				"system", "info", "", "",
-				fmt.Sprintf("信号汇总: 买入%d 卖出%d 加仓%d 减仓%d 止损止盈%d | 共扫描%d只股票",
-					buyCnt, sellCnt, addCnt, reduceCnt, stopCnt, len(universe)),
+				fmt.Sprintf("▸ 信号输出: 买入%d 卖出%d 加仓%d 减仓%d 止损止盈%d | %d只→%d个信号",
+					buyCnt, sellCnt, addCnt, reduceCnt, stopCnt, len(universe), buyCnt+sellCnt+addCnt+reduceCnt+stopCnt),
 				nil)
 		}
 
@@ -3208,7 +3208,7 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 		prevDayEquity = totalEquity
 		insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, 999,
 			"system", "info", "", "",
-			fmt.Sprintf("第%d天结束: 权益¥%.0f 日盈亏%+.0f 累计%+.1f%% 持仓%d只", di+1, totalEquity, dailyPnl, cumRet, len(positions)),
+			fmt.Sprintf("▸ 日终结算: 权益¥%.0f 日盈亏%+.0f 累计%+.1f%% 持仓%d只", totalEquity, dailyPnl, cumRet, len(positions)),
 			nil)
 	}
 

@@ -213,6 +213,7 @@ func (se *ScoringEngine) ScoreAll(
 	getPrice func(string, string) float64,
 	evalSingle func(model.StrategyCondition, string, string) bool,
 	evalSingleWithValue func(model.StrategyCondition, string, string) (bool, float64),
+	onProgress func(scored, total, candidates int),
 ) []ScoreResult {
 	// Panic recovery: don't let single-stock crash kill the whole backtest
 	defer func() {
@@ -245,9 +246,13 @@ func (se *ScoringEngine) ScoreAll(
 			}
 		}()
 
-		// Periodic progress log for large universes (every 500 stocks)
-		if (i+1)%500 == 0 {
-			log.Printf("[scoring] progress date=%s: %d/%d stocks scored, %d candidates", date, i+1, len(universe), len(results))
+		// Periodic progress callback (every 100 stocks for large, every 50 for small universes)
+		if (i+1)%100 == 0 && onProgress != nil {
+			onProgress(i+1, len(universe), len(results))
+		}
+		// Small universe bonus: first stock always reports
+		if (i == 0 || (i+1)%50 == 0) && len(universe) < 300 && onProgress != nil {
+			onProgress(i+1, len(universe), len(results))
 		}
 	}
 

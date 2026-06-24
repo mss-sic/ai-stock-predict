@@ -1551,21 +1551,57 @@ export default function StrategyPage() {
                 </div>
 
                 {/* Live progress with mini progress bar */}
-                {btPhase && (
+                {btPhase && (() => {
+                  // Extract current stage from phase
+                  const getStage = (p: string) => {
+                    if (p.includes('评分中')) return { name: '评分', color: '#722ED1', icon: '📊' };
+                    if (p.includes('执行信号')) return { name: '执行', color: '#0ea5e9', icon: '⚡' };
+                    if (p.includes('生成信号')) return { name: '决策', color: '#14b8a6', icon: '🧠' };
+                    if (p.includes('初始化')) return { name: '初始化', color: '#909399', icon: '⏳' };
+                    if (p.includes('回测完成')) return { name: '完成', color: 'var(--stock-up)', icon: '✅' };
+                    if (p.includes('重新连接')) return { name: '重连', color: '#e6a23c', icon: '🔄' };
+                    if (p.includes('已取消')) return { name: '取消', color: '#f56c6c', icon: '⏹' };
+                    return { name: p, color: 'var(--color-info-text)', icon: '▶' };
+                  };
+                  const stage = getStage(btPhase);
+                  // Check for scoring progress in phase
+                  const scoringMatch = btPhase.match(/评分中: (\d+)\/(\d+) 候选(\d+)/);
+                  return (
                   <div style={{ marginBottom: 12 }}>
                     <div style={{
                       padding: '8px 12px', background: 'var(--color-info-bg)', borderRadius: '6px 6px 0 0',
                       fontSize: 12, color: 'var(--color-info-text)', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                     }}>
-                      <span style={{ fontWeight: 600 }}>{btPhase}</span>
+                      <span style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
+                        {btRunning && <span style={{
+                          display: 'inline-block', width: 8, height: 8, borderRadius: '50%',
+                          background: stage.color,
+                          animation: 'pulse 1.2s ease-in-out infinite',
+                        }} />}
+                        <span style={{
+                          display: 'inline-block', padding: '1px 8px', borderRadius: 10,
+                          background: stage.color + '20', color: stage.color,
+                          fontSize: 11, fontWeight: 500,
+                        }}>{stage.icon} {stage.name}</span>
+                        <span style={{ color: 'var(--color-text-2)' }}>{btPhase}</span>
+                      </span>
                       {btProgress && <span style={{ color: 'var(--color-text-3)', fontSize: 11 }}>{btProgress}</span>}
                     </div>
                     {/* Mini progress bar */}
-                    {btProgress && (() => {
-                      const parts = btProgress.split('/');
-                      const cur = parseInt(parts[0]) || 0;
-                      const total = parseInt(parts[1]) || 1;
-                      const pct = Math.min(100, Math.round((cur / total) * 100));
+                    {(() => {
+                      let pct = 0;
+                      // Scoring phase: use exact scored/total from phase
+                      if (scoringMatch) {
+                        const scored = parseInt(scoringMatch[1]) || 0;
+                        const total = parseInt(scoringMatch[2]) || 1;
+                        pct = Math.min(100, Math.round((scored / total) * 100));
+                      } else if (btProgress) {
+                        const parts = btProgress.split('/');
+                        const cur = parseInt(parts[0]) || 0;
+                        const total = parseInt(parts[1]) || 1;
+                        pct = Math.min(100, Math.round((cur / total) * 100));
+                      }
+                      if (pct <= 0) return null;
                       return (
                         <div style={{
                           height: 3, background: 'var(--color-fill-2)', borderRadius: '0 0 6px 6px',
@@ -1573,15 +1609,16 @@ export default function StrategyPage() {
                         }}>
                           <div style={{
                             height: '100%', width: `${pct}%`,
-                            background: 'linear-gradient(90deg, var(--color-info-text), var(--color-primary))',
-                            transition: 'width 0.5s ease',
+                            background: `linear-gradient(90deg, ${stage.color}, var(--color-primary))`,
+                            transition: 'width 0.3s ease',
                             borderRadius: '0 0 0 6px',
                           }} />
                         </div>
                       );
                     })()}
                   </div>
-                )}
+                  );
+                })()}
 
                 {/* Live summary stats during backtest run */}
                 {btRunning && btLogs.length > 0 && (() => {
@@ -1729,22 +1766,39 @@ export default function StrategyPage() {
                                 <div style={{ paddingLeft: isSystemDate ? 0 : 4 }}>
                                   {logs.map((l: any, i: number) => {
                                     if (l.logType === 'system') {
-                                      const isDayBoundary = l.message?.includes('━━━') || l.message?.includes('结束');
+                                      const msg = l.message || '';
+                                      // Semantic color coding based on log type
+                                      const getSysColor = (m: string) => {
+                                        if (m.includes('▸ 风控')) return '#e6a23c';
+                                        if (m.includes('▸ 市场扫描')) return 'var(--color-info-text)';
+                                        if (m.includes('▸ 评分漏斗')) return '#722ED1';
+                                        if (m.includes('▸ 决策完成')) return 'var(--stock-up)';
+                                        if (m.includes('▸ 持仓检查')) return '#0ea5e9';
+                                        if (m.includes('▸ 日终结算')) return 'var(--color-primary)';
+                                        if (m.includes('▸ 信号输出')) return '#14b8a6';
+                                        if (m.includes('▸ 跳过买入') || m.includes('▸ 今日无信号')) return '#909399';
+                                        if (m.includes('⏱')) return 'var(--color-text-3)';
+                                        if (m.includes('⏭')) return 'var(--color-warning-text)';
+                                        if (m.includes('结束') || m.includes('完成')) return 'var(--color-primary)';
+                                        return 'var(--color-text-3)';
+                                      };
+                                      const sysColor = getSysColor(msg);
+                                      const isDayBoundary = msg.includes('━━');
                                       if (isSystemDate) {
                                         return (
                                           <div key={l.id || i} style={{
-                                            padding: '3px 0', color: 'var(--color-text-3)',
-                                            fontWeight: l.message?.includes('决策引擎') ? 600 : 400,
-                                            borderBottom: l.message?.includes('━━━') ? '1px solid var(--color-border-1)' : 'none',
+                                            padding: '3px 0', color: sysColor,
+                                            fontWeight: msg.includes('▸') ? 600 : 400,
+                                            borderBottom: msg.includes('━━') ? '1px solid var(--color-border-1)' : 'none',
                                           }}>{l.message}</div>
                                         );
                                       }
                                       // Skip day boundary lines in daily groups (already shown in header)
-                                      if (l.message?.includes('━━━')) return null;
+                                      if (isDayBoundary) return null;
                                       return (
                                         <div key={l.id || i} style={{
-                                          padding: '1px 0', color: l.message?.includes('结束') ? 'var(--color-primary)' : 'var(--color-text-3)',
-                                          fontFamily: 'monospace',
+                                          padding: '1px 0', color: sysColor,
+                                          fontFamily: 'monospace', fontWeight: msg.includes('▸') ? 500 : 400,
                                         }}>{l.message}</div>
                                       );
                                     }
