@@ -85,7 +85,7 @@ func ScanUserHoldings() (int, error) {
 			SELECT code, close,
 				ROW_NUMBER() OVER (PARTITION BY code ORDER BY trade_date DESC) as rn
 			FROM stocks_daily_k
-			WHERE code = %s
+			WHERE code IN (%s)
 		)
 		SELECT r5.code, ((r5.close - r1.close) / NULLIF(r1.close, 0) * 100) as chg_pct
 		FROM (SELECT code, close FROM recent WHERE rn = 1) r1
@@ -116,7 +116,7 @@ func ScanUserHoldings() (int, error) {
 				AVG(close) OVER (PARTITION BY code ORDER BY trade_date ROWS BETWEEN 19 PRECEDING AND CURRENT ROW) as ma20,
 				ROW_NUMBER() OVER (PARTITION BY code ORDER BY trade_date DESC) as rn
 			FROM stocks_daily_k
-			WHERE code = %s
+			WHERE code IN (%s)
 		)
 		SELECT t1.code, t1.close, t1.ma20, t2.close as prev_c, t2.ma20 as prev_m
 		FROM ranked t1
@@ -139,7 +139,7 @@ func ScanUserHoldings() (int, error) {
 		WITH latest_pe AS (
 			SELECT DISTINCT ON (code) code, pe as pe
 			FROM stocks_daily_indicator
-			WHERE code = %s AND pe > 0
+			WHERE code IN (%s) AND pe > 0
 			ORDER BY code, trade_date DESC
 		),
 		ind_avg AS (
@@ -173,7 +173,7 @@ func ScanUserHoldings() (int, error) {
 	db.PG.Raw(fmt.Sprintf(`
 		SELECT stock_code as code, COUNT(*) as cnt
 		FROM algorithm_pick_details
-		WHERE stock_code = %s
+		WHERE stock_code IN (%s)
 			AND pick_date >= (SELECT MAX(pick_date) FROM algorithm_picks) - INTERVAL '20 days'
 		GROUP BY stock_code
 		HAVING COUNT(*) >= 5
@@ -194,7 +194,7 @@ func ScanUserHoldings() (int, error) {
 		WITH latest AS (
 			SELECT DISTINCT ON (code) code, profit_growth, revenue_growth
 			FROM stock_financials
-			WHERE code = %s
+			WHERE code IN (%s)
 			ORDER BY code, report_date DESC
 		)
 		SELECT code, profit_growth as chg, revenue_growth as rev_chg

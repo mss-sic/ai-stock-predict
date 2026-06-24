@@ -5,6 +5,7 @@ import (
 	"log"
 	"runtime/debug"
 	"strings"
+	"time"
 
 	"github.com/ai-stock-predict/server/internal/model"
 	"github.com/ai-stock-predict/server/internal/service"
@@ -40,8 +41,13 @@ func generateSignalsV2(
 	getNextDate func(*KlineCache, string) string,
 	evalConds func([]model.StrategyCondition, string, string) bool,
 ) []model.BacktestSignal {
+	enterTime := time.Now()
 	log.Printf("[backtest_v2] ENTER date=%s mode=%s buyConds=%d sellConds=%d addConds=%d reduceConds=%d universe=%d positions=%d cash=%.0f isLast=%v",
 		date, s.OrchestrationMode, len(buyConds), len(sellConds), len(addConds), len(reduceConds), len(universe), len(positions), cash, isLastDay)
+	insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, 10,
+		"system", "info", "", "",
+		fmt.Sprintf("决策引擎启动 | mode=%s buyConds=%d sellConds=%d universe=%d stocks",
+			s.OrchestrationMode, len(buyConds), len(sellConds), len(universe)), nil)
 
 	// P0-4: Panic recovery for backtest goroutine
 	defer func() {
@@ -96,7 +102,7 @@ func generateSignalsV2(
 			mktCtx = ctx
 		}
 	}
-	if s.EnableMarketContext || true { // always enable policy in v3
+	if s.EnableMarketContext { // policy controlled by strategy config
 		policy = policyMgr.DeterminePolicy(mktCtx)
 
 	// ── Apply regime parameter overrides ──
@@ -110,6 +116,10 @@ func generateSignalsV2(
 		// Log policy decision
 		log.Printf("[backtest_v2] POLICY date=%s mode=%s buy=%v add=%v bias=%.2f",
 			date, policy.Mode, policy.AllowBuy, policy.AllowAdd, policy.PositionBias)
+		insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, 15,
+			"system", "info", "", "",
+			fmt.Sprintf("风控决策: mode=%s buy=%v add=%v bias=%.2f reason=%s",
+				policy.Mode, policy.AllowBuy, policy.AllowAdd, policy.PositionBias, policy.Reason), nil)
 		// Apply policy sell multiplier
 		reducePct = reducePct * policy.SellPctMult
 		if reducePct > 100 { reducePct = 100 }
@@ -254,6 +264,9 @@ func generateSignalsV2(
 	// ── Policy guard: skip buys if policy disallows ──
 	if policy != nil && !policy.AllowBuy {
 		log.Printf("[backtest_v2] POLICY_SKIP date=%s mode=%s: buy disabled", date, policy.Mode)
+		insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, 16,
+			"system", "warn", "", "",
+			fmt.Sprintf("风控禁止买入: mode=%s 当前市场环境不满足开仓条件", policy.Mode), nil)
 		goto skipBuys
 	}
 
@@ -433,6 +446,9 @@ func generateSignalsV2(
 					newMV := closePrice * float64(plannedQty)
 					if totalEquity > 0 && newMV/totalEquity > s.PositionConcentrationLimit {
 						log.Printf("[backtest_v2] RISK date=%s %s would exceed %.0f%% position limit, skip", date, bc.code, s.PositionConcentrationLimit*100)
+				insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, 18,
+					"signal", "warn", bc.code, bc.name,
+					fmt.Sprintf("持仓限制: %s 将超过%.0f%%单票上限，跳过", bc.code, s.PositionConcentrationLimit*100), nil)
 						continue
 					}
 					filtered = append(filtered, bc)
@@ -468,6 +484,9 @@ func generateSignalsV2(
 						date, len(aiCandidates), len(approved), len(blocked), reasoning[:min(len(reasoning), 80)])
 				} else if err != nil {
 					log.Printf("[backtest_v2] AI_AGENT date=%s review error: %v (skip AI, use all)", date, err)
+				insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, 23,
+					"system", "warn", "", "",
+					fmt.Sprintf("AI审核失败: %v, 回退到全量信号", err), nil)
 				}
 			}
 		}
@@ -493,6 +512,9 @@ func generateSignalsV2(
 			newMV := closePrice * float64(qtyCheck)
 			if totalEquity > 0 && s.PositionConcentrationLimit > 0 && newMV/totalEquity > s.PositionConcentrationLimit {
 				log.Printf("[backtest_v2] date=%s %s would exceed 25%% position limit, skip", date, bc.code)
+			insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, 18,
+				"signal", "warn", bc.code, bc.name,
+				fmt.Sprintf("持仓限制: %s 超过25%%单票上限，跳过", bc.code), nil)
 				continue
 			}
 			plannedQty := int(buyAmountPerStock / closePrice / 100) * 100
@@ -550,6 +572,9 @@ skipBuys:
 
 		if addTriggered {
 			log.Printf("[backtest_v2] ADD_TRIGGERED date=%s code=%s reason=%s", date, pos.Code, addReason)
+		insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, 55,
+			"signal", "info", pos.Code, pos.Name,
+			fmt.Sprintf("加仓触发: %s %s", pos.Code, addReason), nil)
 			closePrice := kcache.GetClose(pos.Code, date)
 			if closePrice <= 0 { continue }
 			addAmount := cash * addPct / 100
@@ -567,6 +592,30 @@ skipBuys:
 	}
 
 skipAdds:
+	// ── Timing diagnostic ──
+	elapsed := time.Since(enterTime)
+	if elapsed > 2*time.Second || len(signals) > 0 {
+		insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, 28,
+			"system", "debug", "", "",
+			fmt.Sprintf("决策耗时: %.1fs 生成%d个信号", elapsed.Seconds(), len(signals)), nil)
+	}
+
+	// ── No signals diagnostic ──
+	if len(signals) == 0 && !isLastDay {
+		// Build reason why no signals
+		reasons := []string{}
+		if policy != nil && !policy.AllowBuy { reasons = append(reasons, "买入被风控禁止") }
+		if maxHold-len(positions) <= 0 { reasons = append(reasons, "已达最大持仓") }
+		if cash <= 0 { reasons = append(reasons, "现金不足") }
+		diagReason := "条件未触发"
+		if len(reasons) > 0 { diagReason = strings.Join(reasons, "; ") }
+		insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, 30,
+			"system", "debug", "", "",
+			fmt.Sprintf("当天无信号: %s | 扫描%d股 买入条件%d条 风控=%v",
+				diagReason, len(universe), len(buyConds),
+				policy != nil && !policy.AllowBuy), nil)
+	}
+
 	return signals
 }
 

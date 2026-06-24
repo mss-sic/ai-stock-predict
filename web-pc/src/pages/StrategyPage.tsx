@@ -1,12 +1,12 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button, Input, InputNumber, Modal, Table, Select, Popconfirm, Tooltip, DatePicker, Message, Tag } from '@arco-design/web-react';
-import { Target, Plus, Trash2, GripVertical, Play, Brain, BarChart4, Shield, Settings, Sparkles, Beaker, Gauge, Factory, Layers, SlidersHorizontal, Search } from 'lucide-react';
+import { Target, Plus, Trash2, GripVertical, Play, Brain, BarChart4, Shield, Settings, Sparkles, Beaker, Gauge, Factory, Layers, SlidersHorizontal, Search, CheckCircle, AlertTriangle, ScrollText } from 'lucide-react';
 import {
   fetchStrategies, createStrategy, updateStrategy, deleteStrategy, reorderStrategies,
   fetchStrategyConditions, saveStrategyConditions, aiGenerateStrategy, optimizePrompt,
   fetchIndicators, runBacktest, fetchBacktestHistory, testIndicator,
-  startBacktest, getBacktestStatus, cancelBacktest, fetchBacktestTasks,
+  startBacktest, getBacktestStatus, cancelBacktest, fetchBacktestTasks, fetchBacktestTaskLogs, fetchBacktestResult,
   fetchOrchestration, saveOrchestration, fetchConditionTemplates, createConditionTemplate, fetchAIDecisions,
 } from '../services/api';
 import TemplateSelector, { STRATEGY_TEMPLATES } from './TemplateSelector';
@@ -70,12 +70,14 @@ export default function StrategyPage() {
   const [btHistory, setBtHistory] = useState<any[]>([]);
   const [btPositions, setBtPositions] = useState<any>(null);
   const [btLogs, setBtLogs] = useState<any[]>([]);
+  const [logCursor, setLogCursor] = useState(0);
+  const [logFilter, setLogFilter] = useState('all'); // all | trade | signal | system
+  const logEndRef = useRef<HTMLDivElement>(null);
   const [btPhase, setBtPhase] = useState('');
   const [btProgress, setBtProgress] = useState('');
   const [btTaskId, setBtTaskId] = useState<number | null>(null);
-  const [btOfflineMode, setBtOfflineMode] = useState(false);
-  const [btTasks, setBtTasks] = useState<any[]>([]);
-  const [btPollTimer, setBtPollTimer] = useState<any>(null);
+    const [btTasks, setBtTasks] = useState<any[]>([]);
+  const btPollTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Indicator test state
   const [testModalVisible, setTestModalVisible] = useState(false);
@@ -462,73 +464,7 @@ export default function StrategyPage() {
     setAiOptimizing(false);
   };
 
-  const handleRunBacktest = async () => {
-    if (!activeId || !btStart || !btEnd) return;
-    setBtRunning(true);
-    setBtResult(null);
-    setBtPositions(null);
-    setBtLogs([]);
-    setBtPhase('正在初始化...');
-    setBtProgress('');
 
-    const token = localStorage.getItem('aip_access_token') || '';
-    const stockCodes = btStocks ? btStocks.split(',').map((s: string) => s.trim()).filter(Boolean) : [];
-    const url = `http://127.0.0.1:8080/api/v1/strategies/${activeId}/backtest`;
-
-    try {
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ startDate: btStart, endDate: btEnd, stockCodes }),
-      });
-      const reader = res.body?.getReader();
-      if (!reader) throw new Error('No reader');
-      const decoder = new TextDecoder();
-      let buffer = '';
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-        for (const line of lines) {
-          if (!line.startsWith('data: ')) continue;
-          const data = line.slice(6);
-          try {
-            const msg = JSON.parse(data);
-            const { type, payload } = msg;
-            switch (type) {
-              case 'phase':
-                setBtPhase(payload.message);
-                break;
-              case 'position':
-                setBtPositions(payload);
-                setBtProgress(`${payload.day}/${payload.totalDays} 交易日`);
-                break;
-              case 'trade':
-                setBtLogs(prev => [...prev.slice(-199), payload]);
-                break;
-              case 'metric':
-                setBtResult(payload);
-                break;
-              case 'error':
-                toast('error', payload.message || '回测失败');
-                break;
-              case 'done':
-                setBtPhase('回测完成');
-                // Reload history
-                fetchBacktestHistory(activeId).then(({ data: rh }: any) => setBtHistory(rh.data || [])).catch(() => {});
-                break;
-            }
-          } catch {}
-        }
-      }
-    } catch (err: any) {
-      toast('error', '回测连接失败');
-    }
-    setBtRunning(false);
-  };
 
   const handleStartBacktest = async () => {
     if (!activeId || !btStart || !btEnd) return;
@@ -538,20 +474,18 @@ export default function StrategyPage() {
     setBtLogs([]);
     setBtPhase('正在启动回测任务...');
     setBtProgress('');
-    setBtOfflineMode(true);
-
     try {
       const stockCodes = btStocks ? btStocks.split(',').map((s: string) => s.trim()).filter(Boolean) : [];
       const { data: r } = await startBacktest(activeId, btStart, btEnd, stockCodes.length > 0 ? stockCodes : undefined);
       const taskId = r.data?.taskId;
       if (!taskId) throw new Error('No taskId');
       setBtTaskId(taskId);
+      sessionStorage.setItem('bt_active_task', JSON.stringify({ sid: activeId, tid: taskId, start: Date.now() }));
       toast('success', '回测任务已启动，可关闭页面稍后查看');
       pollTaskStatus(taskId);
     } catch (err: any) {
       toast('error', '启动回测失败');
       setBtRunning(false);
-      setBtOfflineMode(false);
     }
   };
 
@@ -560,65 +494,109 @@ export default function StrategyPage() {
     try {
       const { data: r } = await getBacktestStatus(activeId, taskId);
       const t = r.data;
-      if (!t) return;
-
+      if (!t) { scheduleNext(); return; }
       setBtPhase(t.phase || '');
-      setBtProgress(`${t.currentDay}/${t.totalDays} 交易日`);
+      setBtProgress(`${t.currentDay || 0}/${t.totalDays || 0} 交易日`);
       if (t.currentPositions) {
         setBtPositions({ ...t.currentPositions, day: t.currentDay, totalDays: t.totalDays });
       }
+      // Cursor-based log fetching: only fetch new logs
+      fetchBacktestTaskLogs(activeId, taskId, logCursor > 0 ? logCursor : undefined).then(({ data: lr }: any) => {
+        const newLogs = lr.data?.logs || lr.data || [];
+        const cursor = lr.data?.cursor || 0;
+        if (newLogs.length > 0) {
+          setBtLogs(prev => {
+            const merged = [...prev, ...newLogs];
+            // Deduplicate by id
+            const seen = new Set<number>();
+            const deduped = merged.filter(l => { const k = l.id || 0; if (seen.has(k)) return false; seen.add(k); return true; });
+            return deduped.slice(-500);
+          });
+          setLogCursor(cursor);
+        }
+      }).catch(() => {});
 
       if (t.status === 'completed') {
-        setBtRunning(false);
-        setBtOfflineMode(false);
-        setBtTaskId(null);
-        setBtPhase('回测完成');
-        if (t.resultId) {
-          setBtResult({ totalReturn: 0, sharpeRatio: 0, maxDrawdown: 0, winRate: 0, tradeCount: 0 });
-        }
-        fetchBacktestHistory(activeId).then(({ data: rh }: any) => setBtHistory(rh.data || [])).catch(() => {});
-        fetchBacktestTasks(activeId).then(({ data: rt }: any) => setBtTasks(rt.data || [])).catch(() => {});
+        finishTask(taskId, '回测完成');
         return;
       }
-
       if (t.status === 'failed') {
-        setBtRunning(false);
-        setBtOfflineMode(false);
-        setBtTaskId(null);
-        toast('error', t.errorMsg || '回测失败');
-        fetchBacktestTasks(activeId).then(({ data: rt }: any) => setBtTasks(rt.data || [])).catch(() => {});
+        finishTask(taskId, 'failed', t.errorMsg);
         return;
       }
-
       if (t.status === 'cancelled') {
-        setBtRunning(false);
-        setBtOfflineMode(false);
-        setBtTaskId(null);
-        setBtPhase('已取消');
-        fetchBacktestTasks(activeId).then(({ data: rt }: any) => setBtTasks(rt.data || [])).catch(() => {});
+        finishTask(taskId, 'cancelled');
         return;
       }
-
-      // Still running, poll again
-      const timer = setTimeout(() => pollTaskStatus(taskId), 2000);
-      setBtPollTimer(timer);
+      scheduleNext();
     } catch {
-      // Retry on error
-      const timer = setTimeout(() => pollTaskStatus(taskId), 3000);
-      setBtPollTimer(timer);
+      scheduleNext(2000);
+    }
+
+    function scheduleNext(delay = 1000) {
+      btPollTimerRef.current = setTimeout(() => pollTaskStatus(taskId), delay);
+    }
+    function finishTask(taskId: number, phase: string, errorMsg?: string) {
+      setBtRunning(false);
+      setBtTaskId(null);
+      setBtPhase(phase);
+      sessionStorage.removeItem('bt_active_task');
+      if (btPollTimerRef.current) clearTimeout(btPollTimerRef.current);
+      if (errorMsg) toast('error', errorMsg || '回测失败');
+      fetchBacktestHistory(activeId!).then(({ data: rh }: any) => {
+        const results = rh.data || [];
+        setBtHistory(results);
+        // Set btResult from latest completed history entry
+        if (results.length > 0 && phase === '回测完成') setBtResult(results[0]);
+      }).catch(() => {});
+      fetchBacktestTasks(activeId!).then(({ data: rt }: any) => setBtTasks(rt.data || [])).catch(() => {});
+      // Fetch full logs for completed task
+      if (phase === '回测完成') {
+        fetchBacktestTaskLogs(activeId!, taskId).then(({ data: lr }: any) => {
+          const all = lr.data?.logs || lr.data || [];
+          if (all.length > 0) { setBtLogs(all); setLogCursor(lr.data?.cursor || 0); }
+        }).catch(() => {});
+      }
     }
   };
+
+  // Resume active task on page mount (survives refresh)
+  useEffect(() => {
+    const saved = sessionStorage.getItem('bt_active_task');
+    if (!saved || !activeId) return;
+    try {
+      const { sid, tid } = JSON.parse(saved);
+      if (sid === activeId) {
+        setBtRunning(true);
+        setBtTaskId(tid);
+        setBtPhase('重新连接中...');
+        pollTaskStatus(tid);
+      }
+    } catch {}
+  }, [activeId]);
+
+  // Auto-scroll log panel to bottom when new logs arrive
+  useEffect(() => {
+    if (logEndRef.current && btLogs.length > 0 && btRunning) {
+      logEndRef.current.scrollTop = logEndRef.current.scrollHeight;
+    }
+  }, [btLogs.length, btRunning]);
+
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (btPollTimerRef.current) clearTimeout(btPollTimerRef.current);
+    };
+  }, []);
 
   const handleCancelBacktest = async () => {
     if (!activeId || !btTaskId) return;
     try {
       await cancelBacktest(activeId, btTaskId);
-      if (btPollTimer) clearTimeout(btPollTimer);
-      setBtPollTimer(null);
-      setBtRunning(false);
-      setBtOfflineMode(false);
+      if (btPollTimerRef.current) clearTimeout(btPollTimerRef.current);
       setBtTaskId(null);
       setBtPhase('已取消');
+      sessionStorage.removeItem("bt_active_task");
       toast('info', '回测已取消');
       fetchBacktestTasks(activeId).then(({ data: rt }: any) => setBtTasks(rt.data || [])).catch(() => {});
     } catch {
@@ -626,59 +604,17 @@ export default function StrategyPage() {
     }
   };
 
+  // Reconnect to a running task: simply start polling (same as fresh start)
   const handleReconnectTask = async (taskId: number) => {
     if (!activeId) return;
     setBtRunning(true);
     setBtResult(null);
     setBtPositions(null);
     setBtLogs([]);
-    setBtOfflineMode(true);
     setBtTaskId(taskId);
     setBtPhase('正在重新连接...');
-
-    // Connect SSE stream
-    const token = localStorage.getItem('aip_access_token') || '';
-    const url = `http://127.0.0.1:8080/api/v1/strategies/${activeId}/backtest/stream/${taskId}`;
-    try {
-      const res = await fetch(url, { headers: { 'Authorization': `Bearer ${token}` } });
-      const reader = res.body?.getReader();
-      if (!reader) { pollTaskStatus(taskId); return; }
-      const decoder = new TextDecoder();
-      let buffer = '';
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-        for (const line of lines) {
-          if (!line.startsWith('data: ')) continue;
-          try {
-            const msg = JSON.parse(line.slice(6));
-            const { type, payload } = msg;
-            switch (type) {
-              case 'phase': setBtPhase(payload.message); break;
-              case 'position':
-                if (payload.day) {
-                  setBtPositions((prev: any) => ({ ...prev, ...payload }));
-                  setBtProgress(`${payload.day || 0}/${payload.totalDays || 0} 交易日`);
-                }
-                break;
-              case 'metric': setBtResult(payload); break;
-              case 'error': toast('error', payload.message || '回测失败'); break;
-              case 'done':
-                setBtRunning(false); setBtOfflineMode(false); setBtTaskId(null);
-                setBtPhase('回测完成');
-                fetchBacktestHistory(activeId).then(({ data: rh }: any) => setBtHistory(rh.data || [])).catch(() => {});
-                fetchBacktestTasks(activeId).then(({ data: rt }: any) => setBtTasks(rt.data || [])).catch(() => {});
-                break;
-            }
-          } catch {}
-        }
-      }
-    } catch {
-      pollTaskStatus(taskId);
-    }
+    sessionStorage.setItem('bt_active_task', JSON.stringify({ sid: activeId, tid: taskId, start: Date.now() }));
+    pollTaskStatus(taskId);
   };
 
   const openTestModal = (cond: any) => {
@@ -1449,12 +1385,12 @@ export default function StrategyPage() {
                     {(orchConfig.policyMode === 'rule' || orchConfig.policyMode === 'ai_driven') && (
                       <div style={{ marginTop: 8, display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <span style={{ fontSize: 11, color: 'var(--color-success-text)' }}>🟢 进攻阈值</span>
+                          <span style={{ fontSize: 11, color: 'var(--color-success-text)' }}><CheckCircle size={10} style={{ verticalAlign: 'middle', marginRight: 2 }} />进攻阈值</span>
                           <InputNumber value={orchConfig.aggressiveThreshold ?? 1.5} onChange={v => setOrchConfig((prev: any) => ({ ...prev, aggressiveThreshold: v ?? 1.5 }))}
                             min={0} max={5} step={0.5} style={{ width: 70 }} size="small" />
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <span style={{ fontSize: 11, color: 'var(--color-warning-text)' }}>🟡 防御阈值</span>
+                          <span style={{ fontSize: 11, color: 'var(--color-warning-text)' }}><AlertTriangle size={10} style={{ verticalAlign: 'middle', marginRight: 2 }} />防御阈值</span>
                           <InputNumber value={orchConfig.defensiveThreshold ?? 0} onChange={v => setOrchConfig((prev: any) => ({ ...prev, defensiveThreshold: v ?? 0 }))}
                             min={-5} max={5} step={0.5} style={{ width: 70 }} size="small" />
                         </div>
@@ -1592,13 +1528,10 @@ export default function StrategyPage() {
                       <span style={{ fontSize: 12, color: 'var(--color-text-3)', marginRight: 4 }}>结束日期</span>
                       <Input value={btEnd} onChange={setBtEnd} style={{ width: 120 }} size="small" placeholder="2026-06-05" />
                     </div>
-                    <Button type="primary" icon={<Play size={13} />} loading={btRunning && !btOfflineMode} onClick={handleRunBacktest}>
-                      实时运行
+                    <Button type="primary" icon={<Play size={13} />} loading={btRunning} onClick={handleStartBacktest}>
+                      {btRunning ? '运行中...' : '运行回测'}
                     </Button>
-                    <Button type="outline" icon={<Play size={13} />} loading={btRunning && btOfflineMode} onClick={handleStartBacktest}>
-                      后台运行
-                    </Button>
-                    {btRunning && btOfflineMode && btTaskId && (
+                    {btRunning && btTaskId && (
                       
                       <Button type="text" status="danger" size="small" onClick={handleCancelBacktest}>
                         取消
@@ -1617,13 +1550,58 @@ export default function StrategyPage() {
                   </div>
                 </div>
 
-                {/* Live progress */}
+                {/* Live progress with mini progress bar */}
                 {btPhase && (
-                  <div style={{ marginBottom: 12, padding: '8px 12px', background: 'var(--color-info-bg)', borderRadius: 6, fontSize: 12, color: 'var(--color-info-text)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span>{btPhase}</span>
-                    {btProgress && <span style={{ color: 'var(--color-text-3)' }}>{btProgress}</span>}
+                  <div style={{ marginBottom: 12 }}>
+                    <div style={{
+                      padding: '8px 12px', background: 'var(--color-info-bg)', borderRadius: '6px 6px 0 0',
+                      fontSize: 12, color: 'var(--color-info-text)', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    }}>
+                      <span style={{ fontWeight: 600 }}>{btPhase}</span>
+                      {btProgress && <span style={{ color: 'var(--color-text-3)', fontSize: 11 }}>{btProgress}</span>}
+                    </div>
+                    {/* Mini progress bar */}
+                    {btProgress && (() => {
+                      const parts = btProgress.split('/');
+                      const cur = parseInt(parts[0]) || 0;
+                      const total = parseInt(parts[1]) || 1;
+                      const pct = Math.min(100, Math.round((cur / total) * 100));
+                      return (
+                        <div style={{
+                          height: 3, background: 'var(--color-fill-2)', borderRadius: '0 0 6px 6px',
+                          overflow: 'hidden',
+                        }}>
+                          <div style={{
+                            height: '100%', width: `${pct}%`,
+                            background: 'linear-gradient(90deg, var(--color-info-text), var(--color-primary))',
+                            transition: 'width 0.5s ease',
+                            borderRadius: '0 0 0 6px',
+                          }} />
+                        </div>
+                      );
+                    })()}
                   </div>
                 )}
+
+                {/* Live summary stats during backtest run */}
+                {btRunning && btLogs.length > 0 && (() => {
+                  const parseDetail = (l: any) => { try { return typeof l.detail === 'string' ? JSON.parse(l.detail) : (l.detail || {}); } catch { return {}; } };
+                  const trades = btLogs.filter((l: any) => { const d = parseDetail(l); const a = d.action || l.action; return a === 'buy' || a === 'sell'; });
+                  const buyCount = btLogs.filter((l: any) => { const d = parseDetail(l); const a = d.action || l.action; return a === 'buy' || a === 'add'; }).length;
+                  const sellCount = btLogs.filter((l: any) => { const d = parseDetail(l); const a = d.action || l.action; return a === 'sell' || a === 'reduce'; }).length;
+                  const completedSells = btLogs.filter((l: any) => { const d = parseDetail(l); const a = d.action || l.action; const p = d.pnlPct ?? l.pnlPct; return (a === 'sell' || a === 'reduce') && p !== undefined && p !== null && p !== 0; });
+                  const wins = completedSells.filter((l: any) => { const d = parseDetail(l); return (d.pnlPct ?? l.pnlPct ?? 0) > 0; }).length;
+                  return (
+                    <div style={{ marginBottom: 12, padding: '6px 12px', background: 'var(--color-bg-2)', borderRadius: 6, fontSize: 11, color: 'var(--color-text-2)', display: 'flex', gap: 20, flexWrap: 'wrap', border: '1px solid var(--color-border-1)' }}>
+                      <span>交易: <b style={{ color: 'var(--color-text-1)' }}>{trades.length}</b> 笔</span>
+                      <span>买入: <b style={{ color: 'var(--color-info-text)' }}>{buyCount}</b></span>
+                      <span>卖出: <b style={{ color: 'var(--color-warning-text)' }}>{sellCount}</b></span>
+                      {completedSells.length > 0 && (
+                        <span>胜率: <b style={{ color: wins / completedSells.length >= 0.5 ? 'var(--stock-up)' : 'var(--stock-down)' }}>{(wins / completedSells.length * 100).toFixed(0)}%</b> ({wins}/{completedSells.length})</span>
+                      )}
+                    </div>
+                  );
+                })()}
 
                 {/* Dual Panel: Positions + Trade Log */}
                 {(btPositions || btLogs.length > 0 || btResult) && (
@@ -1632,7 +1610,7 @@ export default function StrategyPage() {
                     {btPositions && (
                       <div style={{ background: 'var(--color-bg-1)', border: '1px solid var(--color-border-1)', borderRadius: 8, padding: 12 }}>
                         <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, display: 'flex', justifyContent: 'space-between' }}>
-                          <span>📊 持仓快照 ({btPositions.date})</span>
+                          <span><BarChart4 size={14} style={{ marginRight: 4, verticalAlign: 'middle' }} />持仓快照 ({btPositions.date})</span>
                           <span style={{ fontSize: 11, color: 'var(--color-text-3)' }}>
                             现金: ¥{btPositions.cash?.toLocaleString()} | 总权益: ¥{btPositions.totalEquity?.toLocaleString()}
                           </span>
@@ -1678,28 +1656,141 @@ export default function StrategyPage() {
                       </div>
                     )}
 
-                    {/* Right: Trade Log */}
-                    <div style={{ background: 'var(--color-fill-1)', border: '1px solid var(--color-border-1)', borderRadius: 8, padding: 12, color: 'var(--color-text-2)', fontFamily: 'monospace', fontSize: 11, maxHeight: 360, overflow: 'auto' }}>
-                      <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, color: 'var(--color-text-1)' }}>📋 交易日志</div>
-                      {btLogs.length === 0 && <div style={{ color: 'var(--color-text-3)' }}>等待交易信号...</div>}
-                      {btLogs.map((t: any, i: number) => {
-                        const colors: Record<string, string> = { buy: 'var(--stock-up)', add: 'var(--color-warning-text)', sell: 'var(--stock-down)', reduce: 'var(--color-info-text)' };
-                        const labels: Record<string, string> = { buy: '买入', add: '加仓', sell: '卖出', reduce: '减仓' };
-                        return (
-                          <div key={i} style={{ marginBottom: 3, lineHeight: 1.5 }}>
-                            <span style={{ color: 'var(--color-text-3)' }}>{t.date}</span>{' '}
-                            <span style={{ color: colors[t.action] || 'var(--color-text-1)', fontWeight: 600 }}>[{labels[t.action] || t.action}]</span>{' '}
-                            <span>{t.code} {t.name}</span>{' '}
-                            <span>¥{t.price?.toFixed(2)} × {t.quantity}股</span>{' '}
-                            {t.pnlPct !== undefined && t.pnlPct !== 0 && (
-                              <span style={{ color: t.pnlPct > 0 ? 'var(--stock-up)' : 'var(--stock-down)' }}>
-                                {t.pnlPct > 0 ? '+' : ''}{t.pnlPct?.toFixed(2)}%
-                              </span>
-                            )}
-                            <div style={{ color: 'var(--color-text-3)', fontSize: 10 }}>  ↳ {t.reason}</div>
-                          </div>
-                        );
-                      })}
+                    {/* Right: Console — Daily Timeline */}
+                    <div style={{ background: 'var(--color-fill-1)', border: '1px solid var(--color-border-1)', borderRadius: 8, padding: 12, display: 'flex', flexDirection: 'column', maxHeight: 400 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-1)' }}>
+                          <ScrollText size={14} style={{ marginRight: 4, verticalAlign: 'middle' }} />控制台
+                          <span style={{ fontSize: 11, color: 'var(--color-text-3)', marginLeft: 8, fontWeight: 400 }}>
+                            {btLogs.length} 条
+                          </span>
+                        </div>
+                        <div style={{ display: 'flex', gap: 4 }}>
+                          {(['all', 'trade', 'signal', 'system'] as const).map(f => {
+                            const labels: Record<string, string> = { all: '全部', trade: '交易', signal: '信号', system: '系统' };
+                            return (
+                              <button key={f}
+                                onClick={() => setLogFilter(f)}
+                                style={{
+                                  padding: '2px 8px', borderRadius: 4, border: 'none', cursor: 'pointer', fontSize: 11,
+                                  background: logFilter === f ? 'var(--color-info-bg)' : 'transparent',
+                                  color: logFilter === f ? 'var(--color-info-text)' : 'var(--color-text-3)',
+                                  fontWeight: logFilter === f ? 600 : 400,
+                                }}
+                              >{labels[f]}</button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                      <div ref={logEndRef} style={{ flex: 1, overflow: 'auto', color: 'var(--color-text-2)', fontSize: 11 }}>
+                        {btLogs.length === 0 && <div style={{ color: 'var(--color-text-3)', padding: 20, textAlign: 'center' }}>等待日志...</div>}
+                        {/* Group logs by date for timeline view */}
+                        {(() => {
+                          const filtered = logFilter === 'all' ? btLogs : btLogs.filter((l: any) => {
+                            if (logFilter === 'trade') return l.logType === 'trade';
+                            if (logFilter === 'signal') return l.logType === 'signal';
+                            if (logFilter === 'system') return l.logType === 'system';
+                            return true;
+                          });
+                          // Group by date
+                          const groups: Record<string, any[]> = {};
+                          filtered.forEach((l: any) => {
+                            const d = l.date || '系统';
+                            if (!groups[d]) groups[d] = [];
+                            groups[d].push(l);
+                          });
+                          return Object.entries(groups).map(([date, logs]) => {
+                            // Day summary stats
+                            const dayTrades = logs.filter((l: any) => l.logType === 'trade');
+                            const daySignals = logs.filter((l: any) => l.logType === 'signal');
+                            const buySignals = daySignals.filter((l: any) => l.message?.includes('[buy]') || l.message?.includes('[add]'));
+                            const sellSignals = daySignals.filter((l: any) => l.message?.includes('[sell]') || l.message?.includes('[reduce]') || l.message?.includes('[stop]'));
+                            const isSystemDate = date === '系统';
+                            return (
+                              <div key={date} style={{ marginBottom: isSystemDate ? 0 : 6 }}>
+                                {/* Day header */}
+                                {!isSystemDate && (
+                                  <div style={{
+                                    padding: '4px 8px', borderRadius: 4, cursor: 'pointer',
+                                    background: 'var(--color-bg-2)', border: '1px solid var(--color-border-1)',
+                                    marginBottom: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                                    fontSize: 11,
+                                  }}>
+                                    <span style={{ fontWeight: 600, color: 'var(--color-text-1)' }}>📅 {date}</span>
+                                    <span style={{ color: 'var(--color-text-3)' }}>
+                                      {dayTrades.length > 0 && <span style={{ marginRight: 8 }}>交易 {dayTrades.length}笔</span>}
+                                      {buySignals.length > 0 && <span style={{ color: 'var(--stock-up)', marginRight: 8 }}>买入信号 {buySignals.length}</span>}
+                                      {sellSignals.length > 0 && <span style={{ color: 'var(--stock-down)' }}>卖出信号 {sellSignals.length}</span>}
+                                      <span style={{ marginLeft: 8 }}>{logs.length}条日志</span>
+                                    </span>
+                                  </div>
+                                )}
+                                {/* Day logs */}
+                                <div style={{ paddingLeft: isSystemDate ? 0 : 4 }}>
+                                  {logs.map((l: any, i: number) => {
+                                    if (l.logType === 'system') {
+                                      const isDayBoundary = l.message?.includes('━━━') || l.message?.includes('结束');
+                                      if (isSystemDate) {
+                                        return (
+                                          <div key={l.id || i} style={{
+                                            padding: '3px 0', color: 'var(--color-text-3)',
+                                            fontWeight: l.message?.includes('决策引擎') ? 600 : 400,
+                                            borderBottom: l.message?.includes('━━━') ? '1px solid var(--color-border-1)' : 'none',
+                                          }}>{l.message}</div>
+                                        );
+                                      }
+                                      // Skip day boundary lines in daily groups (already shown in header)
+                                      if (l.message?.includes('━━━')) return null;
+                                      return (
+                                        <div key={l.id || i} style={{
+                                          padding: '1px 0', color: l.message?.includes('结束') ? 'var(--color-primary)' : 'var(--color-text-3)',
+                                          fontFamily: 'monospace',
+                                        }}>{l.message}</div>
+                                      );
+                                    }
+                                    if (l.logType === 'signal') {
+                                      const isSkip = l.message?.includes('跳过') || l.level === 'warn';
+                                      return (
+                                        <div key={l.id || i} style={{
+                                          padding: '1px 0', color: isSkip ? 'var(--color-warning-text)' : 'var(--color-info-text)',
+                                          fontFamily: 'monospace',
+                                        }}>{l.message}</div>
+                                      );
+                                    }
+                                    // Trade log
+                                    let detail: any = {};
+                                    try { detail = typeof l.detail === 'string' ? JSON.parse(l.detail) : (l.detail || {}); } catch {}
+                                    const action = detail.action || l.action || '';
+                                    const price = detail.price || l.price || 0;
+                                    const quantity = detail.quantity || l.quantity || 0;
+                                    const pnlPct = detail.pnlPct ?? l.pnlPct;
+                                    const reason = detail.reason || l.reason || l.message || '';
+                                    const actColors: Record<string, string> = { buy: 'var(--stock-up)', add: 'var(--color-warning-text)', sell: 'var(--stock-down)', reduce: 'var(--color-info-text)', stop: 'var(--color-warning-text)' };
+                                    const actLabels: Record<string, string> = { buy: 'B', add: '+', sell: 'S', reduce: '-', stop: 'X' };
+                                    return (
+                                      <div key={l.id || i} style={{
+                                        padding: '1px 0', fontFamily: 'monospace',
+                                        borderLeft: `2px solid ${actColors[action] || 'transparent'}`,
+                                        paddingLeft: 6,
+                                      }}>
+                                        <span style={{ color: actColors[action], fontWeight: 600 }}>[{actLabels[action]}]</span>{' '}
+                                        <span>{l.stockCode}</span>{' '}
+                                        {price > 0 && <span>@{typeof price === 'number' ? price.toFixed(2) : price} ×{quantity}</span>}{' '}
+                                        {pnlPct !== undefined && pnlPct !== null && pnlPct !== 0 && (
+                                          <span style={{ color: pnlPct > 0 ? 'var(--stock-up)' : 'var(--stock-down)', fontWeight: 600 }}>
+                                            {pnlPct > 0 ? '+' : ''}{typeof pnlPct === 'number' ? pnlPct.toFixed(2) : pnlPct}%
+                                          </span>
+                                        )}
+                                        {reason && <span style={{ color: 'var(--color-text-3)', marginLeft: 4 }}>{reason}</span>}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            );
+                          });
+                        })()}
+                      </div>
                     </div>
                   </div>
                 )}
@@ -1732,7 +1823,7 @@ export default function StrategyPage() {
                           {btResult.coveragePct}%
                         </div>
                         <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginTop: 2 }}>
-                          🟢K线安全 {btResult.klineSafe} / 🟡需验证 {btResult.klineUnsafe}
+                          <CheckCircle size={11} style={{ color: '#00B42A', verticalAlign: 'middle' }} /> K线安全 {btResult.klineSafe} / <AlertTriangle size={11} style={{ color: '#F7BA1E', verticalAlign: 'middle' }} /> 需验证 {btResult.klineUnsafe}
                         </div>
                       </div>
                     )}

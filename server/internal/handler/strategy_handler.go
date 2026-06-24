@@ -2429,41 +2429,62 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 		}
 		return false
 	}
-	// evalSingleWithDetail kept for diagnostic logging compatibility
-	_ = func(cond model.StrategyCondition, code, date string) (bool, string) {
+	// evalSingleWithDetail evaluates a single condition and returns (passed, detail_string).
+	evalSingleWithDetail := func(cond model.StrategyCondition, code, date string) (bool, string) {
 		ind := cond.Indicator
 		var val float64
-		found := false
 		if v, ok := icache.get(ind, code, date); ok {
 			val = v
-			found = true
 		} else {
 			switch ind {
 			case "daily_change":
 				cur := kcache.GetClose(code, date)
 				prev := getPrevClose(kcache, code, date)
-				if prev > 0 { val = (cur - prev) / prev * 100; found = true }
+				if prev > 0 { val = (cur - prev) / prev * 100 }
 			case "momentum_5":
 				cur := kcache.GetClose(code, date)
 				prev := getCloseNDaysAgo(kcache, code, date, 5)
-				if prev > 0 { val = (cur - prev) / prev * 100; found = true }
+				if prev > 0 { val = (cur - prev) / prev * 100 }
 			case "momentum_20":
 				cur := kcache.GetClose(code, date)
 				prev := getCloseNDaysAgo(kcache, code, date, 20)
-				if prev > 0 { val = (cur - prev) / prev * 100; found = true }
+				if prev > 0 { val = (cur - prev) / prev * 100 }
 			default:
 				val = getIndicatorValue(cond, code, date)
-				found = true
 			}
 		}
-		_ = found
 		passed := checkOp(val, cond.Operator, cond.Value)
-		status := "✓"
-		if !passed { status = "✗" }
-		return passed, fmt.Sprintf("%s %s=%.2f op=%s thr=%.2f", status, ind, val, cond.Operator, cond.Value)
+		detail := fmt.Sprintf("%s=%.2f %s %.2f", ind, val, cond.Operator, cond.Value)
+		return passed, detail
 	}
 
-	_ = evalConds
+	// evalCondsWithDetail evaluates conditions grouped by LogicGroup and returns
+	// (passed, detail_string) where detail explains which group matched.
+	evalCondsWithDetail := func(conds_ []model.StrategyCondition, code, date string) (bool, string) {
+		if len(conds_) == 0 { return false, "无条件" }
+		groups := make(map[int][]model.StrategyCondition)
+		for _, c := range conds_ {
+			groups[c.LogicGroup] = append(groups[c.LogicGroup], c)
+		}
+		for gid, groupConds := range groups {
+			allMet := true
+			details := make([]string, 0, len(groupConds))
+			for _, c := range groupConds {
+				ok, d := evalSingleWithDetail(c, code, date)
+				details = append(details, d)
+				if !ok {
+					allMet = false
+					break
+				}
+			}
+			if allMet {
+				return true, fmt.Sprintf("组%d通过: %s", gid, strings.Join(details, "; "))
+			}
+		}
+		return false, "无满足的条件组"
+	}
+
+	_ = evalCondsWithDetail
 
 	if len(allDates) == 0 {
 		db.MySQL.Model(task).Updates(map[string]interface{}{
@@ -2566,7 +2587,9 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 				continue
 			}
 
-			if evalConds(sellConds, pos.Code, date) {
+			if ok, detail := evalCondsWithDetail(sellConds, pos.Code, date); ok {
+				reason := "满足卖出条件"
+				if detail != "" { reason = reason + " | " + detail }
 				signals = append(signals, model.BacktestSignal{
 					TaskID: task.ID, StrategyID: task.StrategyID, UserID: task.UserID,
 					SignalDate: date, ExecDate: getNextDate(kcache, date),
@@ -2576,9 +2599,9 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 					PlannedQty: pos.Quantity,
 					PlannedAmount: kcache.GetClose(pos.Code, date) * float64(pos.Quantity),
 					Status: "pending",
-					Reason: "满足卖出条件",
+					Reason: reason,
 				})
-			} else if evalConds(reduceConds, pos.Code, date) {
+			} else if ok, detail := evalCondsWithDetail(reduceConds, pos.Code, date); ok {
 				// Cooldown guard: skip reduce if already reduced within cooldown
 				if pos.LastReduceDate != "" && kcache.tradingDaysBetween(pos.LastReduceDate, date) <= REDUCE_COOLDOWN_DAYS {
 					// skip — within cooldown
@@ -2596,7 +2619,7 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 							PlannedQty: reduceQty,
 							PlannedAmount: kcache.GetClose(pos.Code, date) * float64(reduceQty),
 							Status: "pending",
-							Reason: fmt.Sprintf("满足减仓条件 (%.0f%%, 减仓会碎片化转为清仓)", reducePct),
+							Reason: fmt.Sprintf("满足减仓条件 | %s (%.0f%%, 碎片化转清仓)", detail, reducePct),
 						})
 					} else if reduceQty >= MIN_REDUCE_QTY {
 						signals = append(signals, model.BacktestSignal{
@@ -2608,7 +2631,7 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 							PlannedQty: reduceQty,
 							PlannedAmount: kcache.GetClose(pos.Code, date) * float64(reduceQty),
 							Status: "pending",
-							Reason: fmt.Sprintf("满足减仓条件 (%.0f%%)", reducePct),
+							Reason: fmt.Sprintf("满足减仓条件 | %s (%.0f%%)", detail, reducePct),
 						})
 					}
 				}
@@ -2628,7 +2651,8 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 				if _, held := positions[si.Code]; held {
 					continue
 				}
-				if !evalConds(buyConds, si.Code, date) {
+				ok, detail := evalCondsWithDetail(buyConds, si.Code, date)
+				if !ok {
 					continue
 				}
 
@@ -2652,7 +2676,7 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 					PlannedPrice: closePrice, PlannedQty: plannedQty,
 					PlannedAmount: closePrice * float64(plannedQty),
 					Status: "pending",
-					Reason: "满足买入条件",
+					Reason: fmt.Sprintf("满足买入条件 | %s", detail),
 				})
 				boughtThisRound++
 			}
@@ -2660,7 +2684,7 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 
 		// --- Add checks ---
 		for _, pos := range positions {
-			if evalConds(addConds, pos.Code, date) {
+			if ok, detail := evalCondsWithDetail(addConds, pos.Code, date); ok {
 				closePrice := kcache.GetClose(pos.Code, date)
 				if closePrice <= 0 {
 					continue
@@ -2679,7 +2703,7 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 					PlannedPrice: closePrice, PlannedQty: addQty,
 					PlannedAmount: closePrice * float64(addQty),
 					Status: "pending",
-					Reason: "满足加仓条件",
+					Reason: fmt.Sprintf("满足加仓条件 | %s", detail),
 				})
 			}
 		}
@@ -2866,6 +2890,17 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 		return nil
 	}
 
+	// countPendingForDate counts pending signals for a given exec date
+	countPendingForDate := func(signals *[]model.BacktestSignal, date string) int {
+		count := 0
+		for _, sig := range *signals {
+			if sig.ExecDate == date && sig.Status == "pending" {
+				count++
+			}
+		}
+		return count
+	}
+
 	positions = make(map[string]*dcPosition)
 	var allTrades []backtestTrade
 	var equityPoints []map[string]interface{}
@@ -2882,6 +2917,10 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 			"system", "info", "", "",
 			fmt.Sprintf("━━━ 第%d天 %s 持仓%d只 现金¥%.0f ━━━", di+1, date, len(positions), remainingCash),
 			nil)
+		// Update progress so frontend sees current day immediately
+		updateProgress(di+1, totalDays,
+			fmt.Sprintf("第%d天 %s — 执行昨日信号 (%d条待执行)", di+1, date, countPendingForDate(&pendingSignals, date)),
+			"")
 
 		// P1: Check cancellation via DB status (not context)
 		// Context cancellation is unreliable — use explicit status check
@@ -2952,6 +2991,11 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 		}
 
 		allTrades = append(allTrades, todayTrades...)
+
+		// Update progress: signal execution done, moving to generation
+		updateProgress(di+1, totalDays,
+			fmt.Sprintf("第%d天 %s — 生成交易信号 (扫描%d只)", di+1, date, len(universe)),
+			"")
 
 		// ============================================================
 		// PHASE 2b: Last day — force liquidate all positions at close
@@ -3060,6 +3104,25 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 				fmt.Sprintf("🔔 [%s] %s %s %d股 预估¥%.2f → 计划%s执行 %s",
 					ns.ActionType, ns.StockCode, ns.StockName, ns.PlannedQty,
 					ns.PlannedPrice, ns.ExecDate, ns.Reason),
+				nil)
+		}
+
+		// ── Daily signal summary ──
+		buyCnt, sellCnt, addCnt, reduceCnt, stopCnt := 0, 0, 0, 0, 0
+		for _, ns := range newSignals {
+			switch ns.ActionType {
+			case "buy": buyCnt++
+			case "sell": sellCnt++
+			case "add": addCnt++
+			case "reduce": reduceCnt++
+			case "stop": stopCnt++
+			}
+		}
+		if len(newSignals) > 0 {
+			insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, 75,
+				"system", "info", "", "",
+				fmt.Sprintf("信号汇总: 买入%d 卖出%d 加仓%d 减仓%d 止损止盈%d | 共扫描%d只股票",
+					buyCnt, sellCnt, addCnt, reduceCnt, stopCnt, len(universe)),
 				nil)
 		}
 

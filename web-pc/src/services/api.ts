@@ -264,7 +264,7 @@ export const getBacktestStatus = (id: number, taskId: number) => api.get(`/strat
 export const cancelBacktest = (id: number, taskId: number) => api.post(`/strategies/${id}/backtest/cancel/${taskId}`);
 export const fetchBacktestTasks = (id: number) => api.get(`/strategies/${id}/backtest/tasks`);
 export const deleteBacktestTask = (strategyId: number, taskId: number) => api.delete(`/strategies/${strategyId}/backtest/tasks/${taskId}`);
-export const fetchBacktestTaskLogs = (strategyId: number, taskId: number) => api.get(`/strategies/${strategyId}/backtest/tasks/${taskId}/logs`);
+export const fetchBacktestTaskLogs = (strategyId: number, taskId: number, afterSeq?: number) => api.get(`/strategies/${strategyId}/backtest/tasks/${taskId}/logs`, { params: afterSeq !== undefined ? { afterSeq } : {} });
 export const fetchTaskSnapshots = (strategyId: number, taskId: number, limit?: number) => api.get(`/strategies/${strategyId}/backtest/tasks/${taskId}/snapshots`, { params: limit ? { limit } : {} });
 export const fetchStockAnalysis = (strategyId: number, taskId: number) => api.get(`/strategies/${strategyId}/backtest/tasks/${taskId}/stock-analysis`);
 export const deleteBacktestResult = (id: number) => api.delete(`/strategies/backtest-history/${id}`);

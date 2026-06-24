@@ -73,6 +73,7 @@ type ScoringEngine struct {
 	evalCache    *IndicatorCache // shared with strategy_handler eval
 	kcache       *KlineCache
 	industry     map[string]map[string]float64 // industry -> indicator -> p50 value
+	stockIndust  map[string]string             // stock code → industry name (preloaded to avoid N+1)
 	distribution ScoreDistribution
 }
 
@@ -89,11 +90,12 @@ func NewScoringEngine(
 	kcache *KlineCache,
 ) *ScoringEngine {
 	se := &ScoringEngine{
-		conditions: conditions,
-		ctx:        ctx,
-		evalCache:  icache,
-		kcache:     kcache,
-		industry:   make(map[string]map[string]float64),
+		conditions:  conditions,
+		ctx:         ctx,
+		evalCache:   icache,
+		kcache:      kcache,
+		industry:    make(map[string]map[string]float64),
+		stockIndust: make(map[string]string),
 	}
 	// Industry benchmarks are loaded per-date in ScoreAll
 	return se
@@ -162,9 +164,11 @@ func (se *ScoringEngine) getIndustryBenchmark(code, indicator, date string) floa
 		se.industry[cacheKey] = make(map[string]float64)
 	}
 
-	// Fetch industry name from stocks_basic
-	var industry string
-	db.PG.Raw("SELECT COALESCE(industry,'') FROM stocks_basic WHERE code = ? LIMIT 1", code).Scan(&industry)
+	// Fetch industry name from preloaded cache (avoid per-stock SQL)
+	industry, ok := se.stockIndust[code]
+	if !ok {
+		return 0
+	}
 	if industry == "" {
 		return 0
 	}
