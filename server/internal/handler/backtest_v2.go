@@ -309,11 +309,38 @@ func generateSignalsV2(
 				// evalSingleWithValue returns (passed, rawValue) for fuzzy scoring
 					evalWithVal := func(cond model.StrategyCondition, code, date string) (bool, float64) {
 						ind := cond.Indicator
-						// Try cache first
+						// Try cache first (preloaded indicators: rsi, volume_ratio, ma, etc.)
 						if val, ok := icache.get(ind, code, date); ok {
 							return checkOp(val, cond.Operator, cond.Value), val
 						}
-						// Delegate to getIndicatorValue — covers all 80+ indicators
+						// Fast path: momentum computed from kcache (avoids per-stock SQL)
+						switch ind {
+						case "daily_change":
+							cur := kcache.GetClose(code, date)
+							prev := getPrevClose(kcache, code, date)
+							if prev > 0 {
+								val := (cur - prev) / prev * 100
+								return checkOp(val, cond.Operator, cond.Value), val
+							}
+							return false, 0
+						case "momentum_5":
+							cur := kcache.GetClose(code, date)
+							prev := getCloseNDaysAgo(kcache, code, date, 5)
+							if prev > 0 {
+								val := (cur - prev) / prev * 100
+								return checkOp(val, cond.Operator, cond.Value), val
+							}
+							return false, 0
+						case "momentum_20":
+							cur := kcache.GetClose(code, date)
+							prev := getCloseNDaysAgo(kcache, code, date, 20)
+							if prev > 0 {
+								val := (cur - prev) / prev * 100
+								return checkOp(val, cond.Operator, cond.Value), val
+							}
+							return false, 0
+						}
+						// Slow path: SQL-based indicator (PE, PB, AI scores, etc.)
 						rawVal := getIndicatorValue(cond, code, date)
 						passed := checkOp(rawVal, cond.Operator, cond.Value)
 						return passed, rawVal
