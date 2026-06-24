@@ -931,7 +931,7 @@ func (h *StrategyHandler) StartBacktest(c *gin.Context) {
 	db.MySQL.Create(&task)
 
 	// Launch goroutine
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	getRunningMap(uint(sid))[task.ID] = cancel
 
 	go h.runBacktestAsync(ctx, &task, &s, body.StartDate, body.EndDate, resolvedCodes)

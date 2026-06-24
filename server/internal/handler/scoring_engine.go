@@ -214,19 +214,40 @@ func (se *ScoringEngine) ScoreAll(
 	evalSingle func(model.StrategyCondition, string, string) bool,
 	evalSingleWithValue func(model.StrategyCondition, string, string) (bool, float64),
 ) []ScoreResult {
+	// Panic recovery: don't let single-stock crash kill the whole backtest
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[scoring] PANIC in ScoreAll date=%s: %v — returning partial results", date, r)
+		}
+	}()
+
 	// Batch-preload industry benchmarks for this date
 	se.loadIndustryBenchmarks(date)
 	results := make([]ScoreResult, 0, len(universe))
 
-	for _, stock := range universe {
-		price := getPrice(stock.Code, date)
-		if price <= 0 {
-			continue
-		}
+	for i, stock := range universe {
+		// Per-stock panic guard: skip problematic stocks without killing the batch
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("[scoring] PANIC scoring %s at date=%s: %v", stock.Code, date, r)
+				}
+			}()
 
-		score := se.ScoreStock(stock.Code, stock.Name, price, date, evalSingle, evalSingleWithValue)
-		if score.TotalScore > 0 {
-			results = append(results, score)
+			price := getPrice(stock.Code, date)
+			if price <= 0 {
+				return
+			}
+
+			score := se.ScoreStock(stock.Code, stock.Name, price, date, evalSingle, evalSingleWithValue)
+			if score.TotalScore > 0 {
+				results = append(results, score)
+			}
+		}()
+
+		// Periodic progress log for large universes (every 500 stocks)
+		if (i+1)%500 == 0 {
+			log.Printf("[scoring] progress date=%s: %d/%d stocks scored, %d candidates", date, i+1, len(universe), len(results))
 		}
 	}
 
