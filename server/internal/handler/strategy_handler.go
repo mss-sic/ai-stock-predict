@@ -1708,6 +1708,8 @@ func preloadIndicators(conds []model.StrategyCondition, codes []string, startDat
 			continue
 		case ind == "streak_count", ind == "algo_score", ind == "signal_value":
 			continue
+		case ind == "algo_score", ind == "signal_value":
+			continue
 		case ind == "pe_percentile", ind == "pb_percentile":
 			continue
 		case ind == "roe", ind == "revenue_growth", ind == "profit_growth", ind == "gross_margin", ind == "net_margin", ind == "debt_ratio", ind == "eps":
@@ -1718,6 +1720,7 @@ func preloadIndicators(conds []model.StrategyCondition, codes []string, startDat
 		needPreload[ind] = true
 	}
 
+	// Batch preload streak counts (cumulative, code-level, not date-dependent)
 	// Preload volume data for volume-related indicators
 	needVolume := false
 	for ind := range needPreload {

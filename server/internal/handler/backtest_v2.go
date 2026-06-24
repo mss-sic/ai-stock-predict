@@ -2,6 +2,7 @@ package handler
 
 import (
 	"fmt"
+	"math"
 	"log"
 	"runtime/debug"
 	"strings"
@@ -368,6 +369,18 @@ func generateSignalsV2(
 								return checkOp(val, cond.Operator, cond.Value), val
 							}
 							return false, 0
+						case "ma_cross":
+							// Fast path: compute MA cross from kcache close prices in-memory
+							ma1 := int(cond.Value)
+							ma2 := int(math.Round((cond.Value - float64(ma1)) * 1000))
+							if ma1 < 1 { ma1 = 5 }
+							if ma2 < 1 { ma2 = 20 }
+							val := checkMACrossFast(kcache, code, date, ma1, ma2)
+							return val != 0, val
+	case "macd":
+							// Fast path: compute MACD from kcache close prices in-memory
+							val := checkMACDFast(kcache, code, date)
+							return val != 0, val
 						}
 						// Slow path: SQL-based indicator (PE, PB, AI scores, etc.)
 						rawVal := getIndicatorValue(cond, code, date)
@@ -709,6 +722,118 @@ func min(a, b int) int {
 }
 
 // getAIService lazily initializes and returns the AI service singleton.
+
+
+// ═══════════════════════════════════════════════════════════════
+// Fast-path in-memory indicator computation (no SQL)
+// ═══════════════════════════════════════════════════════════════
+
+// checkMACrossFast computes MA cross from cached kline data in-memory.
+// Returns 1 for golden cross (ma1 > ma2), -1 for death cross, 0 otherwise.
+func checkMACrossFast(kc *KlineCache, code, date string, ma1, ma2 int) float64 {
+	idx, ok := kc.dateIdx[date]
+	if !ok || idx < ma2 {
+		return 0
+	}
+	closes, ok := kc.closeMap[code]
+	if !ok || len(closes) == 0 {
+		return 0
+	}
+
+	// Compute SMA for today and yesterday
+	computeSMA := func(endIdx, period int) float64 {
+		if endIdx < period-1 {
+			return 0
+		}
+		sum := 0.0
+		count := 0
+		for i := endIdx - period + 1; i <= endIdx; i++ {
+			if closes[i] > 0 {
+				sum += closes[i]
+				count++
+			}
+		}
+		if count > 0 {
+			return sum / float64(count)
+		}
+		return 0
+	}
+
+	curShort := computeSMA(idx, ma1)
+	curLong := computeSMA(idx, ma2)
+	prevShort := computeSMA(idx-1, ma1)
+	prevLong := computeSMA(idx-1, ma2)
+
+	if curShort <= 0 || curLong <= 0 || prevShort <= 0 || prevLong <= 0 {
+		return 0
+	}
+
+	// Golden cross: short MA crosses above long MA
+	if curShort > curLong && prevShort <= prevLong {
+		return 1
+	}
+	// Death cross: short MA crosses below long MA
+	if curShort < curLong && prevShort >= prevLong {
+		return -1
+	}
+	return 0
+}
+
+// checkMACDFast computes MACD golden/death cross from cached kline data in-memory.
+// Uses EMA(12), EMA(26), DIF=EMA12-EMA26, DEA=EMA(DIF,9).
+// Returns 1 for golden cross (DIF crosses above DEA), -1 for death cross.
+func checkMACDFast(kc *KlineCache, code, date string) float64 {
+	idx, ok := kc.dateIdx[date]
+	if !ok || idx < 26 {
+		return 0
+	}
+	closes, ok := kc.closeMap[code]
+	if !ok || len(closes) == 0 {
+		return 0
+	}
+
+	// Compute EMAs iteratively from the beginning up to idx
+	ema12, ema26 := 0.0, 0.0
+	prevDIF, prevDEA := 0.0, 0.0
+	dif, dea := 0.0, 0.0
+
+	for i := 0; i <= idx; i++ {
+		if closes[i] <= 0 {
+			continue
+		}
+		if ema12 == 0 {
+			ema12 = closes[i]
+			ema26 = closes[i]
+		} else {
+			ema12 = 0.1538*closes[i] + 0.8462*ema12
+			ema26 = 0.0741*closes[i] + 0.9259*ema26
+		}
+
+		prevDIF = dif
+		prevDEA = dea
+		dif = ema12 - ema26
+		if dea == 0 {
+			dea = dif
+		} else {
+			dea = 0.2*dif + 0.8*dea
+		}
+	}
+
+	if dif == 0 || dea == 0 {
+		return 0
+	}
+
+	// Golden cross: DIF crosses above DEA
+	if dif > dea && prevDIF <= prevDEA {
+		return 1
+	}
+	// Death cross: DIF crosses below DEA
+	if dif < dea && prevDIF >= prevDEA {
+		return -1
+	}
+	return 0
+}
+
 func getAIService() *service.AIService {
 	return service.NewAIService()
 }
