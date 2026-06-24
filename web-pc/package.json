@@ -10,7 +10,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@arco-design/web-react": "^2.66.15",
+    "@arco-design/web-react": "^2.67.0-beta.0",
     "axios": "^1.17.0",
     "dayjs": "^1.11.21",
     "echarts": "^6.1.0",
