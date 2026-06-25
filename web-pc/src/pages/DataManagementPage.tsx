@@ -549,8 +549,7 @@ export default function DataManagementPage() {
           <div className="card">
             <div className="card-header">
               <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Timer size={16} color="var(--color-primary)" /><span style={{ fontSize: 15, fontWeight: 600 }}>定时任务</span><span className="muted" style={{ marginLeft: 8 }}>{scheduledTasks.filter((t: any) => t.enabled).length}/{scheduledTasks.length} 已启用</span></span>
-              <div style={{ display: 'flex', gap: 6 }}><Button size="small" icon={<RefreshCw size={12} />} loading={tasksLoading} onClick={loadTasks}>刷新</Button><Button size="small" icon={<Zap size={12} />} onClick={handleInitDefaults}>初始化默认任务</Button>
-                <Button size="small" icon={<Activity size={12} />} loading={bulkComputing} onClick={handleBulkComputeStyle}>回填市场风格</Button></div>
+              <div style={{ display: 'flex', gap: 6 }}><Button size="small" icon={<RefreshCw size={12} />} loading={tasksLoading} onClick={loadTasks}>刷新</Button><Button size="small" icon={<Zap size={12} />} onClick={handleInitDefaults}>初始化默认任务</Button></div>
             </div>
             <div className="card-body" style={{ padding: 0 }}>
               {scheduledTasks.length === 0 ? <div style={{ padding: 40, textAlign: 'center', color: 'var(--color-text-3)', fontSize: 13 }}>暂无定时任务，点击「初始化默认任务」创建</div> : (
@@ -658,6 +657,7 @@ export default function DataManagementPage() {
             <div className="card-header">
               <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Activity size={16} color="var(--color-primary)" /><span style={{ fontSize: 15, fontWeight: 600 }}>采集控制台</span></span>
               {collecting && <Tag color="blue" style={{ display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--color-primary)', display: 'inline-block' }} />采集中...</Tag>}
+              <div style={{ display: 'flex', gap: 6 }}><Button size="small" icon={<Activity size={12} />} loading={bulkComputing} onClick={handleBulkComputeStyle}>回填市场风格</Button></div>
             </div>
             <div className="card-body" style={{ padding: '14px 20px' }}>
               {/* Phase tabs */}
