@@ -87,7 +87,11 @@ func (h *TaskHandler) RunTaskNow(c *gin.Context) {
 		response.BadRequest(c, "参数错误")
 		return
 	}
-	if err := service.RunTaskNow(uint(id)); err != nil {
+	var body struct {
+		Args []string `json:"args"`
+	}
+	c.ShouldBindJSON(&body)
+	if err := service.RunTaskNow(uint(id), body.Args); err != nil {
 		response.InternalError(c, "执行任务失败: "+err.Error())
 		return
 	}

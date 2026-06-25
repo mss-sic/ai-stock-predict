@@ -163,7 +163,8 @@ type PhaseResult struct {
 
 type CollectionProgress struct {
 	mu       sync.RWMutex
-	Running  bool          `json:"running"`
+	Running  bool
+	ExtraArgs []string          `json:"running"`
 	Phase    string        `json:"phase"`
 	Current  int           `json:"current"`
 	Total    int           `json:"total"`
@@ -284,7 +285,7 @@ func runQuotePhase() PhaseResult {
 }
 
 // RunManualCollection runs all phases. If phases is non-empty, only those phases run.
-func RunManualCollection(phases []string) {
+func RunManualCollection(phases []string, extraArgs ...string) {
 	progress.mu.Lock()
 	if progress.Running {
 		progress.mu.Unlock()
@@ -293,6 +294,9 @@ func RunManualCollection(phases []string) {
 	}
 	progress.Running = true
 	progress.LastOutput = time.Now()
+	if len(extraArgs) > 0 {
+		progress.ExtraArgs = extraArgs
+	}
 	progress.Phase = "starting"
 	progress.Current = 0
 	totalPhases := len(phases)
@@ -745,7 +749,7 @@ func runMarketDailyAggPhase() PhaseResult {
 	t0 := time.Now()
 	var before int64
 	db.PG.Raw("SELECT COUNT(*) FROM market_daily_agg").Scan(&before)
-	runPythonStreamWithArgs("precompute_aggs.py", "--last", "60")
+	runPythonStreamWithArgs("precompute_aggs.py", getExtraArgsOrDefault("--last", "60")...)
 	phaseRes := PhaseResult{Phase: "market_daily_agg", Skipped: int(before)}
 	var after int64
 	db.PG.Raw("SELECT COUNT(*) FROM market_daily_agg").Scan(&after)
@@ -762,7 +766,7 @@ func runMarketSentimentPhase() PhaseResult {
 	t0 := time.Now()
 	var before int64
 	db.PG.Raw("SELECT COUNT(*) FROM market_sentiment").Scan(&before)
-	runPythonStreamWithArgs("compute_sentiment.py", "--last", "60")
+	runPythonStreamWithArgs("compute_sentiment.py", getExtraArgsOrDefault("--last", "60")...)
 	phaseRes := PhaseResult{Phase: "market_sentiment", Skipped: int(before)}
 	var after int64
 	db.PG.Raw("SELECT COUNT(*) FROM market_sentiment").Scan(&after)
@@ -771,6 +775,21 @@ func runMarketSentimentPhase() PhaseResult {
 	phaseRes.DurationMs = time.Since(t0).Milliseconds()
 	sseSend(SSELine{Type: "result", Phase: "market_sentiment", Result: &phaseRes, Level: "success", Message: fmt.Sprintf("市场情绪: %d 天 (%+d)", after, after-before)})
 	return phaseRes
+}
+
+func getExtraArgs() []string {
+	progress.mu.RLock()
+	defer progress.mu.RUnlock()
+	return progress.ExtraArgs
+}
+
+// getExtraArgsOrDefault returns stored extra args, or the provided defaults if none.
+func getExtraArgsOrDefault(defaults ...string) []string {
+	args := getExtraArgs()
+	if len(args) > 0 {
+		return args
+	}
+	return defaults
 }
 
 func runBackfillFinancialPhase() PhaseResult {

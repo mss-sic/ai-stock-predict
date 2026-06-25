@@ -127,6 +127,9 @@ export default function DataManagementPage() {
   const [taskLogsLoading, setTaskLogsLoading] = useState(false);
   const [logModalVisible, setLogModalVisible] = useState(false);
   const [logModalTaskName, setLogModalTaskName] = useState('');
+  const [runModalVisible, setRunModalVisible] = useState(false);
+  const [runModalTask, setRunModalTask] = useState<any>(null);
+  const [selectedRange, setSelectedRange] = useState(0);
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
   const [selectedCollectPhase, setSelectedCollectPhase] = useState('kline');
   const pollRef = useRef<any>(null);
@@ -165,8 +168,22 @@ export default function DataManagementPage() {
 
   const openTaskLogs = async (taskId: number, taskName: string) => { setLogModalTaskName(taskName); setSelectedTaskId(taskId); setLogModalVisible(true); setTaskLogsLoading(true); try { const res: any = await fetchTaskLogs(taskId, 30); setTaskLogs(Array.isArray(res.data?.data) ? res.data.data : []); } catch { setTaskLogs([]); } finally { setTaskLogsLoading(false); } };
 
-  const handleRunTask = async (id: number) => { const task = scheduledTasks.find((t: any) => t.id === id); if (task?.lastStatus === 'running') { showToast('info', '该任务正在运行中，请等待完成后再执行'); return; } setScheduledTasks(prev => prev.map((t: any) => t.id === id ? { ...t, lastStatus: 'running', lastRun: new Date().toISOString() } : t)); try { await runTaskNow(id); setTimeout(async () => { await loadTasks(); loadTaskLogs(id); }, 2000); } catch (e: any) { showToast('error', '执行失败: ' + (e?.response?.data?.message || e?.message || '未知错误')); loadTasks(); } };
+  const handleRunTask = (id: number) => { const task = scheduledTasks.find((t: any) => t.id === id); if (task?.lastStatus === 'running') { showToast('info', '该任务正在运行中，请等待完成后再执行'); return; } setRunModalTask(task); setSelectedRange(0); setRunModalVisible(true); };
   const handleResetTask = async (id: number) => { try { await resetTaskStatus(id); loadTasks(); } catch {} };
+  const confirmRunTask = async () => {
+    if (!runModalTask) return;
+    const id = runModalTask.id;
+    setRunModalVisible(false);
+    const preset = RANGE_PRESETS[selectedRange];
+    setScheduledTasks((prev: any) => prev.map((t: any) => t.id === id ? { ...t, lastStatus: 'running', lastRun: new Date().toISOString() } : t));
+    try {
+      await runTaskNow(id, preset.args);
+      setTimeout(async () => { await loadTasks(); loadTaskLogs(id); }, 2000);
+    } catch (e: any) {
+      showToast('error', '执行失败: ' + (e?.response?.data?.message || e?.message || '未知错误'));
+      loadTasks();
+    }
+  };
   const handleInitDefaults = async () => { try { await initDefaultTasks(); loadTasks(); } catch {} };
 
   // ── SSE ──
@@ -554,6 +571,36 @@ export default function DataManagementPage() {
               )}
             </div>
           </div>
+          {/* Range Selection Modal */}
+          <Modal title={<span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Timer size={16} color="var(--color-primary)" />执行范围 — {runModalTask?.name || ''}</span>} visible={runModalVisible} onCancel={() => setRunModalVisible(false)} footer={
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <Button onClick={() => setRunModalVisible(false)}>取消</Button>
+              <Button type="primary" onClick={confirmRunTask}>开始执行</Button>
+            </div>
+          } style={{ width: 520 }} unmountOnExit>
+            <div style={{ padding: '8px 0 16px' }}>
+              <div style={{ marginBottom: 12, fontSize: 13, color: 'var(--color-text-2)' }}>
+                选择采集范围（默认仅最新交易日）
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+                {RANGE_PRESETS.map((p, i) => (
+                  <div key={i} onClick={() => setSelectedRange(i)} style={{
+                    padding: '12px 10px',
+                    borderRadius: 8,
+                    border: selectedRange === i ? '2px solid #165DFF' : '1px solid var(--color-border-2)',
+                    background: selectedRange === i ? 'rgba(22,93,255,0.06)' : 'var(--color-bg-1)',
+                    cursor: 'pointer',
+                    textAlign: 'center',
+                    transition: 'all 0.15s',
+                  }}>
+                    <div style={{ fontWeight: 600, fontSize: 14, color: selectedRange === i ? '#165DFF' : 'var(--color-text-1)', marginBottom: 2 }}>{p.label}</div>
+                    <div style={{ fontSize: 11, color: 'var(--color-text-3)' }}>{p.desc}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </Modal>
+
           <Modal title={<span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Activity size={16} color="var(--color-primary)" />运行日志 — {logModalTaskName}</span>} visible={logModalVisible} onCancel={() => { setLogModalVisible(false); setTaskLogs([]); }} footer={null} style={{ width: 800 }} unmountOnExit>
             <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><span className="muted">最近 30 条记录</span><Button size="small" type="text" icon={<RefreshCw size={12} />} loading={taskLogsLoading} onClick={() => selectedTaskId && openTaskLogs(selectedTaskId, logModalTaskName)}>刷新</Button></div>
             {taskLogs.length === 0 && !taskLogsLoading ? <div style={{ padding: 40, textAlign: 'center', color: 'var(--color-text-3)', fontSize: 13 }}>暂无运行日志</div> : (
@@ -561,7 +608,7 @@ export default function DataManagementPage() {
                 columns={[
                   { title: '状态', dataIndex: 'status', width: 70, render: (v: string) => v === 'success' ? <Tag color="green">成功</Tag> : v === 'failed' ? <Tag color="red">失败</Tag> : <Tag color="blue">运行中</Tag> },
                   { title: '新增', dataIndex: 'totalNew', width: 55, render: (v: number) => <span style={{ fontWeight: 600, color: '#165dff' }}>{v}</span> },
-                  { title: '跳过', dataIndex: 'totalSkip', width: 55, render: (v: number) => <span style={{ color: 'var(--color-text-3)' }}>{v}</span> },
+                  { title: '存量', dataIndex: 'totalSkip', width: 55, render: (v: number) => <span style={{ color: 'var(--color-text-3)' }}>{v}</span> },
                   { title: '错误', dataIndex: 'totalErr', width: 50, render: (v: number) => v > 0 ? <span style={{ color: '#f53f3f', fontWeight: 600 }}>{v}</span> : <span style={{ color: 'var(--color-text-3)' }}>0</span> },
                   { title: '耗时', dataIndex: 'durationMs', width: 65, render: (v: number) => <span style={{ fontSize: 12, color: 'var(--color-text-2)' }}>{v < 1000 ? v + 'ms' : (v / 1000).toFixed(1) + 's'}</span> },
                   { title: '时间', dataIndex: 'startedAt', width: 135, render: (v: string) => <span style={{ fontSize: 11, color: 'var(--color-text-3)' }}>{v ? new Date(v).toLocaleString('zh-CN') : '-'}</span> },
@@ -674,7 +721,7 @@ export default function DataManagementPage() {
                   {/* 采集结果统计 */}
                   {phaseResults.filter((r: any) => r.phase === selectedCollectPhase).map((r: any) => (
                     <div key={r.phase} style={{ border: `1px solid ${r.errors > 0 ? '#f53f3f' : 'var(--color-border-1)'}`, borderRadius: 6, padding: '8px 12px', marginBottom: 8, background: r.errors > 0 ? '#ffece8' : '#f0fff4', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, fontSize: 12 }}>
-                      <div>总计 <b>{r.total}</b></div><div>新增 <b style={{ color: '#165dff' }}>{r.new}</b></div><div>跳过 <span style={{ color: 'var(--color-text-3)' }}>{r.skipped}</span></div><div>耗时 <span>{(r.durationMs / 1000).toFixed(1)}s</span></div>
+                      <div>总计 <b>{r.total}</b></div><div>新增 <b style={{ color: '#165dff' }}>{r.new}</b></div><div>存量 <span style={{ color: 'var(--color-text-3)' }}>{r.skipped}</span></div><div>耗时 <span>{(r.durationMs / 1000).toFixed(1)}s</span></div>
                     </div>
                   ))}
 

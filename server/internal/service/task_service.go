@@ -47,6 +47,7 @@ type TaskManager struct {
 }
 
 var taskManager *TaskManager
+var taskExtraArgs sync.Map // taskID → []string
 
 func InitTaskManager() *TaskManager {
 	tm := &TaskManager{
@@ -167,7 +168,12 @@ func (tm *TaskManager) executeTask(taskID uint, phase, name string) {
 			phaseName = "score" // ai_score maps to score phase
 		}
 		phases := []string{phaseName}
-		collector.RunManualCollection(phases)
+		// Read extra args (range selection) if any
+		var extraArgs []string
+		if v, ok := taskExtraArgs.LoadAndDelete(taskID); ok {
+			extraArgs = v.([]string)
+		}
+		collector.RunManualCollection(phases, extraArgs...)
 
 		// Collect results
 		prog := collector.GetProgress()
@@ -333,7 +339,7 @@ func DeleteTask(id uint) error {
 	return db.MySQL.Delete(&model.ScheduledTask{}, id).Error
 }
 
-func RunTaskNow(id uint) error {
+func RunTaskNow(id uint, args []string) error {
 	var task model.ScheduledTask
 	if err := db.MySQL.First(&task, id).Error; err != nil {
 		return err
@@ -346,6 +352,9 @@ func RunTaskNow(id uint) error {
 	}
 	// Mark as running immediately
 	db.MySQL.Model(&task).Update("last_status", "running")
+	if len(args) > 0 {
+		taskExtraArgs.Store(id, args)
+	}
 	go GetTaskManager().executeTask(task.ID, task.Phase, task.Name)
 	return nil
 }

@@ -301,7 +301,7 @@ export const fetchScheduledTasks = () => api.get('/admin/scheduled-tasks');
 export const createScheduledTask = (data: any) => api.post('/admin/scheduled-tasks', data);
 export const updateScheduledTask = (id: number, data: any) => api.put(`/admin/scheduled-tasks/${id}`, data);
 export const deleteScheduledTask = (id: number) => api.delete(`/admin/scheduled-tasks/${id}`);
-export const runTaskNow = (id: number) => api.post(`/admin/scheduled-tasks/${id}/run`);
+export const runTaskNow = (id: number, args?: string[]) => api.post(`/admin/scheduled-tasks/${id}/run`, { args: args || [] });
 export const toggleTask = (id: number) => api.post(`/admin/scheduled-tasks/${id}/toggle`);
 export const resetTaskStatus = (id: number) => api.post(`/admin/scheduled-tasks/${id}/reset`);
 export const initDefaultTasks = () => api.post('/admin/scheduled-tasks/init-defaults');
