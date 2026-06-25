@@ -139,7 +139,7 @@ def main():
             INNER JOIN (
                 SELECT code, MAX(publish_date) as latest FROM stock_news GROUP BY code
             ) n ON b.code = n.code
-            WHERE n.latest < CURRENT_DATE - INTERVAL '2 days'
+            WHERE n.latest::date < CURRENT_DATE - INTERVAL '2 days'
             ORDER BY n.latest ASC
             LIMIT 50
         """)
