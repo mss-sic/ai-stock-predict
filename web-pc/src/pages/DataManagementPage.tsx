@@ -48,6 +48,23 @@ const PHASE_COLORS: Record<string, string> = {
   backfill_financial: '#4080ff', backfill_shareholder: '#ff4080', backfill_indicator: '#00c853',
 };
 
+// Phases that legitimately take >10 minutes
+const LONG_RUNNING_PHASES: Record<string, number> = {
+  concept_full: 120, // full rebuild ~30-80 min
+  backfill_financial: 60,
+  backfill_shareholder: 60,
+  backfill_indicator: 60,
+};
+
+const RANGE_PRESETS = [
+  { label: '最新', desc: '仅最新交易日', args: [] },
+  { label: '最近7天', desc: '最近7个交易日', args: ['--last', '7'] },
+  { label: '最近30天', desc: '最近30个交易日', args: ['--last', '30'] },
+  { label: '最近60天', desc: '最近60个交易日', args: ['--last', '60'] },
+  { label: '最近90天', desc: '最近90个交易日', args: ['--last', '90'] },
+  { label: '全部', desc: '全量采集所有历史', args: ['--all'] },
+];
+
 interface SSELine { type: string; phase?: string; message?: string; level?: string; result?: PhaseResult; stats?: Record<string, number>; progressCurrent?: number; progressTotal?: number; }
 interface PhaseResult { phase: string; total: number; new: number; skipped: number; errors: number; durationMs: number; }
 interface DataStat { key: string; label: string; count: number; updatedAt?: string; }
@@ -543,7 +560,7 @@ export default function DataManagementPage() {
                       if (v === 'success') return <Tag color="green">成功</Tag>;
                       if (v === 'failed') return <Tag color="red">失败</Tag>;
                       if (v === 'running') {
-                        const isStuck = record.lastRun && (Date.now() - new Date(record.lastRun).getTime()) > 10 * 60 * 1000;
+                        const stuckMinutes = LONG_RUNNING_PHASES[record.phase] || 10; const isStuck = record.lastRun && (Date.now() - new Date(record.lastRun).getTime()) > stuckMinutes * 60 * 1000;
                         return isStuck
                           ? <Tag color="red" style={{ cursor: 'pointer' }} title="任务可能卡住，点击重置">超时</Tag>
                           : <Tag color="blue">运行中</Tag>;
@@ -553,7 +570,7 @@ export default function DataManagementPage() {
                     { title: '上次运行', dataIndex: 'lastRun', width: 125, render: (v: string) => <span style={{ fontSize: 12, color: 'var(--color-text-2)' }}>{v ? new Date(v).toLocaleString('zh-CN') : '-'}</span> },
                     { title: '下次运行', dataIndex: 'nextRun', width: 125, render: (v: string) => <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>{v ? new Date(v).toLocaleString('zh-CN') : '-'}</span> },
                     { title: '操作', width: 160, render: (_: any, record: any) => {
-                      const isStuck = record.lastStatus === 'running' && record.lastRun && (Date.now() - new Date(record.lastRun).getTime()) > 10 * 60 * 1000;
+                      const stuckMinutes2 = LONG_RUNNING_PHASES[record.phase] || 10; const isStuck = record.lastStatus === 'running' && record.lastRun && (Date.now() - new Date(record.lastRun).getTime()) > stuckMinutes2 * 60 * 1000;
                       return (
                         <div style={{ display: 'flex', gap: 4 }}>
                           <Button size="mini" type="outline" icon={<Play size={10} />} onClick={() => handleRunTask(record.id)}>执行</Button>
