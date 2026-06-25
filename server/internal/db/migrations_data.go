@@ -912,6 +912,16 @@ Register(Migration{
     },
 })
 
+// v033: Grid trading columns on strategies
+Register(Migration{
+    Version:     33,
+    Description: "MySQL: strategies add enable_grid, grid_trigger_squeeze, grid_levels, grid_lot_pct columns",
+    Up: func() error {
+        gormAutoMigrate(MySQL, &model.Strategy{})
+        return nil
+    },
+})
+
 log.Printf("[migrate] registered %d migrations", len(migrations))
 
 

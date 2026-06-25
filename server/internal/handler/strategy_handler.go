@@ -136,6 +136,11 @@ func (h *StrategyHandler) Update(c *gin.Context) {
 	if _, ok := raw["dipTargetReturn"]; ok { updates["dip_target_return"] = raw["dipTargetReturn"] }
 	if _, ok := raw["dipMaxHoldDays"]; ok { updates["dip_max_hold_days"] = raw["dipMaxHoldDays"] }
 	if _, ok := raw["dipCooldownDays"]; ok { updates["dip_cooldown_days"] = raw["dipCooldownDays"] }
+	// Grid trading
+	if _, ok := raw["enableGrid"]; ok { updates["enable_grid"] = raw["enableGrid"] }
+	if _, ok := raw["gridTriggerSqueeze"]; ok { updates["grid_trigger_squeeze"] = raw["gridTriggerSqueeze"] }
+	if _, ok := raw["gridLevels"]; ok { updates["grid_levels"] = raw["gridLevels"] }
+	if _, ok := raw["gridLotPct"]; ok { updates["grid_lot_pct"] = raw["gridLotPct"] }
 	if v, ok := raw["investmentType"]; ok && v != "" { updates["investment_type"] = v }
 	if _, ok := raw["regularAmount"]; ok { updates["regular_amount"] = raw["regularAmount"] }
 	if v, ok := raw["regularInterval"]; ok && v != "" { updates["regular_interval"] = v }
@@ -3317,6 +3322,85 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 			return &backtestTrade{
 				Date: sig.ExecDate, SignalDate: sig.SignalDate,
 				Action: "dip_sell", Code: sig.StockCode,
+				Name: sig.StockName, Price: openPrice, Quantity: sellQty,
+				Reason: sig.Reason, Pnl: sig.Pnl, PnlPct: sig.PnlPct,
+			}
+
+		case "grid_buy":
+			pos, ok := positions[sig.StockCode]
+			if !ok || !pos.GridActive {
+				sig.Status = "skipped"
+				sig.SkipReason = "网格未激活"
+				return nil
+			}
+			actualQty := int(sig.PlannedAmount / openPrice / 100) * 100
+			if actualQty <= 0 || actualQty < 100 {
+				sig.Status = "skipped"
+				sig.SkipReason = "网格数量不足"
+				return nil
+			}
+			actualAmount := openPrice * float64(actualQty)
+			if actualAmount > *cash {
+				actualQty = int(*cash / openPrice / 100) * 100
+				actualAmount = openPrice * float64(actualQty)
+			}
+			if actualQty <= 0 {
+				sig.Status = "skipped"
+				sig.SkipReason = "资金不足"
+				return nil
+			}
+			*cash -= actualAmount
+			gridComm := math.Max(actualAmount*COMMISSION_RATE, MIN_COMMISSION)
+			*cash -= gridComm
+			// Find the level from the reason string (format: "网格买入 L0 @...")
+			level := 0
+			// Store grid lot
+			pos.GridLots = append(pos.GridLots, GridLot{Qty: actualQty, BuyPrice: openPrice, Level: level})
+			sig.ExecPrice = openPrice
+			sig.ExecQty = actualQty
+			sig.ExecAmount = actualAmount
+			sig.Status = "executed"
+			return &backtestTrade{
+				Date: sig.ExecDate, SignalDate: sig.SignalDate,
+				Action: "grid_buy", Code: sig.StockCode,
+				Name: sig.StockName, Price: openPrice, Quantity: actualQty,
+				Reason: sig.Reason,
+			}
+
+		case "grid_sell":
+			pos, ok := positions[sig.StockCode]
+			if !ok {
+				sig.Status = "skipped"
+				sig.SkipReason = "无持仓"
+				return nil
+			}
+			sellQty := sig.PlannedQty
+			// Remove matching grid lot
+			for i, lot := range pos.GridLots {
+				if lot.Qty == sellQty {
+					pos.GridLots = append(pos.GridLots[:i], pos.GridLots[i+1:]...)
+					break
+				}
+			}
+			gridPnl := (openPrice - sig.PlannedPrice) * float64(sellQty) // plannedPrice used as cost basis
+			gridPnlPct := 0.0
+			if sig.PlannedPrice > 0 {
+				gridPnlPct = (openPrice - sig.PlannedPrice) / sig.PlannedPrice * 100
+			}
+			*cash += openPrice * float64(sellQty)
+			gsAmt := openPrice * float64(sellQty)
+			commission := math.Max(gsAmt*COMMISSION_RATE, MIN_COMMISSION)
+			stampTax := gsAmt * STAMP_TAX_RATE
+			*cash -= commission + stampTax
+			sig.ExecPrice = openPrice
+			sig.ExecQty = sellQty
+			sig.ExecAmount = gsAmt
+			sig.Pnl = math.Round(gridPnl*100) / 100
+			sig.PnlPct = math.Round(gridPnlPct*100) / 100
+			sig.Status = "executed"
+			return &backtestTrade{
+				Date: sig.ExecDate, SignalDate: sig.SignalDate,
+				Action: "grid_sell", Code: sig.StockCode,
 				Name: sig.StockName, Price: openPrice, Quantity: sellQty,
 				Reason: sig.Reason, Pnl: sig.Pnl, PnlPct: sig.PnlPct,
 			}

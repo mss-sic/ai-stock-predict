@@ -30,6 +30,28 @@ func isSTStock(name string) bool {
 
 // generateSignalsV2 replaces the original generateSignals for V2-enabled strategies.
 // It uses ScoringEngine for buy/add and DecisionTreeEngine for sell/reduce.
+// getIndicatorValueRaw returns raw indicator value from cache (0 if not found).
+func getIndicatorValueRaw(icache *IndicatorCache, indicator, code, date string) float64 {
+	if icache == nil { return 0 }
+	if val, ok := icache.get(indicator, code, date); ok { return val }
+	return 0
+}
+
+// computeMA computes simple moving average from kcache close prices.
+func computeMA(kc *KlineCache, code, date string, period int) float64 {
+	if kc == nil || period <= 0 { return 0 }
+	sum := 0.0
+	count := 0
+	for i := 0; i < period; i++ {
+		d := kc.dates[kc.dateIdx[date]-i]
+		if d == "" { break }
+		cp := kc.GetClose(code, d)
+		if cp > 0 { sum += cp; count++ }
+	}
+	if count == 0 { return 0 }
+	return sum / float64(count)
+}
+
 func generateSignalsV2(
 	date string, cash float64, isLastDay bool,
 	positions map[string]*dcPosition,
@@ -834,6 +856,129 @@ skipBuys:
 	}
 
 skipAdds:
+	// ── Grid Trading (网格做T) ──
+	if s.EnableGrid {
+		triggerSqueeze := s.GridTriggerSqueeze
+		if triggerSqueeze <= 0 { triggerSqueeze = 8 }
+		levels := s.GridLevels
+		if levels <= 1 { levels = 3 }
+		lotPct := s.GridLotPct
+		if lotPct <= 0 { lotPct = 5 }
+
+		for _, pos := range positions {
+			if pos.Quantity <= 0 || pos.BuyDate == date { continue }
+
+			// Get BOLL values
+			bollSqueeze := getIndicatorValueRaw(icache, "boll_squeeze", pos.Code, date)
+			bollMid := getIndicatorValueRaw(icache, "boll_middle", pos.Code, date)
+			bollUpper := getIndicatorValueRaw(icache, "boll_upper", pos.Code, date)
+			bollLower := getIndicatorValueRaw(icache, "boll_lower", pos.Code, date)
+
+			// If BOLL not in cache, compute from kcache
+			if bollMid <= 0 {
+				bollMid = computeMA(kcache, pos.Code, date, 20)
+			}
+			if bollUpper <= 0 && bollMid > 0 {
+				bollUpper = bollMid * 1.05 // rough estimate
+			}
+			if bollLower <= 0 && bollMid > 0 {
+				bollLower = bollMid * 0.95
+			}
+			if bollSqueeze == 0 && bollUpper > 0 && bollLower > 0 && bollMid > 0 {
+				bollSqueeze = (bollUpper - bollLower) / bollMid * 100
+			}
+
+			// ── Grid Activation ──
+			if !pos.GridActive && bollSqueeze > 0 && bollSqueeze < triggerSqueeze {
+				pos.GridActive = true
+				pos.GridBase = bollMid
+				insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, 26,
+					"system", "info", pos.Code, pos.Name,
+					fmt.Sprintf("▸ 网格激活: %s squeeze=%.1f 基准=%.2f", pos.Code, bollSqueeze, bollMid), nil)
+			}
+
+			// ── Grid Deactivation ──
+			closePrice := kcache.GetClose(pos.Code, date)
+			if pos.GridActive && (bollSqueeze <= 0 || bollSqueeze > 30) {
+				// Sell all grid lots
+				for _, lot := range pos.GridLots {
+					signals = append(signals, model.BacktestSignal{
+						TaskID: task.ID, StrategyID: task.StrategyID, UserID: task.UserID,
+						SignalDate: date, ExecDate: getNextDate(kcache, date),
+						StockCode: pos.Code, StockName: pos.Name,
+						ActionType: "grid_sell", PlannedPrice: closePrice, PlannedQty: lot.Qty,
+						PlannedAmount: closePrice * float64(lot.Qty),
+						Status: "pending",
+						Reason: fmt.Sprintf("网格退役: squeeze=%.1f 清仓%d股", bollSqueeze, lot.Qty),
+					})
+				}
+				pos.GridLots = nil
+				pos.GridActive = false
+				insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, 26,
+					"system", "info", pos.Code, pos.Name,
+					fmt.Sprintf("▸ 网格退役: %s squeeze=%.1f", pos.Code, bollSqueeze), nil)
+				continue
+			}
+
+			if !pos.GridActive || bollUpper <= 0 || bollLower <= 0 || bollMid <= 0 { continue }
+			if closePrice <= 0 { continue }
+
+			step := (bollUpper - bollLower) / float64(levels)
+			if step <= 0 { continue }
+
+			// ── Grid Buy ──
+			gridBuyAmt := cash * lotPct / 100
+			for lvl := 0; lvl < levels; lvl++ {
+				buyLevel := bollLower + float64(lvl)*step
+				if closePrice > buyLevel { continue }
+				// Check if we already have a lot at this level
+				hasLot := false
+				for _, lot := range pos.GridLots {
+					if lot.Level == lvl { hasLot = true; break }
+				}
+				if hasLot { continue }
+
+				gridQty := int(gridBuyAmt / closePrice / 100) * 100
+				if gridQty < 100 { continue }
+				signals = append(signals, model.BacktestSignal{
+					TaskID: task.ID, StrategyID: task.StrategyID, UserID: task.UserID,
+					SignalDate: date, ExecDate: getNextDate(kcache, date),
+					StockCode: pos.Code, StockName: pos.Name,
+					ActionType: "grid_buy", PlannedPrice: closePrice, PlannedQty: gridQty,
+					PlannedAmount: closePrice * float64(gridQty),
+					Status: "pending",
+					Reason: fmt.Sprintf("网格买入 L%d @%.2f (基准%.2f)", lvl, closePrice, bollMid),
+				})
+				insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, 27,
+					"signal", "info", pos.Code, pos.Name,
+					fmt.Sprintf("▸ 网格买入: %s L%d @%.2f", pos.Code, lvl, closePrice), nil)
+			}
+
+			// ── Grid Sell ──
+			// sell when lot profit >= 3%
+			for i, lot := range pos.GridLots {
+				if lot.Qty <= 0 { continue }
+				if lot.BuyPrice <= 0 { continue }
+				chgFromLot := (closePrice - lot.BuyPrice) / lot.BuyPrice * 100
+				if chgFromLot >= 3.0 { // 3% grid profit target
+					signals = append(signals, model.BacktestSignal{
+						TaskID: task.ID, StrategyID: task.StrategyID, UserID: task.UserID,
+						SignalDate: date, ExecDate: getNextDate(kcache, date),
+						StockCode: pos.Code, StockName: pos.Name,
+						ActionType: "grid_sell", PlannedPrice: closePrice, PlannedQty: lot.Qty,
+						PlannedAmount: closePrice * float64(lot.Qty),
+						Status: "pending",
+						Reason: fmt.Sprintf("网格卖出 L%d @%.2f +%.1f%%", lot.Level, closePrice, chgFromLot),
+					})
+					pos.GridLots = append(pos.GridLots[:i], pos.GridLots[i+1:]...)
+					insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, 27,
+						"signal", "info", pos.Code, pos.Name,
+						fmt.Sprintf("▸ 网格卖出: %s L%d +%.1f%%", pos.Code, lot.Level, chgFromLot), nil)
+				}
+			}
+		}
+	}
+
 	// ── Timing diagnostic ──
 	elapsed := time.Since(enterTime)
 	if elapsed > 2*time.Second || len(signals) > 0 {

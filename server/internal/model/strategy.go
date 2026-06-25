@@ -70,6 +70,12 @@ type Strategy struct {
 	DipMaxHoldDays    int     `gorm:"default:3" json:"dipMaxHoldDays"`      // 最大持有天数
 	DipCooldownDays   int     `gorm:"default:10" json:"dipCooldownDays"`    // 冷却期
 
+	// ── Grid Trading (网格做T) ──
+	EnableGrid         bool    `gorm:"default:false" json:"enableGrid"`
+	GridTriggerSqueeze float64 `gorm:"default:8" json:"gridTriggerSqueeze"` // 震荡阈值(boll_squeeze)
+	GridLevels         int     `gorm:"default:3" json:"gridLevels"`         // 网格层数
+	GridLotPct         float64 `gorm:"default:5" json:"gridLotPct"`         // 每格仓位%
+
 	// Investment plan
 	InitialCapital  float64 `gorm:"default:100000" json:"initialCapital"` // 初始资金
 	InvestmentType  string  `gorm:"size:10;default:lump" json:"investmentType"` // lump=一次性 / regular=定投

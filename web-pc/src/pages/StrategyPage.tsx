@@ -1361,17 +1361,54 @@ export default function StrategyPage() {
                 </div>
 
                 {/* ── 网格做T ── */}
-                <div style={{ padding: '16px 18px', background: 'var(--color-bg-1)', borderRadius: 10, border: '1px solid var(--color-border-1)', opacity: 0.6 }}>
+                <div style={{ padding: '16px 18px', background: 'var(--color-bg-1)', borderRadius: 10, border: '1px solid var(--color-border-1)' }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <Grid3X3 size={16} style={{ color: '#722ED1' }} />
                       <span style={{ fontSize: 14, fontWeight: 600 }}>网格做T</span>
                     </div>
-                    <Tag color="gray" size="small">即将推出</Tag>
+                    <Tag color={activeStrategy.enableGrid ? 'green' : 'gray'} size="small">
+                      {activeStrategy.enableGrid ? '已启用' : '未启用'}
+                    </Tag>
                   </div>
-                  <div style={{ fontSize: 11, color: 'var(--color-text-3)' }}>
-                    震荡市自动高抛低吸，保留底仓。BOLL收口自动激活网格。（Phase 3 开发中）
+                  <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 10 }}>
+                    {activeStrategy.enableGrid
+                      ? `BOLL收口<${activeStrategy.gridTriggerSqueeze || 8}激活, ${activeStrategy.gridLevels || 3}层网格 每格${activeStrategy.gridLotPct || 5}%`
+                      : '震荡市自动高抛低吸，保留底仓。BOLL收口自动激活网格'}
                   </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                    <span style={{ fontSize: 12, color: 'var(--color-text-3)', minWidth: 56 }}>启用</span>
+                    <input type="checkbox" checked={activeStrategy.enableGrid || false}
+                      onChange={e => handleUpdateStrategy('enableGrid', e.target.checked)}
+                      style={{ accentColor: '#722ED1' }} />
+                  </div>
+                  {activeStrategy.enableGrid && (
+                    <>
+                      <div style={{ padding: '8px 12px', background: 'var(--color-fill-1)', borderRadius: 6, fontSize: 11, color: 'var(--color-text-3)', lineHeight: 1.6, marginBottom: 10 }}>
+                        💡 BOLL收口(squeeze&lt;{activeStrategy.gridTriggerSqueeze || 8})激活 → {activeStrategy.gridLevels || 3}层网格布林带内自动买卖 → 每格赚3%+就卖 → BOLL宽口(squeeze&gt;30)退役清仓
+                      </div>
+                      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{ fontSize: 12, color: 'var(--color-text-3)', minWidth: 56 }}>震荡阈值</span>
+                          <InputNumber value={activeStrategy.gridTriggerSqueeze || 8}
+                            onChange={v => handleUpdateStrategy('gridTriggerSqueeze', v || 8)}
+                            min={3} max={15} step={1} style={{ width: 80 }} size="small" />
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{ fontSize: 12, color: 'var(--color-text-3)', minWidth: 56 }}>网格层数</span>
+                          <InputNumber value={activeStrategy.gridLevels || 3}
+                            onChange={v => handleUpdateStrategy('gridLevels', v || 3)}
+                            min={2} max={6} step={1} style={{ width: 80 }} size="small" />
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{ fontSize: 12, color: 'var(--color-text-3)', minWidth: 56 }}>每格仓位</span>
+                          <InputNumber value={activeStrategy.gridLotPct || 5}
+                            onChange={v => handleUpdateStrategy('gridLotPct', v || 5)}
+                            min={2} max={15} step={1} suffix="%" style={{ width: 80 }} size="small" />
+                        </div>
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
             ) : tab === "orchestration" ? (

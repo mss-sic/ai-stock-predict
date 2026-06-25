@@ -63,6 +63,16 @@ type dcPosition struct {
 	HighestPrice   float64 // 持仓期间最高收盘价（移动止盈用）
 	DipLot          *DipLot // 抄底批次（活跃时非nil）
 	LastDipDate     string  // 上次抄底日期（冷却期用）
+	GridActive      bool     // 网格是否激活
+	GridBase        float64  // 网格基准价（布林中轨）
+	GridLots        []GridLot // 网格持仓批次
+}
+
+// GridLot tracks a single grid layer position.
+type GridLot struct {
+	Qty      int
+	BuyPrice float64
+	Level    int
 }
 
 // dcStockInfo is a minimal stock entry used in scoring/decision universes.
