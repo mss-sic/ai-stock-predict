@@ -892,6 +892,16 @@ func init() {
 		},
 	})
 
+// v031: Trailing stop columns on strategies
+Register(Migration{
+    Version:     31,
+    Description: "MySQL: strategies add enable_trailing_stop, trailing_stop_activation, trailing_stop_drawdown columns",
+    Up: func() error {
+        gormAutoMigrate(MySQL, &model.Strategy{})
+        return nil
+    },
+})
+
 log.Printf("[migrate] registered %d migrations", len(migrations))
 
 
