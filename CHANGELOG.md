@@ -1,3 +1,42 @@
+## v1.7.1 (2026-06-26)
+
+### 数据管理 — 定时任务补全
+
+- **新增 4 个定时任务**: 市场日聚合(16:00) / 市场情绪(17:00) / 市场风格(17:30) / AI评分(每周日)
+- `InitializeDefaultTasks` 改为按名称增量检查，重启自动追加新任务
+- 重复 quote 任务已处理（旧版"实时行情采集"禁用，保留"实时行情监控"交易时段）
+
+### 采集任务 — 范围选择
+
+- 点击「执行」弹出范围选择 Modal：最新 / 7天 / 30天 / 60天 / 90天 / 全部
+- 参数链路：前端 args → handler → service → collector → Python 脚本
+- 日志表头「跳过」→「存量」更准确
+
+### 概念板块 — 防覆盖双模式
+
+- **增量模式**（每日 08:00）：board API → UPSERT，检测到近期全量重建自动跳过
+- **全量模式**（每周日 06:00）：stock-centric → DELETE+INSERT → `rebuild_concepts.py`
+- 全量重建超时阈值从 10 分钟 → 120 分钟（`LONG_RUNNING_PHASES`）
+
+### 数据管道 — 依赖对齐
+
+- 线上修复脚本 `fix_online_pipeline.py`：precompute_aggs → compute_sentiment → BulkCompute
+- K线采集自动包含大盘指数(上证/深证/沪深300/中证1000/创业板) + 国债ETF(3只)
+- `news_collect.py` SQL 类型转换修复（publish_date varchar → ::date）
+
+## v1.7.0 (2026-06-25)
+
+### 市场复盘 — 独立模块
+
+- 新增 `market_style_daily` 表 + `MarketStyleService` 风格引擎
+- 风格时间轴曲线 / 每日深度复盘 / 结构性分析（概念抱团持续性）/ 风格切换预警
+- 策略「智能风控」Tab 通俗化：场景卡片替代技术术语
+
+### 交易策略 — 功能迭代
+
+- 新增上榜频率指标（近5日/近20日上榜次数）→ 策略条件可选
+- 策略条件新增 indicator 指标：streak_count
+
 ## v1.6.2 (2026-06-23)
 
 ### 端到端回测 — 系统漏洞修复 7 项
