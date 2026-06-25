@@ -125,6 +125,10 @@ func (h *StrategyHandler) Update(c *gin.Context) {
 	if v, ok := raw["reducePositionPct"]; ok { if n, _ := toFloat64(v); n > 0 { updates["reduce_position_pct"] = n } }
 	if v, ok := raw["positionConcentrationLimit"]; ok { if n, _ := toFloat64(v); n > 0 { updates["position_concentration_limit"] = n } }
 	if v, ok := raw["maxDailyLoss"]; ok { if n, _ := toFloat64(v); n < 0 { updates["max_daily_loss"] = n } }
+	// Trailing stop
+	if _, ok := raw["enableTrailingStop"]; ok { updates["enable_trailing_stop"] = raw["enableTrailingStop"] }
+	if _, ok := raw["trailingStopActivation"]; ok { updates["trailing_stop_activation"] = raw["trailingStopActivation"] }
+	if _, ok := raw["trailingStopDrawdown"]; ok { updates["trailing_stop_drawdown"] = raw["trailingStopDrawdown"] }
 	if v, ok := raw["investmentType"]; ok && v != "" { updates["investment_type"] = v }
 	if _, ok := raw["regularAmount"]; ok { updates["regular_amount"] = raw["regularAmount"] }
 	if v, ok := raw["regularInterval"]; ok && v != "" { updates["regular_interval"] = v }
