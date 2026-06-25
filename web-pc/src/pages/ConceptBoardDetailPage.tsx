@@ -101,7 +101,7 @@ export default function ConceptBoardDetailPage() {
       {/* Stats Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10 }}>
         <StatCard label="成分股数量" value={total} />
-        <StatCard label="平均涨跌" value={(avgChgPct || 0) >= 0 ? '+' : ''}{(avgChgPct || 0).toFixed(2)}% valueColor={isUp ? '#f53f3f' : '#00b42a'} />
+        <StatCard label="平均涨跌" value={`${(avgChgPct || 0) >= 0 ? "+" : ""}${(avgChgPct || 0).toFixed(2)}%`} valueColor={isUp ? '#f53f3f' : '#00b42a'} />
         <StatCard label="上涨" value={upCount || 0} icon={<TrendingUp size={14} />} valueColor="#f53f3f" />
         <StatCard label="下跌" value={downCount || 0} icon={<TrendingDown size={14} />} valueColor="#00b42a" />
         <StatCard label="今日上榜" value={todayPicks} icon={<Star size={14} />} valueColor="#ff7d00" />
