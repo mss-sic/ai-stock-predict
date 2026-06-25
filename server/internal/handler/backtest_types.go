@@ -44,6 +44,13 @@ type ActionTarget struct {
 }
 
 // dcPosition represents a position held during backtest simulation.
+// DipLot tracks a dip-buy sub-position (抄底批次).
+type DipLot struct {
+	Qty      int
+	BuyPrice float64
+	BuyDate  string
+}
+
 type dcPosition struct {
 	Code        string
 	Name        string
@@ -54,6 +61,8 @@ type dcPosition struct {
 	dangerAccum float64
 	LastReduceDate string
 	HighestPrice   float64 // 持仓期间最高收盘价（移动止盈用）
+	DipLot          *DipLot // 抄底批次（活跃时非nil）
+	LastDipDate     string  // 上次抄底日期（冷却期用）
 }
 
 // dcStockInfo is a minimal stock entry used in scoring/decision universes.

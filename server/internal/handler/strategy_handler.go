@@ -129,6 +129,13 @@ func (h *StrategyHandler) Update(c *gin.Context) {
 	if _, ok := raw["enableTrailingStop"]; ok { updates["enable_trailing_stop"] = raw["enableTrailingStop"] }
 	if _, ok := raw["trailingStopActivation"]; ok { updates["trailing_stop_activation"] = raw["trailingStopActivation"] }
 	if _, ok := raw["trailingStopDrawdown"]; ok { updates["trailing_stop_drawdown"] = raw["trailingStopDrawdown"] }
+	// Dip buy
+	if _, ok := raw["enableDipBuy"]; ok { updates["enable_dip_buy"] = raw["enableDipBuy"] }
+	if _, ok := raw["dipBuyThreshold"]; ok { updates["dip_buy_threshold"] = raw["dipBuyThreshold"] }
+	if _, ok := raw["dipBuyAmountPct"]; ok { updates["dip_buy_amount_pct"] = raw["dipBuyAmountPct"] }
+	if _, ok := raw["dipTargetReturn"]; ok { updates["dip_target_return"] = raw["dipTargetReturn"] }
+	if _, ok := raw["dipMaxHoldDays"]; ok { updates["dip_max_hold_days"] = raw["dipMaxHoldDays"] }
+	if _, ok := raw["dipCooldownDays"]; ok { updates["dip_cooldown_days"] = raw["dipCooldownDays"] }
 	if v, ok := raw["investmentType"]; ok && v != "" { updates["investment_type"] = v }
 	if _, ok := raw["regularAmount"]; ok { updates["regular_amount"] = raw["regularAmount"] }
 	if v, ok := raw["regularInterval"]; ok && v != "" { updates["regular_interval"] = v }
@@ -3239,6 +3246,78 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 				Date: sig.ExecDate, SignalDate: sig.SignalDate,
 				Action: "reduce", Code: sig.StockCode,
 				Name: sig.StockName, Price: openPrice, Quantity: reduceQty,
+				Reason: sig.Reason, Pnl: sig.Pnl, PnlPct: sig.PnlPct,
+			}
+
+		case "dip_buy":
+			actualQty := int(sig.PlannedAmount / openPrice / 100) * 100
+			if actualQty <= 0 || actualQty < 100 {
+				sig.Status = "skipped"
+				sig.SkipReason = "抄底数量不足"
+				return nil
+			}
+			actualAmount := openPrice * float64(actualQty)
+			if actualAmount > *cash {
+				actualQty = int(*cash / openPrice / 100) * 100
+				actualAmount = openPrice * float64(actualQty)
+			}
+			if actualQty <= 0 {
+				sig.Status = "skipped"
+				sig.SkipReason = "资金不足"
+				return nil
+			}
+			*cash -= actualAmount
+			dipCommission := math.Max(actualAmount*COMMISSION_RATE, MIN_COMMISSION)
+			*cash -= dipCommission
+			if pos, ok := positions[sig.StockCode]; ok {
+				pos.DipLot = &DipLot{Qty: actualQty, BuyPrice: openPrice, BuyDate: sig.ExecDate}
+				pos.LastDipDate = sig.ExecDate
+			}
+			sig.ExecPrice = openPrice
+			sig.ExecQty = actualQty
+			sig.ExecAmount = actualAmount
+			sig.Status = "executed"
+			return &backtestTrade{
+				Date: sig.ExecDate, SignalDate: sig.SignalDate,
+				Action: "dip_buy", Code: sig.StockCode,
+				Name: sig.StockName, Price: openPrice, Quantity: actualQty,
+				Reason: sig.Reason,
+			}
+
+		case "dip_sell":
+			pos, ok := positions[sig.StockCode]
+			if !ok || pos.DipLot == nil || pos.DipLot.Qty <= 0 {
+				sig.Status = "skipped"
+				sig.SkipReason = "无抄底持仓"
+				return nil
+			}
+			if pos.DipLot.BuyDate == sig.ExecDate {
+				sig.Status = "skipped"
+				sig.SkipReason = "T+1限制: 当日抄底不可卖出"
+				return nil
+			}
+			sellQty := pos.DipLot.Qty
+			dipPnl := (openPrice - pos.DipLot.BuyPrice) * float64(sellQty)
+			dipPnlPct := 0.0
+			if pos.DipLot.BuyPrice > 0 {
+				dipPnlPct = (openPrice - pos.DipLot.BuyPrice) / pos.DipLot.BuyPrice * 100
+			}
+			*cash += openPrice * float64(sellQty)
+			dipSellAmt := openPrice * float64(sellQty)
+			commission := math.Max(dipSellAmt*COMMISSION_RATE, MIN_COMMISSION)
+			stampTax := dipSellAmt * STAMP_TAX_RATE
+			*cash -= commission + stampTax
+			pos.DipLot = nil
+			sig.ExecPrice = openPrice
+			sig.ExecQty = sellQty
+			sig.ExecAmount = dipSellAmt
+			sig.Pnl = math.Round(dipPnl*100) / 100
+			sig.PnlPct = math.Round(dipPnlPct*100) / 100
+			sig.Status = "executed"
+			return &backtestTrade{
+				Date: sig.ExecDate, SignalDate: sig.SignalDate,
+				Action: "dip_sell", Code: sig.StockCode,
+				Name: sig.StockName, Price: openPrice, Quantity: sellQty,
 				Reason: sig.Reason, Pnl: sig.Pnl, PnlPct: sig.PnlPct,
 			}
 		}

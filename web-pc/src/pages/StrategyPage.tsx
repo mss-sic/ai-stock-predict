@@ -1296,17 +1296,68 @@ export default function StrategyPage() {
                 </div>
 
                 {/* ── 抄底反弹 ── */}
-                <div style={{ padding: '16px 18px', background: 'var(--color-bg-1)', borderRadius: 10, border: '1px solid var(--color-border-1)', opacity: 0.6 }}>
+                <div style={{ padding: '16px 18px', background: 'var(--color-bg-1)', borderRadius: 10, border: '1px solid var(--color-border-1)' }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <TrendingDown size={16} style={{ color: '#F7BA1E' }} />
                       <span style={{ fontSize: 14, fontWeight: 600 }}>抄底反弹</span>
                     </div>
-                    <Tag color="gray" size="small">即将推出</Tag>
+                    <Tag color={activeStrategy.enableDipBuy ? 'green' : 'gray'} size="small">
+                      {activeStrategy.enableDipBuy ? '已启用' : '未启用'}
+                    </Tag>
                   </div>
-                  <div style={{ fontSize: 11, color: 'var(--color-text-3)' }}>
-                    持仓大跌时自动补仓做波段反弹，达标自动卖出。（Phase 2 开发中）
+                  <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 10 }}>
+                    {activeStrategy.enableDipBuy
+                      ? `持仓跌超 ${activeStrategy.dipBuyThreshold || -15}% 自动补仓, 反弹 ${activeStrategy.dipTargetReturn || 5}% 达标卖出`
+                      : '持仓大跌时自动补仓做波段反弹，达标自动卖出'}
                   </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                    <span style={{ fontSize: 12, color: 'var(--color-text-3)', minWidth: 56 }}>启用</span>
+                    <input type="checkbox" checked={activeStrategy.enableDipBuy || false}
+                      onChange={e => handleUpdateStrategy('enableDipBuy', e.target.checked)}
+                      style={{ accentColor: '#F7BA1E' }} />
+                  </div>
+                  {activeStrategy.enableDipBuy && (
+                    <>
+                      <div style={{ padding: '8px 12px', background: 'var(--color-fill-1)', borderRadius: 6, fontSize: 11, color: 'var(--color-text-3)', lineHeight: 1.6, marginBottom: 10 }}>
+                        💡 例：建仓价¥10 → 跌到¥{((activeStrategy.dipBuyThreshold || -15) < 0 ? (10 + 10*(activeStrategy.dipBuyThreshold || -15)/100).toFixed(1) : '8.5')}(跌{Math.abs(activeStrategy.dipBuyThreshold || -15)}%) 自动抄底 → 反弹{activeStrategy.dipTargetReturn || 5}%到目标价 → 卖出抄底批次，保留底仓
+                      </div>
+                      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center', marginBottom: 8 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{ fontSize: 12, color: 'var(--color-text-3)', minWidth: 56 }}>触发跌幅</span>
+                          <InputNumber value={activeStrategy.dipBuyThreshold || -15}
+                            onChange={v => handleUpdateStrategy('dipBuyThreshold', v || -15)}
+                            min={-30} max={-5} step={1} suffix="%" style={{ width: 80 }} size="small" />
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{ fontSize: 12, color: 'var(--color-text-3)', minWidth: 56 }}>抄底仓位</span>
+                          <InputNumber value={activeStrategy.dipBuyAmountPct || 10}
+                            onChange={v => handleUpdateStrategy('dipBuyAmountPct', v || 10)}
+                            min={3} max={25} step={1} suffix="%" style={{ width: 80 }} size="small" />
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center', marginBottom: 8 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{ fontSize: 12, color: 'var(--color-text-3)', minWidth: 56 }}>目标收益</span>
+                          <InputNumber value={activeStrategy.dipTargetReturn || 5}
+                            onChange={v => handleUpdateStrategy('dipTargetReturn', v || 5)}
+                            min={2} max={15} step={1} suffix="%" style={{ width: 80 }} size="small" />
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{ fontSize: 12, color: 'var(--color-text-3)', minWidth: 56 }}>最大持有</span>
+                          <InputNumber value={activeStrategy.dipMaxHoldDays || 3}
+                            onChange={v => handleUpdateStrategy('dipMaxHoldDays', v || 3)}
+                            min={1} max={10} step={1} suffix="天" style={{ width: 80 }} size="small" />
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span style={{ fontSize: 12, color: 'var(--color-text-3)', minWidth: 56 }}>冷却期</span>
+                        <InputNumber value={activeStrategy.dipCooldownDays || 10}
+                          onChange={v => handleUpdateStrategy('dipCooldownDays', v || 10)}
+                          min={5} max={30} step={1} suffix="天" style={{ width: 80 }} size="small" />
+                      </div>
+                    </>
+                  )}
                 </div>
 
                 {/* ── 网格做T ── */}

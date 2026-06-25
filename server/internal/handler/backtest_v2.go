@@ -347,6 +347,51 @@ func generateSignalsV2(
 			fmt.Sprintf("▸ 持仓检查: %d只持仓 %d只触发卖出", len(positions), sellSignalCount), nil)
 	}
 
+	// ── Dip Buy checks (抄底反弹) ──
+	if s.EnableDipBuy {
+		dipBuyThreshold := s.DipBuyThreshold
+		if dipBuyThreshold >= 0 { dipBuyThreshold = -15 }
+		dipAmountPct := s.DipBuyAmountPct
+		if dipAmountPct <= 0 { dipAmountPct = 10 }
+		dipCooldown := s.DipCooldownDays
+		if dipCooldown <= 0 { dipCooldown = 10 }
+
+		for _, pos := range positions {
+			if pos.Quantity <= 0 { continue }
+			// Skip if already has active dip lot
+			if pos.DipLot != nil && pos.DipLot.Qty > 0 { continue }
+			// Skip if within cooldown
+			if pos.LastDipDate != "" && kcache.tradingDaysBetween(pos.LastDipDate, date) >= 0 &&
+				kcache.tradingDaysBetween(pos.LastDipDate, date) < dipCooldown {
+				continue
+			}
+			// Skip if bought today
+			if pos.BuyDate == date { continue }
+
+			closePrice := kcache.GetClose(pos.Code, date)
+			if closePrice <= 0 { continue }
+			fallFromBuy := (closePrice - pos.BuyPrice) / pos.BuyPrice * 100
+			if fallFromBuy <= dipBuyThreshold {
+				dipAmt := cash * dipAmountPct / 100
+				dipQty := int(dipAmt / closePrice / 100) * 100
+				if dipQty >= 100 {
+					signals = append(signals, model.BacktestSignal{
+						TaskID: task.ID, StrategyID: task.StrategyID, UserID: task.UserID,
+						SignalDate: date, ExecDate: getNextDate(kcache, date),
+						StockCode: pos.Code, StockName: pos.Name,
+						ActionType: "dip_buy", PlannedPrice: closePrice, PlannedQty: dipQty,
+						PlannedAmount: closePrice * float64(dipQty),
+						Status: "pending",
+						Reason: fmt.Sprintf("抄底触发: 距建仓%.1f%% (阈值%.0f%%)", fallFromBuy, dipBuyThreshold),
+					})
+					insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, 24,
+						"signal", "info", pos.Code, pos.Name,
+						fmt.Sprintf("▸ 抄底信号: %s 跌%.1f%% 补仓%d股", pos.Code, fallFromBuy, dipQty), nil)
+				}
+			}
+		}
+	}
+
 	// ── Buy checks (Scoring or legacy) ──
 	// ── Policy guard: skip buys if policy disallows ──
 	// ── Style guard: skip buys in crash/bear ──
@@ -745,6 +790,46 @@ skipBuys:
 				PlannedAmount: closePrice * float64(addQty),
 				Status: "pending", Reason: addReason,
 			})
+		}
+	}
+
+	// ── Dip Sell checks (抄底卖出) ──
+	for _, pos := range positions {
+		if pos.DipLot == nil || pos.DipLot.Qty <= 0 { continue }
+		closePrice := kcache.GetClose(pos.Code, date)
+		if closePrice <= 0 { continue }
+		// T+1 guard
+		if pos.DipLot.BuyDate == date { continue }
+		
+		dipReturn := (closePrice - pos.DipLot.BuyPrice) / pos.DipLot.BuyPrice * 100
+		holdDays := kcache.tradingDaysBetween(pos.DipLot.BuyDate, date)
+		targetReturn := s.DipTargetReturn
+		if targetReturn <= 0 { targetReturn = 5 }
+		maxDays := s.DipMaxHoldDays
+		if maxDays <= 0 { maxDays = 3 }
+
+		sellDip := false
+		reason := ""
+		if dipReturn >= targetReturn {
+			sellDip = true
+			reason = fmt.Sprintf("抄底达标: +%.1f%% (目标%.0f%%)", dipReturn, targetReturn)
+		} else if holdDays >= 0 && holdDays >= maxDays {
+			sellDip = true
+			reason = fmt.Sprintf("抄底到期: %d天 收益%.1f%%", holdDays, dipReturn)
+		}
+
+		if sellDip {
+			signals = append(signals, model.BacktestSignal{
+				TaskID: task.ID, StrategyID: task.StrategyID, UserID: task.UserID,
+				SignalDate: date, ExecDate: getNextDate(kcache, date),
+				StockCode: pos.Code, StockName: pos.Name,
+				ActionType: "dip_sell", PlannedPrice: closePrice, PlannedQty: pos.DipLot.Qty,
+				PlannedAmount: closePrice * float64(pos.DipLot.Qty),
+				Status: "pending", Reason: reason,
+			})
+			insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, 25,
+				"signal", "info", pos.Code, pos.Name,
+				fmt.Sprintf("▸ 抄底卖出: %s %s", pos.Code, reason), nil)
 		}
 	}
 

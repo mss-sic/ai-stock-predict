@@ -62,6 +62,14 @@ type Strategy struct {
 	TrailingStopActivation float64 `gorm:"default:15" json:"trailingStopActivation"` // 激活阈值%
 	TrailingStopDrawdown   float64 `gorm:"default:8" json:"trailingStopDrawdown"`     // 回撤%
 
+	// ── Dip Buy (抄底反弹) ──
+	EnableDipBuy      bool    `gorm:"default:false" json:"enableDipBuy"`
+	DipBuyThreshold   float64 `gorm:"default:-15" json:"dipBuyThreshold"`    // 触发跌幅%
+	DipBuyAmountPct   float64 `gorm:"default:10" json:"dipBuyAmountPct"`    // 抄底仓位%
+	DipTargetReturn   float64 `gorm:"default:5" json:"dipTargetReturn"`     // 目标收益%
+	DipMaxHoldDays    int     `gorm:"default:3" json:"dipMaxHoldDays"`      // 最大持有天数
+	DipCooldownDays   int     `gorm:"default:10" json:"dipCooldownDays"`    // 冷却期
+
 	// Investment plan
 	InitialCapital  float64 `gorm:"default:100000" json:"initialCapital"` // 初始资金
 	InvestmentType  string  `gorm:"size:10;default:lump" json:"investmentType"` // lump=一次性 / regular=定投

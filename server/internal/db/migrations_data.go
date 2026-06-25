@@ -902,6 +902,16 @@ Register(Migration{
     },
 })
 
+// v032: Dip buy columns on strategies
+Register(Migration{
+    Version:     32,
+    Description: "MySQL: strategies add enable_dip_buy, dip_buy_threshold, dip_buy_amount_pct, dip_target_return, dip_max_hold_days, dip_cooldown_days columns",
+    Up: func() error {
+        gormAutoMigrate(MySQL, &model.Strategy{})
+        return nil
+    },
+})
+
 log.Printf("[migrate] registered %d migrations", len(migrations))
 
 
