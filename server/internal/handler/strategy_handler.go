@@ -1726,7 +1726,7 @@ func preloadIndicators(conds []model.StrategyCondition, codes []string, startDat
 		switch {
 		case strings.HasPrefix(ind, "ai_"):
 			continue
-		case ind == "streak_count", ind == "algo_score", ind == "signal_value":
+		case ind == "algo_score", ind == "signal_value":
 			continue
 		case ind == "algo_score", ind == "signal_value":
 			continue
@@ -2291,6 +2291,53 @@ func (crc *ConceptRankCache) GetMultiplier(code, date string) float64 {
     }
 }
 
+// preloadStreakCounts batch-loads streak_count for all codes over the date range.
+// Replaces per-stock N+1 queries in getStreakCount.
+func preloadStreakCounts(codes []string, startDate, endDate string) map[string]map[string]float64 {
+	result := make(map[string]map[string]float64)
+	for _, c := range codes {
+		result[c] = make(map[string]float64)
+	}
+
+	type streakRow struct {
+		Code  string
+		Date  string
+		Count float64
+	}
+	var rows []streakRow
+	// Batch query: for each (code, date), count consecutive streak
+	err := db.PG.Raw(`
+		WITH stock_dates AS (
+			SELECT DISTINCT apd.stock_code AS code, apd.pick_date AS date
+			FROM algorithm_pick_details apd
+			JOIN algorithm_picks ap ON ap.pick_date = apd.pick_date
+			WHERE apd.stock_code = ANY(?) AND apd.pick_date >= ?::date AND apd.pick_date <= ?::date
+		),
+		ranked AS (
+			SELECT code, date,
+				date - (ROW_NUMBER() OVER (PARTITION BY code ORDER BY date DESC))::int AS grp
+			FROM stock_dates
+		),
+		streaks AS (
+			SELECT code, date,
+				COUNT(*) OVER (PARTITION BY code, grp ORDER BY date DESC) AS streak
+			FROM ranked
+		)
+		SELECT code, TO_CHAR(date, 'YYYY-MM-DD') as date, streak::float as count FROM streaks
+	`, codes, startDate, endDate).Scan(&rows).Error
+
+	if err != nil {
+		log.Printf("[streak_count] batch preload failed: %v", err)
+		return result
+	}
+
+	for _, r := range rows {
+		result[r.Code][r.Date] = r.Count
+	}
+	log.Printf("[streak_count] preloaded %d rows for %d codes", len(rows), len(codes))
+	return result
+}
+
 // preloadConceptRanks precomputes concept daily performance rankings.
 func preloadConceptRanks(codes []string, startDate, endDate string) *ConceptRankCache {
     crc := &ConceptRankCache{
@@ -2511,7 +2558,8 @@ func (mse *MarketStyleEngine) DetectStyle(date string) MarketStyle {
         WITH rolling AS (
             SELECT trade_date, composite_score,
                    up_count::float / NULLIF(total_stocks,0) as up_ratio,
-                   sector_diffusion, volatility
+                   sector_diffusion, volatility,
+                   ROW_NUMBER() OVER (ORDER BY trade_date) as rn
             FROM market_sentiment
             WHERE trade_date <= ?::date AND trade_date >= (?::date - INTERVAL '30 days')
         ),
@@ -2525,14 +2573,12 @@ func (mse *MarketStyleEngine) DetectStyle(date string) MarketStyle {
             WHERE trade_date <= ?::date AND trade_date >= (?::date - INTERVAL '20 days')
         ),
         trend AS (
-            SELECT REGR_SLOPE(composite_score, 
-                EXTRACT(EPOCH FROM trade_date - (SELECT MIN(trade_date) FROM rolling WHERE trade_date <= ?::date AND trade_date >= (?::date - INTERVAL '10 days')))
-            ) as slope
+            SELECT REGR_SLOPE(composite_score, rn::float) as slope
             FROM rolling
             WHERE trade_date <= ?::date AND trade_date >= (?::date - INTERVAL '10 days')
         )
         SELECT s.*, COALESCE(t.slope, 0) as score_trend FROM stats s, trend t
-    `, date, date, date, date, date, date, date, date).Scan(&row).Error
+    `, date, date, date, date, date, date).Scan(&row).Error
 
     if err != nil {
         log.Printf("[market_style] query failed for %s: %v", date, err)
@@ -4921,13 +4967,27 @@ func getIndicatorValue(cond model.StrategyCondition, code, date string) float64 
 // ═══════════════════════════════════════════════════════════════
 
 func getStreakCount(code, date string) float64 {
-	var count int
-	db.PG.Raw(`SELECT COUNT(*) FROM (
-		SELECT DISTINCT apd.pick_date FROM algorithm_pick_details apd
-		JOIN algorithm_picks ap ON ap.pick_date = apd.pick_date
-		WHERE apd.stock_code = ? AND ap.pick_date <= ?::date
-	) sub`, code, date).Scan(&count)
-	return float64(count)
+	// Count consecutive trading days the stock appeared in algorithm picks
+	// ending on or before the given date (actual consecutive streak)
+	var streak int
+	db.PG.Raw(`
+		WITH dates AS (
+			SELECT DISTINCT apd.pick_date 
+			FROM algorithm_pick_details apd
+			JOIN algorithm_picks ap ON ap.pick_date = apd.pick_date
+			WHERE apd.stock_code = ? AND apd.pick_date <= ?::date
+			ORDER BY pick_date DESC
+		),
+		consecutive AS (
+			SELECT pick_date,
+				pick_date - (ROW_NUMBER() OVER (ORDER BY pick_date DESC))::int as grp
+			FROM dates
+		)
+		SELECT COUNT(*) FROM consecutive WHERE grp = (
+			SELECT grp FROM consecutive ORDER BY pick_date DESC LIMIT 1
+		)
+	`, code, date).Scan(&streak)
+	return float64(streak)
 }
 
 func getClosePrice(code, date string) float64 {
