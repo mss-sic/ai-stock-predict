@@ -258,12 +258,13 @@ func (h *BoardHandler) getEnrichedBoard(dateStr string) ([]EnrichedBoardItem, st
 			PickDate  string
 		}
 		var rows []BoardDateRow
-		if err := db.PG.Raw(fmt.Sprintf(`SELECT stock_code, TO_CHAR(pick_date, 'YYYY-MM-DD HH24:MI:SS')
+		if err := db.PG.Raw(fmt.Sprintf(`SELECT stock_code, TO_CHAR(pick_date, 'YYYY-MM-DD HH24:MI:SS') as pick_date
 			FROM algorithm_pick_details
 			WHERE stock_code IN (%s) AND pick_date <= ? AND pick_date > (?::date - INTERVAL '30 days')
 			ORDER BY stock_code, pick_date DESC`, inClause), dateStr, dateStr).Scan(&rows).Error; err != nil {
 			log.Printf("[board] pick_date query failed: %v", err)
 		}
+
 
 		m := make(map[string][2]int, len(codes))
 		// Group by code
