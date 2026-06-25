@@ -66,7 +66,9 @@ func main() {
 	// ── Concept Board routes ──
 	boardH := handler.NewBoardHandler()
 	r.GET("/api/v1/concept-boards", boardH.ConceptBoards)
-	r.GET("/api/v1/concept-boards/:code/kline", boardH.ConceptBoardKline)
+	r.GET("/api/v1/concept-boards/:code/analysis", boardH.GetConceptAnalysis)
+			r.PUT("/api/v1/concept-boards/analysis-prompt", boardH.UpdateConceptAnalysisPrompt)
+			r.GET("/api/v1/concept-boards/:code/kline", boardH.ConceptBoardKline)
 			r.GET("/api/v1/concept-boards/:code/stocks", boardH.ConceptBoardStocks)
 	r.GET("/api/v1/concept-boards/heatmap", boardH.ConceptHeatmap)
 	r.GET("/api/v1/stocks/:code/concept-tags", boardH.StockConcepts)

@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Tag, Select } from '@arco-design/web-react';
+import { Tag, Select, Tabs, Button, Spin } from '@arco-design/web-react';
 import ReactECharts from 'echarts-for-react';
-import { fetchConceptBoardStocks, fetchConceptBoardKline } from '../services/api';
+import ReactMarkdown from 'react-markdown';
+import { fetchConceptBoardStocks, fetchConceptBoardKline, fetchConceptAnalysis } from '../services/api';
 import {
   ArrowLeft, TrendingUp, TrendingDown, Layers, BarChart3, Star,
-  Target, Shield, Zap, Calendar
+  Target, Shield, Zap, Calendar, Bot, RefreshCw
 } from 'lucide-react';
 
 export default function ConceptBoardDetailPage() {
@@ -15,6 +16,9 @@ export default function ConceptBoardDetailPage() {
   const [kline, setKline] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [klineDays, setKlineDays] = useState(60);
+  const [analysis, setAnalysis] = useState<any>(null);
+  const [analysisLoading, setAnalysisLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState('stocks');
 
   useEffect(() => {
     if (!code) return;
@@ -24,6 +28,16 @@ export default function ConceptBoardDetailPage() {
       fetchConceptBoardKline(code, klineDays).then((res: any) => setKline(res.data?.data || [])),
     ]).finally(() => setLoading(false));
   }, [code, klineDays]);
+
+  // Load analysis when tab selected
+  const loadAnalysis = (refresh?: boolean) => {
+    if (!code) return;
+    setAnalysisLoading(true);
+    fetchConceptAnalysis(code, refresh).then((res: any) => setAnalysis(res.data?.data)).finally(() => setAnalysisLoading(false));
+  };
+  useEffect(() => {
+    if (activeTab === 'analysis' && !analysis) loadAnalysis();
+  }, [activeTab, code]);
 
   if (loading) {
     return <div style={{ padding: 60, textAlign: 'center', color: 'var(--color-text-3)' }}>加载中...</div>;
@@ -131,15 +145,17 @@ export default function ConceptBoardDetailPage() {
         </div>
       )}
 
-      {/* Stock List — Trading View */}
+      {/* Tabs: 成分股 | 概念分析 */}
       <div style={{ background: 'var(--color-bg-1)', borderRadius: 8, border: '1px solid var(--color-border-1)', overflow: 'hidden' }}>
-        <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--color-border-1)', display: 'flex', alignItems: 'center', gap: 8 }}>
-          <Target size={14} color="var(--color-text-2)" />
-          <span style={{ fontSize: 14, fontWeight: 600 }}>成分股 · 交易视角</span>
-          <span style={{ fontSize: 11, color: 'var(--color-text-3)', marginLeft: 8 }}>
-            按上榜排名 → 涨跌幅排序
-          </span>
-        </div>
+        <Tabs activeTab={activeTab} onChange={setActiveTab} style={{ padding: '0 16px' }}>
+          <Tabs.TabPane key="stocks" title={
+            <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Target size={14} /> 成分股 · 交易视角
+            </span>
+          }>
+            <div style={{ padding: '10px 0 0', display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: 'var(--color-text-3)' }}>
+              按上榜排名 → 涨跌幅排序
+            </div>
         <div style={{ overflow: 'auto', maxHeight: '60vh' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
             <thead>
@@ -204,6 +220,56 @@ export default function ConceptBoardDetailPage() {
             </tbody>
           </table>
         </div>
+          </Tabs.TabPane>
+          <Tabs.TabPane key="analysis" title={
+            <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Bot size={14} /> 概念分析
+            </span>
+          }>
+            <div style={{ padding: '16px 0' }}>
+              {analysisLoading ? (
+                <div style={{ textAlign: 'center', padding: 40 }}><Spin /><div style={{ fontSize: 12, color: 'var(--color-text-3)', marginTop: 8 }}>AI 正在分析该概念板块...</div></div>
+              ) : analysis ? (
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                    <span style={{ fontSize: 11, color: 'var(--color-text-3)' }}>
+                      生成时间: {new Date(analysis.generatedAt).toLocaleString('zh-CN')}
+                      {analysis.cached !== false && ' (缓存)'}
+                    </span>
+                    <Button size="small" icon={<RefreshCw size={12} />} loading={analysisLoading} onClick={() => loadAnalysis(true)}>刷新分析</Button>
+                  </div>
+                  <div style={{
+                    fontSize: 13, lineHeight: 1.8, color: 'var(--color-text-1)',
+                    background: 'var(--color-fill-1)', borderRadius: 8, padding: '16px 20px',
+                  }}>
+                    <ReactMarkdown
+                      components={{
+                        h1: ({children}) => <h2 style={{fontSize:16,fontWeight:700,marginTop:20,marginBottom:8,borderBottom:'1px solid var(--color-border-1)',paddingBottom:4}}>{children}</h2>,
+                        h2: ({children}) => <h3 style={{fontSize:15,fontWeight:600,marginTop:16,marginBottom:6}}>{children}</h3>,
+                        h3: ({children}) => <h4 style={{fontSize:14,fontWeight:600,marginTop:12,marginBottom:4}}>{children}</h4>,
+                        table: ({children}) => <table style={{width:'100%',borderCollapse:'collapse',margin:'8px 0',fontSize:12}}>{children}</table>,
+                        th: ({children}) => <th style={{border:'1px solid var(--color-border-1)',padding:'6px 10px',background:'var(--color-fill-2)',textAlign:'left'}}>{children}</th>,
+                        td: ({children}) => <td style={{border:'1px solid var(--color-border-1)',padding:'5px 10px'}}>{children}</td>,
+                        ul: ({children}) => <ul style={{paddingLeft:20,margin:'4px 0'}}>{children}</ul>,
+                        ol: ({children}) => <ol style={{paddingLeft:20,margin:'4px 0'}}>{children}</ol>,
+                        code: ({children}) => <code style={{background:'var(--color-fill-2)',padding:'1px 5px',borderRadius:3,fontSize:12}}>{children}</code>,
+                        strong: ({children}) => <strong style={{color:'var(--color-text-1)'}}>{children}</strong>,
+                      }}
+                    >
+                      {analysis.content || ''}
+                    </ReactMarkdown>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ textAlign: 'center', padding: 40 }}>
+                  <Bot size={28} color="var(--color-text-3)" />
+                  <div style={{ fontSize: 13, color: 'var(--color-text-3)', marginTop: 8 }}>点击「刷新分析」获取 AI 概念分析</div>
+                  <Button type="primary" size="small" style={{ marginTop: 12 }} onClick={() => loadAnalysis(true)}>开始分析</Button>
+                </div>
+              )}
+            </div>
+          </Tabs.TabPane>
+        </Tabs>
       </div>
     </div>
   );

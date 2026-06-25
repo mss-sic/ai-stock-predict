@@ -61,7 +61,8 @@ func init() {
 				&model.StockBasic{},
 				&model.StockDailyK{},
 				&model.StockDailyIndicator{},
-				&model.AlgorithmPick{},
+				&model.AlgorithmPick{},model.AlgorithmPick{},
+				&model.AlgorithmPick{},model.ConceptAnalysis{},
 				&model.AlgorithmPickDetail{},
 				&model.StockSignal{},
 				&model.AIAnalysis{},
@@ -956,6 +957,25 @@ Register(Migration{
         return nil
     },
 })
+
+
+	// v035: concept_analyses table for AI-generated concept board analysis
+	Register(Migration{
+		Version: 35,
+		Description: "PG: concept_analyses table for AI concept board analysis cache",
+		Up: func() error {
+			safeExec(`CREATE TABLE IF NOT EXISTS concept_analyses (
+				id SERIAL PRIMARY KEY,
+				concept_code VARCHAR(20) UNIQUE NOT NULL,
+				content TEXT,
+				generated_at TIMESTAMPTZ,
+				created_at TIMESTAMPTZ DEFAULT now(),
+				updated_at TIMESTAMPTZ DEFAULT now()
+			)`)
+			safeExec(`CREATE INDEX IF NOT EXISTS idx_concept_analyses_code ON concept_analyses(concept_code)`)
+			return nil
+		},
+	})
 
 log.Printf("[migrate] registered %d migrations", len(migrations))
 
