@@ -1192,7 +1192,7 @@ func (h *StrategyHandler) BacktestTasks(c *gin.Context) {
 	sid, _ := strconv.Atoi(c.Param("id"))
 
 	var tasks []model.BacktestTask
-	db.MySQL.Where("strategy_id = ? AND user_id = ? AND status != ?", sid, uid, "completed").
+	db.MySQL.Where("strategy_id = ? AND user_id = ?", sid, uid).
 		Order("created_at DESC").Limit(50).Find(&tasks)
 	response.Success(c, tasks)
 }
@@ -3738,11 +3738,11 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 	// Calculate final metrics
 	winCount := 0
 	for _, t := range allTrades {
-		if (t.Action == "sell" || t.Action == "reduce") && t.Pnl > 0 { winCount++ }
+		if (t.Action == "sell" || t.Action == "reduce" || t.Action == "stop" || t.Action == "dip_sell" || t.Action == "grid_sell") && t.Pnl > 0 { winCount++ }
 	}
 	sellCount := 0
 	for _, t := range allTrades {
-		if t.Action == "sell" || t.Action == "reduce" { sellCount++ }
+		if t.Action == "sell" || t.Action == "reduce" || t.Action == "stop" || t.Action == "dip_sell" || t.Action == "grid_sell" { sellCount++ }
 	}
 	winRate := 0.0
 	if sellCount > 0 { winRate = float64(winCount) / float64(sellCount) * 100 }
