@@ -518,13 +518,13 @@ func runFullSyncPhase() PhaseResult {
 }
 
 func runKLinePhase() PhaseResult {
-	setPhase("kline", "采集日K线数据...")
-	sseSend(SSELine{Type: "phase", Phase: "kline", Message: "开始采集日K线数据...", Level: "info"})
+	setPhase("kline", "采集日K线+大盘指数...")
+	sseSend(SSELine{Type: "phase", Phase: "kline", Message: "开始采集日K线数据（个股+大盘指数+国债ETF）...", Level: "info"})
 	t0 := time.Now()
 	var totalStocks int64
 	db.PG.Model(&model.StockBasic{}).Count(&totalStocks)
 	var stocksWithK int64
-	if err := db.PG.Raw("SELECT COUNT(DISTINCT code) FROM stocks_daily_k").Scan(&stocksWithK).Error; err != nil {
+	if err := db.PG.Raw("SELECT COUNT(DISTINCT code) FROM stocks_daily_k WHERE code NOT LIKE 'IDX%%' AND code NOT IN ('511010','511090','511520')").Scan(&stocksWithK).Error; err != nil {
 	log.Printf("[collector] stocksWithK query failed: %v", err)
 }
 
@@ -536,25 +536,35 @@ func runKLinePhase() PhaseResult {
 }
 	stale := time.Since(latestDate) > 72*time.Hour
 
+	indexCollected := false
 	if needK <= 0 && !stale {
-		pr := PhaseResult{Phase: "kline", Total: int(stocksWithK), Skipped: int(stocksWithK), DurationMs: time.Since(t0).Milliseconds()}
-		sseSend(SSELine{Type: "result", Phase: "kline", Result: &pr, Level: "success", Message: fmt.Sprintf("K线已完整 (%d 只), 跳过", stocksWithK)})
-		return pr
+		sseSend(SSELine{Type: "log", Message: fmt.Sprintf("个股K线已完整 (%d 只), 跳过个股采集", stocksWithK), Level: "info"})
+	} else {
+		if stale && needK <= 0 {
+			sseSend(SSELine{Type: "log", Message: fmt.Sprintf("K线数据过期 (最新: %s), 重新采集", latestDate.Format("2006-01-02")), Level: "info"})
+		}
+		sseSend(SSELine{Type: "log", Message: fmt.Sprintf("需采集K线: %d 只", needK), Level: "info"})
+		runPythonStream("batch_collect.py")
 	}
-	if stale && needK <= 0 {
-		sseSend(SSELine{Type: "log", Message: fmt.Sprintf("K线数据过期 (最新: %s), 重新采集", latestDate.Format("2006-01-02")), Level: "info"})
+
+	// Always collect index + bond ETF K-line (5 indices + 3 bonds, very fast)
+	sseSend(SSELine{Type: "log", Message: "采集大盘指数+国债ETF K线...", Level: "info"})
+	indexT0 := time.Now()
+	if err := runPythonStream("collect_index_kline.py"); err != nil {
+		log.Printf("[collector] index kline collection failed: %v", err)
+	} else {
+		indexCollected = true
+		sseSend(SSELine{Type: "log", Message: fmt.Sprintf("大盘指数+国债ETF K线更新完成 (%.1fs)", time.Since(indexT0).Seconds()), Level: "info"})
 	}
-	sseSend(SSELine{Type: "log", Message: fmt.Sprintf("需采集K线: %d 只", needK), Level: "info"})
-	runPythonStream("batch_collect.py")
-	phaseRes := PhaseResult{Phase: "kline", Skipped: int(stocksWithK)}
+
 	var after int64
 	if err := db.PG.Raw("SELECT COUNT(DISTINCT code) FROM stocks_daily_k").Scan(&after).Error; err != nil {
 	log.Printf("[collector] after count query failed: %v", err)
 }
-	phaseRes.Total = int(after)
-	phaseRes.New = int(after - stocksWithK)
-	phaseRes.DurationMs = time.Since(t0).Milliseconds()
-	sseSend(SSELine{Type: "result", Phase: "kline", Result: &phaseRes, Level: "success", Message: fmt.Sprintf("K线: %d 只", after)})
+	phaseRes := PhaseResult{Phase: "kline", Total: int(after), New: int(after - stocksWithK), Skipped: int(stocksWithK), DurationMs: time.Since(t0).Milliseconds()}
+	idxMsg := ""
+	if indexCollected { idxMsg = " +大盘指数" }
+	sseSend(SSELine{Type: "result", Phase: "kline", Result: &phaseRes, Level: "success", Message: fmt.Sprintf("K线: %d 只%s", after, idxMsg)})
 	return phaseRes
 }
 
