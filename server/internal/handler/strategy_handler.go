@@ -129,6 +129,10 @@ func (h *StrategyHandler) Update(c *gin.Context) {
 	if _, ok := raw["regularAmount"]; ok { updates["regular_amount"] = raw["regularAmount"] }
 	if v, ok := raw["regularInterval"]; ok && v != "" { updates["regular_interval"] = v }
 	if _, ok := raw["stockCodes"]; ok { updates["stock_codes"] = raw["stockCodes"] }
+	if _, ok := raw["enableMarketContext"]; ok { updates["enable_market_context"] = raw["enableMarketContext"] }
+	if _, ok := raw["defensiveThreshold"]; ok { updates["defensive_threshold"] = raw["defensiveThreshold"] }
+	if _, ok := raw["aggressiveThreshold"]; ok { updates["aggressive_threshold"] = raw["aggressiveThreshold"] }
+	if _, ok := raw["marketCompositeMin"]; ok { updates["market_composite_min"] = raw["marketCompositeMin"] }
 	db.MySQL.Model(&model.Strategy{}).Where("id = ? AND user_id = ?", id, uid).Updates(updates)
 	response.SuccessMsg(c, "更新成功")
 }
