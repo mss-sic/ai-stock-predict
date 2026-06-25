@@ -45,7 +45,7 @@ export default function ConceptBoardDetailPage() {
       axisLabel: { fontSize: 10, color: 'var(--color-text-3)' },
     },
     yAxis: {
-      type: 'value',
+      type: 'value', scale: true,
       axisLabel: { fontSize: 10, color: 'var(--color-text-3)', formatter: (v: number) => v.toFixed(0) },
       splitLine: { lineStyle: { color: 'var(--color-border-1)' } },
     },
