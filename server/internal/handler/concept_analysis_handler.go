@@ -83,7 +83,11 @@ func (h *BoardHandler) GetConceptAnalysis(c *gin.Context) {
 		board.ConceptName, board.StockCount, sysPrompt)
 
 	// Call AI
-	uidVal, _ := c.Get("userId"); userID := uidVal.(uint)
+	uidVal, _ := c.Get("userId")
+	var userID uint
+	if uidVal != nil {
+		userID = uidVal.(uint)
+	}
 	aiSvc := service.NewAIService()
 	aiContent, err := aiSvc.ChatCompletionWithTokensModule(userID, prompt, nil, 4096, "concept_analysis")
 	if err != nil {

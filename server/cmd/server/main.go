@@ -66,8 +66,6 @@ func main() {
 	// ── Concept Board routes ──
 	boardH := handler.NewBoardHandler()
 	r.GET("/api/v1/concept-boards", boardH.ConceptBoards)
-	r.GET("/api/v1/concept-boards/:code/analysis", boardH.GetConceptAnalysis)
-			r.PUT("/api/v1/concept-boards/analysis-prompt", boardH.UpdateConceptAnalysisPrompt)
 			r.GET("/api/v1/concept-boards/:code/kline", boardH.ConceptBoardKline)
 			r.GET("/api/v1/concept-boards/:code/stocks", boardH.ConceptBoardStocks)
 	r.GET("/api/v1/concept-boards/heatmap", boardH.ConceptHeatmap)
@@ -160,6 +158,8 @@ func main() {
 		api.GET("/board/heatmap", boardH.Heatmap)
 		api.GET("/board/heatmap-enriched", boardH.HeatmapEnriched)
 		api.GET("/board/heatmap/:code", boardH.StockHeatmap)
+			api.GET("/concept-boards/:code/analysis", boardH.GetConceptAnalysis)
+			api.PUT("/concept-boards/analysis-prompt", boardH.UpdateConceptAnalysisPrompt)
 		// Watchlist
 		watchH := handler.NewWatchlistHandler()
 		api.GET("/watchlist/groups", watchH.ListGroups)
