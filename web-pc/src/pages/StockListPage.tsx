@@ -247,6 +247,13 @@ export default function StockListPage() {
     });
   }, [boardCounts]);
 
+  // Merge appearance stats into stock list
+  const appearMap = useMemo(() => {
+    const m: Record<string, AppearanceRow> = {};
+    appearanceStocks.forEach((a: AppearanceRow) => { m[a.code] = a; });
+    return m;
+  }, [appearanceStocks]);
+
   // ── Table columns ──
   const columns = useMemo(() => [
     {
@@ -308,6 +315,26 @@ export default function StockListPage() {
       render: (v: number) => v ? (
         <span style={{ fontFamily: "'SF Mono', monospace", fontSize: 11 }}>{v.toFixed(2)}%</span>
       ) : <span className="muted">—</span>,
+    },
+    {
+      title: '近5日', dataIndex: 'appear5d', width: 55,
+      render: (v: number, r: StockRow) => {
+        const a = appearMap[r.code];
+        const val = a?.appear5d || 0;
+        return val > 0 ? (
+          <span style={{ fontFamily: "'SF Mono',monospace", fontSize: 11, fontWeight: val >= 3 ? 600 : 400, color: val >= 3 ? '#ff7d00' : 'var(--color-text-2)' }}>{val}</span>
+        ) : <span className="muted" style={{ fontSize: 10 }}>-</span>;
+      },
+    },
+    {
+      title: '近20日', dataIndex: 'appear20d', width: 60,
+      render: (v: number, r: StockRow) => {
+        const a = appearMap[r.code];
+        const val = a?.appear20d || 0;
+        return val > 0 ? (
+          <span style={{ fontFamily: "'SF Mono',monospace", fontSize: 11, fontWeight: val >= 8 ? 600 : 400, color: val >= 8 ? '#ff7d00' : 'var(--color-text-2)' }}>{val}</span>
+        ) : <span className="muted" style={{ fontSize: 10 }}>-</span>;
+      },
     },
     {
       title: '行业', dataIndex: 'industry', width: 100,
@@ -401,6 +428,26 @@ export default function StockListPage() {
             <Icon size={11} />{formatPct(v)}
           </span>
         );
+      },
+    },
+    {
+      title: '近5日', dataIndex: 'appear5d', width: 55,
+      render: (v: number, r: StockRow) => {
+        const a = appearMap[r.code];
+        const val = a?.appear5d || 0;
+        return val > 0 ? (
+          <span style={{ fontFamily: "'SF Mono',monospace", fontSize: 11, fontWeight: val >= 3 ? 600 : 400, color: val >= 3 ? '#ff7d00' : 'var(--color-text-2)' }}>{val}</span>
+        ) : <span className="muted" style={{ fontSize: 10 }}>-</span>;
+      },
+    },
+    {
+      title: '近20日', dataIndex: 'appear20d', width: 60,
+      render: (v: number, r: StockRow) => {
+        const a = appearMap[r.code];
+        const val = a?.appear20d || 0;
+        return val > 0 ? (
+          <span style={{ fontFamily: "'SF Mono',monospace", fontSize: 11, fontWeight: val >= 8 ? 600 : 400, color: val >= 8 ? '#ff7d00' : 'var(--color-text-2)' }}>{val}</span>
+        ) : <span className="muted" style={{ fontSize: 10 }}>-</span>;
       },
     },
     {
