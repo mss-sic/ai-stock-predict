@@ -76,6 +76,28 @@ func generateSignalsV2(
 	maxHold := s.MaxHoldings
 	if maxHold <= 0 { maxHold = 20 }
 
+	// ── Market Style Routing v4 ──
+	styleEngine := NewMarketStyleEngine()
+	marketStyle := styleEngine.DetectStyle(date)
+	styleParams := styleEngine.GetStyleParams(date)
+
+	// Apply style parameter overrides
+	buyPct = styleParams.BuyPct
+	addPct = styleParams.AddPct
+	if styleParams.PositionBias > 0 {
+		buyPct = buyPct * styleParams.PositionBias
+		addPct = addPct * styleParams.PositionBias
+	}
+	styleBuyLogic := styleParams.BuyLogic
+	styleAllowAdd := styleParams.AllowAdd
+	styleAllowBuy := styleParams.AllowBuy
+	conceptTopPct := styleParams.ConceptTopPct
+
+	insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, 9,
+		"system", "info", "", "",
+		fmt.Sprintf("▸ 市场风格: %s | buyPct=%.0f%% logic=%s allowBuy=%v allowAdd=%v conceptPool=%.0f%%",
+			styleName(marketStyle), buyPct, styleBuyLogic, styleAllowBuy, styleAllowAdd, conceptTopPct*100), nil)
+
 	// ── Build V2 engines ──
 	var scoringEng *ScoringEngine
 	var decisionTreeSell *DecisionTreeEngine
@@ -293,6 +315,14 @@ func generateSignalsV2(
 
 	// ── Buy checks (Scoring or legacy) ──
 	// ── Policy guard: skip buys if policy disallows ──
+	// ── Style guard: skip buys in crash/bear ──
+	if !styleAllowBuy {
+		log.Printf("[backtest_v2] STYLE_SKIP_BUY date=%s style=%s: buy disabled", date, marketStyle)
+		insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, 16,
+			"system", "warn", "", "",
+			fmt.Sprintf("▸ 市场风格禁止买入: %s", styleName(marketStyle)), nil)
+		goto skipBuys
+	}
 	if policy != nil && !policy.AllowBuy {
 		log.Printf("[backtest_v2] POLICY_SKIP date=%s mode=%s: buy disabled", date, policy.Mode)
 		insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, 16,
@@ -307,6 +337,10 @@ func generateSignalsV2(
 		if p.Quantity > 0 { activePositions++ }
 	}
 	slotCount := maxHold - activePositions
+	// Style-based slotCount adjustment (cap max positions by style)
+	styleMaxHold := int(float64(maxHold) * styleParams.PositionBias)
+	if styleMaxHold < 1 { styleMaxHold = 1 }
+	if styleMaxHold < slotCount { slotCount = styleMaxHold }
 	if slotCount > 0 && cash > 0 {
 		// Apply policy position bias
 		effectiveBuyPct := buyPct
@@ -327,6 +361,11 @@ func generateSignalsV2(
 			for _, si := range universe {
 				if pos, held := positions[si.Code]; held && pos.Quantity > 0 { continue }
 				// P0-2: Skip limit-up stocks (daily_change >= 9.8% ≈涨停)
+				// P0: Concept filter — only include stocks in top concepts
+				if conceptCache != nil && conceptTopPct < 1.0 {
+					mult := conceptCache.GetMultiplier(si.Code, date)
+					if mult < 0.9 { continue } // skip stocks not in relevant concepts
+				}
 				if chg := kcache.GetDailyChange(si.Code, date); chg >= 9.8 {
 					continue
 				}

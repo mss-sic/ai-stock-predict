@@ -2361,6 +2361,198 @@ func preloadConceptRanks(codes []string, startDate, endDate string) *ConceptRank
     log.Printf("[concept_cache] computed ranks for %d dates", len(crc.dateRanks))
     return crc
 }
+// ═══════════════════════════════════════════════════════════════
+// MarketStyleEngine — 市场风格识别引擎 (20日滚动多因子)
+// ═══════════════════════════════════════════════════════════════
+
+type MarketStyle string
+
+const (
+    StyleBullRally    MarketStyle = "bull_rally"    // 🟢 牛市普涨
+    StyleMildBull     MarketStyle = "mild_bull"     // 🟢 温和上涨
+    StyleRecovery     MarketStyle = "recovery"      // 🟡 回暖修复
+    StyleStructural   MarketStyle = "structural"    // 🟠 结构分化
+    StyleRotation     MarketStyle = "rotation"      // 🟡 震荡轮动
+    StyleBottoming    MarketStyle = "bottoming"     // 🟤 底部磨底
+    StyleBear         MarketStyle = "bear"          // 🔴 熊市下跌
+    StyleCrash        MarketStyle = "crash"         // ⚫ 恐慌暴跌
+    StyleTransitional MarketStyle = "transitional"  // ⬜ 过渡
+)
+
+// StyleParams holds the strategy parameter adjustments for a market style.
+type StyleParams struct {
+    BuyPct          float64 // 单票仓位%
+    AddPct          float64 // 加仓仓位%
+    BuyLogic        string  // "and" or "or"
+    AllowAdd        bool
+    AllowBuy        bool
+    SellPctMult     float64 // 卖出加速倍数
+    ConceptTopPct   float64 // 概念池范围(0-1), 0=全部
+    PositionBias    float64 // 仓位乘数
+    StopProfitAdj   float64 // 止盈调整(加法)
+    StopLossAdj     float64 // 止损调整(加法，负值=更紧)
+}
+
+// defaultStyleParams returns hardcoded optimal parameters per market style.
+func defaultStyleParams(style MarketStyle) StyleParams {
+    switch style {
+    case StyleBullRally, StyleMildBull:
+        return StyleParams{
+            BuyPct: 20, AddPct: 15, BuyLogic: "or",
+            AllowBuy: true, AllowAdd: true,
+            ConceptTopPct: 0.50, PositionBias: 1.2,
+            StopProfitAdj: 5, StopLossAdj: -2,
+        }
+    case StyleRecovery:
+        return StyleParams{
+            BuyPct: 15, AddPct: 10, BuyLogic: "and",
+            AllowBuy: true, AllowAdd: true,
+            ConceptTopPct: 0.40, PositionBias: 1.0,
+            StopProfitAdj: 0, StopLossAdj: 0,
+        }
+    case StyleStructural:
+        return StyleParams{
+            BuyPct: 12, AddPct: 10, BuyLogic: "and",
+            AllowBuy: true, AllowAdd: true,
+            ConceptTopPct: 0.20, PositionBias: 1.0,
+            StopProfitAdj: 0, StopLossAdj: 0,
+        }
+    case StyleRotation:
+        return StyleParams{
+            BuyPct: 6, AddPct: 0, BuyLogic: "and",
+            AllowBuy: true, AllowAdd: false,
+            ConceptTopPct: 0.30, PositionBias: 0.6,
+            StopProfitAdj: -5, StopLossAdj: 2, // tighter stops
+        }
+    case StyleBottoming:
+        return StyleParams{
+            BuyPct: 4, AddPct: 0, BuyLogic: "and",
+            AllowBuy: true, AllowAdd: false,
+            ConceptTopPct: 0.15, PositionBias: 0.4,
+            StopProfitAdj: -5, StopLossAdj: 3,
+        }
+    case StyleBear, StyleCrash:
+        return StyleParams{
+            BuyPct: 0, AddPct: 0, BuyLogic: "and",
+            AllowBuy: false, AllowAdd: false,
+            ConceptTopPct: 0, PositionBias: 0,
+            StopProfitAdj: 0, StopLossAdj: 0,
+            SellPctMult: 2.0,
+        }
+    default: // transitional
+        return StyleParams{
+            BuyPct: 10, AddPct: 5, BuyLogic: "and",
+            AllowBuy: true, AllowAdd: false,
+            ConceptTopPct: 0.50, PositionBias: 0.8,
+            StopProfitAdj: 0, StopLossAdj: 0,
+        }
+    }
+}
+
+func styleName(style MarketStyle) string {
+    names := map[MarketStyle]string{
+        StyleBullRally: "🟢 牛市普涨", StyleMildBull: "🟢 温和上涨",
+        StyleRecovery: "🟡 回暖修复", StyleStructural: "🟠 结构分化",
+        StyleRotation: "🟡 震荡轮动", StyleBottoming: "🟤 底部磨底",
+        StyleBear: "🔴 熊市下跌", StyleCrash: "⚫ 恐慌暴跌",
+        StyleTransitional: "⬜ 过渡整理",
+    }
+    return names[style]
+}
+
+// MarketStyleEngine detects the current market regime using 20-day rolling statistics.
+type MarketStyleEngine struct {
+    cache map[string]MarketStyle
+}
+
+func NewMarketStyleEngine() *MarketStyleEngine {
+    return &MarketStyleEngine{cache: make(map[string]MarketStyle)}
+}
+
+// DetectStyle classifies the market regime for a given date using multi-factor rolling analysis.
+func (mse *MarketStyleEngine) DetectStyle(date string) MarketStyle {
+    if s, ok := mse.cache[date]; ok {
+        return s
+    }
+
+    // Query rolling 20-day stats from market_sentiment
+    var row struct {
+        AvgScore    float64
+        AvgUpRatio  float64
+        AvgDiff     float64
+        AvgVol      float64
+        ScoreTrend  float64 // 10-day slope of composite_score
+    }
+    err := db.PG.Raw(`
+        WITH rolling AS (
+            SELECT trade_date, composite_score,
+                   up_count::float / NULLIF(total_stocks,0) as up_ratio,
+                   sector_diffusion, volatility
+            FROM market_sentiment
+            WHERE trade_date <= ?::date AND trade_date >= (?::date - INTERVAL '30 days')
+        ),
+        stats AS (
+            SELECT 
+                AVG(composite_score) as avg_score,
+                AVG(up_ratio) as avg_up_ratio,
+                AVG(sector_diffusion) as avg_diff,
+                AVG(volatility) as avg_vol
+            FROM rolling
+            WHERE trade_date <= ?::date AND trade_date >= (?::date - INTERVAL '20 days')
+        ),
+        trend AS (
+            SELECT REGR_SLOPE(composite_score, 
+                EXTRACT(EPOCH FROM trade_date - (SELECT MIN(trade_date) FROM rolling WHERE trade_date <= ?::date AND trade_date >= (?::date - INTERVAL '10 days')))
+            ) as slope
+            FROM rolling
+            WHERE trade_date <= ?::date AND trade_date >= (?::date - INTERVAL '10 days')
+        )
+        SELECT s.*, COALESCE(t.slope, 0) as score_trend FROM stats s, trend t
+    `, date, date, date, date, date, date, date, date).Scan(&row).Error
+
+    if err != nil {
+        log.Printf("[market_style] query failed for %s: %v", date, err)
+        return StyleTransitional
+    }
+
+    // Multi-factor classification
+    s20 := row.AvgScore
+    u20 := row.AvgUpRatio
+    d20 := row.AvgDiff
+    v20 := row.AvgVol
+    trend := row.ScoreTrend
+
+    var style MarketStyle
+
+    // ⚫ 恐慌: 极低分 + 高波动
+    if s20 < 18 || (s20 < 25 && v20 > 0.18) {
+        style = StyleCrash
+    } else if trend < 0 && u20 < 0.30 && s20 < 32 {
+        style = StyleBear // 🔴 熊市
+    } else if s20 < 30 && u20 < 0.35 && trend >= -0.5 && trend <= 0.5 {
+        style = StyleBottoming // 🟤 磨底
+    } else if trend > 0.5 && u20 < 0.48 {
+        style = StyleRecovery // 🟡 回暖
+    } else if u20 > 0.48 && d20 > 0.45 && trend > 0.3 {
+        style = StyleBullRally // 🟢 普涨
+    } else if u20 > 0.45 && trend > 0.2 {
+        style = StyleMildBull // 🟢 温和
+    } else if u20 < 0.35 && d20 < 0.30 {
+        style = StyleStructural // 🟠 结构
+    } else if 0.30 <= u20 && u20 < 0.50 && d20 >= 0.30 {
+        style = StyleRotation // 🟡 轮动
+    } else {
+        style = StyleTransitional
+    }
+
+    mse.cache[date] = style
+    return style
+}
+
+// GetStyleParams returns the trading parameters for the detected style.
+func (mse *MarketStyleEngine) GetStyleParams(date string) StyleParams {
+    return defaultStyleParams(mse.DetectStyle(date))
+}
 // ── The async backtest runner (runs in goroutine) ──
 
 func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.BacktestTask, s *model.Strategy, startDate, endDate string, stockCodes []string) {
