@@ -2704,6 +2704,9 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 	// Preload concept strength rankings for scoring multiplier
 	conceptCache := preloadConceptRanks(universeCodes, startDate, endDate)
 
+	// Create market style engine (cached across days)
+	styleEngine := NewMarketStyleEngine()
+
 	// Local evaluateSingleCondition that uses the preloaded cache
 	evalSingle := func(cond model.StrategyCondition, code, date string) bool {
 		ind := cond.Indicator
@@ -3426,7 +3429,7 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 			newSignals = generateSignalsV2(date, remainingCash, isLastDay,
 				positions, v2universe, task, s,
 				buyConds, sellConds, addConds, reduceConds,
-				evalSingle, kcache, icache, getNextDate, evalConds, conceptCache)
+				evalSingle, kcache, icache, getNextDate, evalConds, conceptCache, styleEngine)
 		} else {
 			newSignals = generateSignals(date, remainingCash, isLastDay)
 		}

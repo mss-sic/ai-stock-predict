@@ -43,6 +43,7 @@ func generateSignalsV2(
 	getNextDate func(*KlineCache, string) string,
 	evalConds func([]model.StrategyCondition, string, string) bool,
 	conceptCache *ConceptRankCache,
+	styleEngine *MarketStyleEngine,
 ) []model.BacktestSignal {
 	enterTime := time.Now()
 	log.Printf("[backtest_v2] ENTER date=%s mode=%s buyConds=%d sellConds=%d addConds=%d reduceConds=%d universe=%d positions=%d cash=%.0f isLast=%v",
@@ -77,7 +78,6 @@ func generateSignalsV2(
 	if maxHold <= 0 { maxHold = 20 }
 
 	// ── Market Style Routing v4 ──
-	styleEngine := NewMarketStyleEngine()
 	marketStyle := styleEngine.DetectStyle(date)
 	styleParams := styleEngine.GetStyleParams(date)
 
@@ -185,7 +185,12 @@ func generateSignalsV2(
 
 		chgPct := (closePrice - pos.BuyPrice) / pos.BuyPrice * 100
 
-		if s.StopLoss < 0 && chgPct <= s.StopLoss {
+		// Style-adjusted stop thresholds
+		effStopLoss := s.StopLoss
+		effStopProfit := s.StopProfit
+		if styleParams.StopLossAdj != 0 { effStopLoss += styleParams.StopLossAdj }
+		if styleParams.StopProfitAdj != 0 { effStopProfit += styleParams.StopProfitAdj }
+		if effStopLoss < 0 && chgPct <= effStopLoss {
 			signals = append(signals, model.BacktestSignal{
 				TaskID: task.ID, StrategyID: task.StrategyID, UserID: task.UserID,
 				SignalDate: date, ExecDate: getNextDate(kcache, date),
@@ -193,11 +198,11 @@ func generateSignalsV2(
 				ActionType: "stop", PlannedPrice: closePrice, PlannedQty: pos.Quantity,
 				PlannedAmount: closePrice * float64(pos.Quantity),
 				Status: "pending",
-				Reason: fmt.Sprintf("止损触发 %.1f%% ≤ %.1f%%", chgPct, s.StopLoss),
+				Reason: fmt.Sprintf("止损触发 %.1f%% ≤ %.1f%% (style:%.1f%%)", chgPct, effStopLoss, s.StopLoss),
 			})
 			continue
 		}
-		if s.StopProfit > 0 && chgPct >= s.StopProfit {
+		if effStopProfit > 0 && chgPct >= effStopProfit {
 			signals = append(signals, model.BacktestSignal{
 				TaskID: task.ID, StrategyID: task.StrategyID, UserID: task.UserID,
 				SignalDate: date, ExecDate: getNextDate(kcache, date),
@@ -205,7 +210,7 @@ func generateSignalsV2(
 				ActionType: "stop", PlannedPrice: closePrice, PlannedQty: pos.Quantity,
 				PlannedAmount: closePrice * float64(pos.Quantity),
 				Status: "pending",
-				Reason: fmt.Sprintf("止盈触发 %.1f%% ≥ %.1f%%", chgPct, s.StopProfit),
+				Reason: fmt.Sprintf("止盈触发 %.1f%% ≥ %.1f%% (style:%.1f%%)", chgPct, effStopProfit, s.StopProfit),
 			})
 		}
 	}
@@ -229,8 +234,10 @@ func generateSignalsV2(
 			}
 		}
 		// Accumulate danger: consecutive triggers increase urgency
+		// Style-based acceleration in bear/crash (SellPctMult > 1)
 		pos.dangerDays++
 		if dangerScore > 0 {
+			if styleParams.SellPctMult > 1.0 { dangerScore *= styleParams.SellPctMult }
 			pos.dangerAccum += dangerScore
 		} else {
 			pos.dangerAccum *= 0.5 // decay when conditions clear
@@ -364,7 +371,16 @@ func generateSignalsV2(
 				// P0: Concept filter — only include stocks in top concepts
 				if conceptCache != nil && conceptTopPct < 1.0 {
 					mult := conceptCache.GetMultiplier(si.Code, date)
-					if mult < 0.9 { continue } // skip stocks not in relevant concepts
+					// Dynamic threshold: conceptTopPct maps to multiplier cutoff
+					// topPct≤0.20→mult≥1.30, ≤0.50→mult≥1.0, ≤0.80→mult≥0.70
+					multThreshold := 0.0
+					switch {
+					case conceptTopPct <= 0.20: multThreshold = 1.30
+					case conceptTopPct <= 0.50: multThreshold = 1.00
+					case conceptTopPct <= 0.80: multThreshold = 0.70
+					default: multThreshold = 0.0
+					}
+					if mult < multThreshold { continue }
 				}
 				if chg := kcache.GetDailyChange(si.Code, date); chg >= 9.8 {
 					continue
@@ -480,10 +496,10 @@ func generateSignalsV2(
 				if pos, held := positions[si.Code]; held && pos.Quantity > 0 { continue }
 				if kcache.GetDailyChange(si.Code, date) >= 9.8 { continue }
 				if isSTStock(si.Name) { continue }
-				// Policy-aware buy logic
-				buyLogic := "and"
-				if policy != nil && policy.BuyLogic == "or" {
-					buyLogic = "or"
+				// Policy-aware buy logic (style overrides default, policy overrides style)
+				buyLogic := styleBuyLogic
+				if policy != nil && policy.BuyLogic != "" {
+					buyLogic = policy.BuyLogic
 				}
 				passed := false
 				if buyLogic == "or" {
@@ -646,6 +662,11 @@ func generateSignalsV2(
 	} // end buy scope
 skipBuys:
 	// ── Add checks (Scoring or legacy) ──
+	// ── Style guard: skip adds in bear/crash/rotation ──
+	if !styleAllowAdd {
+		log.Printf("[backtest_v2] STYLE_SKIP_ADD date=%s style=%s: add disabled", date, marketStyle)
+		goto skipAdds
+	}
 	if policy != nil && !policy.AllowAdd {
 		log.Printf("[backtest_v2] POLICY_SKIP date=%s mode=%s: add disabled", date, policy.Mode)
 		goto skipAdds
