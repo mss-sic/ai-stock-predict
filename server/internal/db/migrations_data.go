@@ -977,6 +977,24 @@ Register(Migration{
 		},
 	})
 
+	// v036: seed concept_analysis system config
+	Register(Migration{
+		Version:     36,
+		Description: "PG: seed concept_analysis ai_system_configs entry",
+		Up: func() error {
+			var existing model.AISystemConfig
+			if PG.Where("scene = ?", "concept_analysis").First(&existing).Error != nil {
+				PG.Create(&model.AISystemConfig{
+					Scene:        "concept_analysis",
+					Name:         "概念分析",
+					SystemPrompt: "你是一位资深证券分析师，请对以下概念板块进行全面分析。\n\n## 要求\n1. **概念概述**：用一段话简要介绍该概念的核心定义、行业背景\n2. **龙头股票**：列出3-5只核心龙头股（代码+名称+简要逻辑）\n3. **商业模式**：分析该概念的典型商业模式和盈利模式\n4. **利润拆分**：拆解产业链各环节的利润分配（上游/中游/下游）\n5. **上下游产业链**：详细分析上游供应商、中游制造/服务、下游应用\n6. **投资逻辑**：核心投资逻辑和关键跟踪指标\n7. **风险提示**：行业面临的主要风险\n\n请使用专业的Markdown格式输出，适当使用表格和列表，语言精炼专业。",
+					Temperature: 0.7, MaxTokens: 4096, EnableSearch: false,
+				})
+			}
+			return nil
+		},
+	})
+
 log.Printf("[migrate] registered %d migrations", len(migrations))
 
 

@@ -814,6 +814,10 @@ var ScenePromptVars = map[string][]struct{ Name, Desc string }{
 		{"USER_PROMPT", "用户原始描述"},
 		{"STRATEGY_STYLE", "风险偏好"},
 	},
+	"concept_analysis": {
+		{"CONCEPT_NAME", "概念板块名称"},
+		{"STOCK_COUNT", "成分股数量"},
+	},
 }
 
 // renderPrompt replaces __VAR__ placeholders in template with values from vars.

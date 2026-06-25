@@ -3,6 +3,8 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { Tag, Select, Tabs, Button, Spin } from '@arco-design/web-react';
 import ReactECharts from 'echarts-for-react';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import rehypeRaw from 'rehype-raw';
 import { fetchConceptBoardStocks, fetchConceptBoardKline, fetchConceptAnalysis } from '../services/api';
 import {
   ArrowLeft, TrendingUp, TrendingDown, Layers, BarChart3, Star,
@@ -26,18 +28,20 @@ export default function ConceptBoardDetailPage() {
     Promise.all([
       fetchConceptBoardStocks(code).then((res: any) => setData(res.data?.data)),
       fetchConceptBoardKline(code, klineDays).then((res: any) => setKline(res.data?.data || [])),
+      // 静默尝试加载已缓存的AI分析（无缓存不调用AI，由后端控制）
+      fetchConceptAnalysis(code, false).then((res: any) => {
+        const d = res.data?.data;
+        if (d?.cached && !d?.empty) setAnalysis(d);
+      }).catch(() => {}),
     ]).finally(() => setLoading(false));
   }, [code, klineDays]);
 
-  // Load analysis when tab selected
+  // Load analysis ONLY on button click, not auto
   const loadAnalysis = (refresh?: boolean) => {
     if (!code) return;
     setAnalysisLoading(true);
     fetchConceptAnalysis(code, refresh).then((res: any) => setAnalysis(res.data?.data)).finally(() => setAnalysisLoading(false));
   };
-  useEffect(() => {
-    if (activeTab === 'analysis' && !analysis) loadAnalysis();
-  }, [activeTab, code]);
 
   if (loading) {
     return <div style={{ padding: 60, textAlign: 'center', color: 'var(--color-text-3)' }}>加载中...</div>;
@@ -243,17 +247,70 @@ export default function ConceptBoardDetailPage() {
                     background: 'var(--color-fill-1)', borderRadius: 8, padding: '16px 20px',
                   }}>
                     <ReactMarkdown
+                      remarkPlugins={[remarkGfm]}
+                      rehypePlugins={[rehypeRaw]}
                       components={{
-                        h1: ({children}) => <h2 style={{fontSize:16,fontWeight:700,marginTop:20,marginBottom:8,borderBottom:'1px solid var(--color-border-1)',paddingBottom:4}}>{children}</h2>,
-                        h2: ({children}) => <h3 style={{fontSize:15,fontWeight:600,marginTop:16,marginBottom:6}}>{children}</h3>,
-                        h3: ({children}) => <h4 style={{fontSize:14,fontWeight:600,marginTop:12,marginBottom:4}}>{children}</h4>,
-                        table: ({children}) => <table style={{width:'100%',borderCollapse:'collapse',margin:'8px 0',fontSize:12}}>{children}</table>,
-                        th: ({children}) => <th style={{border:'1px solid var(--color-border-1)',padding:'6px 10px',background:'var(--color-fill-2)',textAlign:'left'}}>{children}</th>,
-                        td: ({children}) => <td style={{border:'1px solid var(--color-border-1)',padding:'5px 10px'}}>{children}</td>,
-                        ul: ({children}) => <ul style={{paddingLeft:20,margin:'4px 0'}}>{children}</ul>,
-                        ol: ({children}) => <ol style={{paddingLeft:20,margin:'4px 0'}}>{children}</ol>,
-                        code: ({children}) => <code style={{background:'var(--color-fill-2)',padding:'1px 5px',borderRadius:3,fontSize:12}}>{children}</code>,
-                        strong: ({children}) => <strong style={{color:'var(--color-text-1)'}}>{children}</strong>,
+                        h1: ({children}: any) => <h2 style={{fontSize:18,fontWeight:700,marginTop:24,marginBottom:12,color:'var(--color-text-1)',borderBottom:'2px solid var(--color-primary-light-2)',paddingBottom:8}}>{children}</h2>,
+                        h2: ({children}: any) => <h3 style={{fontSize:16,fontWeight:700,marginTop:20,marginBottom:10,color:'var(--color-text-1)',borderLeft:'3px solid var(--color-primary)',paddingLeft:10}}>{children}</h3>,
+                        h3: ({children}: any) => <h4 style={{fontSize:14,fontWeight:600,marginTop:16,marginBottom:8,color:'var(--color-text-1)'}}>{children}</h4>,
+                        h4: ({children}: any) => <h5 style={{fontSize:13,fontWeight:600,marginTop:12,marginBottom:6,color:'var(--color-text-2)'}}>{children}</h5>,
+                        p: ({children}: any) => <p style={{margin:'6px 0',lineHeight:1.85,fontSize:13,color:'var(--color-text-1)'}}>{children}</p>,
+                        strong: ({children}: any) => <strong style={{color:'var(--color-primary)',fontWeight:700}}>{children}</strong>,
+                        em: ({children}: any) => <em style={{color:'var(--color-text-2)',fontStyle:'italic'}}>{children}</em>,
+                        hr: () => <hr style={{border:'none',borderTop:'1px solid var(--color-border-2)',margin:'16px 0'}} />,
+                        ul: ({children}: any) => <ul style={{margin:'8px 0',paddingLeft:22,fontSize:13,lineHeight:1.8,color:'var(--color-text-1)'}}>{children}</ul>,
+                        ol: ({children}: any) => <ol style={{margin:'8px 0',paddingLeft:22,fontSize:13,lineHeight:1.8,color:'var(--color-text-1)'}}>{children}</ol>,
+                        li: ({children}: any) => <li style={{margin:'3px 0'}}>{children}</li>,
+                        table: ({children}: any) => (
+                          <div style={{overflowX:'auto',margin:'12px 0',borderRadius:8,border:'1px solid var(--color-border-2)'}}>
+                            <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>{children}</table>
+                          </div>
+                        ),
+                        thead: ({children}: any) => <thead>{children}</thead>,
+                        tbody: ({children}: any) => <tbody>{children}</tbody>,
+                        tr: ({children,index}: any) => (
+                          <tr style={{background:index!==undefined&&index%2===0?'var(--color-fill-1)':'transparent'}}>{children}</tr>
+                        ),
+                        th: ({children}: any) => (
+                          <th style={{
+                            background:'var(--color-primary-light-1)',
+                            fontWeight:700,fontSize:11,color:'var(--color-primary)',
+                            padding:'8px 12px',textAlign:'left',
+                            borderBottom:'2px solid var(--color-primary-light-2)',
+                            whiteSpace:'nowrap',
+                          }}>{children}</th>
+                        ),
+                        td: ({children}: any) => (
+                          <td style={{
+                            padding:'7px 12px',fontSize:12,color:'var(--color-text-1)',
+                            borderBottom:'1px solid var(--color-border-1)',
+                          }}>{children}</td>
+                        ),
+                        blockquote: ({children}: any) => (
+                          <blockquote style={{
+                            borderLeft:'3px solid var(--color-primary)',
+                            background:'var(--color-primary-light-1)',
+                            padding:'10px 14px',margin:'12px 0',
+                            borderRadius:'0 6px 6px 0',fontSize:12,
+                            color:'var(--color-text-2)',
+                          }}>{children}</blockquote>
+                        ),
+                        code: ({children,className}: any) => {
+                          const isInline = !className;
+                          return isInline ? (
+                            <code style={{
+                              background:'var(--color-fill-2)',color:'var(--color-primary)',
+                              padding:'2px 6px',borderRadius:4,fontSize:11,
+                              fontFamily:'"SF Mono","Fira Code",monospace',
+                            }}>{children}</code>
+                          ) : (
+                            <pre style={{
+                              background:'var(--color-fill-2)',padding:'12px 16px',
+                              borderRadius:8,overflow:'auto',fontSize:11,
+                              lineHeight:1.6,margin:'10px 0',
+                            }}><code>{children}</code></pre>
+                          );
+                        },
                       }}
                     >
                       {analysis.content || ''}

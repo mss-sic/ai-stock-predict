@@ -417,6 +417,7 @@ function CostTab() {
   var moduleLabels: Record<string, string> = {
     chat: 'AI对话', stock_score: '股票评分', stock_profile: '公司简介',
     strategy_gen: '策略生成', strategy_opt: '提示词优化',
+    concept_analysis: '概念分析', ai_agent_review: 'AI复盘',
   };
   var fmtModule = function(m: string) { return moduleLabels[m] || m; };
   var fmtTokens = function(n: number) { return n >= 1000 ? (n/1000).toFixed(1)+'k' : String(n); };
@@ -454,7 +455,8 @@ function CostTab() {
           options={[
             { label: 'AI对话', value: 'chat' }, { label: '股票评分', value: 'stock_score' },
             { label: '公司简介', value: 'stock_profile' }, { label: '策略生成', value: 'strategy_gen' },
-            { label: '提示词优化', value: 'strategy_opt' },
+            { label: '提示词优化', value: 'strategy_opt' }, { label: '概念分析', value: 'concept_analysis' },
+            { label: 'AI复盘', value: 'ai_agent_review' },
           ]} />
         <div style={{ flex: 1 }} />
         <Button size="small" type="outline" onClick={function() { setShowPrices(!showPrices); }}>

@@ -278,7 +278,7 @@ func (h *CollectorHandler) CollectReports(c *gin.Context) {
 // RealtimeQuotes triggers real-time quote fetch for relevant stocks
 // (board picks last 2 days + user's strategy stock pool + holdings).
 func (h *CollectorHandler) RealtimeQuotes(c *gin.Context) {
-	userID := c.GetUint("userID")
+	uidVal, _ := c.Get("userId"); userID := uidVal.(uint)
 
 	// 1. Collect target stock codes
 	codeSet := make(map[string]bool)

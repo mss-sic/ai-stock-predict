@@ -1,5 +1,13 @@
 ## v1.7.1 (2026-06-26)
 
+### 概念分析 — AI 调用与提示词管理优化
+
+- **概念分析不再自动调用 AI**: `GetConceptAnalysis` 在 `refresh=false` 且无缓存时直接返回空，仅点击"开始分析"才触发 AI
+- **修复 AI 调用记录无法显示用户**: `concept_analysis_handler` 中 `c.GetUint("userID")` → `c.Get("userId")`（大小写匹配 auth 中间件）
+- **概念分析 Markdown 渲染修复**: 启用 `remarkGfm` + `rehypeRaw`，表格/列表/引用块美化排版
+- **AI 调用记录模块统一**: `AdminPage` / `UserCostPage` 的 MODULE_LABELS 补齐 `concept_analysis`(概念分析) + `ai_agent_review`(AI复盘)，图表顺序从 MODULE_LABELS 自动派生
+- **概念分析提示词纳入系统配置**: `concept_analysis` 场景注册到 `ScenePromptVars`，提示词从 `ai_system_configs` 表读取，v036 迁移自动播种，系统设置统一管理
+
 ### 数据管理 — 定时任务补全
 
 - **新增 4 个定时任务**: 市场日聚合(16:00) / 市场情绪(17:00) / 市场风格(17:30) / AI评分(每周日)

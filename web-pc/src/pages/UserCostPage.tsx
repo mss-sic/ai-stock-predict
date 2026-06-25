@@ -13,11 +13,15 @@ const MODULE_COLORS: Record<string, string> = {
   stock_profile: '#FF7D00',
   strategy_gen: '#722ED1',
   strategy_opt: '#F53F3F',
+  concept_analysis: '#0FC6C2',
+  ai_agent_review: '#F7BA1E',
 };
 
 const MODULE_LABELS: Record<string, string> = {
   chat: 'AI对话', stock_score: '股票评分', stock_profile: '公司简介',
   strategy_gen: '策略生成', strategy_opt: '提示词优化',
+  concept_analysis: '概念分析',
+  ai_agent_review: 'AI复盘',
 };
 
 interface Summary {
@@ -117,7 +121,8 @@ export default function UserCostPage() {
       dateMap[d.date][d.module] = (dateMap[d.date][d.module] || 0) + d.cost;
       allModules.add(d.module);
     }
-    const modules = ['chat', 'stock_score', 'stock_profile', 'strategy_gen', 'strategy_opt'].filter(m => allModules.has(m));
+    const knownOrder = Object.keys(MODULE_LABELS);
+    const modules = knownOrder.filter(m => allModules.has(m));
     if (modules.length === 0 && allModules.size > 0) Array.from(allModules).forEach(m => modules.push(m));
     if (modules.length === 0) modules.push('chat');
 
