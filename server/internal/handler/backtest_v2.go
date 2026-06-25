@@ -42,6 +42,7 @@ func generateSignalsV2(
 	icache *IndicatorCache,
 	getNextDate func(*KlineCache, string) string,
 	evalConds func([]model.StrategyCondition, string, string) bool,
+	conceptCache *ConceptRankCache,
 ) []model.BacktestSignal {
 	enterTime := time.Now()
 	log.Printf("[backtest_v2] ENTER date=%s mode=%s buyConds=%d sellConds=%d addConds=%d reduceConds=%d universe=%d positions=%d cash=%.0f isLast=%v",
@@ -141,7 +142,7 @@ func generateSignalsV2(
 	// Scoring engine for buy/add
 	if mode == "scoring" || mode == "hybrid" {
 		allBuyConds := append(append([]model.StrategyCondition{}, buyConds...), addConds...)
-		scoringEng = NewScoringEngine(allBuyConds, mktCtx, icache, kcache)
+		scoringEng = NewScoringEngine(conceptCache, allBuyConds, mktCtx, icache, kcache)
 	}
 
 	// Decision tree for sell/reduce/buy

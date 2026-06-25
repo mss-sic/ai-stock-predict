@@ -2220,6 +2220,147 @@ func preloadIndicators(conds []model.StrategyCondition, codes []string, startDat
 }
 
 
+// ═══════════════════════════════════════════════════════════════
+// ConceptRankCache — 概念板块强度排名缓存
+// ═══════════════════════════════════════════════════════════════
+
+type ConceptRankCache struct {
+    // date -> concept_name -> rank percentile (0.0=worst, 1.0=best)
+    dateRanks map[string]map[string]float64
+    // code -> concept_names (preloaded stock→concept mapping)
+    codeConcepts map[string][]string
+}
+
+// GetMultiplier returns a score multiplier based on the stock's concept rankings.
+// Top 20% concepts: 1.3x, 20-50%: 1.0x, 50-80%: 0.7x, bottom 20%: 0.4x
+func (crc *ConceptRankCache) GetMultiplier(code, date string) float64 {
+    if crc == nil {
+        return 1.0
+    }
+    concepts, ok := crc.codeConcepts[code]
+    if !ok || len(concepts) == 0 {
+        return 1.0 // no concept data, neutral
+    }
+    
+    dateRanks, ok := crc.dateRanks[date]
+    if !ok {
+        return 1.0
+    }
+    
+    // Average rank percentile across all concepts this stock belongs to
+    var sumRank float64
+    var count int
+    for _, c := range concepts {
+        if rank, ok := dateRanks[c]; ok {
+            sumRank += rank
+            count++
+        }
+    }
+    if count == 0 {
+        return 1.0
+    }
+    
+    avgRank := sumRank / float64(count)
+    
+    // Map percentile to multiplier
+    switch {
+    case avgRank >= 0.80:
+        return 1.30 // top 20% concepts
+    case avgRank >= 0.50:
+        return 1.00 // middle
+    case avgRank >= 0.20:
+        return 0.70 // bottom 50-80%
+    default:
+        return 0.40 // bottom 20% concepts
+    }
+}
+
+// preloadConceptRanks precomputes concept daily performance rankings.
+func preloadConceptRanks(codes []string, startDate, endDate string) *ConceptRankCache {
+    crc := &ConceptRankCache{
+        dateRanks:    make(map[string]map[string]float64),
+        codeConcepts: make(map[string][]string),
+    }
+    
+    // 1. Preload stock→concept mappings
+    type conceptRow struct {
+        Code        string
+        ConceptName string
+    }
+    var mappings []conceptRow
+    if err := db.PG.Raw(`
+        SELECT code, concept_name FROM stock_concepts 
+        WHERE concept_type = 'concept' AND code = ANY(?)
+    `, codes).Scan(&mappings).Error; err != nil {
+        log.Printf("[concept_cache] stock→concept preload failed: %v", err)
+        return crc
+    }
+    for _, m := range mappings {
+        crc.codeConcepts[m.Code] = append(crc.codeConcepts[m.Code], m.ConceptName)
+    }
+    log.Printf("[concept_cache] loaded %d stock→concept mappings for %d stocks", len(mappings), len(crc.codeConcepts))
+    
+    // 2. Compute per-date per-concept average daily_change
+    type conceptPerf struct {
+        TradeDate   string
+        ConceptName string
+        AvgChg      float64
+    }
+    var perfs []conceptPerf
+    if err := db.PG.Raw(`
+        WITH daily_chg AS (
+            SELECT code, trade_date,
+                   (close - LAG(close) OVER (PARTITION BY code ORDER BY trade_date)) 
+                   / NULLIF(LAG(close) OVER (PARTITION BY code ORDER BY trade_date), 0) * 100 as chg
+            FROM stocks_daily_k
+            WHERE trade_date >= ? AND trade_date <= ?
+              AND code = ANY(?)
+        )
+        SELECT TO_CHAR(dc.trade_date, 'YYYY-MM-DD') as trade_date,
+               sc.concept_name,
+               AVG(dc.chg) as avg_chg
+        FROM daily_chg dc
+        JOIN stock_concepts sc ON sc.code = dc.code AND sc.concept_type = 'concept'
+        WHERE dc.chg IS NOT NULL AND dc.chg > -50 AND dc.chg < 50
+        GROUP BY dc.trade_date, sc.concept_name
+        HAVING COUNT(*) >= 3
+        ORDER BY dc.trade_date
+    `, startDate, endDate, codes).Scan(&perfs).Error; err != nil {
+        log.Printf("[concept_cache] concept performance query failed: %v", err)
+        return crc
+    }
+    log.Printf("[concept_cache] loaded %d concept-day performance records", len(perfs))
+    
+    // 3. Group by date and compute rank percentiles
+    datePerfs := make(map[string][]float64)
+    dateConcepts := make(map[string][]string)
+    for _, p := range perfs {
+        datePerfs[p.TradeDate] = append(datePerfs[p.TradeDate], p.AvgChg)
+        dateConcepts[p.TradeDate] = append(dateConcepts[p.TradeDate], p.ConceptName)
+    }
+    
+    for date, perfs_ := range datePerfs {
+        concepts := dateConcepts[date]
+        n := len(perfs_)
+        if n < 3 {
+            continue
+        }
+        // Create sorted copy for ranking
+        sorted := make([]float64, n)
+        copy(sorted, perfs_)
+        sort.Float64s(sorted)
+        
+        crc.dateRanks[date] = make(map[string]float64)
+        for i, p := range perfs_ {
+            // Find rank percentile: position in sorted / total
+            rank := float64(sort.SearchFloat64s(sorted, p)) / float64(n-1)
+            crc.dateRanks[date][concepts[i]] = rank
+        }
+    }
+    
+    log.Printf("[concept_cache] computed ranks for %d dates", len(crc.dateRanks))
+    return crc
+}
 // ── The async backtest runner (runs in goroutine) ──
 
 func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.BacktestTask, s *model.Strategy, startDate, endDate string, stockCodes []string) {
@@ -2367,6 +2508,9 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 
 	// Preload indicator values in batch (one query per indicator instead of N+1 per stock)
 	icache := preloadIndicators(conds, universeCodes, preloadStart, endDate, kcache)
+
+	// Preload concept strength rankings for scoring multiplier
+	conceptCache := preloadConceptRanks(universeCodes, startDate, endDate)
 
 	// Local evaluateSingleCondition that uses the preloaded cache
 	evalSingle := func(cond model.StrategyCondition, code, date string) bool {
@@ -3090,7 +3234,7 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 			newSignals = generateSignalsV2(date, remainingCash, isLastDay,
 				positions, v2universe, task, s,
 				buyConds, sellConds, addConds, reduceConds,
-				evalSingle, kcache, icache, getNextDate, evalConds)
+				evalSingle, kcache, icache, getNextDate, evalConds, conceptCache)
 		} else {
 			newSignals = generateSignals(date, remainingCash, isLastDay)
 		}

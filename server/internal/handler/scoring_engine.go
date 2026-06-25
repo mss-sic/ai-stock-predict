@@ -72,6 +72,7 @@ type ScoringEngine struct {
 	ctx          *MarketContext
 	evalCache    *IndicatorCache // shared with strategy_handler eval
 	kcache       *KlineCache
+	conceptCache *ConceptRankCache // concept strength multiplier
 	industry     map[string]map[string]float64 // industry -> indicator -> p50 value
 	stockIndust  map[string]string             // stock code → industry name (preloaded to avoid N+1)
 	distribution ScoreDistribution
@@ -84,6 +85,7 @@ func (se *ScoringEngine) GetDistribution() ScoreDistribution {
 
 // NewScoringEngine creates a scoring engine.
 func NewScoringEngine(
+	conceptCache *ConceptRankCache,
 	conditions []model.StrategyCondition,
 	ctx *MarketContext,
 	icache *IndicatorCache,
@@ -94,6 +96,7 @@ func NewScoringEngine(
 		ctx:         ctx,
 		evalCache:   icache,
 		kcache:      kcache,
+		conceptCache: conceptCache,
 		industry:    make(map[string]map[string]float64),
 		stockIndust: make(map[string]string),
 	}
@@ -327,7 +330,11 @@ func (se *ScoringEngine) ScoreStock(
 		totalConfigWeight += c.Weight
 	}
 	if totalConfigWeight > 0 && weightedSum > 0 {
-		result.TotalScore = (weightedSum / totalConfigWeight) * se.ctx.MarketBias
+		if se.conceptCache != nil {
+			result.TotalScore = (weightedSum / totalConfigWeight) * se.ctx.MarketBias * se.conceptCache.GetMultiplier(code, date)
+		} else {
+			result.TotalScore = (weightedSum / totalConfigWeight) * se.ctx.MarketBias
+		}
 	} else {
 		result.TotalScore = 0
 	}
