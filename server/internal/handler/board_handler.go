@@ -433,22 +433,97 @@ func (h *BoardHandler) ConceptBoards(c *gin.Context) {
 }
 
 // ConceptBoardStocks returns stocks in a concept board with summary
+// ConceptBoardKline returns aggregate K-line data for a concept board
+func (h *BoardHandler) ConceptBoardKline(c *gin.Context) {
+	conceptCode := c.Param("code")
+	days := c.DefaultQuery("days", "60")
+
+	type KlinePoint struct {
+		TradeDate  string  `json:"tradeDate"`
+		IndexValue float64 `json:"indexValue"`
+		AvgChgPct  float64 `json:"avgChgPct"`
+		StockCount int     `json:"stockCount"`
+	}
+
+	var points []KlinePoint
+	err := db.PG.Raw(`
+		WITH concept_codes AS (
+			SELECT DISTINCT code FROM stock_concepts WHERE concept_code = ?
+		),
+		daily_returns AS (
+			SELECT k.trade_date,
+				(k.close - LAG(k.close) OVER (PARTITION BY k.code ORDER BY k.trade_date))
+				/ NULLIF(LAG(k.close) OVER (PARTITION BY k.code ORDER BY k.trade_date), 0) as ret
+			FROM stocks_daily_k k
+			JOIN concept_codes cc ON k.code = cc.code
+			WHERE k.trade_date >= (SELECT MAX(trade_date) FROM stocks_daily_k) - (?::int || ' days')::INTERVAL
+		),
+		agg AS (
+			SELECT trade_date,
+				AVG(ret) as avg_ret,
+				COUNT(*) as stock_count
+			FROM daily_returns
+			WHERE ret IS NOT NULL AND ret > -0.11 AND ret < 0.11
+			GROUP BY trade_date
+			ORDER BY trade_date
+		)
+		SELECT trade_date::text,
+			ROUND(1000.0 * EXP(SUM(LN(1 + COALESCE(avg_ret, 0))) OVER (ORDER BY trade_date)), 2) as index_value,
+			ROUND(COALESCE(avg_ret, 0) * 100, 3) as avg_chg_pct,
+			stock_count
+		FROM agg
+		ORDER BY trade_date
+	`, conceptCode, days).Scan(&points).Error
+
+	if err != nil {
+		response.InternalError(c, "查询概念K线失败: "+err.Error())
+		return
+	}
+	response.Success(c, points)
+}
+
 func (h *BoardHandler) ConceptBoardStocks(c *gin.Context) {
 	conceptCode := c.Param("code")
 	
 	type StockSummary struct {
 		model.StockConcept
-		Close    float64 `json:"close"`
-		ChgPct   float64 `json:"chgPct"`
-		MarketCap float64 `json:"marketCap"`
+		Close      float64 `json:"close"`
+		ChgPct     float64 `json:"chgPct"`
+		MarketCap  float64 `json:"marketCap"`
+		AIScore    float64 `json:"aiScore"`
+		PickRank   int     `json:"pickRank"`
+		PickScore  float64 `json:"pickScore"`
+		Pick5Day   int     `json:"pick5Day"`
+		Pick20Day  int     `json:"pick20Day"`
+		TodayPick  bool    `json:"todayPick"`
+		RiskLevel  string  `json:"riskLevel"`
 	}
-	
+
 	var stocks []StockSummary
 	db.PG.Raw(`
+		WITH latest_pick AS (
+			SELECT stock_code, rank, score, risk_level FROM algorithm_pick_details
+			WHERE pick_date = (SELECT MAX(pick_date) FROM algorithm_pick_details)
+		),
+		pick_freq AS (
+			SELECT stock_code,
+				COUNT(*) FILTER (WHERE pick_date >= (SELECT MAX(pick_date) FROM algorithm_pick_details) - INTERVAL '5 days') as pick_5d,
+				COUNT(*) FILTER (WHERE pick_date >= (SELECT MAX(pick_date) FROM algorithm_pick_details) - INTERVAL '20 days') as pick_20d
+			FROM algorithm_pick_details
+			WHERE stock_code IN (SELECT code FROM stock_concepts WHERE concept_code = ?)
+			GROUP BY stock_code
+		)
 		SELECT sc.code, sc.concept_code, sc.concept_name, sc.concept_type, sc.stock_name,
 			COALESCE(k.close, 0) as close,
 			CASE WHEN k.pre_close > 0 THEN ((k.close - k.pre_close) / k.pre_close * 100) ELSE 0 END as chg_pct,
-			COALESCE(i.total_market_cap, 0) as market_cap
+			COALESCE(i.total_market_cap, 0) as market_cap,
+			COALESCE(ai.composite_score, 0) as ai_score,
+			COALESCE(lp.rank, 0) as pick_rank,
+			COALESCE(lp.score, 0) as pick_score,
+			COALESCE(pf.pick_5d, 0) as pick_5d,
+			COALESCE(pf.pick_20d, 0) as pick_20d,
+			CASE WHEN lp.stock_code IS NOT NULL THEN true ELSE false END as today_pick,
+			COALESCE(lp.risk_level, '') as risk_level
 		FROM stock_concepts sc
 		LEFT JOIN LATERAL (
 			SELECT close, LAG(close) OVER (ORDER BY trade_date) as pre_close
@@ -458,9 +533,15 @@ func (h *BoardHandler) ConceptBoardStocks(c *gin.Context) {
 			SELECT total_market_cap FROM stocks_daily_indicator 
 			WHERE code = sc.code ORDER BY trade_date DESC LIMIT 1
 		) i ON true
+		LEFT JOIN LATERAL (
+			SELECT composite_score FROM ai_stock_scores
+			WHERE code = sc.code ORDER BY created_at DESC LIMIT 1
+		) ai ON true
+		LEFT JOIN latest_pick lp ON sc.code = lp.stock_code
+		LEFT JOIN pick_freq pf ON sc.code = pf.stock_code
 		WHERE sc.concept_code = ?
-		ORDER BY sc.code
-	`, conceptCode).Scan(&stocks)
+		ORDER BY COALESCE(lp.rank, 9999) ASC, (k.close - k.pre_close) / NULLIF(k.pre_close, 0) * 100 DESC
+	`, conceptCode, conceptCode).Scan(&stocks)
 	
 	// Board info
 	var board model.ConceptBoard

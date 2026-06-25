@@ -347,6 +347,7 @@ export const fetchPredictionHitRate = (code: string) => api.get(`/prediction/${c
 // ── Concept Board APIs ──
 export const fetchConceptBoards = (type?: string) => api.get('/concept-boards', { params: type ? { type } : {} });
 export const fetchConceptBoardStocks = (code: string) => api.get(`/concept-boards/${code}/stocks`);
+export const fetchConceptBoardKline = (code: string, days?: number) => api.get(`/concept-boards/${code}/kline`, { params: { days: days || 60 } });
 export const fetchConceptHeatmap = () => api.get('/concept-boards/heatmap');
 export const fetchStockConceptTags = (stockCode: string) => api.get(`/stocks/${stockCode}/concept-tags`);
 
