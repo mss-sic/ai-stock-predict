@@ -2391,6 +2391,7 @@ type StyleParams struct {
     PositionBias    float64 // 仓位乘数
     StopProfitAdj   float64 // 止盈调整(加法)
     StopLossAdj     float64 // 止损调整(加法，负值=更紧)
+    TrailingStopDrawdown float64 // 移动止盈回撤%(0=默认)
 }
 
 // defaultStyleParams returns hardcoded optimal parameters per market style.
@@ -2402,6 +2403,7 @@ func defaultStyleParams(style MarketStyle) StyleParams {
             AllowBuy: true, AllowAdd: true,
             ConceptTopPct: 0.50, PositionBias: 1.2,
             StopProfitAdj: 5, StopLossAdj: -2,
+            TrailingStopDrawdown: 10, // 牛市允许更大回撤
         }
     case StyleRecovery:
         return StyleParams{
@@ -2409,6 +2411,7 @@ func defaultStyleParams(style MarketStyle) StyleParams {
             AllowBuy: true, AllowAdd: true,
             ConceptTopPct: 0.40, PositionBias: 1.0,
             StopProfitAdj: 0, StopLossAdj: 0,
+            TrailingStopDrawdown: 8,
         }
     case StyleStructural:
         return StyleParams{
@@ -2416,6 +2419,7 @@ func defaultStyleParams(style MarketStyle) StyleParams {
             AllowBuy: true, AllowAdd: true,
             ConceptTopPct: 0.20, PositionBias: 1.0,
             StopProfitAdj: 0, StopLossAdj: 0,
+            TrailingStopDrawdown: 8,
         }
     case StyleRotation:
         return StyleParams{
@@ -2423,6 +2427,7 @@ func defaultStyleParams(style MarketStyle) StyleParams {
             AllowBuy: true, AllowAdd: false,
             ConceptTopPct: 0.30, PositionBias: 0.6,
             StopProfitAdj: -5, StopLossAdj: 2, // tighter stops
+            TrailingStopDrawdown: 5, // 轮动收紧回撤
         }
     case StyleBottoming:
         return StyleParams{
@@ -2430,6 +2435,7 @@ func defaultStyleParams(style MarketStyle) StyleParams {
             AllowBuy: true, AllowAdd: false,
             ConceptTopPct: 0.15, PositionBias: 0.4,
             StopProfitAdj: -5, StopLossAdj: 3,
+            TrailingStopDrawdown: 4, // 磨底收紧回撤
         }
     case StyleBear, StyleCrash:
         return StyleParams{
@@ -2438,6 +2444,7 @@ func defaultStyleParams(style MarketStyle) StyleParams {
             ConceptTopPct: 0, PositionBias: 0,
             StopProfitAdj: 0, StopLossAdj: 0,
             SellPctMult: 2.0,
+            TrailingStopDrawdown: 0,
         }
     default: // transitional
         return StyleParams{
@@ -2445,6 +2452,7 @@ func defaultStyleParams(style MarketStyle) StyleParams {
             AllowBuy: true, AllowAdd: false,
             ConceptTopPct: 0.50, PositionBias: 0.8,
             StopProfitAdj: 0, StopLossAdj: 0,
+            TrailingStopDrawdown: 0,
         }
     }
 }
@@ -3481,6 +3489,8 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 			pnl := (cp - pos.BuyPrice) * float64(pos.Quantity)
 			pnlPct := 0.0
 			if pos.BuyPrice > 0 { pnlPct = (cp - pos.BuyPrice) / pos.BuyPrice * 100 }
+			// Track highest price for trailing stop
+			if cp > pos.HighestPrice { pos.HighestPrice = cp }
 			posList = append(posList, map[string]interface{}{
 				"code": pos.Code, "name": pos.Name, "qty": pos.Quantity,
 				"price": cp, "costPrice": pos.BuyPrice,

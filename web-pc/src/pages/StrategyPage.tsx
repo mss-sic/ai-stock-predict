@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button, Input, InputNumber, Modal, Table, Select, Popconfirm, Tooltip, DatePicker, Message, Tag } from '@arco-design/web-react';
-import { Target, Plus, Trash2, GripVertical, Play, Brain, BarChart4, Shield, Settings, Sparkles, Beaker, Gauge, Factory, Layers, SlidersHorizontal, Search, CheckCircle, AlertTriangle, ScrollText } from 'lucide-react';
+import { Target, Plus, Trash2, GripVertical, Play, Brain, BarChart4, Shield, Settings, Sparkles, Beaker, Gauge, Factory, Layers, SlidersHorizontal, Search, CheckCircle, AlertTriangle, ScrollText, TrendingUp, TrendingDown, Grid3X3, DollarSign } from 'lucide-react';
 import {
   fetchStrategies, createStrategy, updateStrategy, deleteStrategy, reorderStrategies,
   fetchStrategyConditions, saveStrategyConditions, aiGenerateStrategy, optimizePrompt,
@@ -50,7 +50,7 @@ export default function StrategyPage() {
   const [activeStrategy, setActiveStrategy] = useState<any>(null);
   const [conditions, setConditions] = useState<any[]>([]);
   const [indicators, setIndicators] = useState<any[]>([]);
-  const [tab, setTab] = useState<'conditions' | 'backtest' | 'orchestration'>('conditions');
+  const [tab, setTab] = useState<'conditions' | 'backtest' | 'positionMgmt' | 'orchestration'>('conditions');
   const [condTab, setCondTab] = useState<CondType>('buy');
   const [showAdd, setShowAdd] = useState(false);
   const [newName, setNewName] = useState('');
@@ -825,6 +825,9 @@ export default function StrategyPage() {
               <button className={tab === 'backtest' ? 'active' : ''} onClick={() => setTab('backtest')}>
                 <BarChart4 size={13} style={{ marginRight: 4 }} />策略回测
               </button>
+              <button className={tab === 'positionMgmt' ? 'active' : ''} onClick={() => setTab('positionMgmt')}>
+                <TrendingUp size={13} style={{ marginRight: 4 }} />持仓管理
+              </button>
               <button className={tab === 'orchestration' ? 'active' : ''} onClick={() => setTab('orchestration')}>
                 <SlidersHorizontal size={13} style={{ marginRight: 4 }} />编排模式
               </button>
@@ -1242,6 +1245,84 @@ export default function StrategyPage() {
                   </div>
                 )}
               </>
+            ) : tab === "positionMgmt" ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                {/* ── 移动止盈 ── */}
+                <div style={{ padding: '16px 18px', background: 'var(--color-bg-1)', borderRadius: 10, border: '1px solid var(--color-border-1)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <TrendingUp size={16} style={{ color: '#00B42A' }} />
+                      <span style={{ fontSize: 14, fontWeight: 600 }}>移动止盈</span>
+                    </div>
+                    <Tag color={activeStrategy.enableTrailingStop ? 'green' : 'gray'} size="small">
+                      {activeStrategy.enableTrailingStop ? '已启用' : '未启用'}
+                    </Tag>
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 10 }}>
+                    {activeStrategy.enableTrailingStop
+                      ? `从峰值回落 ${activeStrategy.trailingStopDrawdown || 8}% 自动卖出，让利润奔跑`
+                      : '涨了不止盈，等回撤再卖。开启后替代固定止盈'}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                    <span style={{ fontSize: 12, color: 'var(--color-text-3)', minWidth: 56 }}>启用</span>
+                    <input type="checkbox" checked={activeStrategy.enableTrailingStop || false}
+                      onChange={e => handleUpdateStrategy('enableTrailingStop', e.target.checked)}
+                      style={{ accentColor: '#00B42A' }} />
+                  </div>
+                  {activeStrategy.enableTrailingStop && (
+                    <>
+                      <div style={{ padding: '8px 12px', background: 'var(--color-fill-1)', borderRadius: 6, fontSize: 11, color: 'var(--color-text-3)', lineHeight: 1.6, marginBottom: 10 }}>
+                        💡 例：买入价¥10 → 涨到¥15(激活{activeStrategy.trailingStopActivation || 15}%) → 继续涨到¥20 → 回撤{activeStrategy.trailingStopDrawdown || 8}%到¥18.4 → 自动卖出锁定84%利润
+                      </div>
+                      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{ fontSize: 12, color: 'var(--color-text-3)', minWidth: 56 }}>激活阈值</span>
+                          <InputNumber value={activeStrategy.trailingStopActivation || 15}
+                            onChange={v => handleUpdateStrategy('trailingStopActivation', v || 15)}
+                            min={5} max={50} step={1} suffix="%" style={{ width: 80 }} size="small" />
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{ fontSize: 12, color: 'var(--color-text-3)', minWidth: 56 }}>回撤比例</span>
+                          <InputNumber value={activeStrategy.trailingStopDrawdown || 8}
+                            onChange={v => handleUpdateStrategy('trailingStopDrawdown', v || 8)}
+                            min={3} max={25} step={1} suffix="%" style={{ width: 80 }} size="small" />
+                        </div>
+                      </div>
+                      <div style={{ marginTop: 10, padding: '8px 10px', background: 'var(--color-fill-2)', borderRadius: 6, fontSize: 10, color: 'var(--color-text-4)' }}>
+                        🟢 牛市: 回撤10% · 🟠 结构: 回撤8% · 🟡 轮动: 回撤5% · 🟤 磨底: 回撤4%
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                {/* ── 抄底反弹 ── */}
+                <div style={{ padding: '16px 18px', background: 'var(--color-bg-1)', borderRadius: 10, border: '1px solid var(--color-border-1)', opacity: 0.6 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <TrendingDown size={16} style={{ color: '#F7BA1E' }} />
+                      <span style={{ fontSize: 14, fontWeight: 600 }}>抄底反弹</span>
+                    </div>
+                    <Tag color="gray" size="small">即将推出</Tag>
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--color-text-3)' }}>
+                    持仓大跌时自动补仓做波段反弹，达标自动卖出。（Phase 2 开发中）
+                  </div>
+                </div>
+
+                {/* ── 网格做T ── */}
+                <div style={{ padding: '16px 18px', background: 'var(--color-bg-1)', borderRadius: 10, border: '1px solid var(--color-border-1)', opacity: 0.6 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <Grid3X3 size={16} style={{ color: '#722ED1' }} />
+                      <span style={{ fontSize: 14, fontWeight: 600 }}>网格做T</span>
+                    </div>
+                    <Tag color="gray" size="small">即将推出</Tag>
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--color-text-3)' }}>
+                    震荡市自动高抛低吸，保留底仓。BOLL收口自动激活网格。（Phase 3 开发中）
+                  </div>
+                </div>
+              </div>
             ) : tab === "orchestration" ? (
 
               <>

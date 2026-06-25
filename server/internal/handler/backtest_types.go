@@ -53,6 +53,7 @@ type dcPosition struct {
 	dangerDays  int
 	dangerAccum float64
 	LastReduceDate string
+	HighestPrice   float64 // 持仓期间最高收盘价（移动止盈用）
 }
 
 // dcStockInfo is a minimal stock entry used in scoring/decision universes.

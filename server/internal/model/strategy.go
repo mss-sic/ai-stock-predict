@@ -57,6 +57,11 @@ type Strategy struct {
 	PositionConcentrationLimit float64 `gorm:"default:0.25" json:"positionConcentrationLimit"` // 单票最大仓位占比 (0-1)
 	MaxDailyLoss               float64 `gorm:"default:-0.05" json:"maxDailyLoss"`               // 单日最大亏损比例 (负数)
 
+	// ── Trailing Stop (移动止盈) ──
+	EnableTrailingStop     bool    `gorm:"default:false" json:"enableTrailingStop"`
+	TrailingStopActivation float64 `gorm:"default:15" json:"trailingStopActivation"` // 激活阈值%
+	TrailingStopDrawdown   float64 `gorm:"default:8" json:"trailingStopDrawdown"`     // 回撤%
+
 	// Investment plan
 	InitialCapital  float64 `gorm:"default:100000" json:"initialCapital"` // 初始资金
 	InvestmentType  string  `gorm:"size:10;default:lump" json:"investmentType"` // lump=一次性 / regular=定投

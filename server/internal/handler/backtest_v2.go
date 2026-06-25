@@ -202,7 +202,34 @@ func generateSignalsV2(
 			})
 			continue
 		}
-		if effStopProfit > 0 && chgPct >= effStopProfit {
+		// ── Stop-profit: Trailing Stop vs Fixed ──
+		if s.EnableTrailingStop {
+			// Trailing stop: activate after reaching activation threshold, sell on drawdown
+			activation := s.TrailingStopActivation
+			if activation <= 0 { activation = 15 }
+			drawdownLimit := s.TrailingStopDrawdown
+			if drawdownLimit <= 0 { drawdownLimit = 8 }
+			
+			// Apply style overrides
+			if styleParams.TrailingStopDrawdown != 0 { drawdownLimit = styleParams.TrailingStopDrawdown }
+			
+			highest := pos.HighestPrice
+			if closePrice > highest { highest = closePrice }
+			peakReturn := (highest - pos.BuyPrice) / pos.BuyPrice * 100
+			ddFromPeak := (highest - closePrice) / highest * 100
+			
+			if peakReturn >= activation && ddFromPeak >= drawdownLimit {
+				signals = append(signals, model.BacktestSignal{
+					TaskID: task.ID, StrategyID: task.StrategyID, UserID: task.UserID,
+					SignalDate: date, ExecDate: getNextDate(kcache, date),
+					StockCode: pos.Code, StockName: pos.Name,
+					ActionType: "stop", PlannedPrice: closePrice, PlannedQty: pos.Quantity,
+					PlannedAmount: closePrice * float64(pos.Quantity),
+					Status: "pending",
+					Reason: fmt.Sprintf("移动止盈: 峰值+%.1f%% → 回撤%.1f%% (激活%.0f%%/回撤%.0f%%)", peakReturn, ddFromPeak, activation, drawdownLimit),
+				})
+			}
+		} else if effStopProfit > 0 && chgPct >= effStopProfit {
 			signals = append(signals, model.BacktestSignal{
 				TaskID: task.ID, StrategyID: task.StrategyID, UserID: task.UserID,
 				SignalDate: date, ExecDate: getNextDate(kcache, date),
