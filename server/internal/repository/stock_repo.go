@@ -26,6 +26,18 @@ type StockListRow struct {
 	TradeDate    string  `json:"tradeDate"`
 }
 
+// AppearanceRow represents a stock's appearance frequency in daily top-N rankings.
+type AppearanceRow struct {
+	Code      string  `json:"code"`
+	Name      string  `json:"name"`
+	Industry  string  `json:"industry"`
+	BoardType string  `json:"boardType"`
+	Appear5d  int     `json:"appear5d"`
+	Appear20d int     `json:"appear20d"`
+	Close     float64 `json:"close"`
+	ChgPct    float64 `json:"chgPct"`
+}
+
 // UnusualRow represents a stock with unusual activity.
 type UnusualRow struct {
 	StockListRow
@@ -482,6 +494,49 @@ func (r *StockRepo) GetReports(code string, limit int) ([]model.StockReport, err
 	var rows []model.StockReport
 	err := db.PG.Where("stock_code = ?", code).Order("publish_date DESC").Limit(limit).Find(&rows).Error
 	return rows, err
+}
+
+// GetAppearanceStats returns stocks ranked by how often they appeared in top-N daily gainers.
+// GetAppearanceStats returns stocks ranked by how often they appeared in algorithm picks.
+func (r *StockRepo) GetAppearanceStats(topN, limit int) ([]AppearanceRow, error) {
+	var rows []AppearanceRow
+	// Count how many times each stock appeared in algorithm_pick_details in recent 5/20 trading days.
+	query := fmt.Sprintf(`
+		WITH recent_picks AS (
+			SELECT DISTINCT pick_date FROM algorithm_pick_details
+			ORDER BY pick_date DESC LIMIT 20
+		),
+		counts AS (
+			SELECT apd.stock_code,
+				COUNT(*) FILTER (WHERE apd.pick_date >= (SELECT pick_date FROM recent_picks ORDER BY pick_date DESC OFFSET 4 LIMIT 1)) as appear5d,
+				COUNT(*) FILTER (WHERE apd.pick_date IN (SELECT pick_date FROM recent_picks)) as appear20d
+			FROM algorithm_pick_details apd
+			JOIN recent_picks rp ON apd.pick_date = rp.pick_date
+			GROUP BY apd.stock_code
+			HAVING COUNT(*) > 0
+		),
+		latest_k AS (
+			SELECT DISTINCT ON (code) code, close,
+				COALESCE((close - NULLIF(LAG(close) OVER (PARTITION BY code ORDER BY trade_date),0)) / NULLIF(LAG(close) OVER (PARTITION BY code ORDER BY trade_date),0) * 100, 0) as chg_pct
+			FROM stocks_daily_k WHERE code !~ '^IDX'
+			ORDER BY code, trade_date DESC
+		)
+		SELECT sb.code, sb.name, COALESCE(sb.industry,'') as industry,
+			COALESCE(sb.board_type,'') as board_type,
+			c.appear5d as appear5d, c.appear20d as appear20d,
+			COALESCE(lk.close, 0) as close,
+			COALESCE(lk.chg_pct, 0) as chg_pct
+		FROM counts c
+		JOIN stocks_basic sb ON sb.code = c.stock_code
+		LEFT JOIN latest_k lk ON lk.code = c.stock_code
+		WHERE sb.code !~ '^IDX' AND sb.is_st = false
+		ORDER BY c.appear5d DESC, c.appear20d DESC
+		LIMIT %d
+	`, limit)
+	if err := db.PG.Raw(query).Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	return rows, nil
 }
 
 func (r *StockRepo) GetIndustryReports(industry string, limit int) ([]model.StockReport, error) {

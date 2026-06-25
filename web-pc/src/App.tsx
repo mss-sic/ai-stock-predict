@@ -4,7 +4,7 @@ import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from './services/AuthContext';
 import { fetchIndices, logout as logoutApi, getAccessToken, heartbeat } from './services/api';
 import Logo from './components/Logo';
-import { LayoutDashboard, History, Grid3X3, Layers, Star, Target, Briefcase, ShieldAlert, Database, Search, Settings, LogOut, UserCog, Shield, Sun, Moon, Trophy, TrendingUp } from 'lucide-react';
+import { LayoutDashboard, History, Grid3X3, Layers, Star, Target, Briefcase, ShieldAlert, Database, Search, Settings, LogOut, UserCog, Shield, Sun, Moon, Trophy, TrendingUp, Activity } from 'lucide-react';
 import { useTheme } from './services/ThemeContext';
 import '@arco-design/web-react/dist/css/arco.css';
 import './styles/app.css';
@@ -23,6 +23,8 @@ const navItems = [
   { key: '/holdings', label: '持股管理', icon: Briefcase },
   { key: '/risk', label: '风险监控', icon: ShieldAlert },
   { key: '/sentiment', label: '市场情绪', icon: TrendingUp },
+  { key: "/market-review", label: "市场复盘", icon: Activity },
+
   { key: '/data', label: '数据管理', icon: Database },
   { key: '/settings', label: '系统设置', icon: Settings },
 ];

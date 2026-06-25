@@ -10,6 +10,7 @@ import {
   fetchStocks, fetchMarketSnapshot, fetchStockRanking, fetchUnusualStocks,
   fetchBoardTypeCounts, fetchIndices,
   addToWatchlist, removeFromWatchlist, fetchWatchlist, fetchWatchlistGroups, createWatchlistGroup,
+  fetchAppearanceStats,
 } from '../services/api';
 
 // ── Constants ──
@@ -31,12 +32,18 @@ const VIEW_MODES = [
   { key: 'amount', label: '成交额榜', sortBy: 'amount', asc: false },
   { key: 'turnover', label: '换手率榜', sortBy: 'turnoverRate', asc: false },
   { key: 'unusual', label: '异动监控', sortBy: '', asc: false },
+  { key: 'appearance', label: '上榜频率', sortBy: '', asc: false },
 ];
 
 interface StockRow {
   code: string; name: string; industry: string; boardType: string;
   isST: boolean; close: number; chgPct: number;
   volume: number; amount: number; turnoverRate: number; tradeDate: string;
+}
+
+interface AppearanceRow {
+  code: string; name: string; industry: string; boardType: string;
+  appear5d: number; appear20d: number; close: number; chgPct: number;
 }
 
 interface UnusualRow extends StockRow {
@@ -106,6 +113,7 @@ export default function StockListPage() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [indices, setIndices] = useState<IndexData[]>([]);
   const [unusualStocks, setUnusualStocks] = useState<UnusualRow[]>([]);
+  const [appearanceStocks, setAppearanceStocks] = useState<AppearanceRow[]>([]);
   const [boardCounts, setBoardCounts] = useState<Record<string, number>>({});
 
   // ── Load main data ──
@@ -116,6 +124,12 @@ export default function StockListPage() {
         const res: any = await fetchUnusualStocks({ boardType, limit: 50 });
         const data = res.data?.data || [];
         setUnusualStocks(data);
+        setStocks([]);
+        setTotal(data.length);
+      } else if (viewMode === 'appearance') {
+        const res: any = await fetchAppearanceStats({ topN: 50, limit: 100 });
+        const data = res.data?.data || [];
+        setAppearanceStocks(data);
         setStocks([]);
         setTotal(data.length);
       } else {
@@ -314,7 +328,90 @@ export default function StockListPage() {
     },
   ], [watched, navigate]);
 
-  // Unusual mode extra columns
+  // Appearance mode columns
+  const appearanceColumns = useMemo(() => [
+    {
+      title: '代码', dataIndex: 'code', width: 90, fixed: 'left' as const,
+      render: (v: string) => (
+        <span style={{ fontFamily: "'SF Mono', monospace", fontWeight: 600, fontSize: 12, color: 'var(--color-text-1)' }}>
+          {v}
+        </span>
+      ),
+    },
+    {
+      title: '名称', dataIndex: 'name', width: 120, fixed: 'left' as const,
+      render: (v: string, r: AppearanceRow) => (
+        <span
+          style={{ cursor: 'pointer', color: 'var(--color-primary)', fontWeight: 500, fontSize: 13 }}
+          onClick={() => navigate(`/stock/${r.code}`)}
+        >
+          {v}
+        </span>
+      ),
+    },
+    {
+      title: '近5日上榜', dataIndex: 'appear5d', width: 100,
+      render: (v: number) => (
+        <span style={{
+          display: 'inline-flex', alignItems: 'center', gap: 4,
+          fontFamily: "'SF Mono', monospace", fontWeight: 700, fontSize: 13,
+          color: v >= 3 ? '#f53f3f' : v >= 2 ? '#ff7d00' : 'var(--color-text-1)',
+        }}>
+          <Zap size={12} style={{ color: v >= 3 ? '#f53f3f' : v >= 2 ? '#ff7d00' : 'var(--color-text-3)' }} />
+          {v}次
+        </span>
+      ),
+      sorter: (a: AppearanceRow, b: AppearanceRow) => a.appear5d - b.appear5d,
+    },
+    {
+      title: '近20日上榜', dataIndex: 'appear20d', width: 110,
+      render: (v: number) => (
+        <span style={{
+          display: 'inline-flex', alignItems: 'center', gap: 4,
+          fontFamily: "'SF Mono', monospace", fontWeight: 700, fontSize: 13,
+          color: v >= 8 ? '#f53f3f' : v >= 5 ? '#ff7d00' : 'var(--color-text-1)',
+        }}>
+          <TrendingUp size={12} style={{ color: v >= 8 ? '#f53f3f' : v >= 5 ? '#ff7d00' : 'var(--color-text-3)' }} />
+          {v}次
+        </span>
+      ),
+      sorter: (a: AppearanceRow, b: AppearanceRow) => a.appear20d - b.appear20d,
+    },
+    {
+      title: '现价', dataIndex: 'close', width: 80,
+      render: (v: number) => v ? (
+        <span style={{ fontFamily: "'SF Mono', monospace", fontWeight: 600, fontSize: 12 }}>
+          {v.toFixed(2)}
+        </span>
+      ) : <span className="muted">—</span>,
+    },
+    {
+      title: '涨跌幅', dataIndex: 'chgPct', width: 90,
+      render: (v: number) => {
+        if (v == null || isNaN(v)) return <span className="muted">—</span>;
+        const color = v > 0 ? 'var(--stock-up)' : v < 0 ? 'var(--stock-down)' : 'var(--stock-flat)';
+        const bg = v > 0 ? 'var(--stock-up-soft)' : v < 0 ? 'var(--stock-down-soft)' : 'transparent';
+        const Icon = v > 0 ? ArrowUp : v < 0 ? ArrowDown : Minus;
+        return (
+          <span style={{
+            display: 'inline-flex', alignItems: 'center', gap: 2,
+            color, background: bg, borderRadius: 4, padding: '1px 6px',
+            fontFamily: "'SF Mono', monospace", fontWeight: 600, fontSize: 12,
+          }}>
+            <Icon size={11} />{formatPct(v)}
+          </span>
+        );
+      },
+    },
+    {
+      title: '行业', dataIndex: 'industry', width: 100,
+      render: (v: string) => v ? (
+        <Tag size="small" style={{ background: 'var(--color-fill-2)', border: 'none', fontSize: 11 }}>{v}</Tag>
+      ) : <span className="muted">—</span>,
+    },
+  ], [navigate]);
+
+  // // Unusual mode extra columns
   const unusualColumns = useMemo(() => [
     ...columns.slice(0, 5),
     {
@@ -569,13 +666,17 @@ export default function StockListPage() {
                   <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
                     <Zap size={11} />{m.label}
                   </span>
+                ) : m.key === 'appearance' ? (
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                    <TrendingUp size={11} />{m.label}
+                  </span>
                 ) : m.label}
               </div>
             ))}
           </div>
 
           <span style={{ flex: 1 }} />
-          {viewMode !== 'unusual' && (
+          {(viewMode !== 'unusual' && viewMode !== 'appearance') && (
             <Pagination
               current={page} total={total} pageSize={PAGE_SIZE} size="small" simple
               onChange={(p) => setPage(p)}
@@ -587,6 +688,23 @@ export default function StockListPage() {
         <div style={{ padding: 0 }}>
           {loading ? (
             <div style={{ padding: 40, textAlign: 'center' }}><Spin /></div>
+          ) : viewMode === 'appearance' ? (
+            appearanceStocks.length === 0 ? (
+              <div style={{ padding: 40, textAlign: 'center', color: 'var(--color-text-3)' }}>
+                <BarChart3 size={32} style={{ marginBottom: 8 }} />
+                <div>近20日无上榜记录</div>
+              </div>
+            ) : (
+              <Table
+                data={appearanceStocks} columns={appearanceColumns} rowKey="code"
+                loading={false} pagination={false} border={false} stripe
+                size="small" scroll={{ x: 780 }}
+                onRow={(r) => ({
+                  style: { cursor: 'pointer' },
+                  onDoubleClick: () => navigate(`/stock/${r.code}`),
+                })}
+              />
+            )
           ) : viewMode === 'unusual' ? (
             unusualStocks.length === 0 ? (
               <div style={{ padding: 40, textAlign: 'center', color: 'var(--color-text-3)' }}>
@@ -616,7 +734,7 @@ export default function StockListPage() {
             />
           )}
         </div>
-        {viewMode !== 'unusual' && (
+        {(viewMode !== 'unusual' && viewMode !== 'appearance') && (
           <div style={{ padding: '10px 16px', display: 'flex', justifyContent: 'flex-end' }}>
             <Pagination current={page} total={total} pageSize={PAGE_SIZE}
               onChange={(p) => setPage(p)} showTotal size="small" />

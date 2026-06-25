@@ -153,6 +153,13 @@ export const fetchMarketSnapshot = () => api.get("/stocks/market-snapshot");
 export const fetchStockRanking = (params?: any) => api.get("/stocks/ranking", { params });
 
 // Unusual activity
+export const fetchAppearanceStats = (params?: any) => api.get("/stocks/appearance-stats", { params });
+
+// Market Style
+export const fetchMarketStyleCurve = (params?: any) => api.get("/market/style-curve", { params });
+export const fetchMarketDailyReview = (params?: any) => api.get("/market/daily-review", { params });
+export const fetchMarketLatestStyle = () => api.get("/market/latest-style");
+
 export const fetchUnusualStocks = (params?: any) => api.get("/stocks/unusual", { params });
 
 // Board type counts

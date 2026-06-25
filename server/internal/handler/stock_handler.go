@@ -229,6 +229,31 @@ func GetDataDetail(c *gin.Context) {
 	response.Success(c, results)
 }
 
+
+// AppearanceStats returns stocks ranked by how often they appeared in top-N daily gainers.
+func (h *StockHandler) AppearanceStats(c *gin.Context) {
+	topNStr := c.DefaultQuery("topN", "50")
+	limitStr := c.DefaultQuery("limit", "100")
+
+	topN, err := strconv.Atoi(topNStr)
+	if err != nil || topN < 10 || topN > 200 {
+		topN = 50
+	}
+	limit, err := strconv.Atoi(limitStr)
+	if err != nil || limit < 1 || limit > 200 {
+		limit = 100
+	}
+
+	rows, err := h.svc.GetAppearanceStats(topN, limit)
+	if err != nil {
+		response.InternalError(c, "获取上榜统计失败: "+err.Error())
+		return
+	}
+	if rows == nil {
+		rows = []repository.AppearanceRow{}
+	}
+	response.Success(c, rows)
+}
 // RepairKLine triggers full data repair for a stock (async).
 func (h *StockHandler) RepairKLine(c *gin.Context) {
 	code := c.Param("code")

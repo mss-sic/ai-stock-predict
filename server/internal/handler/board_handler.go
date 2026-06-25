@@ -18,11 +18,12 @@ import (
 var boardDataCache = cache.NewBoardCache(30 * time.Second)
 
 type BoardHandler struct {
-	repo *repository.BoardRepo
+	repo         *repository.BoardRepo
+	conceptCache *cache.BoardCache
 }
 
 func NewBoardHandler() *BoardHandler {
-	return &BoardHandler{repo: &repository.BoardRepo{}}
+	return &BoardHandler{repo: &repository.BoardRepo{}, conceptCache: cache.NewBoardCache(5 * time.Minute)}
 }
 
 // Internal row types for parallel queries
@@ -503,8 +504,18 @@ func (h *BoardHandler) ConceptBoardStocks(c *gin.Context) {
 	response.Success(c, respData)
 }
 
-// ConceptHeatmap returns heatmap data for concept boards
+// ConceptHeatmap returns heatmap data for concept boards (cached 5min)
 func (h *BoardHandler) ConceptHeatmap(c *gin.Context) {
+	// Get latest trade date for cache key
+	var latestDate string
+	db.PG.Raw("SELECT TO_CHAR(MAX(trade_date),'YYYY-MM-DD') FROM stocks_daily_k WHERE code !~ '^IDX'").Scan(&latestDate)
+
+	// Check cache
+	if cached, _, ok := h.conceptCache.Get(latestDate); ok {
+		response.Success(c, cached)
+		return
+	}
+
 	var items []model.ConceptHeatmapItem
 	
 	rows, err := db.PG.Raw(`
@@ -543,6 +554,7 @@ func (h *BoardHandler) ConceptHeatmap(c *gin.Context) {
 		}
 	}
 	
+	h.conceptCache.Set(items, latestDate)
 	response.Success(c, items)
 }
 

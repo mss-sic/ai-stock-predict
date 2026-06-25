@@ -79,6 +79,10 @@ func (s *StockService) GetReports(code string, limit int) ([]model.StockReport, 
 	return s.repo.GetReports(code, limit)
 }
 
+
+func (s *StockService) GetAppearanceStats(topN, limit int) ([]repository.AppearanceRow, error) {
+	return s.repo.GetAppearanceStats(topN, limit)
+}
 func (s *StockService) GetIndustryReports(industry string, limit int) ([]model.StockReport, error) {
 	return s.repo.GetIndustryReports(industry, limit)
 }

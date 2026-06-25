@@ -27,6 +27,18 @@ var IndicatorRegistry = map[string]*IndicatorMeta{
 		Desc: "该股票在榜单连续出现的交易日数", BacktestSafe: true, DataNote: "依赖榜单数据覆盖",
 		Suggestion: "买入建议 ≥ 3 天，连续上榜说明持续受关注", UseFor: "buy", DataSource: "algorithm_pick_details",
 	},
+	"pick_count_5d": {
+		Key: "pick_count_5d", Label: "近5日上榜次数", Category: "榜单与评分", Unit: "次数", Type: "number",
+		Operators: []string{"gte", "lte", "gt", "lt", "eq"},
+		Desc: "最近5个交易日出现在算法选股榜单的次数（不要求连续）", BacktestSafe: true, DataNote: "依赖算法榜单数据覆盖",
+		Suggestion: "买入建议 ≥ 2 次，频繁上榜说明算法持续看好", UseFor: "buy", DataSource: "algorithm_pick_details",
+	},
+	"pick_count_20d": {
+		Key: "pick_count_20d", Label: "近20日上榜次数", Category: "榜单与评分", Unit: "次数", Type: "number",
+		Operators: []string{"gte", "lte", "gt", "lt", "eq"},
+		Desc: "最近20个交易日出现在算法选股榜单的次数（不要求连续）", BacktestSafe: true, DataNote: "依赖算法榜单数据覆盖",
+		Suggestion: "买入建议 ≥ 5 次，中期持续被算法选中", UseFor: "buy", DataSource: "algorithm_pick_details",
+	},
 	"algo_score": {
 		Key: "algo_score", Label: "算法评分", Category: "榜单与评分", Unit: "分", Type: "number",
 		Operators: []string{"gte", "lte", "gt", "lt", "eq"},

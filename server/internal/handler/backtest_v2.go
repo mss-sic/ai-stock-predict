@@ -65,7 +65,7 @@ func generateSignalsV2(
 	getNextDate func(*KlineCache, string) string,
 	evalConds func([]model.StrategyCondition, string, string) bool,
 	conceptCache *ConceptRankCache,
-	styleEngine *MarketStyleEngine,
+	styleEngine *service.MarketStyleService,
 ) []model.BacktestSignal {
 	enterTime := time.Now()
 	log.Printf("[backtest_v2] ENTER date=%s mode=%s buyConds=%d sellConds=%d addConds=%d reduceConds=%d universe=%d positions=%d cash=%.0f isLast=%v",
@@ -101,7 +101,7 @@ func generateSignalsV2(
 
 	// ── Market Style Routing v4 ──
 	marketStyle := styleEngine.DetectStyle(date)
-	styleParams := styleEngine.GetStyleParams(date)
+	styleParams := service.DefaultStyleParams(marketStyle)
 
 	// Apply style parameter overrides
 	buyPct = styleParams.BuyPct
@@ -118,7 +118,7 @@ func generateSignalsV2(
 	insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, 9,
 		"system", "info", "", "",
 		fmt.Sprintf("▸ 市场风格: %s | buyPct=%.0f%% logic=%s allowBuy=%v allowAdd=%v conceptPool=%.0f%%",
-			styleName(marketStyle), buyPct, styleBuyLogic, styleAllowBuy, styleAllowAdd, conceptTopPct*100), nil)
+			service.StyleNames[marketStyle], buyPct, styleBuyLogic, styleAllowBuy, styleAllowAdd, conceptTopPct*100), nil)
 
 	// ── Build V2 engines ──
 	var scoringEng *ScoringEngine
@@ -421,7 +421,7 @@ func generateSignalsV2(
 		log.Printf("[backtest_v2] STYLE_SKIP_BUY date=%s style=%s: buy disabled", date, marketStyle)
 		insertBacktestLog(task.ID, task.StrategyID, task.UserID, date, 16,
 			"system", "warn", "", "",
-			fmt.Sprintf("▸ 市场风格禁止买入: %s", styleName(marketStyle)), nil)
+			fmt.Sprintf("▸ 市场风格禁止买入: %s", service.StyleNames[marketStyle]), nil)
 		goto skipBuys
 	}
 	if policy != nil && !policy.AllowBuy {

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button, Input, InputNumber, Modal, Table, Select, Popconfirm, Tooltip, DatePicker, Message, Tag } from '@arco-design/web-react';
-import { Target, Plus, Trash2, GripVertical, Play, Brain, BarChart4, Shield, Settings, Sparkles, Beaker, Gauge, Factory, Layers, SlidersHorizontal, Search, CheckCircle, AlertTriangle, ScrollText, TrendingUp, TrendingDown, Grid3X3, DollarSign, ChevronDown, ChevronRight } from 'lucide-react';
+import { Target, Plus, Trash2, GripVertical, Play, Brain, BarChart4, Shield, Settings, Sparkles, Beaker, Gauge, Factory, Layers, SlidersHorizontal, Search, CheckCircle, AlertTriangle, ScrollText, TrendingUp, TrendingDown, Grid3X3, DollarSign, ChevronDown, ChevronRight, Activity } from 'lucide-react';
 import {
   fetchStrategies, createStrategy, updateStrategy, deleteStrategy, reorderStrategies,
   fetchStrategyConditions, saveStrategyConditions, aiGenerateStrategy, optimizePrompt,
@@ -1466,13 +1466,44 @@ export default function StrategyPage() {
                       );
                     })()}
 
-                    {/* Rules visualization */}
-                    <div style={{ padding: '10px 14px', background: 'var(--color-fill-1)', borderRadius: 8, fontSize: 11, lineHeight: 1.8, color: 'var(--color-text-2)' }}>
-                      <div style={{ marginBottom: 4, fontWeight: 600, fontSize: 12 }}>当前决策规则</div>
-                      <div>🟢 综合分 ≥ {orchConfig.aggressiveThreshold ?? 1.5} → <b>进攻模式</b>（全仓，可加仓）</div>
-                      <div>🟡 综合分 ≥ {orchConfig.defensiveThreshold ?? 0} → <b>防御模式</b>（半仓，不加仓）</div>
-                      <div>🔴 综合分 ≥ {orchConfig.marketCompositeMin ?? -2} → <b>空仓模式</b>（仅平仓止损）</div>
-                      <div>⚫ 综合分 &lt; {orchConfig.marketCompositeMin ?? -2} → <b>熔断</b>（强制清仓）</div>
+                    {/* Rules visualization — scenario-based */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      <div style={{ padding: '10px 14px', borderRadius: 8, background: '#00B42A10', border: '1px solid #00B42A25', fontSize: 11, lineHeight: 1.6 }}>
+                        <div style={{ fontWeight: 700, fontSize: 12, color: '#00B42A', marginBottom: 2 }}>🟢 市场好时</div>
+                        <div style={{ color: 'var(--color-text-2)' }}>
+                          综合分 ≥ <b style={{ fontFamily: "'SF Mono',monospace" }}>{orchConfig.aggressiveThreshold ?? 1.5}</b> →
+                          <b style={{ color: '#00B42A' }}>全仓进攻</b>
+                          · 单票最多买 <b>20%</b> · <b>可以加仓</b>
+                        </div>
+                        <div style={{ color: 'var(--color-text-4)', marginTop: 2 }}>适合：牛市普涨、温和上涨行情</div>
+                      </div>
+                      <div style={{ padding: '10px 14px', borderRadius: 8, background: '#F7BA1E10', border: '1px solid #F7BA1E25', fontSize: 11, lineHeight: 1.6 }}>
+                        <div style={{ fontWeight: 700, fontSize: 12, color: '#F7BA1E', marginBottom: 2 }}>🟡 市场一般时</div>
+                        <div style={{ color: 'var(--color-text-2)' }}>
+                          综合分 ≥ <b style={{ fontFamily: "'SF Mono',monospace" }}>{orchConfig.defensiveThreshold ?? 0}</b> →
+                          <b style={{ color: '#F7BA1E' }}>半仓防御</b>
+                          · 单票最多买 <b>10%</b> · <b>不加仓</b>
+                        </div>
+                        <div style={{ color: 'var(--color-text-4)', marginTop: 2 }}>适合：结构分化、震荡轮动行情</div>
+                      </div>
+                      <div style={{ padding: '10px 14px', borderRadius: 8, background: '#F53F3F10', border: '1px solid #F53F3F25', fontSize: 11, lineHeight: 1.6 }}>
+                        <div style={{ fontWeight: 700, fontSize: 12, color: '#F53F3F', marginBottom: 2 }}>🔴 市场不好时</div>
+                        <div style={{ color: 'var(--color-text-2)' }}>
+                          综合分 ≥ <b style={{ fontFamily: "'SF Mono',monospace" }}>{orchConfig.marketCompositeMin ?? -2}</b> →
+                          <b style={{ color: '#F53F3F' }}>空仓观望</b>
+                          · <b>不买新股</b> · 只平仓止损
+                        </div>
+                        <div style={{ color: 'var(--color-text-4)', marginTop: 2 }}>适合：熊市下跌、底部磨底行情</div>
+                      </div>
+                      <div style={{ padding: '10px 14px', borderRadius: 8, background: '#1A1A1A10', border: '1px solid #1A1A1A25', fontSize: 11, lineHeight: 1.6 }}>
+                        <div style={{ fontWeight: 700, fontSize: 12, color: '#1A1A1A', marginBottom: 2 }}>⚫ 极端行情</div>
+                        <div style={{ color: 'var(--color-text-2)' }}>
+                          综合分 &lt; <b style={{ fontFamily: "'SF Mono',monospace" }}>{orchConfig.marketCompositeMin ?? -2}</b> →
+                          <b style={{ color: '#1A1A1A' }}>强制清仓</b>
+                          · <b>全部卖出</b> · 保护本金
+                        </div>
+                        <div style={{ color: 'var(--color-text-4)', marginTop: 2 }}>适合：恐慌暴跌行情</div>
+                      </div>
                     </div>
                   </div>
 
@@ -1495,6 +1526,19 @@ export default function StrategyPage() {
                   </div>
 
                   {/* ── 高级参数 (折叠) ── */}
+                  {/* Market review link */}
+                  <a href="/market-review" style={{
+                    display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px',
+                    background: 'linear-gradient(135deg, #FF7D0010, #F7BA1E10)',
+                    borderRadius: 8, border: '1px solid #FF7D0020',
+                    textDecoration: 'none', color: 'var(--color-text-2)', fontSize: 12,
+                    marginBottom: 0,
+                  }}>
+                    <Activity size={14} style={{ color: '#FF7D00' }} />
+                    <span>📊 查看全市场复盘 →</span>
+                    <span style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--color-text-4)' }}>风格曲线 · 结构性分析 · 每日复盘</span>
+                  </a>
+
                   <div style={{ padding: '14px 18px', background: 'var(--color-bg-1)', borderRadius: 10, border: '1px solid var(--color-border-1)' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }} onClick={() => setShowAdvanced(!showAdvanced)}>
                       {showAdvanced ? <ChevronDown size={14} /> : <ChevronRight size={14} />}

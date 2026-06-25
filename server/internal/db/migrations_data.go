@@ -922,6 +922,41 @@ Register(Migration{
     },
 })
 
+
+// v034: market_style_daily table for daily market style classification and review
+Register(Migration{
+    Version:     34,
+    Description: "PG: market_style_daily table with style classification, structural analysis, and review data",
+    Up: func() error {
+        safeExec(`CREATE TABLE IF NOT EXISTS market_style_daily (
+            trade_date        DATE PRIMARY KEY,
+            style             VARCHAR(20) NOT NULL,
+            style_confidence  NUMERIC(5,2) DEFAULT 0,
+            composite_score   NUMERIC(5,2),
+            up_ratio          NUMERIC(5,4),
+            sector_diffusion  NUMERIC(5,4),
+            volatility        NUMERIC(5,4),
+            score_trend       NUMERIC(7,4),
+            northbound_net    NUMERIC(12,2),
+            total_amount      NUMERIC(20,2),
+            limit_up_count    INT,
+            limit_down_count  INT,
+            ma20_above        INT,
+            n52_high          INT,
+            n60_low           INT,
+            style_duration    INT DEFAULT 0,
+            transition_signal VARCHAR(20),
+            top_sectors       JSONB,
+            top_concepts      JSONB,
+            analysis_summary  TEXT,
+            created_at        TIMESTAMPTZ DEFAULT now()
+        )`)
+        safeExec(`CREATE INDEX IF NOT EXISTS idx_market_style_date ON market_style_daily(trade_date)`)
+        safeExec(`CREATE INDEX IF NOT EXISTS idx_market_style_name ON market_style_daily(style)`)
+        return nil
+    },
+})
+
 log.Printf("[migrate] registered %d migrations", len(migrations))
 
 

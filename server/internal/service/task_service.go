@@ -33,6 +33,11 @@ var DefaultTasks = []struct {
 	{"股东全量回填", "backfill_shareholder", "0 0 4 1 * *"}, // monthly 1st
 	{"PE/PB历史回填", "backfill_indicator", "0 0 5 1 * *"}, // monthly 1st
 	{"风险扫描", "risk_scan", "0 5 * * * *"},             // hourly at :05
+{"市场日聚合", "market_daily_agg", "40 0 16 * * *"},     // daily 16:00
+{"市场情绪计算", "market_sentiment", "10 0 17 * * *"},   // daily 17:00
+{"市场风格计算", "market_style", "0 30 17 * * *"},       // daily 17:30
+{"AI评分更新", "ai_score", "0 0 20 * * 0"},             // weekly Sun 20:00
+
 }
 
 type TaskManager struct {
@@ -145,9 +150,23 @@ func (tm *TaskManager) executeTask(taskID uint, phase, name string) {
 	if phase == "risk_scan" {
 		count, err := ScanUserHoldings()
 		finishTaskLog(&logEntry, count, 0, 0, err)
+	} else if phase == "market_style" {
+		// Market style computation — direct Go service call
+		svc := NewMarketStyleService()
+		date := time.Now().Format("2006-01-02")
+		err := svc.ComputeAndStore(date)
+		count := 1
+		if err != nil {
+			count = 0
+		}
+		finishTaskLog(&logEntry, count, 0, 0, err)
 	} else {
-		// Run collector phase
-		phases := []string{phase}
+		// Run collector phase (Python scripts: kline, indicator, market_sentiment, market_daily_agg, etc.)
+		phaseName := phase
+		if phase == "ai_score" {
+			phaseName = "score" // ai_score maps to score phase
+		}
+		phases := []string{phaseName}
 		collector.RunManualCollection(phases)
 
 		// Collect results
@@ -213,16 +232,29 @@ func finishTaskLog(logEntry *model.TaskLog, totalNew, totalSkip, totalErr int, e
 	db.MySQL.Model(&model.TaskLog{}).Where("id = ?", logEntry.ID).Updates(updates)
 }
 
-// InitializeDefaultTasks creates default tasks if none exist
+// InitializeDefaultTasks creates missing default tasks (checks by name, safe for incremental runs)
 func InitializeDefaultTasks() (int, error) {
-	var count int64
-	db.MySQL.Model(&model.ScheduledTask{}).Count(&count)
-	if count > 0 {
-		return 0, nil
-	}
-
 	created := 0
 	for _, dt := range DefaultTasks {
+		var existing model.ScheduledTask
+		err := db.MySQL.Where("name = ?", dt.Name).First(&existing).Error
+		if err == nil {
+			// Already exists — update cron/phase if changed
+			updated := false
+			if existing.Phase != dt.Phase {
+				existing.Phase = dt.Phase
+				updated = true
+			}
+			if existing.CronExpr != dt.CronExpr {
+				existing.CronExpr = dt.CronExpr
+				updated = true
+			}
+			if updated {
+				db.MySQL.Save(&existing)
+				GetTaskManager().ScheduleTask(&existing)
+			}
+			continue
+		}
 		task := model.ScheduledTask{
 			Name:     dt.Name,
 			Phase:    dt.Phase,

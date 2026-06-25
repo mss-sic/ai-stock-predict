@@ -25,6 +25,8 @@ import PkListPage from './pages/PkListPage';
 import PkDetailPage from './pages/PkDetailPage';
 import PkAdminPage from './pages/PkAdminPage';
 import BacktestDetailPage from "./pages/BacktestDetailPage";
+import MarketStylePage from "./pages/MarketStylePage";
+
 import PkEntryDetailPage from './pages/PkEntryDetailPage';
 
 function ErrorBoundary() {
@@ -89,6 +91,8 @@ const router = createBrowserRouter([
           { path: 'holdings', element: <HoldingsPage /> },
           { path: 'risk', element: <RiskPage /> },
           { path: 'sentiment', element: <SentimentDashboard /> },
+          { path: "market-review", element: <MarketStylePage /> },
+
           { path: 'data', element: <DataManagementPage /> },
           { path: 'settings', element: <SettingsPage /> },
           { path: "profile", element: <PersonalSettingsPage /> },

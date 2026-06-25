@@ -403,6 +403,12 @@ func RunManualCollection(phases []string) {
 	if shouldRun("concept") {
 		appendResult(runConceptPhase())
 	}
+	if shouldRun("market_daily_agg") {
+		appendResult(runMarketDailyAggPhase())
+	}
+	if shouldRun("market_sentiment") {
+		appendResult(runMarketSentimentPhase())
+	}
 	if shouldRun("profile") {
 		appendResult(runProfilePhase())
 	}
@@ -730,6 +736,40 @@ func runReportsPhase() PhaseResult {
 		DurationMs: time.Since(t0).Milliseconds(),
 	}
 	sseSend(SSELine{Type: "result", Phase: "reports", Result: &phaseRes, Level: "success", Message: fmt.Sprintf("研报: %d 篇 (新增 %d)", after, phaseRes.New)})
+	return phaseRes
+}
+
+func runMarketDailyAggPhase() PhaseResult {
+	setPhase("market_daily_agg", "市场日聚合...")
+	sseSend(SSELine{Type: "phase", Phase: "market_daily_agg", Message: "开始计算市场日聚合数据（涨跌比、成交额、MA20站上数等）...", Level: "info"})
+	t0 := time.Now()
+	var before int64
+	db.PG.Raw("SELECT COUNT(*) FROM market_daily_agg").Scan(&before)
+	runPythonStreamWithArgs("precompute_aggs.py", "--last", "60")
+	phaseRes := PhaseResult{Phase: "market_daily_agg", Skipped: int(before)}
+	var after int64
+	db.PG.Raw("SELECT COUNT(*) FROM market_daily_agg").Scan(&after)
+	phaseRes.Total = int(after)
+	phaseRes.New = int(after - before)
+	phaseRes.DurationMs = time.Since(t0).Milliseconds()
+	sseSend(SSELine{Type: "result", Phase: "market_daily_agg", Result: &phaseRes, Level: "success", Message: fmt.Sprintf("市场日聚合: %d 天 (%+d)", after, after-before)})
+	return phaseRes
+}
+
+func runMarketSentimentPhase() PhaseResult {
+	setPhase("market_sentiment", "市场情绪计算...")
+	sseSend(SSELine{Type: "phase", Phase: "market_sentiment", Message: "开始计算市场情绪指数（11项子指标）...", Level: "info"})
+	t0 := time.Now()
+	var before int64
+	db.PG.Raw("SELECT COUNT(*) FROM market_sentiment").Scan(&before)
+	runPythonStreamWithArgs("compute_sentiment.py", "--last", "60")
+	phaseRes := PhaseResult{Phase: "market_sentiment", Skipped: int(before)}
+	var after int64
+	db.PG.Raw("SELECT COUNT(*) FROM market_sentiment").Scan(&after)
+	phaseRes.Total = int(after)
+	phaseRes.New = int(after - before)
+	phaseRes.DurationMs = time.Since(t0).Milliseconds()
+	sseSend(SSELine{Type: "result", Phase: "market_sentiment", Result: &phaseRes, Level: "success", Message: fmt.Sprintf("市场情绪: %d 天 (%+d)", after, after-before)})
 	return phaseRes
 }
 

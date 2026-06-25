@@ -2338,6 +2338,44 @@ func preloadStreakCounts(codes []string, startDate, endDate string) map[string]m
 	return result
 }
 
+// preloadPickCounts batch-loads pick counts for all codes over the date range.
+func preloadPickCounts(codes []string, startDate, endDate string) map[string]map[int]float64 {
+	result := make(map[string]map[int]float64)
+	if len(codes) == 0 {
+		return result
+	}
+	for _, c := range codes {
+		result[c] = make(map[int]float64)
+	}
+
+	type pickRow struct {
+		StockCode string
+		PickDate  string
+	}
+	var rows []pickRow
+	if err := db.PG.Raw(`
+		SELECT apd.stock_code, apd.pick_date::text
+		FROM algorithm_pick_details apd
+		JOIN algorithm_picks ap ON ap.pick_date = apd.pick_date
+		WHERE apd.stock_code = ANY(?) AND apd.pick_date >= ?::date AND apd.pick_date <= ?::date
+		ORDER BY apd.stock_code, apd.pick_date DESC
+	`, codes, startDate, endDate).Scan(&rows).Error; err != nil {
+		log.Printf("[pick_count] batch preload failed: %v", err)
+		return result
+	}
+
+	// Count appearances in 5d and 20d windows for each stock
+	for _, r := range rows {
+		if result[r.StockCode] == nil {
+			result[r.StockCode] = make(map[int]float64)
+		}
+		result[r.StockCode][5]++
+		result[r.StockCode][20]++
+	}
+	log.Printf("[pick_count] preloaded %d pick-dates for %d codes", len(rows), len(codes))
+	return result
+}
+
 // preloadConceptRanks precomputes concept daily performance rankings.
 func preloadConceptRanks(codes []string, startDate, endDate string) *ConceptRankCache {
     crc := &ConceptRankCache{
@@ -2775,7 +2813,7 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 	conceptCache := preloadConceptRanks(universeCodes, startDate, endDate)
 
 	// Create market style engine (cached across days)
-	styleEngine := NewMarketStyleEngine()
+	styleEngine := service.NewMarketStyleService()
 
 	// Local evaluateSingleCondition that uses the preloaded cache
 	evalSingle := func(cond model.StrategyCondition, code, date string) bool {
@@ -4428,6 +4466,10 @@ func getValueExample(m *IndicatorMeta) string {
 		return "6"
 	case "streak_count":
 		return "3"
+	case "pick_count_5d":
+		return "2"
+	case "pick_count_20d":
+		return "5"
 	case "signal_value":
 		return "0.5"
 	case "daily_change":
@@ -4569,8 +4611,10 @@ func getValueRange(key string) (*float64, *float64, bool) {
 		return f(0), f(10), true
 	case "turnover_rate":
 		return f(0), f(50), true
-	case "streak_count":
-		return f(0), f(30), true
+	case "streak_count", "pick_count_5d":
+		return f(0), f(20), true
+	case "pick_count_20d":
+		return f(0), f(60), true
 	case "signal_value":
 		return f(-1), f(1), true
 	case "daily_change":
@@ -4753,6 +4797,10 @@ func getIndicatorValue(cond model.StrategyCondition, code, date string) float64 
 	// ── 榜单与评分 ──
 	case "streak_count":
 		return getStreakCount(code, date)
+	case "pick_count_5d":
+		return getPickCount(code, date, 5)
+	case "pick_count_20d":
+		return getPickCount(code, date, 20)
 	case "algo_score":
 		var score float64
 		db.PG.Raw("SELECT COALESCE(score,0) FROM algorithm_pick_details WHERE stock_code = ? AND pick_date = ?", code, date).Scan(&score)
@@ -4965,6 +5013,24 @@ func getIndicatorValue(cond model.StrategyCondition, code, date string) float64 
 // ═══════════════════════════════════════════════════════════════
 // 通用辅助函数
 // ═══════════════════════════════════════════════════════════════
+
+// getPickCount returns how many of the last N pick-dates the stock appeared in.
+func getPickCount(code, date string, days int) float64 {
+	var count int
+	db.PG.Raw(`
+		WITH recent_pick_dates AS (
+			SELECT DISTINCT pick_date FROM algorithm_pick_details
+			WHERE pick_date <= ?::date
+			ORDER BY pick_date DESC
+			LIMIT ?
+		)
+		SELECT COUNT(DISTINCT apd.pick_date)
+		FROM algorithm_pick_details apd
+		JOIN recent_pick_dates rpd ON apd.pick_date = rpd.pick_date
+		WHERE apd.stock_code = ?
+	`, date, days, code).Scan(&count)
+	return float64(count)
+}
 
 func getStreakCount(code, date string) float64 {
 	// Count consecutive trading days the stock appeared in algorithm picks

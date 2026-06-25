@@ -125,6 +125,7 @@ func main() {
 		api.GET("/stocks/market-snapshot", stockH.MarketSnapshot)
 		api.GET("/stocks/ranking", stockH.Ranking)
 		api.GET("/stocks/unusual", stockH.Unusual)
+		api.GET("/stocks/appearance-stats", stockH.AppearanceStats)
 		api.GET("/stocks/board-type-counts", stockH.BoardTypeCounts)
 		api.GET("/stocks/:code", stockH.GetDetail)
 		api.GET("/stocks/:code/kline", stockH.GetKLine)
@@ -139,6 +140,16 @@ func main() {
 		api.GET("/reports/pdf", handler.ServeReportPDF)
 
 		// Board
+
+		// Market Style
+		marketH := handler.NewMarketStyleHandler()
+		api.GET("/market/style-curve", marketH.GetStyleCurve)
+		api.GET("/market/daily-review", marketH.GetDailyReview)
+		api.GET("/market/latest-style", marketH.GetLatestStyle)
+		api.POST("/market/compute-style", marketH.ComputeStyle)
+		api.POST("/market/bulk-compute", marketH.BulkCompute)
+
+
 		boardH := handler.NewBoardHandler()
 		api.GET("/board/today", boardH.Today)
 		api.GET("/board/dates", boardH.Dates)
