@@ -493,8 +493,8 @@ func (h *BoardHandler) ConceptBoardStocks(c *gin.Context) {
 		AIScore    float64 `json:"aiScore"`
 		PickRank   int     `json:"pickRank"`
 		PickScore  float64 `json:"pickScore"`
-		Pick5Day   int     `json:"pick5Day"`
-		Pick20Day  int     `json:"pick20Day"`
+		Pick5d    int     `json:"pick5Day"`
+		Pick20d   int     `json:"pick20Day"`
 		TodayPick  bool    `json:"todayPick"`
 		RiskLevel  string  `json:"riskLevel"`
 	}
@@ -507,8 +507,8 @@ func (h *BoardHandler) ConceptBoardStocks(c *gin.Context) {
 		),
 		pick_freq AS (
 			SELECT stock_code,
-				COUNT(*) FILTER (WHERE pick_date >= (SELECT MAX(pick_date) FROM algorithm_pick_details) - INTERVAL '5 days') as pick_5d,
-				COUNT(*) FILTER (WHERE pick_date >= (SELECT MAX(pick_date) FROM algorithm_pick_details) - INTERVAL '20 days') as pick_20d
+				COUNT(*) FILTER (WHERE pick_date >= (SELECT MAX(pick_date) FROM algorithm_pick_details) - INTERVAL '5 days') as pick5d,
+				COUNT(*) FILTER (WHERE pick_date >= (SELECT MAX(pick_date) FROM algorithm_pick_details) - INTERVAL '20 days') as pick20d
 			FROM algorithm_pick_details
 			WHERE stock_code IN (SELECT code FROM stock_concepts WHERE concept_code = ?)
 			GROUP BY stock_code
@@ -520,8 +520,8 @@ func (h *BoardHandler) ConceptBoardStocks(c *gin.Context) {
 			COALESCE(ai.composite_score, 0) as ai_score,
 			COALESCE(lp.rank, 0) as pick_rank,
 			COALESCE(lp.score, 0) as pick_score,
-			COALESCE(pf.pick_5d, 0) as pick_5d,
-			COALESCE(pf.pick_20d, 0) as pick_20d,
+			COALESCE(pf.pick5d, 0) as pick5d,
+			COALESCE(pf.pick20d, 0) as pick20d,
 			CASE WHEN lp.stock_code IS NOT NULL THEN true ELSE false END as today_pick,
 			COALESCE(lp.risk_level, '') as risk_level
 		FROM stock_concepts sc
