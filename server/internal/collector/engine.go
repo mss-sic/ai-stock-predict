@@ -407,6 +407,9 @@ func RunManualCollection(phases []string, extraArgs ...string) {
 	if shouldRun("concept") {
 		appendResult(runConceptPhase())
 	}
+	if shouldRun("concept_full") {
+		appendResult(runConceptFullPhase())
+	}
 	if shouldRun("market_daily_agg") {
 		appendResult(runMarketDailyAggPhase())
 	}
@@ -475,6 +478,25 @@ func runConceptPhase() PhaseResult {
 	phaseRes := PhaseResult{Phase: "concept", Total: int(after), New: int(after - before)}
 	phaseRes.DurationMs = time.Since(t0).Milliseconds()
 	sseSend(SSELine{Type: "result", Phase: "concept", Result: &phaseRes, Level: "success", Message: fmt.Sprintf("概念板块: %d 条关联", after)})
+	return phaseRes
+}
+
+func runConceptFullPhase() PhaseResult {
+	setPhase("concept_full", "概念板块全量重建...")
+	sseSend(SSELine{Type: "phase", Phase: "concept_full", Message: "开始全量重建概念板块数据（股票→概念反向采集,预计30分钟）...", Level: "info"})
+	t0 := time.Now()
+	var before int64
+	db.PG.Model(&model.StockConcept{}).Where("concept_type = ?", "concept").Count(&before)
+	if err := CollectConceptsFull(); err != nil {
+		phaseRes := PhaseResult{Phase: "concept_full", Errors: 1}
+		phaseRes.DurationMs = time.Since(t0).Milliseconds()
+		sseSend(SSELine{Type: "result", Phase: "concept_full", Result: &phaseRes, Level: "error", Message: fmt.Sprintf("全量重建失败: %v", err)})
+		return phaseRes
+	}
+	var after int64
+	db.PG.Model(&model.StockConcept{}).Where("concept_type = ?", "concept").Count(&after)
+	phaseRes := PhaseResult{Phase: "concept_full", Total: int(after), New: int(after - before), Skipped: int(before), DurationMs: time.Since(t0).Milliseconds()}
+	sseSend(SSELine{Type: "result", Phase: "concept_full", Result: &phaseRes, Level: "success", Message: fmt.Sprintf("全量重建: %d 条概念关联", after)})
 	return phaseRes
 }
 

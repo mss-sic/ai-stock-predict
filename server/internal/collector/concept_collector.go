@@ -23,6 +23,17 @@ import (
 func CollectConcepts() error {
 	log.Println("[概念采集] 开始采集概念板块数据")
 
+	// Check if full rebuild was done today — skip incremental to avoid data regression
+	var lastFull time.Time
+	if err := db.PG.Raw("SELECT MAX(updated_at) FROM concept_boards WHERE concept_type='concept' AND updated_at > NOW() - INTERVAL '1 day'").Scan(&lastFull).Error; err == nil && !lastFull.IsZero() {
+		var totalRows int64
+		db.PG.Model(&model.StockConcept{}).Where("concept_type = ?", "concept").Count(&totalRows)
+		if totalRows > 50000 {
+			log.Printf("[概念采集] 检测到近期全量重建 (%d 条关联), 跳过增量采集避免数据退化", totalRows)
+			return nil
+		}
+	}
+
 	// Try 新浪 first (more reliable from China networks)
 	boards, err := fetchSinaConceptBoards()
 	if err != nil || len(boards) == 0 {
@@ -459,4 +470,29 @@ func httpGet(url string) ([]byte, error) {
 	}
 
 	return body, nil
+}
+
+
+// CollectConceptsFull runs a full rebuild using the Python rebuild_concepts.py script.
+// This mirrors scripts/collector/rebuild_concepts.py logic: stock-centric via 东财 slist API.
+// It DELETEs all concept-type data first, then rebuilds from scratch.
+// This should be used for periodic full refresh (weekly/monthly), not daily.
+func CollectConceptsFull() error {
+	log.Println("[概念采集] 开始全量重建概念板块数据 (stock-centric)")
+	
+	var totalStocks int64
+	db.PG.Model(&model.StockBasic{}).Count(&totalStocks)
+	log.Printf("[概念采集] 全量重建: %d 只股票, 预计耗时 %d 分钟", totalStocks, totalStocks*400/1000/60)
+	
+	// Run the proven Python rebuild script
+	err := runPythonStreamWithArgs("rebuild_concepts.py")
+	if err != nil {
+		log.Printf("[概念采集] 全量重建失败: %v", err)
+		return err
+	}
+	
+	var afterCount int64
+	db.PG.Model(&model.StockConcept{}).Where("concept_type = ?", "concept").Count(&afterCount)
+	log.Printf("[概念采集] 全量重建完成: %d 条概念关联", afterCount)
+	return nil
 }

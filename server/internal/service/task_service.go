@@ -20,6 +20,7 @@ var DefaultTasks = []struct {
 	CronExpr string
 }{
 	{"概念板块采集", "concept", "0 0 8 * * *"},        // daily 08:00
+	{"概念全量重建", "concept_full", "0 0 6 * * 0"},        // weekly Sun 06:00
 	{"实时行情监控", "quote", "0 */5 9-15 * * 1-5"},  // every 5 min during trading hours Mon-Fri
 	{"日K线采集", "kline", "0 0 16 * * *"},             // daily 16:00
 	{"PE/PB指标采集", "indicator", "0 30 16 * * *"},     // daily 16:30
