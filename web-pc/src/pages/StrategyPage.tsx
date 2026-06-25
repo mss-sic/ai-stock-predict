@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button, Input, InputNumber, Modal, Table, Select, Popconfirm, Tooltip, DatePicker, Message, Tag } from '@arco-design/web-react';
-import { Target, Plus, Trash2, GripVertical, Play, Brain, BarChart4, Shield, Settings, Sparkles, Beaker, Gauge, Factory, Layers, SlidersHorizontal, Search, CheckCircle, AlertTriangle, ScrollText, TrendingUp, TrendingDown, Grid3X3, DollarSign } from 'lucide-react';
+import { Target, Plus, Trash2, GripVertical, Play, Brain, BarChart4, Shield, Settings, Sparkles, Beaker, Gauge, Factory, Layers, SlidersHorizontal, Search, CheckCircle, AlertTriangle, ScrollText, TrendingUp, TrendingDown, Grid3X3, DollarSign, ChevronDown, ChevronRight } from 'lucide-react';
 import {
   fetchStrategies, createStrategy, updateStrategy, deleteStrategy, reorderStrategies,
   fetchStrategyConditions, saveStrategyConditions, aiGenerateStrategy, optimizePrompt,
@@ -50,7 +50,7 @@ export default function StrategyPage() {
   const [activeStrategy, setActiveStrategy] = useState<any>(null);
   const [conditions, setConditions] = useState<any[]>([]);
   const [indicators, setIndicators] = useState<any[]>([]);
-  const [tab, setTab] = useState<'conditions' | 'backtest' | 'positionMgmt' | 'orchestration'>('conditions');
+  const [tab, setTab] = useState<'conditions' | 'backtest' | 'positionMgmt' | 'riskControl'>('conditions');
   const [condTab, setCondTab] = useState<CondType>('buy');
   const [showAdd, setShowAdd] = useState(false);
   const [newName, setNewName] = useState('');
@@ -81,7 +81,9 @@ export default function StrategyPage() {
 
   // Indicator test state
   const [testModalVisible, setTestModalVisible] = useState(false);
-  const [orchTab, setOrchTab] = useState(false); // orchestration panel expand state
+  const [orchTab, setOrchTab] = useState(false);
+  const [riskPreset, setRiskPreset] = useState<string>('balanced');
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [orchConfig, setOrchConfig] = useState<any>({
     orchestrationMode: 'hybrid',
     enableMarketContext: true,
@@ -828,8 +830,8 @@ export default function StrategyPage() {
               <button className={tab === 'positionMgmt' ? 'active' : ''} onClick={() => setTab('positionMgmt')}>
                 <TrendingUp size={13} style={{ marginRight: 4 }} />持仓管理
               </button>
-              <button className={tab === 'orchestration' ? 'active' : ''} onClick={() => setTab('orchestration')}>
-                <SlidersHorizontal size={13} style={{ marginRight: 4 }} />编排模式
+              <button className={tab === 'riskControl' ? 'active' : ''} onClick={() => setTab('riskControl')}>
+                <Shield size={13} style={{ marginRight: 4 }} />智能风控
               </button>
             </div>
 
@@ -1411,74 +1413,133 @@ export default function StrategyPage() {
                   )}
                 </div>
               </div>
-            ) : tab === "orchestration" ? (
+            ) : tab === "riskControl" ? (
 
               <>
-                {/* Orchestration Panel */}
+                {/* ══ 智能风控 ══ */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginBottom: 16 }}>
+                  
+                  {/* ── 风控强度预设 ── */}
                   <div style={{ padding: '14px 18px', background: 'var(--color-bg-1)', borderRadius: 10, border: '1px solid var(--color-border-1)' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-                      <SlidersHorizontal size={16} style={{ color: '#165DFF' }} />
-                      <span style={{ fontSize: 14, fontWeight: 600 }}>编排引擎</span>
+                      <Shield size={16} style={{ color: '#165DFF' }} />
+                      <span style={{ fontSize: 14, fontWeight: 600 }}>风控强度</span>
                     </div>
 
-                    {/* Orchestration Mode */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
-                      <span style={{ fontSize: 12, color: 'var(--color-text-3)', minWidth: 70 }}>编排模式</span>
-                      <Select
-                        value={orchConfig.orchestrationMode || 'hybrid'}
-                        onChange={v => setOrchConfig((prev: any) => ({ ...prev, orchestrationMode: v }))}
-                        style={{ width: 180 }}
-                        size="small"
-                        options={[
-                          { label: '混合模式 (买入评分+卖出决策树)', value: 'hybrid' },
-                          { label: '纯评分模式', value: 'scoring' },
-                          { label: '纯决策树模式', value: 'decision_tree' },
-                          { label: '传统 AND/OR (兼容)', value: 'legacy' },
-                        ]}
-                      />
-                    </div>
+                    {/* Preset selector */}
+                    {(() => {
+                      const presets = [
+                        { key: 'conservative', label: '🐢 保守', desc: '熊市/新手', defT: 0.0, aggT: 2.0, meltT: -2.0, bias: 0.8, color: '#00B42A' },
+                        { key: 'balanced', label: '⚖️ 均衡', desc: '日常推荐', defT: -1.0, aggT: 1.5, meltT: -3.0, bias: 1.0, color: '#165DFF' },
+                        { key: 'aggressive', label: '🐇 激进', desc: '牛市/结构行情', defT: -2.0, aggT: 1.0, meltT: -4.0, bias: 1.2, color: '#F7BA1E' },
+                        { key: 'custom', label: '🔧 自定义', desc: '高级用户', defT: null, aggT: null, meltT: null, bias: null, color: 'var(--color-text-3)' },
+                      ];
+                      const applyPreset = (p: any) => {
+                        setRiskPreset(p.key);
+                        if (p.key === 'custom') return;
+                        setOrchConfig((prev: any) => ({
+                          ...prev,
+                          defensiveThreshold: p.defT,
+                          aggressiveThreshold: p.aggT,
+                          marketCompositeMin: p.meltT,
+                          marketPositionBias: p.bias,
+                        }));
+                      };
+                      return (
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 8, marginBottom: 12 }}>
+                          {presets.map(p => {
+                            const isActive = riskPreset === p.key;
+                            return (
+                              <div key={p.key}
+                                onClick={() => applyPreset(p)}
+                                style={{
+                                  padding: '10px 8px', borderRadius: 8, cursor: 'pointer', textAlign: 'center',
+                                  border: isActive ? `2px solid ${p.color}` : '2px solid var(--color-border-1)',
+                                  background: isActive ? `${p.color}10` : 'var(--color-bg-2)',
+                                }}>
+                                <div style={{ fontSize: 13, fontWeight: 600 }}>{p.label}</div>
+                                <div style={{ fontSize: 10, color: 'var(--color-text-3)', marginTop: 2 }}>{p.desc}</div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      );
+                    })()}
 
-                    {/* Mode descriptions */}
-                    <div style={{ marginBottom: 10, padding: '8px 12px', background: 'var(--color-fill-1)', borderRadius: 6, fontSize: 11, color: 'var(--color-text-3)', lineHeight: 1.6 }}>
-                      {orchConfig.orchestrationMode === 'scoring' && '📊 所有条件按权重评分，总分达阈值触发。支持模糊阈值、行业相对、时序分析。'}
-                      {orchConfig.orchestrationMode === 'decision_tree' && '🌳 条件按决策树求值，支持 and/or/not 嵌套。精确表达复杂退出逻辑。'}
-                      {(orchConfig.orchestrationMode === 'hybrid' || !orchConfig.orchestrationMode) && '🔄 买入/加仓走加权评分，卖出/减仓走决策树。效果最优的推荐模式。'}
-                      {orchConfig.orchestrationMode === 'legacy' && '📋 传统 IF-AND 二元判断，保持向后兼容。'}
+                    {/* Rules visualization */}
+                    <div style={{ padding: '10px 14px', background: 'var(--color-fill-1)', borderRadius: 8, fontSize: 11, lineHeight: 1.8, color: 'var(--color-text-2)' }}>
+                      <div style={{ marginBottom: 4, fontWeight: 600, fontSize: 12 }}>当前决策规则</div>
+                      <div>🟢 综合分 ≥ {orchConfig.aggressiveThreshold ?? 1.5} → <b>进攻模式</b>（全仓，可加仓）</div>
+                      <div>🟡 综合分 ≥ {orchConfig.defensiveThreshold ?? 0} → <b>防御模式</b>（半仓，不加仓）</div>
+                      <div>🔴 综合分 ≥ {orchConfig.marketCompositeMin ?? -2} → <b>空仓模式</b>（仅平仓止损）</div>
+                      <div>⚫ 综合分 &lt; {orchConfig.marketCompositeMin ?? -2} → <b>熔断</b>（强制清仓）</div>
                     </div>
                   </div>
 
-                  {/* Market Context */}
+                  {/* ── 仓位上限 ── */}
                   <div style={{ padding: '14px 18px', background: 'var(--color-bg-1)', borderRadius: 10, border: '1px solid var(--color-border-1)' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                      <Gauge size={16} style={{ color: '#722ED1' }} />
-                      <span style={{ fontSize: 14, fontWeight: 600 }}>市场上下文感知</span>
-                      <div style={{ flex: 1 }} />
-                      <Tag color={orchConfig.enableMarketContext ? 'green' : 'gray'} size="small">
-                        {orchConfig.enableMarketContext ? '已启用' : '未启用'}
-                      </Tag>
+                      <DollarSign size={16} style={{ color: '#00B42A' }} />
+                      <span style={{ fontSize: 14, fontWeight: 600 }}>仓位 & 风控上限</span>
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>启用</span>
-                      <input type="checkbox" checked={orchConfig.enableMarketContext || false}
-                        onChange={e => setOrchConfig((prev: any) => ({ ...prev, enableMarketContext: e.target.checked }))}
-                        style={{ accentColor: '#165DFF' }} />
+                    <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>单票最大仓位</span>
+                        <InputNumber value={(activeStrategy.positionConcentrationLimit || 0.25) * 100} onChange={v => handleUpdateStrategy('positionConcentrationLimit', (v || 25) / 100)} min={5} max={50} step={5} suffix="%" style={{ width: 85 }} size="small" />
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>单日最大亏损</span>
+                        <InputNumber value={activeStrategy.maxDailyLoss || -5} onChange={v => handleUpdateStrategy('maxDailyLoss', v || -5)} max={0} step={1} suffix="%" style={{ width: 85 }} size="small" />
+                      </div>
                     </div>
-                    {orchConfig.enableMarketContext && (
-                      <div style={{ marginTop: 10, display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>熔断阈值</span>
-                          <InputNumber value={orchConfig.marketCompositeMin || -2} onChange={v => setOrchConfig((prev: any) => ({ ...prev, marketCompositeMin: v ?? -2 }))}
-                            min={-5} max={5} step={0.5} style={{ width: 80 }} size="small" />
+                  </div>
+
+                  {/* ── 高级参数 (折叠) ── */}
+                  <div style={{ padding: '14px 18px', background: 'var(--color-bg-1)', borderRadius: 10, border: '1px solid var(--color-border-1)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }} onClick={() => setShowAdvanced(!showAdvanced)}>
+                      {showAdvanced ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                      <Settings size={14} style={{ color: 'var(--color-text-3)' }} />
+                      <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-3)' }}>高级参数</span>
+                      <span style={{ fontSize: 10, color: 'var(--color-text-4)' }}>阈值微调 · 编排引擎 · 各模式参数</span>
+                    </div>
+                    
+                    {showAdvanced && (
+                      <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 12 }}>
+                        {/* Threshold fine-tuning */}
+                        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                            <span style={{ fontSize: 11, color: 'var(--color-text-3)' }}>进攻阈值</span>
+                            <InputNumber value={orchConfig.aggressiveThreshold ?? 1.5} onChange={v => { setRiskPreset('custom'); setOrchConfig((prev: any) => ({ ...prev, aggressiveThreshold: v ?? 1.5 })); }} min={0} max={5} step={0.5} style={{ width: 65 }} size="small" />
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                            <span style={{ fontSize: 11, color: 'var(--color-text-3)' }}>防御阈值</span>
+                            <InputNumber value={orchConfig.defensiveThreshold ?? 0} onChange={v => { setRiskPreset('custom'); setOrchConfig((prev: any) => ({ ...prev, defensiveThreshold: v ?? 0 })); }} min={-5} max={5} step={0.5} style={{ width: 65 }} size="small" />
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                            <span style={{ fontSize: 11, color: 'var(--color-text-3)' }}>熔断阈值</span>
+                            <InputNumber value={orchConfig.marketCompositeMin ?? -2} onChange={v => { setRiskPreset('custom'); setOrchConfig((prev: any) => ({ ...prev, marketCompositeMin: v ?? -2 })); }} min={-5} max={5} step={0.5} style={{ width: 65 }} size="small" />
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                            <span style={{ fontSize: 11, color: 'var(--color-text-3)' }}>仓位乘数</span>
+                            <InputNumber value={orchConfig.marketPositionBias ?? 1} onChange={v => { setRiskPreset('custom'); setOrchConfig((prev: any) => ({ ...prev, marketPositionBias: v ?? 1 })); }} min={0.5} max={1.5} step={0.1} style={{ width: 65 }} size="small" />
+                          </div>
                         </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>仓位乘数</span>
-                          <InputNumber value={orchConfig.marketPositionBias || 1} onChange={v => setOrchConfig((prev: any) => ({ ...prev, marketPositionBias: v ?? 1 }))}
-                            min={0.5} max={1.5} step={0.1} style={{ width: 80 }} size="small" />
+
+                        {/* Orchestration mode */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <span style={{ fontSize: 11, color: 'var(--color-text-3)', minWidth: 56 }}>编排引擎</span>
+                          <Select value={orchConfig.orchestrationMode || 'hybrid'} onChange={v => setOrchConfig((prev: any) => ({ ...prev, orchestrationMode: v }))} style={{ width: 160 }} size="small"
+                            options={[
+                              { label: '混合模式 (推荐)', value: 'hybrid' },
+                              { label: '纯评分', value: 'scoring' },
+                              { label: '纯决策树', value: 'decision_tree' },
+                            ]} />
                         </div>
                       </div>
                     )}
                   </div>
+
+
 
                   {/* AI Agent */}
                   <div style={{ padding: '14px 18px', background: 'var(--color-bg-1)', borderRadius: 10, border: '1px solid var(--color-border-1)' }}>
@@ -1524,122 +1585,6 @@ export default function StrategyPage() {
                         </div>
                       </div>
                     )}
-                  </div>
-
-                  {/* Policy Manager v3 */}
-                  <div style={{ padding: '14px 18px', background: 'var(--color-bg-1)', borderRadius: 10, border: '1px solid var(--color-border-1)' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                      <Shield size={16} style={{ color: '#F7BA1E' }} />
-                      <span style={{ fontSize: 14, fontWeight: 600 }}>政策决策</span>
-                      <div style={{ flex: 1 }} />
-                      <Tag color={orchConfig.policyMode === 'rule' ? 'blue' : 'purple'} size="small">
-                        {orchConfig.policyMode === 'rule' ? '规则引擎' : orchConfig.policyMode === 'ai_driven' ? 'AI驱动' : '手动'}
-                      </Tag>
-                    </div>
-                    <div style={{ marginBottom: 8 }}>
-                      <span style={{ fontSize: 12, color: 'var(--color-text-3)', marginRight: 8 }}>决策模式</span>
-                      <Select value={orchConfig.policyMode || 'rule'} onChange={v => setOrchConfig((prev: any) => ({ ...prev, policyMode: v }))}
-                        style={{ width: 140 }} size="small"
-                        options={[
-                          { label: '规则引擎', value: 'rule' },
-                          { label: 'AI驱动', value: 'ai_driven' },
-                          { label: '手动设置', value: 'manual' },
-                        ]} />
-                    </div>
-                    <div style={{ marginBottom: 4, padding: '8px 12px', background: 'var(--color-fill-1)', borderRadius: 6, fontSize: 11, color: 'var(--color-text-3)', lineHeight: 1.6 }}>
-                      {orchConfig.policyMode === 'rule' && '根据市场情绪综合分自动切换：≥进攻阈值→进攻模式（可买可加），≥防御阈值→防御模式（可买不可加），<防御阈值→空仓（仅平仓）。'}
-                      {orchConfig.policyMode === 'ai_driven' && 'AI 根据市场环境+持仓状态综合判断，输出三态决策及置信度。需启用 AI Agent。'}
-                      {orchConfig.policyMode === 'manual' && '手动在回测时选择固定策略模式。'}
-                    </div>
-                    {(orchConfig.policyMode === 'rule' || orchConfig.policyMode === 'ai_driven') && (
-                      <div style={{ marginTop: 8, display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <span style={{ fontSize: 11, color: 'var(--color-success-text)' }}><CheckCircle size={10} style={{ verticalAlign: 'middle', marginRight: 2 }} />进攻阈值</span>
-                          <InputNumber value={orchConfig.aggressiveThreshold ?? 1.5} onChange={v => setOrchConfig((prev: any) => ({ ...prev, aggressiveThreshold: v ?? 1.5 }))}
-                            min={0} max={5} step={0.5} style={{ width: 70 }} size="small" />
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <span style={{ fontSize: 11, color: 'var(--color-warning-text)' }}><AlertTriangle size={10} style={{ verticalAlign: 'middle', marginRight: 2 }} />防御阈值</span>
-                          <InputNumber value={orchConfig.defensiveThreshold ?? 0} onChange={v => setOrchConfig((prev: any) => ({ ...prev, defensiveThreshold: v ?? 0 }))}
-                            min={-5} max={5} step={0.5} style={{ width: 70 }} size="small" />
-                        </div>
-                      </div>
-                    )}
-                    <div style={{ marginTop: 8, fontSize: 10, color: 'var(--color-text-4)' }}>
-                      当前阈值: 综合分 ≥{orchConfig.aggressiveThreshold ?? 1.5}→进攻 | ≥{orchConfig.defensiveThreshold ?? 0}→防御 | &lt;{orchConfig.defensiveThreshold ?? 0}→空仓
-                    </div>
-                  </div>
-                  {/* Regime parameter editor */}
-                  <div style={{ marginTop: 12, padding: '12px 14px', background: 'var(--color-fill-1)', borderRadius: 8 }}>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text-2)', marginBottom: 8 }}>
-                      📐 各模式参数配置
-                    </div>
-                    {/* Regime tabs */}
-                    {(() => {
-                      const regimes = [
-                        { key: 'policyAggressive', label: '🟢 进攻', color: '#00B42A' },
-                        { key: 'policyDefensive', label: '🟡 防御', color: '#F7BA1E' },
-                        { key: 'policyCash', label: '🔴 空仓', color: '#F53F3F' },
-                      ];
-                      const regimeData = orchConfig[activeRegime] || {};
-                      const updateRegime = (field: string, val: any) => {
-                        setOrchConfig((prev: any) => ({
-                          ...prev,
-                          [activeRegime]: { ...(prev[activeRegime] || {}), [field]: val }
-                        }));
-                      };
-                      return (
-                        <div>
-                          <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
-                            {regimes.map(r => (
-                              <div key={r.key} onClick={() => setActiveRegime(r.key)}
-                                style={{
-                                  flex: 1, padding: '6px 10px', cursor: 'pointer', borderRadius: 6,
-                                  textAlign: 'center', fontSize: 11, fontWeight: activeRegime === r.key ? 700 : 500,
-                                  background: activeRegime === r.key ? r.color + '18' : 'var(--color-fill-2)',
-                                  border: activeRegime === r.key ? '1.5px solid ' + r.color : '1px solid transparent',
-                                  color: activeRegime === r.key ? r.color : 'var(--color-text-3)',
-                                  transition: 'all 0.15s',
-                                }}
-                              >{r.label}</div>
-                            ))}
-                          </div>
-                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                              <span style={{ fontSize: 11, color: 'var(--color-text-3)', width: 50 }}>买入%</span>
-                              <InputNumber value={regimeData.buyPct ?? 15} onChange={v => updateRegime('buyPct', v ?? 15)}
-                                min={0} max={100} suffix="%" style={{ width: 80 }} size="small" />
-                            </div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                              <span style={{ fontSize: 11, color: 'var(--color-text-3)', width: 50 }}>加仓%</span>
-                              <InputNumber value={regimeData.addPct ?? 10} onChange={v => updateRegime('addPct', v ?? 0)}
-                                min={0} max={100} suffix="%" style={{ width: 80 }} size="small" />
-                            </div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                              <span style={{ fontSize: 11, color: 'var(--color-text-3)', width: 50 }}>减仓%</span>
-                              <InputNumber value={regimeData.reducePct ?? 50} onChange={v => updateRegime('reducePct', v ?? 50)}
-                                min={0} max={100} suffix="%" style={{ width: 80 }} size="small" />
-                            </div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                              <span style={{ fontSize: 11, color: 'var(--color-text-3)', width: 50 }}>止盈%</span>
-                              <InputNumber value={regimeData.stopProfit ?? 15} onChange={v => updateRegime('stopProfit', v ?? 15)}
-                                min={0} max={200} suffix="%" style={{ width: 80 }} size="small" />
-                            </div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                              <span style={{ fontSize: 11, color: 'var(--color-text-3)', width: 50 }}>止损%</span>
-                              <InputNumber value={regimeData.stopLoss ?? -7} onChange={v => updateRegime('stopLoss', v ?? -7)}
-                                max={0} suffix="%" style={{ width: 80 }} size="small" />
-                            </div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                              <span style={{ fontSize: 11, color: 'var(--color-text-3)' }}>允许加仓</span>
-                              <input type="checkbox" checked={regimeData.allowAdd ?? false}
-                                onChange={e => updateRegime('allowAdd', e.target.checked)}
-                                style={{ accentColor: '#165DFF' }} />
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })()}
                   </div>
 
 
