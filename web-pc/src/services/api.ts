@@ -305,6 +305,7 @@ export const runTaskNow = (id: number, args?: string[]) => api.post(`/admin/sche
 export const toggleTask = (id: number) => api.post(`/admin/scheduled-tasks/${id}/toggle`);
 export const resetTaskStatus = (id: number) => api.post(`/admin/scheduled-tasks/${id}/reset`);
 export const initDefaultTasks = () => api.post('/admin/scheduled-tasks/init-defaults');
+export const bulkComputeMarketStyle = () => api.post('/market/bulk-compute');
 export const fetchTaskLogs = (taskId?: number, limit?: number) => api.get('/admin/task-logs', { params: { taskId, limit } });
 
 // ── Collector APIs ──

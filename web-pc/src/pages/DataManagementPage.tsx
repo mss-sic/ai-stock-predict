@@ -10,7 +10,8 @@ import {
   uploadExcel, uploadKline, uploadPrediction, uploadProfile, triggerCollection, fetchCollectorProgress,
   fetchRealtimeQuotes,
   fetchImportHistory, fetchCollectorHistory, clearCollectorHistory, fetchDataStats, fetchDataDetail,
-  fetchScheduledTasks, runTaskNow, initDefaultTasks, fetchTaskLogs, resetTaskStatus, toggleTask
+  fetchScheduledTasks, runTaskNow, initDefaultTasks, fetchTaskLogs, resetTaskStatus, toggleTask,
+  bulkComputeMarketStyle
 } from '../services/api';
 
 const PHASE_LABELS: Record<string, string> = {
@@ -202,6 +203,19 @@ export default function DataManagementPage() {
     }
   };
   const handleInitDefaults = async () => { try { await initDefaultTasks(); loadTasks(); } catch {} };
+  const [bulkComputing, setBulkComputing] = useState(false);
+  const handleBulkComputeStyle = async () => {
+    setBulkComputing(true);
+    try {
+      const res: any = await bulkComputeMarketStyle();
+      showToast('success', '市场风格回填完成: ' + (res.data?.data?.success || res.data?.data?.computed || '?') + ' 条');
+      loadTasks();
+    } catch (e: any) {
+      showToast('error', '回填失败: ' + (e?.response?.data?.message || e?.message || '未知错误'));
+    } finally {
+      setBulkComputing(false);
+    }
+  };
 
   // ── SSE ──
   // ── SSE event handler factory ──
@@ -535,7 +549,8 @@ export default function DataManagementPage() {
           <div className="card">
             <div className="card-header">
               <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Timer size={16} color="var(--color-primary)" /><span style={{ fontSize: 15, fontWeight: 600 }}>定时任务</span><span className="muted" style={{ marginLeft: 8 }}>{scheduledTasks.filter((t: any) => t.enabled).length}/{scheduledTasks.length} 已启用</span></span>
-              <div style={{ display: 'flex', gap: 6 }}><Button size="small" icon={<RefreshCw size={12} />} loading={tasksLoading} onClick={loadTasks}>刷新</Button><Button size="small" icon={<Zap size={12} />} onClick={handleInitDefaults}>初始化默认任务</Button></div>
+              <div style={{ display: 'flex', gap: 6 }}><Button size="small" icon={<RefreshCw size={12} />} loading={tasksLoading} onClick={loadTasks}>刷新</Button><Button size="small" icon={<Zap size={12} />} onClick={handleInitDefaults}>初始化默认任务</Button>
+                <Button size="small" icon={<Activity size={12} />} loading={bulkComputing} onClick={handleBulkComputeStyle}>回填市场风格</Button></div>
             </div>
             <div className="card-body" style={{ padding: 0 }}>
               {scheduledTasks.length === 0 ? <div style={{ padding: 40, textAlign: 'center', color: 'var(--color-text-3)', fontSize: 13 }}>暂无定时任务，点击「初始化默认任务」创建</div> : (
