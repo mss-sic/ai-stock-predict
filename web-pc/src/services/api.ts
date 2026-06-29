@@ -370,6 +370,7 @@ export const fetchBlockTrades = (code: string) => api.get(`/stocks/${code}/block
 export const fetchAnnouncements = (code: string) => api.get(`/stocks/${code}/announcements`);
 export const fetchUnlocks = (code: string) => api.get(`/stocks/${code}/unlocks`);
 export const fetchAllFutureUnlocks = (days: number = 90) => api.get('/unlocks', { params: { days } });
+export const fetchFundFlow = (code: string) => api.get(`/stocks/${code}/fund-flow`);
 export const fetchEpsForecast = (code: string) => api.get(`/stocks/${code}/eps-forecast`);
 export const fetchMacroNews = (category: string = '', limit: number = 50) => api.get('/macro-news', { params: { category, limit } });
 export const fetchMacroCategories = () => api.get('/macro-news/categories');

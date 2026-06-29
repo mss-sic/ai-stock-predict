@@ -153,6 +153,7 @@ func (h *CollectorHandler) CollectStockPhaseSSE(c *gin.Context) {
 
 	phaseNames := map[string]string{
 		"shareholder": "股东数据", "financial": "财务数据", "news": "资讯数据", "dragon_tiger": "龙虎榜", "block_trade": "大宗交易", "announcements": "公告", "unlocks": "解禁",
+		"fund_flow": "资金流",
 	}
 	phaseName := phaseNames[phase]
 	if phaseName == "" {
@@ -203,6 +204,8 @@ func (h *CollectorHandler) CollectStockPhaseSSE(c *gin.Context) {
 		db.PG.Raw("SELECT count(*) FROM cninfo_announcements WHERE code = ?", code).Scan(&count)
 	case "unlocks":
 		db.PG.Raw("SELECT count(*) FROM restricted_share_unlock WHERE code = ?", code).Scan(&count)
+	case "fund_flow":
+		db.PG.Raw("SELECT count(*) FROM stock_fund_flow WHERE code = ?", code).Scan(&count)
 	}
 
 	if count > 0 {

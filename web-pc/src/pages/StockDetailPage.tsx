@@ -11,11 +11,11 @@ import {
   RefreshCw, Send, Trash2, Loader2, Check, X, Layers, FileText, Users, Newspaper, Star, StarOff, ChevronLeft, ChevronRight, ExternalLink, Wrench,
 } from 'lucide-react';
 import { showToast } from '../components/Toast';
-import { authFetch, checkAPIError, fetchStockDetail, fetchKLine, fetchIndicator, fetchPredictionResult, fetchPredictionHitRate, fetchStockHeatmap, fetchSignal, fetchFinancials, fetchShareholders, fetchStockNews, fetchReports, fetchStockConceptTags, addToWatchlist, removeFromWatchlist, fetchWatchlist, fetchWatchlistGroups, createWatchlistGroup, fetchHoldings, fetchProfile, runProfile, repairStock, fetchRealtimeQuoteSingle, fetchDragonTiger, fetchBlockTrades, fetchAnnouncements, fetchUnlocks, fetchEpsForecast, fetchDragonTigerSeats } from '../services/api';
+import { authFetch, checkAPIError, fetchStockDetail, fetchKLine, fetchIndicator, fetchPredictionResult, fetchPredictionHitRate, fetchStockHeatmap, fetchSignal, fetchFinancials, fetchShareholders, fetchStockNews, fetchReports, fetchStockConceptTags, addToWatchlist, removeFromWatchlist, fetchWatchlist, fetchWatchlistGroups, createWatchlistGroup, fetchHoldings, fetchProfile, runProfile, repairStock, fetchRealtimeQuoteSingle, fetchDragonTiger, fetchBlockTrades, fetchAnnouncements, fetchUnlocks, fetchEpsForecast, fetchDragonTigerSeats, fetchFundFlow } from '../services/api';
 import KLineChart from '../components/KLineChart';
 import BoardSidebar from '../components/BoardSidebar';
 
-type TabKey = 'forecast' | 'analysis' | 'strategy' | 'technical' | 'trading' | 'financial' | 'shareholder' | 'reports' | 'news' | 'dragon_tiger' | 'block_trade' | 'announcements' | 'unlocks';
+type TabKey = 'forecast' | 'analysis' | 'strategy' | 'technical' | 'trading' | 'financial' | 'shareholder' | 'reports' | 'news' | 'dragon_tiger' | 'block_trade' | 'announcements' | 'unlocks' | 'fund_flow';
 
 interface ToolStatus { tool: string; label: string; index: number; total: number; turn: number; done?: boolean; startTime?: number }
 interface Message { role: 'user' | 'ai'; text: string; status?: { phase: string; label: string }; toolStatuses?: ToolStatus[]; startTime?: number }
@@ -485,6 +485,7 @@ export default function StockDetailPage() {
   const [announcements, setAnnouncements] = useState<any[]>([]);
   const [unlocks, setUnlocks] = useState<any[]>([]);
   const [epsData, setEpsData] = useState<any[]>([]);
+  const [fundFlow, setFundFlow] = useState<any[]>([]);
   const [isWatched, setIsWatched] = useState(false);
   const [showWLModal, setShowWLModal] = useState(false);
   const [wlGroupId, setWlGroupId] = useState<number>(0);
@@ -541,6 +542,7 @@ fetchPredictionResult(code).then((r: any) => {
     fetchAnnouncements(code).then((r: any) => setAnnouncements(r.data?.data || [])).catch(() => {});
     fetchUnlocks(code).then((r: any) => setUnlocks(r.data?.data || [])).catch(() => {});
     fetchEpsForecast(code).then((r: any) => setEpsData(r.data?.data || [])).catch(() => {});
+    fetchFundFlow(code).then((r: any) => setFundFlow(r.data?.data || [])).catch(() => {});
 
     (async () => {
       try {
@@ -902,7 +904,7 @@ const handleChatSend = async (text?: string) => {
 
     // Shareholder / Financial / News use SSE for live feedback
     const phaseNames: Record<string, string> = { shareholder: '股东数据', financial: '财务数据', news: '资讯数据', dragon_tiger: '龙虎榜', block_trade: '大宗交易', announcements: '公告', unlocks: '解禁' };
-    if (phase === 'shareholder' || phase === 'financial' || phase === 'news' || phase === 'dragon_tiger' || phase === 'block_trade' || phase === 'announcements' || phase === 'unlocks') {
+    if (phase === 'shareholder' || phase === 'financial' || phase === 'news' || phase === 'dragon_tiger' || phase === 'block_trade' || phase === 'announcements' || phase === 'unlocks' || phase === 'fund_flow') {
       setRefreshingPhase(phase);
       setRefreshLogs([`正在采集${phaseNames[phase] || phase}...`]);
       const es = new EventSource(`/api/v1/collector/stock/${code}/${phase}?token=${localStorage.getItem("aip_access_token")||""}`);
@@ -919,6 +921,7 @@ const handleChatSend = async (text?: string) => {
             if (phase === 'block_trade') fetchBlockTrades(code).then((r: any) => setBlockTradesState(r.data?.data || []));
             if (phase === 'announcements') fetchAnnouncements(code).then((r: any) => setAnnouncements(r.data?.data || []));
             if (phase === 'unlocks') fetchUnlocks(code).then((r: any) => setUnlocks(r.data?.data || []));
+            if (phase === 'fund_flow') fetchFundFlow(code).then((r: any) => setFundFlow(r.data?.data || []));
             setRefreshingPhase('');
           }
         } catch {}
@@ -933,6 +936,7 @@ const handleChatSend = async (text?: string) => {
         if (phase === 'block_trade') fetchBlockTrades(code).then((r: any) => setBlockTradesState(r.data?.data || []));
         if (phase === 'announcements') fetchAnnouncements(code).then((r: any) => setAnnouncements(r.data?.data || []));
         if (phase === 'unlocks') fetchUnlocks(code).then((r: any) => setUnlocks(r.data?.data || []));
+            if (phase === 'fund_flow') fetchFundFlow(code).then((r: any) => setFundFlow(r.data?.data || []));
         setRefreshingPhase('');
       };
       return;
@@ -954,6 +958,7 @@ const handleChatSend = async (text?: string) => {
       if (phase === 'block_trade') await fetchBlockTrades(code).then((r: any) => setBlockTradesState(r.data?.data || []));
       if (phase === 'announcements') await fetchAnnouncements(code).then((r: any) => setAnnouncements(r.data?.data || []));
       if (phase === 'unlocks') await fetchUnlocks(code).then((r: any) => setUnlocks(r.data?.data || []));
+      if (phase === 'fund_flow') await fetchFundFlow(code).then((r: any) => setFundFlow(r.data?.data || []));
     } catch {}
     setRefreshingPhase('');
   };
@@ -980,6 +985,7 @@ const handleChatSend = async (text?: string) => {
     { key: 'block_trade', label: '大宗交易', icon: TrendingDown },
     { key: 'announcements', label: '公告', icon: FileWarning },
     { key: 'unlocks', label: '解禁', icon: AlertTriangle },
+    { key: 'fund_flow', label: '资金流', icon: DollarSign },
   ];
 
   const horizons = [5, 10, 20];
@@ -2977,7 +2983,93 @@ const handleChatSend = async (text?: string) => {
         </div>
       )}
 
-      {/* ── Block Trade Tab ── */}
+      {/* ── Fund Flow Tab ── */}
+      {tab === 'fund_flow' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {fundFlow.length > 0 && (() => {
+            const total20 = fundFlow.slice(0, 20).reduce((s: number, d: any) => s + (d.mainNet || 0), 0);
+            const total5 = fundFlow.slice(0, 5).reduce((s: number, d: any) => s + (d.mainNet || 0), 0);
+            const fmtW = (v: number) => Math.abs(v) >= 1e8 ? (v / 1e8).toFixed(2) + '亿' : (v / 1e4).toFixed(0) + '万';
+            return (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+                {[
+                  { label: '近5日主力净流入', value: fmtW(total5), color: total5 >= 0 ? '#F53F3F' : '#00B42A' },
+                  { label: '近20日主力净流入', value: fmtW(total20), color: total20 >= 0 ? '#F53F3F' : '#00B42A' },
+                  { label: '近5日主力日均', value: fmtW(total5 / 5), color: total5 >= 0 ? '#F53F3F' : '#00B42A' },
+                  { label: '数据天数', value: fundFlow.length + '天', color: 'var(--color-text-1)' },
+                ].map((c, i) => (
+                  <div key={i} className="card" style={{ padding: '14px 16px' }}>
+                    <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 4 }}>{c.label}</div>
+                    <div style={{ fontSize: 20, fontWeight: 700, color: c.color }}>{c.value}</div>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
+          <div className="card">
+            <div className="card-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ fontWeight: 600, fontSize: 14 }}><DollarSign size={14} /> 主力资金流向</span>
+              <button onClick={() => handleRefreshStockData('fund_flow')} disabled={refreshingPhase !== ''}
+                style={{ padding: '4px 10px', fontSize: 11, cursor: 'pointer', border: '1px solid var(--color-border-1)', borderRadius: 4, background: 'var(--color-bg-1)', color: 'var(--color-text-2)', display: 'flex', alignItems: 'center', gap: 4 }}>
+                <Repeat size={12} className={refreshingPhase === 'fund_flow' ? 'spin' : ''} />{refreshingPhase === 'fund_flow' ? '更新中...' : '更新'}
+              </button>
+            </div>
+            {refreshingPhase === 'fund_flow' && refreshLogs.length > 0 && (
+              <div style={{ padding: '6px 16px', background: 'var(--color-fill-1)', borderBottom: '1px solid var(--color-border-1)', maxHeight: 120, overflow: 'auto' }}>
+                {refreshLogs.map((log, i) => (
+                  <div key={i} style={{ fontSize: 11, color: 'var(--color-text-2)', fontFamily: 'monospace', opacity: i === refreshLogs.length - 1 ? 1 : 0.4 }}>{log}</div>
+                ))}
+              </div>
+            )}
+            <div className="card-body" style={{ padding: 0 }}>
+              {fundFlow.length > 0 ? (
+                <div style={{ maxHeight: 500, overflow: 'auto' }}>
+                  <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse', fontSize: 12 }}>
+                    <colgroup>
+                      <col style={{ width: '14%' }} /><col style={{ width: '17%' }} />
+                      <col style={{ width: '17%' }} /><col style={{ width: '17%' }} />
+                      <col style={{ width: '17%' }} /><col style={{ width: '17%' }} />
+                    </colgroup>
+                    <thead>
+                      <tr style={{ background: 'var(--color-fill-1)', borderBottom: '2px solid var(--color-border-2)', position: 'sticky', top: 0 }}>
+                        {['日期','主力净流入','超大单','大单','中单','小单'].map(h => (
+                          <th key={h} style={{ padding: '8px 8px', textAlign: h === '日期' ? 'left' : 'right', fontSize: 11, color: 'var(--color-text-3)', fontWeight: 500 }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {fundFlow.map((d: any, i: number) => {
+                        const fmtW = (v: number) => {
+                          const abs = Math.abs(v);
+                          const sign = v >= 0 ? '+' : '';
+                          if (abs >= 1e8) return sign + (abs / 1e8).toFixed(2) + '亿';
+                          return sign + (abs / 1e4).toFixed(0) + '万';
+                        };
+                        return (
+                          <tr key={i} style={{ borderBottom: '1px solid var(--color-border-1)' }}>
+                            <td style={{ padding: '5px 8px', fontSize: 11 }}>{d.tradeDate?.slice(0, 10)}</td>
+                            <td style={{ padding: '5px 8px', textAlign: 'right', fontWeight: 600, color: (d.mainNet || 0) >= 0 ? '#F53F3F' : '#00B42A', fontVariantNumeric: 'tabular-nums' }}>{fmtW(d.mainNet || 0)}</td>
+                            <td style={{ padding: '5px 8px', textAlign: 'right', color: (d.superNet || 0) >= 0 ? '#F53F3F' : '#00B42A', fontVariantNumeric: 'tabular-nums' }}>{fmtW(d.superNet || 0)}</td>
+                            <td style={{ padding: '5px 8px', textAlign: 'right', color: (d.largeNet || 0) >= 0 ? '#F53F3F' : '#00B42A', fontVariantNumeric: 'tabular-nums' }}>{fmtW(d.largeNet || 0)}</td>
+                            <td style={{ padding: '5px 8px', textAlign: 'right', color: (d.midNet || 0) >= 0 ? '#F53F3F' : '#00B42A', fontVariantNumeric: 'tabular-nums' }}>{fmtW(d.midNet || 0)}</td>
+                            <td style={{ padding: '5px 8px', textAlign: 'right', color: (d.smallNet || 0) >= 0 ? '#F53F3F' : '#00B42A', fontVariantNumeric: 'tabular-nums' }}>{fmtW(d.smallNet || 0)}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div style={{ textAlign: 'center', padding: 48, fontSize: 13, color: 'var(--color-text-3)' }}>
+                  暂无资金流数据，请点击右上角「更新」按钮采集
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+{/* ── Block Trade Tab ── */}
       {tab === 'block_trade' && (
         <div className="card">
           <div className="card-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>

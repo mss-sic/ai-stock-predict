@@ -143,6 +143,7 @@ func main() {
 		api.GET("/stocks/:code/block-trades", stockH.GetBlockTrades)
 		api.GET("/stocks/:code/announcements", stockH.GetCninfoAnnouncements)
 		api.GET("/announcements", stockH.GetAllAnnouncements)
+		api.GET("/stocks/:code/fund-flow", stockH.GetStockFundFlow)
 		api.GET("/stocks/:code/eps-forecast", stockH.GetThsEpsForecast)
 		api.GET("/macro-news", stockH.GetMacroNews)
 		api.GET("/macro-news/categories", stockH.GetMacroCategories)

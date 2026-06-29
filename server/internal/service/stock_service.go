@@ -104,6 +104,10 @@ func (s *StockService) GetRestrictedUnlocks(code string) ([]model.RestrictedShar
 	return s.repo.GetRestrictedUnlocks(code)
 }
 
+func (s *StockService) GetStockFundFlow(code string) ([]model.StockFundFlow, error) {
+	return s.repo.GetStockFundFlow(code)
+}
+
 func (s *StockService) GetAllAnnouncements(limit int) ([]model.CninfoAnnouncement, error) {
 	return s.repo.GetAllAnnouncements(limit)
 }

@@ -584,6 +584,12 @@ func (r *StockRepo) GetRestrictedUnlocks(code string) ([]model.RestrictedShareUn
 // GetThsHotConceptStats returns concept tag aggregation from THS hot stocks for a date range.
 // GetThsEpsForecast returns consensus EPS forecast for a stock.
 // GetAllAnnouncements returns all announcements with optional limit.
+func (r *StockRepo) GetStockFundFlow(code string) ([]model.StockFundFlow, error) {
+	var rows []model.StockFundFlow
+	err := db.PG.Where("code = ?", code).Order("trade_date DESC").Limit(60).Find(&rows).Error
+	return rows, err
+}
+
 func (r *StockRepo) GetAllAnnouncements(limit int) ([]model.CninfoAnnouncement, error) {
 	if limit <= 0 { limit = 200 }
 	var rows []model.CninfoAnnouncement

@@ -815,6 +815,8 @@ func RunStockCollection(phase, code string) error {
 		return runPythonStreamWithArgs("collect_cninfo.py", code)
 	case "unlocks":
 		return runPythonStreamWithArgs("collect_unlock.py", code)
+	case "fund_flow":
+		return runPythonStreamWithArgs("collect_fund_flow.py", code)
 	default:
 		return fmt.Errorf("unknown phase: %s", phase)
 	}

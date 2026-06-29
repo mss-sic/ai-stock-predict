@@ -310,6 +310,20 @@ func (h *StockHandler) GetCninfoAnnouncements(c *gin.Context) {
 	response.Success(c, data)
 }
 
+func (h *StockHandler) GetStockFundFlow(c *gin.Context) {
+	code := c.Param("code")
+	if code == "" {
+		response.Error(c, 400, response.CodeBadRequest, "股票代码不能为空")
+		return
+	}
+	data, err := h.svc.GetStockFundFlow(code)
+	if err != nil {
+		response.Error(c, 500, response.CodeInternalError, "查询资金流失败: "+err.Error())
+		return
+	}
+	response.Success(c, data)
+}
+
 func (h *StockHandler) GetAllAnnouncements(c *gin.Context) {
 	limit := 200
 	if l, err := strconv.Atoi(c.DefaultQuery("limit", "200")); err == nil && l > 0 {
