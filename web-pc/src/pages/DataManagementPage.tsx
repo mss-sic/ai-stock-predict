@@ -199,22 +199,36 @@ export default function DataManagementPage() {
 
   const handleRepair = async () => {
     if (!repairPhase) return;
+    const phase = repairPhase;
     setRepairModalVisible(false);
+    
+    // Switch to collect console for this phase
+    setSelectedCollectPhase(phase);
+    setConsoleLines([]);
+    setPhaseResults([]);
+    setTab('collect');
+    addConsoleLine(`🔧 正在触发 ${PHASE_LABELS[phase] || phase} 修复任务...`, 'system');
+    
     try {
       const body: any = { all: repairAll };
       if (!repairAll && repairDateRange.length === 2) {
         body.from = repairDateRange[0];
         body.to = repairDateRange[1];
       }
-      await fetch(`/api/v1/admin/scheduled-tasks/${repairTaskId}/repair`, {
+      const resp = await fetch(`/api/v1/admin/scheduled-tasks/${repairTaskId}/repair`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('aip_access_token') || ''}` },
         body: JSON.stringify(body),
       });
-      showToast('success', `修复任务已触发: ${PHASE_LABELS[repairPhase] || repairPhase}`);
+      const respData = await resp.json();
+      addConsoleLine(`✅ 修复任务已提交: ${PHASE_LABELS[phase] || phase}`, 'success');
+      if (respData.message) addConsoleLine(`📋 ${respData.message}`, 'info');
+      addConsoleLine('💡 可在「定时任务」页面查看执行日志，或在采集控制台点击「采集」手动运行', 'info');
+      showToast('success', `修复任务已触发: ${PHASE_LABELS[phase] || phase}`);
       setTimeout(() => { loadTasks(); loadTaskLogs(repairTaskId); }, 2000);
     } catch (e: any) {
       showToast('error', '修复失败: ' + (e?.message || '未知错误'));
+      addConsoleLine(`❌ 修复失败: ${e?.message || '未知错误'}`, 'stderr');
     }
   };
 
