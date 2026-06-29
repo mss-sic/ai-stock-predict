@@ -2989,7 +2989,7 @@ const handleChatSend = async (text?: string) => {
           {fundFlow.length > 0 && (() => {
             const total20 = fundFlow.slice(0, 20).reduce((s: number, d: any) => s + (d.mainNet || 0), 0);
             const total5 = fundFlow.slice(0, 5).reduce((s: number, d: any) => s + (d.mainNet || 0), 0);
-            const fmtW = (v: number) => Math.abs(v) >= 1e8 ? (v / 1e8).toFixed(2) + '亿' : (v / 1e4).toFixed(0) + '万';
+            const fmtW = (v: number) => Math.abs(v) >= 10000 ? (v / 10000).toFixed(2) + '亿' : v.toFixed(0) + '万';
             return (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
                 {[
@@ -3042,8 +3042,9 @@ const handleChatSend = async (text?: string) => {
                         const fmtW = (v: number) => {
                           const abs = Math.abs(v);
                           const sign = v >= 0 ? '+' : '';
-                          if (abs >= 1e8) return sign + (abs / 1e8).toFixed(2) + '亿';
-                          return sign + (abs / 1e4).toFixed(0) + '万';
+                          if (abs >= 10000) return sign + (abs / 10000).toFixed(2) + '亿';
+                          if (abs < 1 && abs > 0) return sign + (abs * 10000).toFixed(0) + '元';
+                          return sign + abs.toFixed(0) + '万';
                         };
                         return (
                           <tr key={i} style={{ borderBottom: '1px solid var(--color-border-1)' }}>
