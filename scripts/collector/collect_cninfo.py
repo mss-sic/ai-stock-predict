@@ -89,7 +89,7 @@ def fetch_announcements(code, page_size=30):
             item.get("announcementTitle", "") or "",
             item.get("announcementTypeName", "") or "",
             date_str,
-            f"https://www.cninfo.com.cn/new/disclosure/detail?annoId={item.get('announcementId', '')}",
+            f"https://static.cninfo.com.cn/finalpage/{date_str}/{item.get('announcementId', '')}.PDF",
         ))
     return rows
 

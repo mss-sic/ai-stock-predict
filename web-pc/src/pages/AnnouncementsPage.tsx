@@ -119,7 +119,7 @@ export default function AnnouncementsPage() {
                     <div style={{ flex: 1, minWidth: 0, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {d.title}
                     </div>
-                    <span style={{ fontSize: 11, color: 'var(--color-text-3)', flexShrink: 0 }}>{d.annDate?.slice(0, 10)}</span>
+                    <span style={{ fontSize: 11, color: 'var(--color-text-3)', flexShrink: 0 }}>{(d.annDate || '').replace('T00:00:00Z', '').slice(0, 10)}</span>
                     {d.annUrl && (
                       <a href={d.annUrl} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}
                         style={{ color: 'var(--color-text-3)', flexShrink: 0 }} title="查看原文">

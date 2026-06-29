@@ -3055,7 +3055,7 @@ const handleChatSend = async (text?: string) => {
                       {a.annType || '公告'}
                     </span>
                     <div style={{ flex: 1, minWidth: 0, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.title}</div>
-                    <span style={{ fontSize: 11, color: 'var(--color-text-3)', flexShrink: 0 }}>{a.annDate}</span>
+                    <span style={{ fontSize: 11, color: 'var(--color-text-3)', flexShrink: 0 }}>{(a.annDate || '').replace('T00:00:00Z', '').slice(0, 10)}</span>
                   </a>
                 ))}
               </div>
