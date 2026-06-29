@@ -579,3 +579,17 @@ func (r *StockRepo) GetRestrictedUnlocks(code string) ([]model.RestrictedShareUn
 	err := db.PG.Where("code = ? AND free_date >= CURRENT_DATE", code).Order("free_date ASC").Find(&rows).Error
 	return rows, err
 }
+
+// GetDailyDragonTigerList returns full dragon tiger list for a given date.
+func (r *StockRepo) GetDailyDragonTigerList(tradeDate string) ([]model.DragonTigerList, error) {
+	var rows []model.DragonTigerList
+	err := db.PG.Where("trade_date = ?", tradeDate).Order("net_buy_amt DESC").Find(&rows).Error
+	return rows, err
+}
+
+// GetDragonTigerSeats returns seat detail for a stock on a given date.
+func (r *StockRepo) GetDragonTigerSeats(code, tradeDate string) ([]model.DragonTigerDetail, error) {
+	var rows []model.DragonTigerDetail
+	err := db.PG.Where("code = ? AND trade_date = ?", code, tradeDate).Order("net_amt DESC").Find(&rows).Error
+	return rows, err
+}

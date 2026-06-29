@@ -103,3 +103,11 @@ func (s *StockService) GetCninfoAnnouncements(code string, limit int) ([]model.C
 func (s *StockService) GetRestrictedUnlocks(code string) ([]model.RestrictedShareUnlock, error) {
 	return s.repo.GetRestrictedUnlocks(code)
 }
+
+func (s *StockService) GetDailyDragonTigerList(tradeDate string) ([]model.DragonTigerList, error) {
+	return s.repo.GetDailyDragonTigerList(tradeDate)
+}
+
+func (s *StockService) GetDragonTigerSeats(code, tradeDate string) ([]model.DragonTigerDetail, error) {
+	return s.repo.GetDragonTigerSeats(code, tradeDate)
+}

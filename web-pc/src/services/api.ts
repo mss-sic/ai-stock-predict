@@ -361,6 +361,10 @@ export const fetchForecast = (code: string, horizon?: number) => api.get(`/forec
 
 
 
+
+export const fetchDailyDragonTiger = (date?: string) => api.get('/dragon-tiger', { params: { date } });
+export const fetchDragonTigerSeats = (code: string, date: string) => api.get(`/dragon-tiger/${code}/seats`, { params: { date } });
+
 export const fetchDragonTiger = (code: string) => api.get(`/stocks/${code}/dragon-tiger`);
 export const fetchBlockTrades = (code: string) => api.get(`/stocks/${code}/block-trades`);
 export const fetchAnnouncements = (code: string) => api.get(`/stocks/${code}/announcements`);

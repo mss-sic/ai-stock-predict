@@ -16,6 +16,7 @@ const navItems = [
   { key: '/board/history', label: '历史榜单', icon: History },
   { key: '/board/heatmap', label: '上榜热力图', icon: Grid3X3 },
   { key: '/board/concepts', label: '概念板块', icon: Layers },
+  { key: '/dragon-tiger', label: '龙虎榜', icon: Swords },
   { key: '/stocks', label: '股票列表', icon: Search },
   { key: '/watchlist', label: '自选股', icon: Star },
   { key: '/strategy', label: '交易策略', icon: Target },

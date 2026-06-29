@@ -4,6 +4,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/ai-stock-predict/server/internal/collector"
 	"github.com/ai-stock-predict/server/internal/repository"
@@ -312,6 +313,27 @@ func (h *StockHandler) GetCninfoAnnouncements(c *gin.Context) {
 func (h *StockHandler) GetRestrictedUnlocks(c *gin.Context) {
 	code := c.Param("code")
 	data, err := h.svc.GetRestrictedUnlocks(code)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"data": []interface{}{}})
+		return
+	}
+	response.Success(c, data)
+}
+
+func (h *StockHandler) GetDailyDragonTigerList(c *gin.Context) {
+	tradeDate := c.DefaultQuery("date", time.Now().Format("2006-01-02"))
+	data, err := h.svc.GetDailyDragonTigerList(tradeDate)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"data": []interface{}{}})
+		return
+	}
+	response.Success(c, data)
+}
+
+func (h *StockHandler) GetDragonTigerSeats(c *gin.Context) {
+	code := c.Param("code")
+	tradeDate := c.DefaultQuery("date", time.Now().Format("2006-01-02"))
+	data, err := h.svc.GetDragonTigerSeats(code, tradeDate)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"data": []interface{}{}})
 		return
