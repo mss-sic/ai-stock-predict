@@ -360,6 +360,12 @@ export const fetchEnrichedHeatmap = () => fetchHeatmapEnriched();
 export const fetchForecast = (code: string, horizon?: number) => api.get(`/forecast/${code}`, { params: horizon ? { horizon } : {} });
 
 
+
+export const fetchDragonTiger = (code: string) => api.get(`/stocks/${code}/dragon-tiger`);
+export const fetchBlockTrades = (code: string) => api.get(`/stocks/${code}/block-trades`);
+export const fetchAnnouncements = (code: string) => api.get(`/stocks/${code}/announcements`);
+export const fetchUnlocks = (code: string) => api.get(`/stocks/${code}/unlocks`);
+
 export const fetchReports = (code: string) => fetchStockReports(code);
 
 // ── Auth-aware fetch wrapper (for SSE and raw fetch calls) ──

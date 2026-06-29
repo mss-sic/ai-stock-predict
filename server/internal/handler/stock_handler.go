@@ -272,3 +272,49 @@ func (h *StockHandler) RepairKLine(c *gin.Context) {
 	}()
 	response.Success(c, gin.H{"message": "数据修复已触发", "stockCode": code})
 }
+
+func (h *StockHandler) GetDragonTigerList(c *gin.Context) {
+	code := c.Param("code")
+	data, err := h.svc.GetDragonTigerList(code)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"data": []interface{}{}})
+		return
+	}
+	response.Success(c, data)
+}
+
+func (h *StockHandler) GetBlockTrades(c *gin.Context) {
+	code := c.Param("code")
+	data, err := h.svc.GetBlockTrades(code)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"data": []interface{}{}})
+		return
+	}
+	response.Success(c, data)
+}
+
+func (h *StockHandler) GetCninfoAnnouncements(c *gin.Context) {
+	code := c.Param("code")
+	limit := 20
+	if l := c.Query("limit"); l != "" {
+		if n, err := strconv.Atoi(l); err == nil && n > 0 {
+			limit = n
+		}
+	}
+	data, err := h.svc.GetCninfoAnnouncements(code, limit)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"data": []interface{}{}})
+		return
+	}
+	response.Success(c, data)
+}
+
+func (h *StockHandler) GetRestrictedUnlocks(c *gin.Context) {
+	code := c.Param("code")
+	data, err := h.svc.GetRestrictedUnlocks(code)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"data": []interface{}{}})
+		return
+	}
+	response.Success(c, data)
+}

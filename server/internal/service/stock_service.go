@@ -86,3 +86,20 @@ func (s *StockService) GetAppearanceStats(topN, limit int) ([]repository.Appeara
 func (s *StockService) GetIndustryReports(industry string, limit int) ([]model.StockReport, error) {
 	return s.repo.GetIndustryReports(industry, limit)
 }
+
+func (s *StockService) GetDragonTigerList(code string) ([]model.DragonTigerList, error) {
+	return s.repo.GetDragonTigerList(code)
+}
+
+func (s *StockService) GetBlockTrades(code string) ([]model.BlockTrade, error) {
+	return s.repo.GetBlockTrades(code)
+}
+
+func (s *StockService) GetCninfoAnnouncements(code string, limit int) ([]model.CninfoAnnouncement, error) {
+	if limit <= 0 { limit = 20 }
+	return s.repo.GetCninfoAnnouncements(code, limit)
+}
+
+func (s *StockService) GetRestrictedUnlocks(code string) ([]model.RestrictedShareUnlock, error) {
+	return s.repo.GetRestrictedUnlocks(code)
+}

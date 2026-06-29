@@ -544,3 +544,38 @@ func (r *StockRepo) GetIndustryReports(industry string, limit int) ([]model.Stoc
 	err := db.PG.Where("industry_name = ?", industry).Order("publish_date DESC").Limit(limit).Find(&rows).Error
 	return rows, err
 }
+
+// GetDragonTigerList returns dragon tiger board appearances for a stock.
+func (r *StockRepo) GetDragonTigerList(code string) ([]model.DragonTigerList, error) {
+	var rows []model.DragonTigerList
+	err := db.PG.Where("code = ?", code).Order("trade_date DESC").Limit(30).Find(&rows).Error
+	return rows, err
+}
+
+// GetDragonTigerDetail returns seat-level detail for a specific date.
+func (r *StockRepo) GetDragonTigerDetail(code, tradeDate string) ([]model.DragonTigerDetail, error) {
+	var rows []model.DragonTigerDetail
+	err := db.PG.Where("code = ? AND trade_date = ?", code, tradeDate).Order("net_amt DESC").Find(&rows).Error
+	return rows, err
+}
+
+// GetBlockTrades returns block trade history for a stock.
+func (r *StockRepo) GetBlockTrades(code string) ([]model.BlockTrade, error) {
+	var rows []model.BlockTrade
+	err := db.PG.Where("code = ?", code).Order("trade_date DESC").Limit(30).Find(&rows).Error
+	return rows, err
+}
+
+// GetCninfoAnnouncements returns announcements for a stock.
+func (r *StockRepo) GetCninfoAnnouncements(code string, limit int) ([]model.CninfoAnnouncement, error) {
+	var rows []model.CninfoAnnouncement
+	err := db.PG.Where("code = ?", code).Order("ann_date DESC").Limit(limit).Find(&rows).Error
+	return rows, err
+}
+
+// GetRestrictedUnlocks returns upcoming unlocks for a stock.
+func (r *StockRepo) GetRestrictedUnlocks(code string) ([]model.RestrictedShareUnlock, error) {
+	var rows []model.RestrictedShareUnlock
+	err := db.PG.Where("code = ? AND free_date >= CURRENT_DATE", code).Order("free_date ASC").Find(&rows).Error
+	return rows, err
+}

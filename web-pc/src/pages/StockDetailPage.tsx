@@ -7,15 +7,15 @@ import { useParams } from 'react-router-dom';
 import { Button, Tag, Input, Tooltip, Modal, Select } from '@arco-design/web-react';
 import {
   TrendingUp, TrendingDown, BarChart3, Repeat,
-  Sparkles, Brain, Target, Activity, Table2, Bot,
+  Sparkles, Brain, Target, Activity, Table2, Bot, Swords, FileWarning, Gift,
   RefreshCw, Send, Trash2, Loader2, Check, X, Layers, FileText, Users, Newspaper, Star, StarOff, ChevronLeft, ChevronRight, ExternalLink, Wrench,
 } from 'lucide-react';
 import { showToast } from '../components/Toast';
-import { authFetch, checkAPIError, fetchStockDetail, fetchKLine, fetchIndicator, fetchPredictionResult, fetchPredictionHitRate, fetchStockHeatmap, fetchSignal, fetchFinancials, fetchShareholders, fetchStockNews, fetchReports, fetchStockConceptTags, addToWatchlist, removeFromWatchlist, fetchWatchlist, fetchWatchlistGroups, createWatchlistGroup, fetchHoldings, fetchProfile, runProfile, repairStock, fetchRealtimeQuoteSingle } from '../services/api';
+import { authFetch, checkAPIError, fetchStockDetail, fetchKLine, fetchIndicator, fetchPredictionResult, fetchPredictionHitRate, fetchStockHeatmap, fetchSignal, fetchFinancials, fetchShareholders, fetchStockNews, fetchReports, fetchStockConceptTags, addToWatchlist, removeFromWatchlist, fetchWatchlist, fetchWatchlistGroups, createWatchlistGroup, fetchHoldings, fetchProfile, runProfile, repairStock, fetchRealtimeQuoteSingle, fetchDragonTiger, fetchBlockTrades, fetchAnnouncements, fetchUnlocks } from '../services/api';
 import KLineChart from '../components/KLineChart';
 import BoardSidebar from '../components/BoardSidebar';
 
-type TabKey = 'forecast' | 'analysis' | 'strategy' | 'technical' | 'trading' | 'financial' | 'shareholder' | 'reports' | 'news';
+type TabKey = 'forecast' | 'analysis' | 'strategy' | 'technical' | 'trading' | 'financial' | 'shareholder' | 'reports' | 'news' | 'dragon_tiger' | 'block_trade' | 'announcements' | 'unlocks';
 
 interface ToolStatus { tool: string; label: string; index: number; total: number; turn: number; done?: boolean; startTime?: number }
 interface Message { role: 'user' | 'ai'; text: string; status?: { phase: string; label: string }; toolStatuses?: ToolStatus[]; startTime?: number }
@@ -951,6 +951,10 @@ const handleChatSend = async (text?: string) => {
     { key: 'shareholder', label: '股东', icon: Users },
     { key: 'reports', label: '研报', icon: FileText },
     { key: 'news', label: '资讯', icon: Newspaper },
+    { key: 'dragon_tiger', label: '龙虎榜', icon: Swords },
+    { key: 'block_trade', label: '大宗交易', icon: TrendingDown },
+    { key: 'announcements', label: '公告', icon: FileWarning },
+    { key: 'unlocks', label: '解禁', icon: AlertTriangle },
   ];
 
   const horizons = [5, 10, 20];
