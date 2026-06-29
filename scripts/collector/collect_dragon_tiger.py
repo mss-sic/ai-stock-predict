@@ -68,24 +68,52 @@ def daily_dragon_tiger(trade_date):
 def collect_dragon_tiger_detail(code, trade_date):
     """个股上榜席位明细 — 合并买卖双方同一席位"""
     seats = []
-    # 买入席位（用 BUY 接口获取完整买卖数据）
+    seen_seats = set()
+    # 买入席位 TOP5
     buy_data = datacenter_query(
         "RPT_BILLBOARD_DAILYDETAILSBUY",
         filter_str=f"(TRADE_DATE='{trade_date}')(SECURITY_CODE=\"{code}\")",
         page_size=10, sort_columns="BUY", sort_types="-1",
     )
     for row in buy_data:
-        seat_code = str(row.get("OPERATEDEPT_CODE", ""))
+        name = row.get("OPERATEDEPT_NAME", "")
         buy_amt = round((row.get("BUY") or 0) / 10000, 1)
         sell_amt = round((row.get("SELL") or 0) / 10000, 1)
         net = round((row.get("NET") or 0) / 10000, 1)
+        key = (code, trade_date, name, buy_amt, sell_amt, net)
+        if key in seen_seats:
+            continue
+        seen_seats.add(key)
         seats.append((
             code, trade_date,
-            row.get("OPERATEDEPT_NAME", ""),
-            seat_code,
+            name,
+            str(row.get("OPERATEDEPT_CODE", "")),
             "buy" if net >= 0 else "sell",
             buy_amt, sell_amt, net,
-            seat_code == "0",
+            str(row.get("OPERATEDEPT_CODE", "")) == "0",
+        ))
+    # 卖出席位 TOP5
+    sell_data = datacenter_query(
+        "RPT_BILLBOARD_DAILYDETAILSSELL",
+        filter_str=f"(TRADE_DATE='{trade_date}')(SECURITY_CODE=\"{code}\")",
+        page_size=10, sort_columns="SELL", sort_types="-1",
+    )
+    for row in sell_data:
+        name = row.get("OPERATEDEPT_NAME", "")
+        buy_amt = round((row.get("BUY") or 0) / 10000, 1)
+        sell_amt = round((row.get("SELL") or 0) / 10000, 1)
+        net = round((row.get("NET") or 0) / 10000, 1)
+        key = (code, trade_date, name, buy_amt, sell_amt, net)
+        if key in seen_seats:
+            continue
+        seen_seats.add(key)
+        seats.append((
+            code, trade_date,
+            name,
+            str(row.get("OPERATEDEPT_CODE", "")),
+            "sell" if net <= 0 else "buy",
+            buy_amt, sell_amt, net,
+            str(row.get("OPERATEDEPT_CODE", "")) == "0",
         ))
     return seats
 
@@ -143,11 +171,11 @@ def main():
             continue
 
     if all_seats:
-        # 去重: code + trade_date + seat_code
+        # 去重: code + trade_date + seat_name + net_amt (seat_code可能不同故用金额)
         seen = set()
         unique_seats = []
         for seat in all_seats:
-            key = (seat[0], seat[1], seat[3])
+            key = (seat[0], seat[1], seat[2], seat[6])  # code, trade_date, seat_name, net_amt
             if key not in seen:
                 seen.add(key)
                 unique_seats.append(seat)
