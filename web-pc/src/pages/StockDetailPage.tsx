@@ -3097,10 +3097,10 @@ const handleChatSend = async (text?: string) => {
                 </thead>
                 <tbody>
                   {unlocks.map((d: any, i: number) => {
-                    const isFuture = d.freeDate >= new Date().toISOString().slice(0, 10);
+                    const isFuture = (d.freeDate || '').replace('T00:00:00Z', '').slice(0, 10) >= new Date().toISOString().slice(0, 10);
                     return (
                       <tr key={i} style={{ borderBottom: '1px solid var(--color-border-1)', background: isFuture ? 'rgba(245,63,63,0.03)' : undefined }}>
-                        <td style={{ padding: '6px 12px', fontSize: 12, color: isFuture ? '#F53F3F' : 'var(--color-text-1)', fontWeight: isFuture ? 600 : 400 }}>{d.freeDate}</td>
+                        <td style={{ padding: '6px 12px', fontSize: 12, color: isFuture ? '#F53F3F' : 'var(--color-text-1)', fontWeight: isFuture ? 600 : 400 }}>{(d.freeDate || '').replace('T00:00:00Z', '').slice(0, 10)}</td>
                         <td style={{ padding: '6px 12px', fontSize: 11 }}>{d.stockType || '-'}</td>
                         <td style={{ padding: '6px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{d.shares != null ? (d.shares / 10000).toFixed(2) : '-'}</td>
                         <td style={{ padding: '6px 12px', textAlign: 'right', color: d.ratio > 5 ? '#F53F3F' : 'var(--color-text-1)', fontWeight: d.ratio > 5 ? 600 : 400, fontVariantNumeric: 'tabular-nums' }}>{d.ratio != null ? d.ratio.toFixed(2) + '%' : '-'}</td>

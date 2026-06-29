@@ -122,7 +122,7 @@ export default function UnlockCalendarPage() {
                     {items.map((d, i) => (
                       <tr key={i} style={{ borderBottom: '1px solid var(--color-border-1)', cursor: 'pointer' }}
                         onClick={() => navigate(`/stock/${d.code}`)}>
-                        <td style={{ padding: '6px 12px', fontSize: 12, color: '#F53F3F', fontWeight: 600 }}>{d.freeDate?.slice(0, 10)}</td>
+                        <td style={{ padding: '6px 12px', fontSize: 12, color: '#F53F3F', fontWeight: 600 }}>{(d.freeDate || '').replace('T00:00:00Z', '').slice(0, 10)}</td>
                         <td style={{ padding: '6px 12px', fontFamily: 'monospace', fontSize: 12 }}>{d.code}</td>
                         <td style={{ padding: '6px 12px', fontSize: 12, fontWeight: 500, color: 'var(--color-primary)', cursor: 'pointer' }}>{d.name || d.code}</td>
                         <td style={{ padding: '6px 12px', fontSize: 11, color: 'var(--color-text-2)' }}>{d.stockType || '-'}</td>

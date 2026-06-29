@@ -1083,6 +1083,7 @@ Register(Migration{
 			)`)
 			safeExec(`CREATE INDEX IF NOT EXISTS idx_restricted_unlock_code ON restricted_share_unlock(code)`)
 			safeExec(`CREATE INDEX IF NOT EXISTS idx_restricted_unlock_date ON restricted_share_unlock(free_date)`)
+			safeExec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_restricted_unlock_unique ON restricted_share_unlock(code, free_date, stock_type)`)
 			return nil
 		},
 	})

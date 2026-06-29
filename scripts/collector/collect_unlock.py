@@ -58,9 +58,9 @@ def collect_unlock_for_code(code, forward_days=90):
         all_rows.append((
             code,
             str(row.get("FREE_DATE", ""))[:10],
-            row.get("LIMITED_STOCK_TYPE", "") or "",
-            row.get("FREE_SHARES_NUM", 0),
-            row.get("FREE_RATIO", 0),
+            row.get("FREE_SHARES_TYPE", "") or "",
+            round(float(row.get("FREE_SHARES", 0) or 0), 0),
+            round(float(row.get("FREE_RATIO", 0) or 0) * 100, 2),
             True,
         ))
 
@@ -74,9 +74,9 @@ def collect_unlock_for_code(code, forward_days=90):
         all_rows.append((
             code,
             str(row.get("FREE_DATE", ""))[:10],
-            row.get("LIMITED_STOCK_TYPE", "") or "",
-            row.get("FREE_SHARES_NUM", 0),
-            row.get("FREE_RATIO", 0),
+            row.get("FREE_SHARES_TYPE", "") or "",
+            round(float(row.get("FREE_SHARES", 0) or 0), 0),
+            round(float(row.get("FREE_RATIO", 0) or 0) * 100, 2),
             False,
         ))
 
@@ -111,7 +111,10 @@ def main():
                 cur.execute("""
                     INSERT INTO restricted_share_unlock (code, free_date, stock_type, shares, ratio, is_history)
                     VALUES (%s, %s, %s, %s, %s, %s)
-                    ON CONFLICT DO NOTHING
+                    ON CONFLICT (code, free_date, stock_type) DO UPDATE SET
+                        shares = EXCLUDED.shares,
+                        ratio = EXCLUDED.ratio,
+                        is_history = EXCLUDED.is_history
                 """, r)
             conn.commit()
             total += len(rows)
