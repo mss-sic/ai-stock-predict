@@ -816,7 +816,7 @@ export default function DataManagementPage() {
                       <>
                         <Button size="small" type="primary" icon={<Play size={12} />} onClick={() => handleTrigger([selectedCollectPhase])} disabled={collecting}>采集</Button>
                         {HISTORY_CAPABLE_PHASES.has(selectedCollectPhase) && (
-                        <Button size="small" type="outline" icon={<History size={12} />} onClick={() => { setRepairPhase(phase); setRepairDateRange([]); setRepairAll(false); setRepairModalVisible(true); }} disabled={collecting}>修复历史</Button>
+                        <Button size="small" type="outline" icon={<History size={12} />} onClick={() => { setRepairPhase(selectedCollectPhase); setRepairDateRange([]); setRepairAll(false); setRepairModalVisible(true); }} disabled={collecting}>修复历史</Button>
                         )}
                       </>
                     )}
