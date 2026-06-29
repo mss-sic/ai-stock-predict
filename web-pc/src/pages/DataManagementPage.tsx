@@ -4,14 +4,12 @@ import {
   Database, Upload as UploadIcon, RefreshCw, FileSpreadsheet, FileJson,
   CheckCircle, XCircle, Clock, Play, Terminal, Square, History, Activity, X,
   BarChart3, TrendingUp, Newspaper, FileText, PieChart, Users, Banknote,
-  Timer, Zap, Bot, Sparkles
+  Timer, Bot, Sparkles, TrendingDown, AlertTriangle, Gift, Zap, Globe, Shield, Layers
 } from 'lucide-react';
 import {
   uploadExcel, uploadKline, uploadPrediction, uploadProfile, triggerCollection, fetchCollectorProgress,
-  fetchRealtimeQuotes,
   fetchImportHistory, fetchCollectorHistory, clearCollectorHistory, fetchDataStats, fetchDataDetail,
   fetchScheduledTasks, runTaskNow, initDefaultTasks, fetchTaskLogs, resetTaskStatus, toggleTask,
-  bulkComputeMarketStyle
 } from '../services/api';
 
 const PHASE_LABELS: Record<string, string> = {
@@ -22,6 +20,21 @@ const PHASE_LABELS: Record<string, string> = {
   backfill_indicator: 'PE/PB历史回填',
   profile: 'AI简介+评分',
   score: 'AI六维评分',
+  dragon_tiger: '龙虎榜',
+  margin: '融资融券',
+  block_trade: '大宗交易',
+  unlock: '限售解禁',
+  ths_hot: '同花顺热点',
+  dividend: '分红送转',
+  ths_eps: '一致预期',
+  cninfo: '巨潮公告',
+  macro_news: '宏观资讯',
+  market_daily_agg: '市场日聚合',
+  market_sentiment: '市场情绪计算',
+  market_style: '市场风格计算',
+  risk_scan: '风险扫描',
+  concept_full: '概念全量重建',
+  ai_score: 'AI评分更新',
 };
 
 const PHASE_DESCRIPTIONS: Record<string, string> = {
@@ -40,6 +53,21 @@ const PHASE_DESCRIPTIONS: Record<string, string> = {
   backfill_indicator: '全量回溯历史PE/PB指标，补齐所有交易日的估值数据',
   profile: 'AI生成结构化公司简介: 核心特征/主营业务/财报/成长/风险/展望',
   score: 'AI六维度量化评分: 基本面/成长性/估值/资金面/技术面/行业景气',
+  dragon_tiger: '采集全市场龙虎榜上榜股票+买卖席位TOP5+机构动向',
+  margin: '采集全市场融资余额/融券余额/融资买入/融券卖出等两融数据',
+  block_trade: '采集大宗交易成交价/折溢价率/买卖方营业部',
+  unlock: '采集限售股解禁日历（历史+未来90天预告）',
+  ths_hot: '采集同花顺当日强势股列表+题材归因标签',
+  dividend: '采集每股分红/送股/转增历史记录',
+  ths_eps: '采集同花顺机构一致预期EPS/PE预测',
+  cninfo: '采集巨潮资讯网公告（年报/季报/业绩预告/重大事项）',
+  macro_news: '采集东财7×24全球财经快讯（按政策/国际/产业分类）',
+  market_daily_agg: '计算全市场每日涨跌比/成交额/MA20站上数等聚合指标',
+  market_sentiment: '计算市场情绪指数（11项子指标综合评分）',
+  market_style: '计算市场风格分类（大盘/小盘/成长/价值等）及置信度',
+  risk_scan: '扫描用户持仓股风险（跌幅/破位/业绩预警等）',
+  concept_full: '全量重建概念板块成分股关联（东财slist反向采集）',
+  ai_score: 'AI六维度量化评分更新（基本面/成长性/估值/资金面/技术面/行业景气）',
 };
 
 const PHASE_COLORS: Record<string, string> = {
@@ -47,6 +75,8 @@ const PHASE_COLORS: Record<string, string> = {
   industry: '#722ed1', quote: '#14c9c9', shareholder: '#f53f3f',
   financial: '#0fc6c2', news: '#f77234', reports: '#e865b7', concept: '#f5319d',
   backfill_financial: '#4080ff', backfill_shareholder: '#ff4080', backfill_indicator: '#00c853',
+  dragon_tiger: '#e8654c', margin: '#f09b38', block_trade: '#00a870', unlock: '#ed7b2f',
+  ths_hot: '#165dff', dividend: '#722ed1', ths_eps: '#14c9c9', cninfo: '#f5319d', macro_news: '#ff7d00',
 };
 
 // Phases that legitimately take >10 minutes
@@ -56,6 +86,16 @@ const LONG_RUNNING_PHASES: Record<string, number> = {
   backfill_shareholder: 60,
   backfill_indicator: 60,
 };
+
+// 支持历史数据修复的 Phase（数据源可查询任意历史日期）
+const HISTORY_CAPABLE_PHASES = new Set([
+  'kline',           // K线（可查询任意日期区间）
+  'dragon_tiger',    // 龙虎榜（可按日期查询）
+  'reports',         // 研报（可按日期范围查询）
+  'market_daily_agg', // 市场日聚合（--last N / --all）
+  'market_sentiment', // 市场情绪（--last N / date）
+  'backfill_financial', 'backfill_shareholder', 'backfill_indicator',
+]);
 
 const RANGE_PRESETS = [
   { label: '最新', desc: '仅最新交易日', args: [] },
@@ -117,6 +157,7 @@ function cronToText(expr: string): string {
   return expr;
 }
 
+
 export default function DataManagementPage() {
   const [tab, setTab] = useState<'overview' | 'tasks' | 'import' | 'collect' | 'history'>('overview');
   const [loading, setLoading] = useState(false);
@@ -150,12 +191,41 @@ export default function DataManagementPage() {
   const [selectedRange, setSelectedRange] = useState(0);
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
   const [selectedCollectPhase, setSelectedCollectPhase] = useState('kline');
+  const [repairModalVisible, setRepairModalVisible] = useState(false);
+  const [repairPhase, setRepairPhase] = useState('');
+  const [repairDateRange, setRepairDateRange] = useState<string[]>([]);
+  const [repairAll, setRepairAll] = useState(false);
+  const repairTaskId = scheduledTasks.find((t: any) => t.phase === repairPhase)?.id;
+
+  const handleRepair = async () => {
+    if (!repairPhase) return;
+    setRepairModalVisible(false);
+    try {
+      const body: any = { all: repairAll };
+      if (!repairAll && repairDateRange.length === 2) {
+        body.from = repairDateRange[0];
+        body.to = repairDateRange[1];
+      }
+      await fetch(`/api/v1/admin/scheduled-tasks/${repairTaskId}/repair`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('aip_access_token') || ''}` },
+        body: JSON.stringify(body),
+      });
+      showToast('success', `修复任务已触发: ${PHASE_LABELS[repairPhase] || repairPhase}`);
+      setTimeout(() => { loadTasks(); loadTaskLogs(repairTaskId); }, 2000);
+    } catch (e: any) {
+      showToast('error', '修复失败: ' + (e?.message || '未知错误'));
+    }
+  };
+
+
   const pollRef = useRef<any>(null);
   const consoleRef = useRef<HTMLDivElement>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
   const startTimeRef = useRef<number>(0);
   const reconnectAttemptRef = useRef(0);
   const reconnectTimerRef = useRef<any>(null);
+  const collectingRef = useRef(false);
   const MAX_RECONNECT = 10;
 
   const showToast = useCallback((type: 'success' | 'error' | 'info', msg: string) => { setToast({ type, msg }); }, []);
@@ -203,19 +273,6 @@ export default function DataManagementPage() {
     }
   };
   const handleInitDefaults = async () => { try { await initDefaultTasks(); loadTasks(); } catch {} };
-  const [bulkComputing, setBulkComputing] = useState(false);
-  const handleBulkComputeStyle = async () => {
-    setBulkComputing(true);
-    try {
-      const res: any = await bulkComputeMarketStyle();
-      showToast('success', '市场风格回填完成: ' + (res.data?.data?.success || res.data?.data?.computed || '?') + ' 条');
-      loadTasks();
-    } catch (e: any) {
-      showToast('error', '回填失败: ' + (e?.response?.data?.message || e?.message || '未知错误'));
-    } finally {
-      setBulkComputing(false);
-    }
-  };
 
   // ── SSE ──
   // ── SSE event handler factory ──
@@ -258,6 +315,7 @@ export default function DataManagementPage() {
         } else if (line.type === 'done') {
           addConsoleLine(`\n${line.message}`, 'success');
           setCollecting(false);
+          collectingRef.current = false;
           setTotalDuration(Date.now() - startTimeRef.current);
           es.close();
           eventSourceRef.current = null;
@@ -274,13 +332,14 @@ export default function DataManagementPage() {
   // ── SSE connect with exponential backoff reconnect ──
   const connectStream = () => {
     setCollecting(true);
+    collectingRef.current = true;
     const tok = localStorage.getItem('aip_access_token');
     eventSourceRef.current?.close();
     const es = new EventSource(`/api/v1/collector/stream?token=${tok || ''}`);
     eventSourceRef.current = es;
     es.onmessage = makeSSEHandler(es);
     es.onerror = () => {
-      if (!collecting) {
+      if (!collectingRef.current) {
         es.close();
         eventSourceRef.current = null;
         return;
@@ -314,13 +373,14 @@ export default function DataManagementPage() {
     try {
       await triggerCollection(phases);
       setCollecting(true);
+      collectingRef.current = true;
       startTimeRef.current = Date.now();
       const tok = localStorage.getItem('aip_access_token');
       const es = new EventSource(`/api/v1/collector/stream?token=${tok || ''}`);
       eventSourceRef.current = es;
       es.onmessage = makeSSEHandler(es);
       es.onerror = () => {
-        if (!collecting) {
+        if (!collectingRef.current) {
           es.close();
           eventSourceRef.current = null;
           return;
@@ -342,7 +402,7 @@ export default function DataManagementPage() {
           eventSourceRef.current = es2;
           es2.onmessage = makeSSEHandler(es2);
           es2.onerror = () => {
-            if (!collecting) { es2.close(); eventSourceRef.current = null; }
+            if (!collectingRef.current) { es2.close(); eventSourceRef.current = null; }
           };
         }, delay);
       };
@@ -374,7 +434,7 @@ export default function DataManagementPage() {
     setLoading(false);
   };
 
-  const handleStop = () => { eventSourceRef.current?.close(); clearInterval(pollRef.current); setCollecting(false); addConsoleLine('⏹ 用户停止了监控（采集进程仍在服务端运行）', 'system'); };
+  const handleStop = () => { eventSourceRef.current?.close(); clearInterval(pollRef.current); setCollecting(false); collectingRef.current = false; addConsoleLine('⏹ 用户停止了监控（采集进程仍在服务端运行）', 'system'); };
 
   const formatDuration = (ms: number) => { if (ms < 1000) return `${ms}ms`; if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`; return `${Math.floor(ms / 60000)}m ${Math.round((ms % 60000) / 1000)}s`; };
 
@@ -399,7 +459,6 @@ export default function DataManagementPage() {
       try {
         const pr: any = await fetchCollectorProgress();
         if (pr.data?.data?.running) {
-          setCollecting(true);
           setProgress(pr.data.data);
           // Dedup results by phase to prevent double panels
           const rawResults = pr.data.data.results || [];
@@ -416,16 +475,12 @@ export default function DataManagementPage() {
           }
           if (pr.data.data.started) startTimeRef.current = new Date(pr.data.data.started).getTime();
           addConsoleLine('🔄 检测到正在运行的采集，自动重连...', 'system');
-          const tok = localStorage.getItem('aip_access_token');
-          const es = new EventSource('/api/v1/collector/stream?token=' + (tok || ''));
-          eventSourceRef.current = es;
-          es.onmessage = makeSSEHandler(es);
-          es.onerror = () => {
-            if (!collecting) { es.close(); eventSourceRef.current = null; }
-          };
+          // Use connectStream() for proper reconnect with exponential backoff + MAX_RECONNECT limit
+          connectStream();
         }
       } catch {}
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ══════════════════════════════════════════
@@ -444,6 +499,33 @@ export default function DataManagementPage() {
         }
       `}</style>
       {toast && <Toast type={toast.type} msg={toast.msg} onClose={() => setToast(null)} />}
+      {/* Repair Modal */}
+      <Modal
+        title={`修复历史数据 — ${PHASE_LABELS[repairPhase] || repairPhase}`}
+        visible={repairModalVisible}
+        onOk={handleRepair}
+        onCancel={() => setRepairModalVisible(false)}
+        okText="开始修复"
+        cancelText="取消"
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16, padding: '8px 0' }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 6, color: 'var(--color-text-1)' }}>时间范围</div>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <input type="date" value={repairDateRange[0] || ''} onChange={e => setRepairDateRange([e.target.value, repairDateRange[1] || ''])}
+                style={{ width: 160, padding: '6px 10px', border: '1px solid var(--color-border-2)', borderRadius: 4, fontSize: 13, background: 'var(--color-bg-1)', color: 'var(--color-text-1)' }} />
+              <span style={{ color: 'var(--color-text-3)', fontSize: 13 }}>至</span>
+              <input type="date" value={repairDateRange[1] || ''} onChange={e => setRepairDateRange([repairDateRange[0] || '', e.target.value])}
+                style={{ width: 160, padding: '6px 10px', border: '1px solid var(--color-border-2)', borderRadius: 4, fontSize: 13, background: 'var(--color-bg-1)', color: 'var(--color-text-1)' }} />
+            </div>
+          </div>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, color: 'var(--color-text-2)' }}>
+            <input type="checkbox" checked={repairAll} onChange={e => { setRepairAll(e.target.checked); if (e.target.checked) setRepairDateRange([]); }}
+              style={{ width: 16, height: 16, cursor: 'pointer' }} />
+            全部历史数据（忽略时间范围）
+          </label>
+        </div>
+      </Modal>
       <div className="page-header">
         <h2><Database size={20} style={{ marginRight: 8 }} />数据管理</h2>
         <span className="muted">数据概览 · 定时任务 · 文件导入 · 采集控制台 · 采集记录</span>
@@ -484,6 +566,18 @@ export default function DataManagementPage() {
                       concept: { icon: <PieChart size={18} />, color: '#f5319d' },
                       board_picks: { icon: <FileSpreadsheet size={18} />, color: '#722ed1' }, board_details: { icon: <FileSpreadsheet size={18} />, color: '#722ed1' },
                       signals: { icon: <Activity size={18} />, color: '#ffb400' },
+                      concept: { icon: <Layers size={18} />, color: '#f5319d' },
+                      dragon_tiger: { icon: <TrendingUp size={18} />, color: '#e8654c' },
+                      margin: { icon: <TrendingDown size={18} />, color: '#f09b38' },
+                      block_trade: { icon: <Banknote size={18} />, color: '#00a870' },
+                      unlock: { icon: <AlertTriangle size={18} />, color: '#ed7b2f' },
+                      ths_hot: { icon: <Zap size={18} />, color: '#f5a623' },
+                      dividend: { icon: <Gift size={18} />, color: '#722ed1' },
+                      ths_eps: { icon: <BarChart3 size={18} />, color: '#14c9c9' },
+                      cninfo: { icon: <FileText size={18} />, color: '#4080ff' },
+                      macro_news: { icon: <Globe size={18} />, color: '#0fc6c2' },
+                      market_daily_agg: { icon: <Activity size={18} />, color: '#165dff' },
+                      market_sentiment: { icon: <Shield size={18} />, color: '#b620e0' },
                     };
                     const def = iconDefs[stat.key] || { icon: <Database size={18} />, color: 'var(--color-text-3)' };
                     const isSelected = selectedStat === stat.key;
@@ -549,7 +643,7 @@ export default function DataManagementPage() {
           <div className="card">
             <div className="card-header">
               <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Timer size={16} color="var(--color-primary)" /><span style={{ fontSize: 15, fontWeight: 600 }}>定时任务</span><span className="muted" style={{ marginLeft: 8 }}>{scheduledTasks.filter((t: any) => t.enabled).length}/{scheduledTasks.length} 已启用</span></span>
-              <div style={{ display: 'flex', gap: 6 }}><Button size="small" icon={<RefreshCw size={12} />} loading={tasksLoading} onClick={loadTasks}>刷新</Button><Button size="small" icon={<Zap size={12} />} onClick={handleInitDefaults}>初始化默认任务</Button></div>
+              <div style={{ display: 'flex', gap: 6 }}><Button size="small" icon={<RefreshCw size={12} />} loading={tasksLoading} onClick={loadTasks}>刷新</Button><Button size="small" icon={<Sparkles size={12} />} onClick={handleInitDefaults}>初始化默认任务</Button></div>
             </div>
             <div className="card-body" style={{ padding: 0 }}>
               {scheduledTasks.length === 0 ? <div style={{ padding: 40, textAlign: 'center', color: 'var(--color-text-3)', fontSize: 13 }}>暂无定时任务，点击「初始化默认任务」创建</div> : (
@@ -611,23 +705,28 @@ export default function DataManagementPage() {
           } style={{ width: 520 }} unmountOnExit>
             <div style={{ padding: '8px 0 16px' }}>
               <div style={{ marginBottom: 12, fontSize: 13, color: 'var(--color-text-2)' }}>
-                选择采集范围（默认仅最新交易日）
+                {runModalTask?.phase && !HISTORY_CAPABLE_PHASES.has(runModalTask.phase) ? '此数据源仅支持获取最新数据，不支持历史回溯' : '选择采集范围（默认仅最新交易日）'}
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
-                {RANGE_PRESETS.map((p, i) => (
-                  <div key={i} onClick={() => setSelectedRange(i)} style={{
+                {RANGE_PRESETS.map((p, i) => {
+                  const isHistoryPhase = runModalTask?.phase && HISTORY_CAPABLE_PHASES.has(runModalTask.phase);
+                  const disabled = !isHistoryPhase && i > 0; // Only "最新" for real-time-only phases
+                  return (
+                  <div key={i} onClick={() => { if (!disabled) setSelectedRange(i); }} style={{
                     padding: '12px 10px',
                     borderRadius: 8,
                     border: selectedRange === i ? '2px solid #165DFF' : '1px solid var(--color-border-2)',
-                    background: selectedRange === i ? 'rgba(22,93,255,0.06)' : 'var(--color-bg-1)',
-                    cursor: 'pointer',
+                    background: selectedRange === i ? 'rgba(22,93,255,0.06)' : disabled ? 'var(--color-fill-1)' : 'var(--color-bg-1)',
+                    cursor: disabled ? 'not-allowed' : 'pointer',
                     textAlign: 'center',
                     transition: 'all 0.15s',
+                    opacity: disabled ? 0.5 : 1,
                   }}>
-                    <div style={{ fontWeight: 600, fontSize: 14, color: selectedRange === i ? '#165DFF' : 'var(--color-text-1)', marginBottom: 2 }}>{p.label}</div>
-                    <div style={{ fontSize: 11, color: 'var(--color-text-3)' }}>{p.desc}</div>
+                    <div style={{ fontWeight: 600, fontSize: 14, color: selectedRange === i ? '#165DFF' : disabled ? 'var(--color-text-3)' : 'var(--color-text-1)', marginBottom: 2 }}>{p.label}</div>
+                    <div style={{ fontSize: 11, color: disabled ? 'var(--color-text-3)' : 'var(--color-text-3)' }}>{disabled ? '仅支持最新数据' : p.desc}</div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           </Modal>
@@ -657,12 +756,11 @@ export default function DataManagementPage() {
             <div className="card-header">
               <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Activity size={16} color="var(--color-primary)" /><span style={{ fontSize: 15, fontWeight: 600 }}>采集控制台</span></span>
               {collecting && <Tag color="blue" style={{ display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--color-primary)', display: 'inline-block' }} />采集中...</Tag>}
-              <div style={{ display: 'flex', gap: 6 }}><Button size="small" icon={<Activity size={12} />} loading={bulkComputing} onClick={handleBulkComputeStyle}>回填市场风格</Button></div>
             </div>
             <div className="card-body" style={{ padding: '14px 20px' }}>
               {/* Phase tabs */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>
-                {['indicator', 'kline', 'quote', 'industry', 'full_sync', 'shareholder', 'financial', 'news', 'reports', 'concept'].map(phase => {
+                {scheduledTasks.filter((t: any) => t.enabled && t.phase !== 'quote').map(t => t.phase).filter((v, i, a) => a.indexOf(v) === i).map(phase => {
                   const isActive = collecting && progress?.phase === phase;
                   const isSelected = selectedCollectPhase === phase;
                   return (
@@ -717,9 +815,9 @@ export default function DataManagementPage() {
                     ) : (
                       <>
                         <Button size="small" type="primary" icon={<Play size={12} />} onClick={() => handleTrigger([selectedCollectPhase])} disabled={collecting}>采集</Button>
-                        <Tooltip content="实时刷新行情 (自选+持仓+榜单)">
-                          <Button size="small" type="outline" icon={<Zap size={12} />} onClick={async () => { try { const res: any = await fetchRealtimeQuotes(); showToast('success', res.data?.message || '刷新完成'); loadProgress(); } catch { showToast('error', '实时行情刷新失败'); } }} disabled={collecting}>行情刷新</Button>
-                        </Tooltip>
+                        {HISTORY_CAPABLE_PHASES.has(selectedCollectPhase) && (
+                        <Button size="small" type="outline" icon={<History size={12} />} onClick={() => { setRepairPhase(phase); setRepairDateRange([]); setRepairAll(false); setRepairModalVisible(true); }} disabled={collecting}>修复历史</Button>
+                        )}
                       </>
                     )}
                   </div>
@@ -873,6 +971,8 @@ export default function DataManagementPage() {
                   { title: '状态', dataIndex: 'status', width: 100, render: (v: string) => v === 'success' ? <Tag color="green">成功</Tag> : v === 'partial' ? <Tag color="orange">部分</Tag> : <Tag color="red">失败</Tag> },
                   { title: '时间', dataIndex: 'importedAt', width: 180, render: (v: string) => <span style={{ color: 'var(--color-text-3)', fontSize: 12 }}>{v ? new Date(v).toLocaleString('zh-CN') : '-'}</span> },
                 ]} pagination={false} border={false} stripe />
+
+
               )}
             </div>
           </div>
@@ -908,6 +1008,8 @@ export default function DataManagementPage() {
                   { title: '状态', dataIndex: 'status', width: 100, render: (v: string) => v === 'success' ? <Tag color="green">成功</Tag> : v === 'partial' ? <Tag color="orange">部分</Tag> : <Tag color="red">失败</Tag> },
                   { title: '时间', dataIndex: 'importedAt', width: 180, render: (v: string) => <span style={{ color: 'var(--color-text-3)', fontSize: 12 }}>{v ? new Date(v).toLocaleString('zh-CN') : '-'}</span> },
                 ]} pagination={false} border={false} stripe />
+
+
               )}
             </div>
           </div>

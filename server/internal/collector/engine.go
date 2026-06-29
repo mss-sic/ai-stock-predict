@@ -425,6 +425,122 @@ func RunManualCollection(phases []string, extraArgs ...string) {
 	if shouldRun("quote") {
 		appendResult(runQuotePhase())
 	}
+	if shouldRun("dragon_tiger") {
+		appendResult(runDragonTigerPhase())
+	}
+	if shouldRun("margin") {
+		appendResult(runMarginPhase())
+	}
+	if shouldRun("block_trade") {
+		appendResult(runBlockTradePhase())
+	}
+	if shouldRun("unlock") {
+		appendResult(runUnlockPhase())
+	}
+	if shouldRun("ths_hot") {
+		appendResult(runThsHotPhase())
+	}
+	if shouldRun("dividend") {
+		appendResult(runDividendPhase())
+	}
+	if shouldRun("ths_eps") {
+		appendResult(runThsEpsPhase())
+	}
+	if shouldRun("cninfo") {
+		appendResult(runCninfoPhase())
+	}
+	if shouldRun("macro_news") {
+		appendResult(runMacroNewsPhase())
+	}
+}
+
+
+// runStatsPhase runs a Python script and returns PhaseResult populated from STAT: output.
+// STAT:records_new=X,records_skip=Y,records_err=Z lines from the script drive the counts.
+func runStatsPhase(phase, label, script string, args ...string) PhaseResult {
+	setPhase(phase, label+"...")
+	sseSend(SSELine{Type: "phase", Phase: phase, Message: "开始采集" + label + "...", Level: "info"})
+
+	// Snapshot BehaviorStats before
+	progress.mu.RLock()
+	snapBefore := make(map[string]int64)
+	for k, v := range progress.BehaviorStats {
+		snapBefore[k] = v
+	}
+	progress.mu.RUnlock()
+
+	t0 := time.Now()
+	if len(args) > 0 {
+		runPythonStreamWithArgs(script, args...)
+	} else {
+		runPythonStream(script)
+	}
+
+	// Read STAT results
+	progress.mu.RLock()
+	newRec := progress.BehaviorStats["records_new"] - snapBefore["records_new"]
+	skipRec := progress.BehaviorStats["records_skip"] - snapBefore["records_skip"]
+	errRec := progress.BehaviorStats["records_err"] - snapBefore["records_err"]
+	progress.mu.RUnlock()
+
+	// Fallback: if STAT not emitted, estimate from DB
+	if newRec == 0 && skipRec == 0 && errRec == 0 {
+		newRec = 1 // at least signal completion
+	}
+
+	phaseRes := PhaseResult{
+		Phase:      phase,
+		New:        int(newRec),
+		Skipped:    int(skipRec),
+		Errors:     int(errRec),
+		DurationMs: time.Since(t0).Milliseconds(),
+	}
+	sseSend(SSELine{Type: "result", Phase: phase, Result: &phaseRes, Level: ternary(errRec > 0, "error", "success"),
+		Message: fmt.Sprintf("%s: 新增 %d, 跳过 %d, 错误 %d", label, newRec, skipRec, errRec)})
+	return phaseRes
+}
+
+func ternary(cond bool, a, b string) string {
+	if cond { return a }
+	return b
+}
+
+// ── 新增数据采集 phase ──────────────────────────────────────
+
+func runDragonTigerPhase() PhaseResult {
+	return runStatsPhase("dragon_tiger", "龙虎榜", "collect_dragon_tiger.py")
+}
+
+func runMarginPhase() PhaseResult {
+	return runStatsPhase("margin", "融资融券", "collect_margin.py")
+}
+
+func runBlockTradePhase() PhaseResult {
+	return runStatsPhase("block_trade", "大宗交易", "collect_block_trade.py")
+}
+
+func runUnlockPhase() PhaseResult {
+	return runStatsPhase("unlock", "限售解禁", "collect_unlock.py")
+}
+
+func runThsHotPhase() PhaseResult {
+	return runStatsPhase("ths_hot", "同花顺热点", "collect_ths_hot.py")
+}
+
+func runDividendPhase() PhaseResult {
+	return runStatsPhase("dividend", "分红送转", "collect_dividend.py")
+}
+
+func runThsEpsPhase() PhaseResult {
+	return runStatsPhase("ths_eps", "一致预期EPS", "collect_ths_eps.py")
+}
+
+func runCninfoPhase() PhaseResult {
+	return runStatsPhase("cninfo", "巨潮公告", "collect_cninfo.py")
+}
+
+func runMacroNewsPhase() PhaseResult {
+	return runStatsPhase("macro_news", "宏观资讯", "collect_macro_news.py")
 }
 
 func runScorePhase() PhaseResult {

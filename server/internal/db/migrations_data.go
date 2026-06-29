@@ -995,7 +995,189 @@ Register(Migration{
 		},
 	})
 
-log.Printf("[migrate] registered %d migrations", len(migrations))
+	// v037: dragon_tiger_list + dragon_tiger_detail + margin_trading
+	Register(Migration{
+		Version:     37,
+		Description: "PG: dragon_tiger_list, dragon_tiger_detail, margin_trading tables",
+		Up: func() error {
+			safeExec(`CREATE TABLE IF NOT EXISTS dragon_tiger_list (
+				id SERIAL PRIMARY KEY,
+				code VARCHAR(10),
+				name VARCHAR(50),
+				trade_date DATE,
+				reason VARCHAR(200),
+				close_price NUMERIC(12,4),
+				change_pct NUMERIC(8,4),
+				net_buy_amt NUMERIC(16,2),
+				buy_amt NUMERIC(16,2),
+				sell_amt NUMERIC(16,2),
+				turnover_pct NUMERIC(8,4),
+				created_at TIMESTAMPTZ DEFAULT now()
+			)`)
+			safeExec(`CREATE INDEX IF NOT EXISTS idx_dragon_tiger_list_code ON dragon_tiger_list(code)`)
+			safeExec(`CREATE INDEX IF NOT EXISTS idx_dragon_tiger_list_date ON dragon_tiger_list(trade_date)`)
+			safeExec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_dragon_tiger_list_code_date ON dragon_tiger_list(code, trade_date)`)
+			safeExec(`CREATE TABLE IF NOT EXISTS dragon_tiger_detail (
+				id SERIAL PRIMARY KEY,
+				code VARCHAR(10),
+				trade_date DATE,
+				seat_name VARCHAR(100),
+				seat_code VARCHAR(20),
+				side VARCHAR(5),
+				buy_amt NUMERIC(16,2),
+				sell_amt NUMERIC(16,2),
+				net_amt NUMERIC(16,2),
+				is_institution BOOLEAN DEFAULT false,
+				created_at TIMESTAMPTZ DEFAULT now()
+			)`)
+			safeExec(`CREATE INDEX IF NOT EXISTS idx_dragon_tiger_detail_code ON dragon_tiger_detail(code)`)
+			safeExec(`CREATE INDEX IF NOT EXISTS idx_dragon_tiger_detail_date ON dragon_tiger_detail(trade_date)`)
+			safeExec(`CREATE TABLE IF NOT EXISTS margin_trading (
+				id SERIAL PRIMARY KEY,
+				code VARCHAR(10),
+				trade_date DATE,
+				rzye NUMERIC(24,2),
+				rzmre NUMERIC(24,2),
+				rzche NUMERIC(24,2),
+				rqye NUMERIC(24,2),
+				rqmcl NUMERIC(24,2),
+				rqchl NUMERIC(24,2),
+				rzrqye NUMERIC(24,2),
+				created_at TIMESTAMPTZ DEFAULT now()
+			)`)
+			safeExec(`CREATE INDEX IF NOT EXISTS idx_margin_trading_code ON margin_trading(code)`)
+			safeExec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_margin_trading_code_date ON margin_trading(code, trade_date)`)
+			return nil
+		},
+	})
+
+	// v038: block_trade + restricted_share_unlock
+	Register(Migration{
+		Version:     38,
+		Description: "PG: block_trade, restricted_share_unlock tables",
+		Up: func() error {
+			safeExec(`CREATE TABLE IF NOT EXISTS block_trade (
+				id SERIAL PRIMARY KEY,
+				code VARCHAR(10),
+				trade_date DATE,
+				deal_price NUMERIC(12,4),
+				close_price NUMERIC(12,4),
+				premium_pct NUMERIC(8,4),
+				deal_volume NUMERIC(24,2),
+				deal_amt NUMERIC(24,2),
+				buyer_name VARCHAR(100),
+				seller_name VARCHAR(100),
+				created_at TIMESTAMPTZ DEFAULT now()
+			)`)
+			safeExec(`CREATE INDEX IF NOT EXISTS idx_block_trade_code ON block_trade(code)`)
+			safeExec(`CREATE INDEX IF NOT EXISTS idx_block_trade_date ON block_trade(trade_date)`)
+			safeExec(`CREATE TABLE IF NOT EXISTS restricted_share_unlock (
+				id SERIAL PRIMARY KEY,
+				code VARCHAR(10),
+				free_date DATE,
+				stock_type VARCHAR(100),
+				shares NUMERIC(24,2),
+				ratio NUMERIC(12,4),
+				is_history BOOLEAN DEFAULT true,
+				created_at TIMESTAMPTZ DEFAULT now()
+			)`)
+			safeExec(`CREATE INDEX IF NOT EXISTS idx_restricted_unlock_code ON restricted_share_unlock(code)`)
+			safeExec(`CREATE INDEX IF NOT EXISTS idx_restricted_unlock_date ON restricted_share_unlock(free_date)`)
+			return nil
+		},
+	})
+
+	// v039: ths_hot_stocks + dividend_history
+	Register(Migration{
+		Version:     39,
+		Description: "PG: ths_hot_stocks, dividend_history tables",
+		Up: func() error {
+			safeExec(`CREATE TABLE IF NOT EXISTS ths_hot_stocks (
+				id SERIAL PRIMARY KEY,
+				code VARCHAR(10),
+				name VARCHAR(50),
+				trade_date DATE,
+				close_price NUMERIC(12,4),
+				change_amount NUMERIC(12,4),
+				change_pct NUMERIC(8,4),
+				turnover_pct NUMERIC(8,4),
+				volume NUMERIC(24,2),
+				amount NUMERIC(24,2),
+				dde_net_amount NUMERIC(16,2),
+				reason_tags TEXT,
+				market VARCHAR(5),
+				created_at TIMESTAMPTZ DEFAULT now()
+			)`)
+			safeExec(`CREATE INDEX IF NOT EXISTS idx_ths_hot_date ON ths_hot_stocks(trade_date)`)
+			safeExec(`CREATE INDEX IF NOT EXISTS idx_ths_hot_code ON ths_hot_stocks(code)`)
+			safeExec(`CREATE TABLE IF NOT EXISTS dividend_history (
+				id SERIAL PRIMARY KEY,
+				code VARCHAR(10),
+				ex_dividend_date DATE,
+				bonus_rmb NUMERIC(10,4),
+				transfer_ratio NUMERIC(10,4),
+				bonus_ratio NUMERIC(10,4),
+				progress VARCHAR(50),
+				created_at TIMESTAMPTZ DEFAULT now()
+			)`)
+			safeExec(`CREATE INDEX IF NOT EXISTS idx_dividend_code ON dividend_history(code)`)
+			safeExec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_dividend_code_date ON dividend_history(code, ex_dividend_date)`)
+			return nil
+		},
+	})
+
+	// v040: ths_eps_forecast + cninfo_announcements + macro_news
+	Register(Migration{
+		Version:     40,
+		Description: "PG: ths_eps_forecast, cninfo_announcements, macro_news tables",
+		Up: func() error {
+			safeExec(`CREATE TABLE IF NOT EXISTS ths_eps_forecast (
+				id SERIAL PRIMARY KEY,
+				code VARCHAR(10),
+				year VARCHAR(10),
+				institution_count INT DEFAULT 0,
+				eps_min NUMERIC(12,6),
+				eps_avg NUMERIC(12,6),
+				eps_max NUMERIC(12,6),
+				created_at TIMESTAMPTZ DEFAULT now()
+			)`)
+			safeExec(`CREATE INDEX IF NOT EXISTS idx_ths_eps_code ON ths_eps_forecast(code)`)
+			safeExec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_ths_eps_code_year ON ths_eps_forecast(code, year)`)
+			safeExec(`CREATE TABLE IF NOT EXISTS cninfo_announcements (
+				id SERIAL PRIMARY KEY,
+				code VARCHAR(10),
+				title VARCHAR(500),
+				ann_type VARCHAR(50),
+				ann_date DATE,
+				ann_url VARCHAR(500),
+				created_at TIMESTAMPTZ DEFAULT now()
+			)`)
+			safeExec(`CREATE INDEX IF NOT EXISTS idx_cninfo_ann_code ON cninfo_announcements(code)`)
+			safeExec(`CREATE INDEX IF NOT EXISTS idx_cninfo_ann_date ON cninfo_announcements(ann_date)`)
+			safeExec(`CREATE TABLE IF NOT EXISTS macro_news (
+				id SERIAL PRIMARY KEY,
+				title VARCHAR(500),
+				summary TEXT,
+				news_time VARCHAR(30),
+				category VARCHAR(30) DEFAULT 'general',
+				created_at TIMESTAMPTZ DEFAULT now()
+			)`)
+			safeExec(`CREATE INDEX IF NOT EXISTS idx_macro_news_time ON macro_news(news_time)`)
+			safeExec(`CREATE INDEX IF NOT EXISTS idx_macro_news_category ON macro_news(category)`)
+			return nil
+		},
+	})
+
+	Register(Migration{
+		Version:     41,
+		Description: "MySQL: add behavior_stats column to collection_logs",
+		Up: func() error {
+			gormAutoMigrate(MySQL, &model.CollectionLog{})
+			return nil
+		},
+	})
+
+	log.Printf("[migrate] registered %d migrations", len(migrations))
 
 
 

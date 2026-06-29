@@ -114,6 +114,7 @@ func main() {
 			admin.PUT("/scheduled-tasks/:id", taskH.UpdateTask)
 			admin.DELETE("/scheduled-tasks/:id", taskH.DeleteTask)
 			admin.POST("/scheduled-tasks/:id/run", taskH.RunTaskNow)
+			admin.POST("/scheduled-tasks/:id/repair", taskH.RepairTask)
 			admin.POST("/scheduled-tasks/:id/reset", taskH.ResetTask)
 			admin.POST("/scheduled-tasks/:id/toggle", taskH.ToggleTask)
 			admin.POST("/scheduled-tasks/init-defaults", taskH.InitDefaults)

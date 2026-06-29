@@ -131,6 +131,26 @@ func (h *TaskHandler) ToggleTask(c *gin.Context) {
 }
 
 
+
+func (h *TaskHandler) RepairTask(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "参数错误")
+		return
+	}
+	var body struct {
+		From string `json:"from"`
+		To   string `json:"to"`
+		All  bool   `json:"all"`
+	}
+	c.ShouldBindJSON(&body)
+	if err := service.RepairTask(uint(id), body.From, body.To, body.All); err != nil {
+		response.InternalError(c, "修复任务失败: "+err.Error())
+		return
+	}
+	response.SuccessMsg(c, "修复任务已触发")
+}
+
 func (h *TaskHandler) ListLogs(c *gin.Context) {
 	taskID, _ := strconv.Atoi(c.Query("taskId"))
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))

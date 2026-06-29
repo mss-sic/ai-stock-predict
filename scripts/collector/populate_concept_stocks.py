@@ -1,5 +1,22 @@
 #!/usr/bin/env python3
-"""Populate stock_concepts using 东方财富 stock/get API (f129 field).
+"""
+填充 stock_concepts — 东财 stock/get API (Limited / 有限覆盖)
+============================================================================
+⚠️  DEPRECATED (降级标记, 2026-06-29):
+  本脚本使用东财 push2 stock/get API 的 f129 字段获取概念标签，该接口仅返回
+  每只股票 5-10 个"热门"概念标签，远不如 slist API (spt=3) 完整。
+  
+  对比 (以 300502 新易盛 为例):
+    - f129 接口: 6 个概念 (CPO概念, 算力概念, 光通信模块, ...)
+    - slist 接口: 28 个概念 (含行业/地域/指数归属等全部板块)
+    - slist 比 f129 多 4-5 倍覆盖
+
+  推荐使用: rebuild_concepts.py 或 populate_concept_stocks_sina.py (均已升级为 slist)
+
+  如确需使用本脚本: 仅作为概念标签的快速补充，不应作为主要数据源。
+
+用法: python3 populate_concept_stocks.py
+ (f129 field).
 Maps each stock's concept tags to 新浪 concept boards and inserts into stock_concepts.
 """
 import os, sys, time, ssl, urllib.request, json

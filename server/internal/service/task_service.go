@@ -37,7 +37,16 @@ var DefaultTasks = []struct {
 {"市场日聚合", "market_daily_agg", "40 0 16 * * *"},     // daily 16:00
 {"市场情绪计算", "market_sentiment", "10 0 17 * * *"},   // daily 17:00
 {"市场风格计算", "market_style", "0 30 17 * * *"},       // daily 17:30
-{"AI评分更新", "ai_score", "0 0 20 * * 0"},             // weekly Sun 20:00
+{"AI评分更新", "ai_score", "0 0 20 * * 0"},
+	{"龙虎榜采集", "dragon_tiger", "0 0 17 * * *"},        // daily 17:00 (盘后龙虎榜更新)
+	{"融资融券采集", "margin", "0 0 9 * * *"},             // daily 09:00 (盘前更新)
+	{"大宗交易采集", "block_trade", "0 0 18 * * *"},       // daily 18:00
+	{"解禁数据采集", "unlock", "0 0 7 * * 1"},             // weekly Mon 07:00
+	{"同花顺热点采集", "ths_hot", "0 0 16 * * *"},          // daily 16:00 (收盘后)
+	{"分红数据采集", "dividend", "0 0 5 * * 1"},            // weekly Mon 05:00
+	{"一致预期采集", "ths_eps", "0 0 6 * * 1"},             // weekly Mon 06:00
+	{"巨潮公告采集", "cninfo", "0 0 8 * * *"},              // daily 08:00
+	{"宏观资讯采集", "macro_news", "0 */30 * * * *"},       // every 30 min (7×24滚动)             // weekly Sun 20:00
 
 }
 
@@ -377,6 +386,44 @@ func ListTaskLogs(taskID uint, limit int) ([]model.TaskLog, error) {
 	}
 	err := q.Find(&logs).Error
 	return logs, err
+}
+
+// RepairTask runs a task in repair mode with optional date range.
+func RepairTask(id uint, from, to string, all bool) error {
+	var task model.ScheduledTask
+	if err := db.MySQL.First(&task, id).Error; err != nil {
+		return err
+	}
+	// For market_style, run bulk compute: fill all missing dates
+	if task.Phase == "market_style" {
+		var dates []string
+		if err := db.PG.Raw(`
+			SELECT trade_date::text FROM market_sentiment
+			WHERE trade_date NOT IN (SELECT trade_date FROM market_style_daily)
+			ORDER BY trade_date
+		`).Pluck("trade_date", &dates).Error; err != nil {
+			return fmt.Errorf("查询缺失日期失败: %w", err)
+		}
+		svc := NewMarketStyleService()
+		success, fail := 0, 0
+		for _, date := range dates {
+			if err := svc.ComputeAndStore(date); err != nil {
+				fail++
+				log.Printf("[market_style] repair FAIL %s: %v", date, err)
+			} else {
+				success++
+			}
+		}
+		log.Printf("[market_style] repair done: %d dates, %d ok, %d fail", len(dates), success, fail)
+		return nil
+	}
+	args := []string{"--repair"}
+	if all {
+		args = append(args, "--all")
+	} else if from != "" && to != "" {
+		args = append(args, "--from", from, "--to", to)
+	}
+	return RunTaskNow(id, args)
 }
 
 // ToggleTask toggles the enabled status of a task

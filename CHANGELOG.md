@@ -1,3 +1,38 @@
+## v1.8.0 (2026-06-29)
+
+### 数据补全 — 10 项新数据源 + 采集系统重构
+
+- **龙虎榜** (`dragon_tiger_list` + `dragon_tiger_detail`): 全市场每日上榜 + 买卖席位 TOP5，东财 datacenter 接口
+- **融资融券** (`margin_trading`): 全市场融资余额/融券余额，东财 RPT_HSG_DAILYMARKET
+- **大宗交易** (`block_trade`): 成交价/折溢价率/买卖方营业部，东财 RPT_BLOCKTRADE_MAIN
+- **限售解禁** (`restricted_share_unlock`): 历史+未来90天预告，东财 RPT_FHD_SHARES_RESTRICTED
+- **同花顺热点** (`ths_hot_stocks`): 每日强势股+题材归因标签，同花顺 stockhot 接口
+- **分红送转** (`dividend_history`): 每股分红/送股/转增历史，东财 RPT_FHD_DIVIDEND
+- **一致预期EPS** (`ths_eps_forecast`): 机构一致预期，同花顺 basic.10jqka
+- **巨潮公告** (`cninfo_announcements`): 年报/季报/业绩预告，巨潮 cninfo API
+- **宏观资讯** (`macro_news`): 央行政策/国际宏观/产业政策，东财 quicknotice
+
+### 采集控制台重构
+
+- Phase 列表从 10 项硬编码扩展到 29 项动态加载（对齐定时任务）
+- 移除「行情刷新」冗余按钮和「回填市场风格」独立按钮
+- 每个 Phase 增加「采集」+「修复历史」双按钮模式
+- 修复历史支持日期范围选择或全部历史数据回填
+- 实时数据源（仅支持最新数据）自动隐藏修复按钮、禁用时间范围选择
+
+### 定时任务 & 数据概览
+
+- 10 个新数据源接入定时调度（cron 表达式），支持手动执行和修复模式
+- 定时任务执行日志新增 STAT 协议解析（records_new/skip/err 准确统计）
+- 数据概览从 10 项扩展为 24 项，新增 14 个统计卡片+明细查询
+
+### Bug 修复
+
+- 修复 `collection_logs` 表缺少 `behavior_stats` 列（v041 迁移自动补齐）
+- 修复 SSE `onerror` 闭包捕获过期 `collecting` 状态导致连接 10ms 即断开
+- 修复修复 Modal 嵌在 Toast 组件内导致 JSX 解析错误
+- 概念数据源确认：东财 slist API 完整覆盖 CPO/低空经济/人形机器人等前沿概念
+
 ## v1.7.1 (2026-06-26)
 
 ### 概念分析 — AI 调用与提示词管理优化
