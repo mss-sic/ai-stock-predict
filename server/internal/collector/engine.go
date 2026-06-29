@@ -807,6 +807,14 @@ func RunStockCollection(phase, code string) error {
 		return runPythonStreamWithArgs("financial_collect.py", code)
 	case "news":
 		return runPythonStreamWithArgs("news_collect.py", code)
+	case "dragon_tiger":
+		return runPythonStreamWithArgs("collect_dragon_tiger.py", time.Now().Format("2006-01-02"))
+	case "block_trade":
+		return runPythonStreamWithArgs("collect_block_trade.py", code)
+	case "announcements":
+		return runPythonStreamWithArgs("collect_cninfo.py", code)
+	case "unlocks":
+		return runPythonStreamWithArgs("collect_unlock.py", code)
 	default:
 		return fmt.Errorf("unknown phase: %s", phase)
 	}

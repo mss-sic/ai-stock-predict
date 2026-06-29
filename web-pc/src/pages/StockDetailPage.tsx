@@ -477,6 +477,10 @@ export default function StockDetailPage() {
   const [shareholders, setShareholders] = useState<any[]>([]);
   const [stockNews, setStockNews] = useState<any[]>([]);
   const [reports, setReports] = useState<any[]>([]);
+  const [dragonTiger, setDragonTiger] = useState<any[]>([]);
+  const [blockTradesState, setBlockTradesState] = useState<any[]>([]);
+  const [announcements, setAnnouncements] = useState<any[]>([]);
+  const [unlocks, setUnlocks] = useState<any[]>([]);
   const [isWatched, setIsWatched] = useState(false);
   const [showWLModal, setShowWLModal] = useState(false);
   const [wlGroupId, setWlGroupId] = useState<number>(0);
@@ -528,6 +532,10 @@ fetchPredictionResult(code).then((r: any) => {
     }).catch(() => {});
     fetchSignal(code).then((r: any) => setSignal(r.data?.data?.signalValue ?? r.data?.signalValue ?? null)).catch(() => {});
     fetchStockConceptTags(code).then((r: any) => setConceptTags(r.data?.data || [])).catch(() => {});
+    fetchDragonTiger(code).then((r: any) => setDragonTiger(r.data?.data || [])).catch(() => {});
+    fetchBlockTrades(code).then((r: any) => setBlockTradesState(r.data?.data || [])).catch(() => {});
+    fetchAnnouncements(code).then((r: any) => setAnnouncements(r.data?.data || [])).catch(() => {});
+    fetchUnlocks(code).then((r: any) => setUnlocks(r.data?.data || [])).catch(() => {});
 
     (async () => {
       try {
@@ -888,8 +896,8 @@ const handleChatSend = async (text?: string) => {
     }
 
     // Shareholder / Financial / News use SSE for live feedback
-    const phaseNames: Record<string, string> = { shareholder: '股东数据', financial: '财务数据', news: '资讯数据' };
-    if (phase === 'shareholder' || phase === 'financial' || phase === 'news') {
+    const phaseNames: Record<string, string> = { shareholder: '股东数据', financial: '财务数据', news: '资讯数据', dragon_tiger: '龙虎榜', block_trade: '大宗交易', announcements: '公告', unlocks: '解禁' };
+    if (phase === 'shareholder' || phase === 'financial' || phase === 'news' || phase === 'dragon_tiger' || phase === 'block_trade' || phase === 'announcements' || phase === 'unlocks') {
       setRefreshingPhase(phase);
       setRefreshLogs([`正在采集${phaseNames[phase] || phase}...`]);
       const es = new EventSource(`/api/v1/collector/stock/${code}/${phase}?token=${localStorage.getItem("aip_access_token")||""}`);
@@ -902,6 +910,10 @@ const handleChatSend = async (text?: string) => {
             if (phase === 'financial') fetchFinancials(code).then((r: any) => setFinancials(r.data?.data || []));
             if (phase === 'shareholder') fetchShareholders(code).then((r: any) => setShareholders(r.data?.data || []));
             if (phase === 'news') fetchStockNews(code, 20).then((r: any) => setStockNews(r.data?.data || []));
+            if (phase === 'dragon_tiger') fetchDragonTiger(code).then((r: any) => setDragonTiger(r.data?.data || []));
+            if (phase === 'block_trade') fetchBlockTrades(code).then((r: any) => setBlockTradesState(r.data?.data || []));
+            if (phase === 'announcements') fetchAnnouncements(code).then((r: any) => setAnnouncements(r.data?.data || []));
+            if (phase === 'unlocks') fetchUnlocks(code).then((r: any) => setUnlocks(r.data?.data || []));
             setRefreshingPhase('');
           }
         } catch {}
@@ -912,6 +924,10 @@ const handleChatSend = async (text?: string) => {
         if (phase === 'financial') fetchFinancials(code).then((r: any) => setFinancials(r.data?.data || []));
         if (phase === 'shareholder') fetchShareholders(code).then((r: any) => setShareholders(r.data?.data || []));
         if (phase === 'news') fetchStockNews(code, 20).then((r: any) => setStockNews(r.data?.data || []));
+        if (phase === 'dragon_tiger') fetchDragonTiger(code).then((r: any) => setDragonTiger(r.data?.data || []));
+        if (phase === 'block_trade') fetchBlockTrades(code).then((r: any) => setBlockTradesState(r.data?.data || []));
+        if (phase === 'announcements') fetchAnnouncements(code).then((r: any) => setAnnouncements(r.data?.data || []));
+        if (phase === 'unlocks') fetchUnlocks(code).then((r: any) => setUnlocks(r.data?.data || []));
         setRefreshingPhase('');
       };
       return;
@@ -929,6 +945,10 @@ const handleChatSend = async (text?: string) => {
       if (phase === 'financial') await fetchFinancials(code).then((r: any) => setFinancials(r.data?.data || []));
       if (phase === 'shareholder') await fetchShareholders(code).then((r: any) => setShareholders(r.data?.data || []));
       if (phase === 'news') await fetchStockNews(code, 20).then((r: any) => setStockNews(r.data?.data || []));
+      if (phase === 'dragon_tiger') await fetchDragonTiger(code).then((r: any) => setDragonTiger(r.data?.data || []));
+      if (phase === 'block_trade') await fetchBlockTrades(code).then((r: any) => setBlockTradesState(r.data?.data || []));
+      if (phase === 'announcements') await fetchAnnouncements(code).then((r: any) => setAnnouncements(r.data?.data || []));
+      if (phase === 'unlocks') await fetchUnlocks(code).then((r: any) => setUnlocks(r.data?.data || []));
     } catch {}
     setRefreshingPhase('');
   };
@@ -2756,6 +2776,202 @@ const handleChatSend = async (text?: string) => {
                 ))}
               </div>
             ) : (<div className="muted" style={{ textAlign: 'center', padding: 40 }}>暂无相关资讯</div>)}
+          </div>
+        </div>
+      )}
+      {/* ── Dragon Tiger Tab ── */}
+      {tab === 'dragon_tiger' && (
+        <div className="card">
+          <div className="card-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span style={{ fontWeight: 600, fontSize: 14 }}><Swords size={14} /> 龙虎榜上榜记录</span>
+            <button onClick={() => handleRefreshStockData('dragon_tiger')} disabled={refreshingPhase !== ''}
+              style={{ padding: '4px 10px', fontSize: 11, cursor: 'pointer', border: '1px solid var(--color-border-1)', borderRadius: 4, background: 'var(--color-bg-1)', color: 'var(--color-text-2)', display: 'flex', alignItems: 'center', gap: 4 }}>
+              <Repeat size={12} className={refreshingPhase === 'dragon_tiger' ? 'spin' : ''} />{refreshingPhase === 'dragon_tiger' ? '更新中...' : '更新'}
+            </button>
+          </div>
+          {refreshingPhase === 'dragon_tiger' && refreshLogs.length > 0 && (
+            <div style={{ padding: '6px 16px', background: 'var(--color-fill-1)', borderBottom: '1px solid var(--color-border-1)', maxHeight: 120, overflow: 'auto' }}>
+              {refreshLogs.map((log, i) => (
+                <div key={i} style={{ fontSize: 11, color: 'var(--color-text-2)', fontFamily: 'monospace', opacity: i === refreshLogs.length - 1 ? 1 : 0.4 }}>{log}</div>
+              ))}
+            </div>
+          )}
+          <div className="card-body" style={{ padding: 0 }}>
+            {dragonTiger.length > 0 ? (
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                <thead>
+                  <tr style={{ background: 'var(--color-fill-1)', borderBottom: '2px solid var(--color-border-2)' }}>
+                    {['上榜日期','收盘价','涨跌幅','净买额(万)','买入额(万)','卖出额(万)','换手率','上榜原因'].map(h => (
+                      <th key={h} style={{ padding: '8px 12px', textAlign: h === '上榜日期' || h === '上榜原因' ? 'left' : 'right', fontSize: 11, color: 'var(--color-text-3)', fontWeight: 500, whiteSpace: 'nowrap' }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {dragonTiger.map((d: any, i: number) => (
+                    <tr key={i} style={{ borderBottom: '1px solid var(--color-border-1)' }}>
+                      <td style={{ padding: '6px 12px', fontSize: 12 }}>{d.tradeDate}</td>
+                      <td style={{ padding: '6px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{d.closePrice?.toFixed(2)}</td>
+                      <td style={{ padding: '6px 12px', textAlign: 'right', color: d.changePct >= 0 ? '#F53F3F' : '#00B42A', fontVariantNumeric: 'tabular-nums' }}>{d.changePct != null ? (d.changePct > 0 ? '+' : '') + d.changePct.toFixed(2) + '%' : '-'}</td>
+                      <td style={{ padding: '6px 12px', textAlign: 'right', color: d.netBuyAmt >= 0 ? '#F53F3F' : '#00B42A', fontVariantNumeric: 'tabular-nums' }}>{d.netBuyAmt != null ? (d.netBuyAmt / 10000).toFixed(0) : '-'}</td>
+                      <td style={{ padding: '6px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{d.buyAmt != null ? (d.buyAmt / 10000).toFixed(0) : '-'}</td>
+                      <td style={{ padding: '6px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{d.sellAmt != null ? (d.sellAmt / 10000).toFixed(0) : '-'}</td>
+                      <td style={{ padding: '6px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{d.turnoverPct != null ? d.turnoverPct.toFixed(2) + '%' : '-'}</td>
+                      <td style={{ padding: '6px 12px', fontSize: 11, color: 'var(--color-text-2)', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.reason || '-'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <div style={{ textAlign: 'center', padding: 48, fontSize: 13, color: 'var(--color-text-3)' }}>
+                暂无龙虎榜数据，请点击右上角「更新」按钮采集
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Block Trade Tab ── */}
+      {tab === 'block_trade' && (
+        <div className="card">
+          <div className="card-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span style={{ fontWeight: 600, fontSize: 14 }}><TrendingDown size={14} /> 大宗交易记录</span>
+            <button onClick={() => handleRefreshStockData('block_trade')} disabled={refreshingPhase !== ''}
+              style={{ padding: '4px 10px', fontSize: 11, cursor: 'pointer', border: '1px solid var(--color-border-1)', borderRadius: 4, background: 'var(--color-bg-1)', color: 'var(--color-text-2)', display: 'flex', alignItems: 'center', gap: 4 }}>
+              <Repeat size={12} className={refreshingPhase === 'block_trade' ? 'spin' : ''} />{refreshingPhase === 'block_trade' ? '更新中...' : '更新'}
+            </button>
+          </div>
+          {refreshingPhase === 'block_trade' && refreshLogs.length > 0 && (
+            <div style={{ padding: '6px 16px', background: 'var(--color-fill-1)', borderBottom: '1px solid var(--color-border-1)', maxHeight: 120, overflow: 'auto' }}>
+              {refreshLogs.map((log, i) => (
+                <div key={i} style={{ fontSize: 11, color: 'var(--color-text-2)', fontFamily: 'monospace', opacity: i === refreshLogs.length - 1 ? 1 : 0.4 }}>{log}</div>
+              ))}
+            </div>
+          )}
+          <div className="card-body" style={{ padding: 0 }}>
+            {blockTradesState.length > 0 ? (
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                <thead>
+                  <tr style={{ background: 'var(--color-fill-1)', borderBottom: '2px solid var(--color-border-2)' }}>
+                    {['交易日期','成交价','收盘价','折溢价率','成交量(万股)','成交额(万)','买方营业部','卖方营业部'].map(h => (
+                      <th key={h} style={{ padding: '8px 12px', textAlign: h === '交易日期' || h.includes('营业部') ? 'left' : 'right', fontSize: 11, color: 'var(--color-text-3)', fontWeight: 500, whiteSpace: 'nowrap' }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {blockTradesState.map((d: any, i: number) => (
+                    <tr key={i} style={{ borderBottom: '1px solid var(--color-border-1)' }}>
+                      <td style={{ padding: '6px 12px', fontSize: 12 }}>{d.tradeDate}</td>
+                      <td style={{ padding: '6px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{d.dealPrice?.toFixed(2)}</td>
+                      <td style={{ padding: '6px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{d.closePrice?.toFixed(2)}</td>
+                      <td style={{ padding: '6px 12px', textAlign: 'right', color: d.premiumPct >= 0 ? '#F53F3F' : '#00B42A', fontVariantNumeric: 'tabular-nums' }}>{d.premiumPct != null ? (d.premiumPct > 0 ? '+' : '') + d.premiumPct.toFixed(2) + '%' : '-'}</td>
+                      <td style={{ padding: '6px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{d.dealVolume != null ? (d.dealVolume / 10000).toFixed(2) : '-'}</td>
+                      <td style={{ padding: '6px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{d.dealAmt != null ? (d.dealAmt / 10000).toFixed(0) : '-'}</td>
+                      <td style={{ padding: '6px 12px', fontSize: 11, maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.buyerName || '-'}</td>
+                      <td style={{ padding: '6px 12px', fontSize: 11, maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.sellerName || '-'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <div style={{ textAlign: 'center', padding: 48, fontSize: 13, color: 'var(--color-text-3)' }}>
+                暂无大宗交易数据，请点击右上角「更新」按钮采集
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Announcements Tab ── */}
+      {tab === 'announcements' && (
+        <div className="card">
+          <div className="card-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span style={{ fontWeight: 600, fontSize: 14 }}><FileWarning size={14} /> 巨潮公告</span>
+            <button onClick={() => handleRefreshStockData('announcements')} disabled={refreshingPhase !== ''}
+              style={{ padding: '4px 10px', fontSize: 11, cursor: 'pointer', border: '1px solid var(--color-border-1)', borderRadius: 4, background: 'var(--color-bg-1)', color: 'var(--color-text-2)', display: 'flex', alignItems: 'center', gap: 4 }}>
+              <Repeat size={12} className={refreshingPhase === 'announcements' ? 'spin' : ''} />{refreshingPhase === 'announcements' ? '更新中...' : '更新'}
+            </button>
+          </div>
+          {refreshingPhase === 'announcements' && refreshLogs.length > 0 && (
+            <div style={{ padding: '6px 16px', background: 'var(--color-fill-1)', borderBottom: '1px solid var(--color-border-1)', maxHeight: 120, overflow: 'auto' }}>
+              {refreshLogs.map((log, i) => (
+                <div key={i} style={{ fontSize: 11, color: 'var(--color-text-2)', fontFamily: 'monospace', opacity: i === refreshLogs.length - 1 ? 1 : 0.4 }}>{log}</div>
+              ))}
+            </div>
+          )}
+          <div className="card-body" style={{ padding: 0 }}>
+            {announcements.length > 0 ? (
+              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                {announcements.map((a: any, i: number) => (
+                  <a key={i} href={a.annUrl || '#'} target="_blank" rel="noopener noreferrer"
+                    style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 16px', borderBottom: '1px solid var(--color-border-1)', textDecoration: 'none', color: 'inherit' }}>
+                    <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 3, background: (a.annType || '').includes('业绩') ? '#FFF7E6' : (a.annType || '').includes('季报') || (a.annType || '').includes('年报') ? '#E8F3FF' : (a.annType || '').includes('增减持') ? '#FFECE8' : '#F2F3F5', color: (a.annType || '').includes('业绩') ? '#FF7D00' : (a.annType || '').includes('季报') || (a.annType || '').includes('年报') ? '#165DFF' : (a.annType || '').includes('增减持') ? '#F53F3F' : '#86909C', whiteSpace: 'nowrap', flexShrink: 0 }}>
+                      {a.annType || '公告'}
+                    </span>
+                    <div style={{ flex: 1, minWidth: 0, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.title}</div>
+                    <span style={{ fontSize: 11, color: 'var(--color-text-3)', flexShrink: 0 }}>{a.annDate}</span>
+                  </a>
+                ))}
+              </div>
+            ) : (
+              <div style={{ textAlign: 'center', padding: 48, fontSize: 13, color: 'var(--color-text-3)' }}>
+                暂无公告数据，请点击右上角「更新」按钮采集
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Unlocks Tab ── */}
+      {tab === 'unlocks' && (
+        <div className="card">
+          <div className="card-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span style={{ fontWeight: 600, fontSize: 14 }}><AlertTriangle size={14} /> 限售解禁</span>
+            <button onClick={() => handleRefreshStockData('unlocks')} disabled={refreshingPhase !== ''}
+              style={{ padding: '4px 10px', fontSize: 11, cursor: 'pointer', border: '1px solid var(--color-border-1)', borderRadius: 4, background: 'var(--color-bg-1)', color: 'var(--color-text-2)', display: 'flex', alignItems: 'center', gap: 4 }}>
+              <Repeat size={12} className={refreshingPhase === 'unlocks' ? 'spin' : ''} />{refreshingPhase === 'unlocks' ? '更新中...' : '更新'}
+            </button>
+          </div>
+          {refreshingPhase === 'unlocks' && refreshLogs.length > 0 && (
+            <div style={{ padding: '6px 16px', background: 'var(--color-fill-1)', borderBottom: '1px solid var(--color-border-1)', maxHeight: 120, overflow: 'auto' }}>
+              {refreshLogs.map((log, i) => (
+                <div key={i} style={{ fontSize: 11, color: 'var(--color-text-2)', fontFamily: 'monospace', opacity: i === refreshLogs.length - 1 ? 1 : 0.4 }}>{log}</div>
+              ))}
+            </div>
+          )}
+          <div className="card-body" style={{ padding: 0 }}>
+            {unlocks.length > 0 ? (
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                <thead>
+                  <tr style={{ background: 'var(--color-fill-1)', borderBottom: '2px solid var(--color-border-2)' }}>
+                    {['解禁日期','解禁股类型','解禁数量(万股)','占总股本比例','状态'].map(h => (
+                      <th key={h} style={{ padding: '8px 12px', textAlign: h === '解禁日期' || h === '解禁股类型' ? 'left' : 'right', fontSize: 11, color: 'var(--color-text-3)', fontWeight: 500, whiteSpace: 'nowrap' }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {unlocks.map((d: any, i: number) => {
+                    const isFuture = d.freeDate >= new Date().toISOString().slice(0, 10);
+                    return (
+                      <tr key={i} style={{ borderBottom: '1px solid var(--color-border-1)', background: isFuture ? 'rgba(245,63,63,0.03)' : undefined }}>
+                        <td style={{ padding: '6px 12px', fontSize: 12, color: isFuture ? '#F53F3F' : 'var(--color-text-1)', fontWeight: isFuture ? 600 : 400 }}>{d.freeDate}</td>
+                        <td style={{ padding: '6px 12px', fontSize: 11 }}>{d.stockType || '-'}</td>
+                        <td style={{ padding: '6px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{d.shares != null ? (d.shares / 10000).toFixed(2) : '-'}</td>
+                        <td style={{ padding: '6px 12px', textAlign: 'right', color: d.ratio > 5 ? '#F53F3F' : 'var(--color-text-1)', fontWeight: d.ratio > 5 ? 600 : 400, fontVariantNumeric: 'tabular-nums' }}>{d.ratio != null ? d.ratio.toFixed(2) + '%' : '-'}</td>
+                        <td style={{ padding: '6px 12px', textAlign: 'right' }}>
+                          <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 10, background: isFuture ? '#FFECE8' : '#F2F3F5', color: isFuture ? '#F53F3F' : '#86909C' }}>
+                            {isFuture ? '待解禁' : '已解禁'}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            ) : (
+              <div style={{ textAlign: 'center', padding: 48, fontSize: 13, color: 'var(--color-text-3)' }}>
+                暂无解禁数据，请点击右上角「更新」按钮采集
+              </div>
+            )}
           </div>
         </div>
       )}

@@ -152,7 +152,7 @@ func (h *CollectorHandler) CollectStockPhaseSSE(c *gin.Context) {
 	}
 
 	phaseNames := map[string]string{
-		"shareholder": "股东数据", "financial": "财务数据", "news": "资讯数据",
+		"shareholder": "股东数据", "financial": "财务数据", "news": "资讯数据", "dragon_tiger": "龙虎榜", "block_trade": "大宗交易", "announcements": "公告", "unlocks": "解禁",
 	}
 	phaseName := phaseNames[phase]
 	if phaseName == "" {
@@ -178,11 +178,14 @@ func (h *CollectorHandler) CollectStockPhaseSSE(c *gin.Context) {
 
 	emit("log", fmt.Sprintf("开始拉取 %s %s 数据...", code, phaseName), "info")
 
+	collector.RegisterSSEWriter(c.Writer)
 	err := collector.RunStockCollection(phase, code)
 	if err != nil {
 		emit("error", fmt.Sprintf("%s 采集失败: %v", phaseName, err), "error")
 		return
 	}
+
+	collector.UnregisterSSEWriter(c.Writer)
 
 	var count int64
 	switch phase {
@@ -192,6 +195,14 @@ func (h *CollectorHandler) CollectStockPhaseSSE(c *gin.Context) {
 		db.PG.Raw("SELECT count(*) FROM stock_financials WHERE code = ?", code).Scan(&count)
 	case "news":
 		db.PG.Raw("SELECT count(*) FROM stock_news WHERE code = ?", code).Scan(&count)
+	case "dragon_tiger":
+		db.PG.Raw("SELECT count(*) FROM dragon_tiger_list WHERE code = ?", code).Scan(&count)
+	case "block_trade":
+		db.PG.Raw("SELECT count(*) FROM block_trade WHERE code = ?", code).Scan(&count)
+	case "announcements":
+		db.PG.Raw("SELECT count(*) FROM cninfo_announcements WHERE code = ?", code).Scan(&count)
+	case "unlocks":
+		db.PG.Raw("SELECT count(*) FROM restricted_share_unlock WHERE code = ?", code).Scan(&count)
 	}
 
 	if count > 0 {
