@@ -11,7 +11,7 @@ import {
   RefreshCw, Send, Trash2, Loader2, Check, X, Layers, FileText, Users, Newspaper, Star, StarOff, ChevronLeft, ChevronRight, ExternalLink, Wrench,
 } from 'lucide-react';
 import { showToast } from '../components/Toast';
-import { authFetch, checkAPIError, fetchStockDetail, fetchKLine, fetchIndicator, fetchPredictionResult, fetchPredictionHitRate, fetchStockHeatmap, fetchSignal, fetchFinancials, fetchShareholders, fetchStockNews, fetchReports, fetchStockConceptTags, addToWatchlist, removeFromWatchlist, fetchWatchlist, fetchWatchlistGroups, createWatchlistGroup, fetchHoldings, fetchProfile, runProfile, repairStock, fetchRealtimeQuoteSingle, fetchDragonTiger, fetchBlockTrades, fetchAnnouncements, fetchUnlocks, fetchEpsForecast } from '../services/api';
+import { authFetch, checkAPIError, fetchStockDetail, fetchKLine, fetchIndicator, fetchPredictionResult, fetchPredictionHitRate, fetchStockHeatmap, fetchSignal, fetchFinancials, fetchShareholders, fetchStockNews, fetchReports, fetchStockConceptTags, addToWatchlist, removeFromWatchlist, fetchWatchlist, fetchWatchlistGroups, createWatchlistGroup, fetchHoldings, fetchProfile, runProfile, repairStock, fetchRealtimeQuoteSingle, fetchDragonTiger, fetchBlockTrades, fetchAnnouncements, fetchUnlocks, fetchEpsForecast, fetchDragonTigerSeats } from '../services/api';
 import KLineChart from '../components/KLineChart';
 import BoardSidebar from '../components/BoardSidebar';
 
@@ -478,6 +478,9 @@ export default function StockDetailPage() {
   const [stockNews, setStockNews] = useState<any[]>([]);
   const [reports, setReports] = useState<any[]>([]);
   const [dragonTiger, setDragonTiger] = useState<any[]>([]);
+  const [dtExpanded, setDtExpanded] = useState<string | null>(null);
+  const [dtSeats, setDtSeats] = useState<any[]>([]);
+  const [dtSeatsLoading, setDtSeatsLoading] = useState(false);
   const [blockTradesState, setBlockTradesState] = useState<any[]>([]);
   const [announcements, setAnnouncements] = useState<any[]>([]);
   const [unlocks, setUnlocks] = useState<any[]>([]);
@@ -2813,51 +2816,163 @@ const handleChatSend = async (text?: string) => {
       )}
       {/* ── Dragon Tiger Tab ── */}
       {tab === 'dragon_tiger' && (
-        <div className="card">
-          <div className="card-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span style={{ fontWeight: 600, fontSize: 14 }}><Swords size={14} /> 龙虎榜上榜记录</span>
-            <button onClick={() => handleRefreshStockData('dragon_tiger')} disabled={refreshingPhase !== ''}
-              style={{ padding: '4px 10px', fontSize: 11, cursor: 'pointer', border: '1px solid var(--color-border-1)', borderRadius: 4, background: 'var(--color-bg-1)', color: 'var(--color-text-2)', display: 'flex', alignItems: 'center', gap: 4 }}>
-              <Repeat size={12} className={refreshingPhase === 'dragon_tiger' ? 'spin' : ''} />{refreshingPhase === 'dragon_tiger' ? '更新中...' : '更新'}
-            </button>
-          </div>
-          {refreshingPhase === 'dragon_tiger' && refreshLogs.length > 0 && (
-            <div style={{ padding: '6px 16px', background: 'var(--color-fill-1)', borderBottom: '1px solid var(--color-border-1)', maxHeight: 120, overflow: 'auto' }}>
-              {refreshLogs.map((log, i) => (
-                <div key={i} style={{ fontSize: 11, color: 'var(--color-text-2)', fontFamily: 'monospace', opacity: i === refreshLogs.length - 1 ? 1 : 0.4 }}>{log}</div>
-              ))}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {/* Summary cards */}
+          {dragonTiger.length > 0 && (() => {
+            const totalNet = dragonTiger.reduce((s: number, d: any) => s + (d.netBuyAmt || 0), 0);
+            const totalBuy = dragonTiger.reduce((s: number, d: any) => s + (d.buyAmt || 0), 0);
+            const totalSell = dragonTiger.reduce((s: number, d: any) => s + (d.sellAmt || 0), 0);
+            const fmtW = (v: number) => Math.abs(v) >= 1e8 ? (v / 1e8).toFixed(2) + '亿' : (v / 1e4).toFixed(0) + '万';
+            return (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+                {[
+                  { label: '上榜次数', value: dragonTiger.length + '次', color: '#F53F3F' },
+                  { label: '总净买额', value: fmtW(totalNet), color: totalNet >= 0 ? '#F53F3F' : '#00B42A' },
+                  { label: '总买入额', value: fmtW(totalBuy), color: '#165DFF' },
+                  { label: '总卖出额', value: fmtW(totalSell), color: '#86909C' },
+                ].map((c, i) => (
+                  <div key={i} className="card" style={{ padding: '14px 16px' }}>
+                    <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 4 }}>{c.label}</div>
+                    <div style={{ fontSize: 20, fontWeight: 700, color: c.color }}>{c.value}</div>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
+
+          {/* Main table */}
+          <div className="card">
+            <div className="card-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ fontWeight: 600, fontSize: 14 }}><Swords size={14} /> 龙虎榜上榜记录</span>
+              <button onClick={() => handleRefreshStockData('dragon_tiger')} disabled={refreshingPhase !== ''}
+                style={{ padding: '4px 10px', fontSize: 11, cursor: 'pointer', border: '1px solid var(--color-border-1)', borderRadius: 4, background: 'var(--color-bg-1)', color: 'var(--color-text-2)', display: 'flex', alignItems: 'center', gap: 4 }}>
+                <Repeat size={12} className={refreshingPhase === 'dragon_tiger' ? 'spin' : ''} />{refreshingPhase === 'dragon_tiger' ? '更新中...' : '更新'}
+              </button>
             </div>
-          )}
-          <div className="card-body" style={{ padding: 0 }}>
-            {dragonTiger.length > 0 ? (
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                <thead>
-                  <tr style={{ background: 'var(--color-fill-1)', borderBottom: '2px solid var(--color-border-2)' }}>
-                    {['上榜日期','收盘价','涨跌幅','净买额(万)','买入额(万)','卖出额(万)','换手率','上榜原因'].map(h => (
-                      <th key={h} style={{ padding: '8px 12px', textAlign: h === '上榜日期' || h === '上榜原因' ? 'left' : 'right', fontSize: 11, color: 'var(--color-text-3)', fontWeight: 500, whiteSpace: 'nowrap' }}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {dragonTiger.map((d: any, i: number) => (
-                    <tr key={i} style={{ borderBottom: '1px solid var(--color-border-1)' }}>
-                      <td style={{ padding: '6px 12px', fontSize: 12 }}>{d.tradeDate}</td>
-                      <td style={{ padding: '6px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{d.closePrice?.toFixed(2)}</td>
-                      <td style={{ padding: '6px 12px', textAlign: 'right', color: d.changePct >= 0 ? '#F53F3F' : '#00B42A', fontVariantNumeric: 'tabular-nums' }}>{d.changePct != null ? (d.changePct > 0 ? '+' : '') + d.changePct.toFixed(2) + '%' : '-'}</td>
-                      <td style={{ padding: '6px 12px', textAlign: 'right', color: d.netBuyAmt >= 0 ? '#F53F3F' : '#00B42A', fontVariantNumeric: 'tabular-nums' }}>{d.netBuyAmt != null ? (d.netBuyAmt / 10000).toFixed(0) : '-'}</td>
-                      <td style={{ padding: '6px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{d.buyAmt != null ? (d.buyAmt / 10000).toFixed(0) : '-'}</td>
-                      <td style={{ padding: '6px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{d.sellAmt != null ? (d.sellAmt / 10000).toFixed(0) : '-'}</td>
-                      <td style={{ padding: '6px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{d.turnoverPct != null ? d.turnoverPct.toFixed(2) + '%' : '-'}</td>
-                      <td style={{ padding: '6px 12px', fontSize: 11, color: 'var(--color-text-2)', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.reason || '-'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            ) : (
-              <div style={{ textAlign: 'center', padding: 48, fontSize: 13, color: 'var(--color-text-3)' }}>
-                暂无龙虎榜数据，请点击右上角「更新」按钮采集
+            {refreshingPhase === 'dragon_tiger' && refreshLogs.length > 0 && (
+              <div style={{ padding: '6px 16px', background: 'var(--color-fill-1)', borderBottom: '1px solid var(--color-border-1)', maxHeight: 120, overflow: 'auto' }}>
+                {refreshLogs.map((log, i) => (
+                  <div key={i} style={{ fontSize: 11, color: 'var(--color-text-2)', fontFamily: 'monospace', opacity: i === refreshLogs.length - 1 ? 1 : 0.4 }}>{log}</div>
+                ))}
               </div>
             )}
+            <div className="card-body" style={{ padding: 0 }}>
+              {dragonTiger.length > 0 ? (
+                <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse', fontSize: 12 }}>
+                  <colgroup>
+                    <col style={{ width: '3%' }} /><col style={{ width: '10%' }} />
+                    <col style={{ width: '8%' }} /><col style={{ width: '7%' }} />
+                    <col style={{ width: '9%' }} /><col style={{ width: '9%' }} />
+                    <col style={{ width: '9%' }} /><col style={{ width: '7%' }} />
+                    <col style={{ width: '38%' }} />
+                  </colgroup>
+                  <thead>
+                    <tr style={{ background: 'var(--color-fill-1)', borderBottom: '2px solid var(--color-border-2)' }}>
+                      <th style={{ padding: '8px 6px', textAlign: 'center', fontSize: 11, color: 'var(--color-text-3)' }}></th>
+                      {['日期','收盘','涨跌','净买','买入','卖出','换手','上榜原因'].map((h, hi) => (
+                        <th key={h} style={{ padding: '8px 6px', textAlign: hi === 0 || hi === 7 ? 'left' : 'right', fontSize: 11, color: 'var(--color-text-3)', fontWeight: 500, whiteSpace: 'nowrap' }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {dragonTiger.map((d: any, i: number) => {
+                      const fmtW = (v: number) => Math.abs(v) >= 1e8 ? (v / 1e8).toFixed(2) + '亿' : (v / 1e4).toFixed(0) + '万';
+                      const isExpanded = dtExpanded === d.tradeDate;
+                      return (<>
+                        <tr key={i} onClick={() => {
+                          if (isExpanded) { setDtExpanded(null); return; }
+                          setDtExpanded(d.tradeDate);
+                          setDtSeats([]);
+                          setDtSeatsLoading(true);
+                          fetchDragonTigerSeats(code, d.tradeDate)
+                            .then((r: any) => setDtSeats(r.data?.data || []))
+                            .catch(() => setDtSeats([]))
+                            .finally(() => setDtSeatsLoading(false));
+                        }} style={{ borderBottom: '1px solid var(--color-border-1)', cursor: 'pointer', background: isExpanded ? 'var(--color-fill-1)' : undefined }}>
+                          <td style={{ padding: '7px 6px', textAlign: 'center' }}>
+                            <ChevronRight size={12} style={{ transform: isExpanded ? 'rotate(90deg)' : 'none', transition: '0.15s', color: 'var(--color-text-3)' }} />
+                          </td>
+                          <td style={{ padding: '7px 6px', fontSize: 12, fontWeight: 500 }}>{d.tradeDate?.slice(0, 10)}</td>
+                          <td style={{ padding: '7px 6px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{d.closePrice?.toFixed(2)}</td>
+                          <td style={{ padding: '7px 6px', textAlign: 'right', color: (d.changePct || 0) >= 0 ? '#F53F3F' : '#00B42A', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
+                            {(d.changePct || 0) > 0 ? '+' : ''}{d.changePct?.toFixed(2)}%
+                          </td>
+                          <td style={{ padding: '7px 6px', textAlign: 'right', fontWeight: 600, color: (d.netBuyAmt || 0) >= 0 ? '#F53F3F' : '#00B42A', fontVariantNumeric: 'tabular-nums' }}>
+                            {fmtW(d.netBuyAmt || 0)}
+                          </td>
+                          <td style={{ padding: '7px 6px', textAlign: 'right', color: 'var(--color-text-2)', fontVariantNumeric: 'tabular-nums' }}>{fmtW(d.buyAmt || 0)}</td>
+                          <td style={{ padding: '7px 6px', textAlign: 'right', color: 'var(--color-text-2)', fontVariantNumeric: 'tabular-nums' }}>{fmtW(d.sellAmt || 0)}</td>
+                          <td style={{ padding: '7px 6px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{(d.turnoverPct || 0).toFixed(2)}%</td>
+                          <td style={{ padding: '7px 6px', fontSize: 11, color: 'var(--color-text-2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={d.reason}>{d.reason || '-'}</td>
+                        </tr>
+                        {isExpanded && (
+                          <tr key={`${d.tradeDate}-seats`}>
+                            <td colSpan={9} style={{ padding: '0 12px 12px 40px', background: 'var(--color-fill-1)' }}>
+                              <div style={{ fontSize: 12, fontWeight: 600, margin: '10px 0 6px', color: 'var(--color-text-2)' }}>
+                                席位明细 · {d.tradeDate?.slice(0, 10)}
+                              </div>
+                              {dtSeatsLoading ? (
+                                <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>加载中...</span>
+                              ) : dtSeats.length === 0 ? (
+                                <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>暂无席位明细数据</span>
+                              ) : (
+                                <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse', fontSize: 12 }}>
+                                  <colgroup>
+                                    <col style={{ width: '8%' }} /><col style={{ width: '32%' }} />
+                                    <col style={{ width: '12%' }} /><col style={{ width: '12%' }} />
+                                    <col style={{ width: '12%' }} /><col style={{ width: '8%' }} />
+                                  </colgroup>
+                                  <thead>
+                                    <tr style={{ borderBottom: '1px solid var(--color-border-1)' }}>
+                                      {['方向','席位名称','买入','卖出','净额','类型'].map(h => (
+                                        <th key={h} style={{ padding: '4px 6px', textAlign: h === '席位名称' ? 'left' : h === '类型' ? 'center' : 'right', fontSize: 11, color: 'var(--color-text-3)', fontWeight: 500 }}>{h}</th>
+                                      ))}
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {dtSeats.map((s: any) => {
+                                      const sideColor = s.side === 'buy' ? '#F53F3F' : '#00B42A';
+                                      return (
+                                        <tr key={s.id} style={{ borderBottom: '1px solid var(--color-border-1)' }}>
+                                          <td style={{ padding: '3px 6px', textAlign: 'center' }}>
+                                            <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 8, background: sideColor + '15', color: sideColor }}>
+                                              {s.side === 'buy' ? '买入' : '卖出'}
+                                            </span>
+                                          </td>
+                                          <td style={{ padding: '3px 6px', fontSize: 11 }}>{s.seatName}</td>
+                                          <td style={{ padding: '3px 6px', textAlign: 'right', color: '#F53F3F', fontVariantNumeric: 'tabular-nums' }}>
+                                            {s.buyAmt > 0 ? fmtW(s.buyAmt) : '-'}
+                                          </td>
+                                          <td style={{ padding: '3px 6px', textAlign: 'right', color: '#00B42A', fontVariantNumeric: 'tabular-nums' }}>
+                                            {s.sellAmt > 0 ? fmtW(s.sellAmt) : '-'}
+                                          </td>
+                                          <td style={{ padding: '3px 6px', textAlign: 'right', fontWeight: 600, color: s.netAmt >= 0 ? '#F53F3F' : '#00B42A', fontVariantNumeric: 'tabular-nums' }}>
+                                            {fmtW(s.netAmt)}
+                                          </td>
+                                          <td style={{ padding: '3px 6px', textAlign: 'center' }}>
+                                            <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 10, background: s.isInstitution ? '#FFECE8' : '#E8F3FF', color: s.isInstitution ? '#F53F3F' : '#165DFF' }}>
+                                              {s.isInstitution ? '机构' : '游资'}
+                                            </span>
+                                          </td>
+                                        </tr>
+                                      );
+                                    })}
+                                  </tbody>
+                                </table>
+                              )}
+                            </td>
+                          </tr>
+                        )}
+                      </>);
+                    })}
+                  </tbody>
+                </table>
+              ) : (
+                <div style={{ textAlign: 'center', padding: 48, fontSize: 13, color: 'var(--color-text-3)' }}>
+                  暂无龙虎榜数据，请点击右上角「更新」按钮采集
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
