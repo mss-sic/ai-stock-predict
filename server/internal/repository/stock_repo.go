@@ -582,6 +582,40 @@ func (r *StockRepo) GetRestrictedUnlocks(code string) ([]model.RestrictedShareUn
 
 // GetAllFutureUnlocks returns all future unlocks across all stocks with stock names.
 // GetThsHotConceptStats returns concept tag aggregation from THS hot stocks for a date range.
+// GetThsEpsForecast returns consensus EPS forecast for a stock.
+// GetAllAnnouncements returns all announcements with optional limit.
+func (r *StockRepo) GetAllAnnouncements(limit int) ([]model.CninfoAnnouncement, error) {
+	if limit <= 0 { limit = 200 }
+	var rows []model.CninfoAnnouncement
+	err := db.PG.Order("ann_date DESC").Limit(limit).Find(&rows).Error
+	return rows, err
+}
+
+func (r *StockRepo) GetThsEpsForecast(code string) ([]model.ThsEpsForecast, error) {
+	var rows []model.ThsEpsForecast
+	err := db.PG.Where("code = ?", code).Order("year ASC").Find(&rows).Error
+	return rows, err
+}
+
+// GetMacroNews returns latest macro news with optional category filter.
+func (r *StockRepo) GetMacroNews(category string, limit int) ([]model.MacroNews, error) {
+	if limit <= 0 { limit = 50 }
+	var rows []model.MacroNews
+	q := db.PG.Order("news_time DESC").Limit(limit)
+	if category != "" && category != "all" {
+		q = q.Where("category = ?", category)
+	}
+	err := q.Find(&rows).Error
+	return rows, err
+}
+
+// GetMacroCategories returns distinct macro news categories.
+func (r *StockRepo) GetMacroCategories() ([]string, error) {
+	var cats []string
+	err := db.PG.Table("macro_news").Select("DISTINCT category").Where("category != ''").Pluck("category", &cats).Error
+	return cats, err
+}
+
 func (r *StockRepo) GetThsHotConceptStats(days int) ([]map[string]interface{}, error) {
 	if days <= 0 {
 		days = 7

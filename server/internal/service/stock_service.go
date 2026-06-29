@@ -104,6 +104,22 @@ func (s *StockService) GetRestrictedUnlocks(code string) ([]model.RestrictedShar
 	return s.repo.GetRestrictedUnlocks(code)
 }
 
+func (s *StockService) GetAllAnnouncements(limit int) ([]model.CninfoAnnouncement, error) {
+	return s.repo.GetAllAnnouncements(limit)
+}
+
+func (s *StockService) GetThsEpsForecast(code string) ([]model.ThsEpsForecast, error) {
+	return s.repo.GetThsEpsForecast(code)
+}
+
+func (s *StockService) GetMacroNews(category string, limit int) ([]model.MacroNews, error) {
+	return s.repo.GetMacroNews(category, limit)
+}
+
+func (s *StockService) GetMacroCategories() ([]string, error) {
+	return s.repo.GetMacroCategories()
+}
+
 func (s *StockService) GetThsHotConceptStats(days int) ([]map[string]interface{}, error) {
 	return s.repo.GetThsHotConceptStats(days)
 }

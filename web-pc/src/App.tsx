@@ -4,7 +4,7 @@ import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from './services/AuthContext';
 import { fetchIndices, logout as logoutApi, getAccessToken, heartbeat } from './services/api';
 import Logo from './components/Logo';
-import { LayoutDashboard, History, Grid3X3, Layers, Star, Target, Briefcase, ShieldAlert, Database, Search, Settings, LogOut, UserCog, Shield, Sun, Moon, Trophy, TrendingUp, Activity, Swords, Calendar } from 'lucide-react';
+import { LayoutDashboard, History, Grid3X3, Layers, Star, Target, Briefcase, ShieldAlert, Database, Search, Settings, LogOut, UserCog, Shield, Sun, Moon, Trophy, TrendingUp, Activity, Swords, Calendar, Globe, FileWarning } from 'lucide-react';
 import { useTheme } from './services/ThemeContext';
 import '@arco-design/web-react/dist/css/arco.css';
 import './styles/app.css';
@@ -19,6 +19,8 @@ const navItems = [
   { key: '/dragon-tiger', label: '龙虎榜', icon: Swords },
   { key: '/unlocks', label: '解禁日历', icon: Calendar },
   { key: '/theme-heat', label: '题材热度', icon: TrendingUp },
+  { key: '/macro-news', label: '宏观资讯', icon: Globe },
+  { key: '/announcements', label: '公告检索', icon: FileWarning },
   { key: '/stocks', label: '股票列表', icon: Search },
   { key: '/watchlist', label: '自选股', icon: Star },
   { key: '/strategy', label: '交易策略', icon: Target },

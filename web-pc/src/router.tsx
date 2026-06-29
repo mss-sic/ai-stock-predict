@@ -29,6 +29,8 @@ import MarketStylePage from "./pages/MarketStylePage";
 import DragonTigerPage from "./pages/DragonTigerPage";
 import UnlockCalendarPage from "./pages/UnlockCalendarPage";
 import ThemeHeatPage from "./pages/ThemeHeatPage";
+import MacroNewsPage from "./pages/MacroNewsPage";
+import AnnouncementsPage from "./pages/AnnouncementsPage";
 
 import PkEntryDetailPage from './pages/PkEntryDetailPage';
 
@@ -88,6 +90,8 @@ const router = createBrowserRouter([
           { path: 'dragon-tiger', element: <DragonTigerPage /> },
           { path: 'unlocks', element: <UnlockCalendarPage /> },
           { path: 'theme-heat', element: <ThemeHeatPage /> },
+          { path: 'macro-news', element: <MacroNewsPage /> },
+          { path: 'announcements', element: <AnnouncementsPage /> },
           { path: 'stock/:code', element: <StockDetailPage /> },
           { path: 'forecast/:code', element: <ForecastPage /> },
           { path: 'ai/:code', element: <AIAnalysisPage /> },

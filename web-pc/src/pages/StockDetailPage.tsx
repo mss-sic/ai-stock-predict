@@ -11,7 +11,7 @@ import {
   RefreshCw, Send, Trash2, Loader2, Check, X, Layers, FileText, Users, Newspaper, Star, StarOff, ChevronLeft, ChevronRight, ExternalLink, Wrench,
 } from 'lucide-react';
 import { showToast } from '../components/Toast';
-import { authFetch, checkAPIError, fetchStockDetail, fetchKLine, fetchIndicator, fetchPredictionResult, fetchPredictionHitRate, fetchStockHeatmap, fetchSignal, fetchFinancials, fetchShareholders, fetchStockNews, fetchReports, fetchStockConceptTags, addToWatchlist, removeFromWatchlist, fetchWatchlist, fetchWatchlistGroups, createWatchlistGroup, fetchHoldings, fetchProfile, runProfile, repairStock, fetchRealtimeQuoteSingle, fetchDragonTiger, fetchBlockTrades, fetchAnnouncements, fetchUnlocks } from '../services/api';
+import { authFetch, checkAPIError, fetchStockDetail, fetchKLine, fetchIndicator, fetchPredictionResult, fetchPredictionHitRate, fetchStockHeatmap, fetchSignal, fetchFinancials, fetchShareholders, fetchStockNews, fetchReports, fetchStockConceptTags, addToWatchlist, removeFromWatchlist, fetchWatchlist, fetchWatchlistGroups, createWatchlistGroup, fetchHoldings, fetchProfile, runProfile, repairStock, fetchRealtimeQuoteSingle, fetchDragonTiger, fetchBlockTrades, fetchAnnouncements, fetchUnlocks, fetchEpsForecast } from '../services/api';
 import KLineChart from '../components/KLineChart';
 import BoardSidebar from '../components/BoardSidebar';
 
@@ -481,6 +481,7 @@ export default function StockDetailPage() {
   const [blockTradesState, setBlockTradesState] = useState<any[]>([]);
   const [announcements, setAnnouncements] = useState<any[]>([]);
   const [unlocks, setUnlocks] = useState<any[]>([]);
+  const [epsData, setEpsData] = useState<any[]>([]);
   const [isWatched, setIsWatched] = useState(false);
   const [showWLModal, setShowWLModal] = useState(false);
   const [wlGroupId, setWlGroupId] = useState<number>(0);
@@ -536,6 +537,7 @@ fetchPredictionResult(code).then((r: any) => {
     fetchBlockTrades(code).then((r: any) => setBlockTradesState(r.data?.data || [])).catch(() => {});
     fetchAnnouncements(code).then((r: any) => setAnnouncements(r.data?.data || [])).catch(() => {});
     fetchUnlocks(code).then((r: any) => setUnlocks(r.data?.data || [])).catch(() => {});
+    fetchEpsForecast(code).then((r: any) => setEpsData(r.data?.data || [])).catch(() => {});
 
     (async () => {
       try {
@@ -1839,7 +1841,37 @@ const handleChatSend = async (text?: string) => {
                   ))}
                 </div>
               )}
-              <div ref={chatBottomRef} />
+            {/* ── 一致预期 EPS ── */}
+            {epsData.length > 0 && (
+              <div className="card" style={{ marginBottom: 12 }}>
+                <div className="card-header">
+                  <span style={{ fontWeight: 600, fontSize: 13 }}><TrendingUp size={13} style={{ marginRight: 4 }} />一致预期（同花顺）</span>
+                </div>
+                <div className="card-body" style={{ padding: '8px 16px 12px' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+                    <thead>
+                      <tr style={{ borderBottom: '1px solid var(--color-border-1)' }}>
+                        {['年度','机构数','EPS(最低)','EPS(平均)','EPS(最高)'].map(h => (
+                          <th key={h} style={{ padding: '4px 8px', textAlign: h === '年度' ? 'left' : 'right', color: 'var(--color-text-3)', fontWeight: 500 }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {epsData.map((e: any, i: number) => (
+                        <tr key={i} style={{ borderBottom: '1px solid var(--color-border-1)' }}>
+                          <td style={{ padding: '4px 8px', fontWeight: 500 }}>{e.year}</td>
+                          <td style={{ padding: '4px 8px', textAlign: 'right', color: 'var(--color-text-2)' }}>{e.institutionCount}家</td>
+                          <td style={{ padding: '4px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{e.epsMin?.toFixed(3)}</td>
+                          <td style={{ padding: '4px 8px', textAlign: 'right', fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: 'var(--color-primary)' }}>{e.epsAvg?.toFixed(3)}</td>
+                          <td style={{ padding: '4px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{e.epsMax?.toFixed(3)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+                          <div ref={chatBottomRef} />
             </div>
             <div style={{ borderTop: '1px solid var(--color-border-1)', padding: '10px 16px', display: 'flex', gap: 8 }}>
               <Input value={chatInput} onChange={setChatInput} onPressEnter={() => handleChatSend()} placeholder="输入分析问题..." style={{ flex: 1 }} disabled={chatLoading} />

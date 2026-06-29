@@ -310,6 +310,59 @@ func (h *StockHandler) GetCninfoAnnouncements(c *gin.Context) {
 	response.Success(c, data)
 }
 
+func (h *StockHandler) GetAllAnnouncements(c *gin.Context) {
+	limit := 200
+	if l, err := strconv.Atoi(c.DefaultQuery("limit", "200")); err == nil && l > 0 {
+		limit = l
+	}
+	data, err := h.svc.GetAllAnnouncements(limit)
+	if err != nil {
+		response.Error(c, 500, response.CodeInternalError, "查询公告失败: "+err.Error())
+		return
+	}
+	response.Success(c, data)
+}
+
+func (h *StockHandler) GetThsEpsForecast(c *gin.Context) {
+	code := c.Param("code")
+	if code == "" {
+		response.Error(c, 400, response.CodeBadRequest, "股票代码不能为空")
+		return
+	}
+	data, err := h.svc.GetThsEpsForecast(code)
+	if err != nil {
+		response.Error(c, 500, response.CodeInternalError, "查询一致预期失败: "+err.Error())
+		return
+	}
+	
+	response.Success(c, data)
+}
+
+func (h *StockHandler) GetMacroNews(c *gin.Context) {
+	category := c.DefaultQuery("category", "")
+	limit := 50
+	if l, err := strconv.Atoi(c.DefaultQuery("limit", "50")); err == nil && l > 0 {
+		limit = l
+	}
+	data, err := h.svc.GetMacroNews(category, limit)
+	if err != nil {
+		response.Error(c, 500, response.CodeInternalError, "查询宏观资讯失败: "+err.Error())
+		return
+	}
+	
+	response.Success(c, data)
+}
+
+func (h *StockHandler) GetMacroCategories(c *gin.Context) {
+	data, err := h.svc.GetMacroCategories()
+	if err != nil {
+		response.Error(c, 500, response.CodeInternalError, "查询资讯分类失败: "+err.Error())
+		return
+	}
+	if data == nil { data = []string{} }
+	response.Success(c, data)
+}
+
 func (h *StockHandler) GetThsHotConceptStats(c *gin.Context) {
 	days := 7
 	if d, err := strconv.Atoi(c.DefaultQuery("days", "7")); err == nil && d > 0 {
