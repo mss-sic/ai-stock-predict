@@ -6,7 +6,7 @@ import { parseStreamSections, tryParseWidget, WidgetRenderer } from '../componen
 import { useParams } from 'react-router-dom';
 import { Button, Tag, Input, Tooltip, Modal, Select } from '@arco-design/web-react';
 import {
-  TrendingUp, TrendingDown, BarChart3, Repeat,
+  TrendingUp, TrendingDown, BarChart3, Repeat, DollarSign,
   Sparkles, Brain, Target, Activity, Table2, Bot, Swords, FileWarning, Gift, AlertTriangle,
   RefreshCw, Send, Trash2, Loader2, Check, X, Layers, FileText, Users, Newspaper, Star, StarOff, ChevronLeft, ChevronRight, ExternalLink, Wrench,
 } from 'lucide-react';
