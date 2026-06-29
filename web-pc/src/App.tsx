@@ -4,35 +4,60 @@ import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from './services/AuthContext';
 import { fetchIndices, logout as logoutApi, getAccessToken, heartbeat } from './services/api';
 import Logo from './components/Logo';
-import { LayoutDashboard, History, Grid3X3, Layers, Star, Target, Briefcase, ShieldAlert, Database, Search, Settings, LogOut, UserCog, Shield, Sun, Moon, Trophy, TrendingUp, Activity, Swords, Calendar, Globe, FileWarning } from 'lucide-react';
+import { LayoutDashboard, History, Grid3X3, Layers, Star, Target, Briefcase, ShieldAlert, Database, Search, Settings, LogOut, UserCog, Shield, Sun, Moon, Trophy, TrendingUp, Activity, Swords, Calendar, Globe, FileWarning, ChevronDown } from 'lucide-react';
 import { useTheme } from './services/ThemeContext';
 import '@arco-design/web-react/dist/css/arco.css';
 import './styles/app.css';
 import PkNotice from './components/PkNotice';
 import AppTopbar from './components/AppTopbar';
 
-const navItems = [
-  { key: '/', label: '今日榜单', icon: LayoutDashboard },
-  { key: '/board/history', label: '历史榜单', icon: History },
-  { key: '/board/heatmap', label: '上榜热力图', icon: Grid3X3 },
-  { key: '/board/concepts', label: '概念板块', icon: Layers },
-  { key: '/dragon-tiger', label: '龙虎榜', icon: Swords },
-  { key: '/unlocks', label: '解禁日历', icon: Calendar },
-  { key: '/theme-heat', label: '题材热度', icon: TrendingUp },
-  { key: '/macro-news', label: '宏观资讯', icon: Globe },
-  { key: '/announcements', label: '公告检索', icon: FileWarning },
-  { key: '/stocks', label: '股票列表', icon: Search },
-  { key: '/watchlist', label: '自选股', icon: Star },
-  { key: '/strategy', label: '交易策略', icon: Target },
-  { key: '/pk', label: '策略PK', icon: Trophy },
-  { key: '/holdings', label: '持股管理', icon: Briefcase },
-  { key: '/risk', label: '风险监控', icon: ShieldAlert },
-  { key: '/sentiment', label: '市场情绪', icon: TrendingUp },
-  { key: "/market-review", label: "市场复盘", icon: Activity },
-
-  { key: '/data', label: '数据管理', icon: Database },
-  { key: '/settings', label: '系统设置', icon: Settings },
+const navGroups = [
+  {
+    label: '行情看板',
+    items: [
+      { key: '/', label: '今日榜单', icon: LayoutDashboard },
+      { key: '/board/history', label: '历史榜单', icon: History },
+      { key: '/board/heatmap', label: '上榜热力图', icon: Grid3X3 },
+      { key: '/board/concepts', label: '概念板块', icon: Layers },
+    ]
+  },
+  {
+    label: '数据挖掘',
+    items: [
+      { key: '/dragon-tiger', label: '龙虎榜', icon: Swords },
+      { key: '/theme-heat', label: '题材热度', icon: TrendingUp },
+      { key: '/unlocks', label: '解禁日历', icon: Calendar },
+      { key: '/announcements', label: '公告检索', icon: FileWarning },
+      { key: '/macro-news', label: '宏观资讯', icon: Globe },
+    ]
+  },
+  {
+    label: '交易决策',
+    items: [
+      { key: '/stocks', label: '股票列表', icon: Search },
+      { key: '/watchlist', label: '自选股', icon: Star },
+      { key: '/strategy', label: '交易策略', icon: Target },
+      { key: '/pk', label: '策略PK', icon: Trophy },
+      { key: '/holdings', label: '持股管理', icon: Briefcase },
+    ]
+  },
+  {
+    label: '风控分析',
+    items: [
+      { key: '/risk', label: '风险监控', icon: ShieldAlert },
+      { key: '/sentiment', label: '市场情绪', icon: TrendingUp },
+      { key: "/market-review", label: "市场复盘", icon: Activity },
+    ]
+  },
+  { label: '系统', items: [
+      { key: '/data', label: '数据管理', icon: Database },
+      { key: '/settings', label: '系统设置', icon: Settings },
+    ]
+  },
 ];
+
+// Flatten for selectedKey lookup
+const navItems = navGroups.flatMap(g => g.items);
 
 interface IndexData { name: string; code: string; val: number; chg: number; chgPct: number; }
 
@@ -43,6 +68,7 @@ export default function AppLayout() {
   const location = useLocation();
   const [indices, setIndices] = useState<IndexData[]>([]);
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     const token = getAccessToken();
@@ -106,16 +132,49 @@ export default function AppLayout() {
           </button>
         </div>
         <nav className="sidebar-nav">
-          {navItems.map(({ key, label, icon: Icon }) => (
-            <button
-              key={key}
-              className={`nav-item${key === selectedKey ? ' active' : ''}`}
-              onClick={() => navigate(key)}
-            >
-              <Icon size={16} />
-              <span>{label}</span>
-            </button>
-          ))}
+          {navGroups.map((group) => {
+            const isCollapsed = collapsedGroups.has(group.label);
+            const toggleCollapse = () => {
+              setCollapsedGroups(prev => {
+                const next = new Set(prev);
+                if (next.has(group.label)) next.delete(group.label);
+                else next.add(group.label);
+                return next;
+              });
+            };
+            const hasActive = group.items.some(item => item.key === selectedKey);
+            return (
+              <div key={group.label} style={{ marginBottom: 2 }}>
+                <div
+                  onClick={toggleCollapse}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 6,
+                    padding: '6px 14px 4px', cursor: 'pointer',
+                    fontSize: 11, fontWeight: 600, color: hasActive ? 'var(--color-primary)' : 'var(--color-text-3)',
+                    textTransform: 'uppercase', letterSpacing: '0.5px',
+                    userSelect: 'none',
+                  }}
+                >
+                  <ChevronDown size={10} style={{
+                    transform: isCollapsed ? 'rotate(-90deg)' : 'none',
+                    transition: 'transform 0.15s',
+                  }} />
+                  {group.label}
+                </div>
+                {!isCollapsed && group.items.map(({ key, label, icon: Icon }) => (
+                  <button
+                    key={key}
+                    className={`nav-item${key === selectedKey ? ' active' : ''}`}
+                    onClick={() => navigate(key)}
+                    style={{ paddingLeft: 30 }}
+                  >
+                    <Icon size={15} />
+                    <span>{label}</span>
+                  </button>
+                ))}
+            </div>
+            );
+          })}
         </nav>
         {/* User area */}
         <div style={{ marginTop: 'auto', borderTop: '1px solid var(--color-border-1)', position: 'relative' }}>
