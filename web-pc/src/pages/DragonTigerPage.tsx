@@ -98,7 +98,7 @@ export default function DragonTigerPage() {
               {loading ? '加载中...' : '当日无龙虎榜数据（非交易日或盘后未更新）'}
             </div>
           ) : (
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
                 <tr style={{ background: 'var(--color-fill-1)', borderBottom: '2px solid var(--color-border-2)' }}>
                   <th style={{ padding: '10px 12px', textAlign: 'left', width: 40 }}></th>
@@ -147,7 +147,7 @@ export default function DragonTigerPage() {
                           <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6, color: 'var(--color-text-2)' }}>席位明细</div>
                           {seatsLoading[d.code] ? <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>加载中...</span> :
                             seats[d.code]?.length === 0 ? <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>暂无席位数据</span> :
-                            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                            <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse', fontSize: 12 }}>
                               <thead><tr style={{ borderBottom: '1px solid var(--color-border-1)' }}>
                                 <th style={{ padding: '4px 8px', textAlign: 'left' }}>席位名称</th>
                                 <th style={{ padding: '4px 8px', textAlign: 'right' }}>买入</th>

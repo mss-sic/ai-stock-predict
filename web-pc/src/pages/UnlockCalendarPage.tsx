@@ -101,10 +101,19 @@ export default function UnlockCalendarPage() {
                 </span>
               </div>
               <div className="card-body" style={{ padding: 0 }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse', fontSize: 12 }}>
+                  <colgroup>
+                    <col style={{ width: '13%' }} />
+                    <col style={{ width: '10%' }} />
+                    <col style={{ width: '12%' }} />
+                    <col style={{ width: '18%' }} />
+                    <col style={{ width: '13%' }} />
+                    <col style={{ width: '10%' }} />
+                    <col style={{ width: '8%' }} />
+                  </colgroup>
                   <thead>
                     <tr style={{ background: 'var(--color-fill-1)', borderBottom: '2px solid var(--color-border-2)' }}>
-                      {['解禁日期','股票代码','股票名称','解禁股类型','解禁数量(万股)','占总股本','操作'].map(h => (
+                      {['解禁日期','代码','股票名称','解禁股类型','解禁数量(万)','占总股本','详情'].map(h => (
                         <th key={h} style={{ padding: '8px 12px', textAlign: h === '解禁股类型' || h === '股票名称' ? 'left' : h === '操作' ? 'center' : 'right', fontSize: 11, color: 'var(--color-text-3)', fontWeight: 500 }}>{h}</th>
                       ))}
                     </tr>
@@ -115,7 +124,7 @@ export default function UnlockCalendarPage() {
                         onClick={() => navigate(`/stock/${d.code}`)}>
                         <td style={{ padding: '6px 12px', fontSize: 12, color: '#F53F3F', fontWeight: 600 }}>{d.freeDate?.slice(0, 10)}</td>
                         <td style={{ padding: '6px 12px', fontFamily: 'monospace', fontSize: 12 }}>{d.code}</td>
-                        <td style={{ padding: '6px 12px', fontSize: 12 }}>{d.name || d.code}</td>
+                        <td style={{ padding: '6px 12px', fontSize: 12, fontWeight: 500, color: 'var(--color-primary)', cursor: 'pointer' }}>{d.name || d.code}</td>
                         <td style={{ padding: '6px 12px', fontSize: 11, color: 'var(--color-text-2)' }}>{d.stockType || '-'}</td>
                         <td style={{ padding: '6px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{(d.shares / 10000).toFixed(2)}</td>
                         <td style={{ padding: '6px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: d.ratio > 5 ? '#F53F3F' : 'var(--color-text-1)', fontWeight: d.ratio > 5 ? 600 : 400 }}>

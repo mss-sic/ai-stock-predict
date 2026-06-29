@@ -643,9 +643,13 @@ func (r *StockRepo) GetAllFutureUnlocks(days int) ([]model.RestrictedShareUnlock
 	}
 	var rows []model.RestrictedShareUnlock
 	endDate := time.Now().AddDate(0, 0, days).Format("2006-01-02")
-	err := db.PG.Where("free_date >= CURRENT_DATE AND free_date <= ?", endDate).
-		Order("free_date ASC, ratio DESC").
-		Find(&rows).Error
+	err := db.PG.Raw(`
+		SELECT u.id, u.code, COALESCE(s.name, u.code) AS name, u.free_date, u.stock_type, u.shares, u.ratio, u.is_history, u.created_at
+		FROM restricted_share_unlock u
+		LEFT JOIN stocks_basic s ON u.code = s.code
+		WHERE u.free_date >= CURRENT_DATE AND u.free_date <= ?
+		ORDER BY u.free_date ASC, u.ratio DESC
+	`, endDate).Scan(&rows).Error
 	return rows, err
 }
 

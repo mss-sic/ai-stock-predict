@@ -6,6 +6,7 @@ import "time"
 type RestrictedShareUnlock struct {
 	ID         uint      `gorm:"primaryKey;autoIncrement" json:"id"`
 	Code       string    `gorm:"size:10;index" json:"code"`
+	Name       string    `json:"name"`
 	FreeDate   string    `gorm:"size:10;index" json:"freeDate"`
 	StockType  string    `gorm:"size:100" json:"stockType"`
 	Shares     float64   `json:"shares"`
