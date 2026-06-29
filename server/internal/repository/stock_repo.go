@@ -580,6 +580,41 @@ func (r *StockRepo) GetRestrictedUnlocks(code string) ([]model.RestrictedShareUn
 	return rows, err
 }
 
+// GetAllFutureUnlocks returns all future unlocks across all stocks with stock names.
+// GetThsHotConceptStats returns concept tag aggregation from THS hot stocks for a date range.
+func (r *StockRepo) GetThsHotConceptStats(days int) ([]map[string]interface{}, error) {
+	if days <= 0 {
+		days = 7
+	}
+	startDate := time.Now().AddDate(0, 0, -days).Format("2006-01-02")
+	var rows []map[string]interface{}
+	err := db.PG.Raw(`
+		SELECT tag, COUNT(DISTINCT code) AS stock_count, COUNT(*) AS appear_count
+		FROM (
+			SELECT code, unnest(string_to_array(reason_tags, '+')) AS tag
+			FROM ths_hot_stocks
+			WHERE trade_date >= ?
+		) t
+		WHERE tag != ''
+		GROUP BY tag
+		ORDER BY stock_count DESC, appear_count DESC
+		LIMIT 50
+	`, startDate).Scan(&rows).Error
+	return rows, err
+}
+
+func (r *StockRepo) GetAllFutureUnlocks(days int) ([]model.RestrictedShareUnlock, error) {
+	if days <= 0 {
+		days = 90
+	}
+	var rows []model.RestrictedShareUnlock
+	endDate := time.Now().AddDate(0, 0, days).Format("2006-01-02")
+	err := db.PG.Where("free_date >= CURRENT_DATE AND free_date <= ?", endDate).
+		Order("free_date ASC, ratio DESC").
+		Find(&rows).Error
+	return rows, err
+}
+
 // GetDailyDragonTigerList returns full dragon tiger list for a given date.
 func (r *StockRepo) GetDailyDragonTigerList(tradeDate string) ([]model.DragonTigerList, error) {
 	var rows []model.DragonTigerList

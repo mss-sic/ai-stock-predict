@@ -104,6 +104,14 @@ func (s *StockService) GetRestrictedUnlocks(code string) ([]model.RestrictedShar
 	return s.repo.GetRestrictedUnlocks(code)
 }
 
+func (s *StockService) GetThsHotConceptStats(days int) ([]map[string]interface{}, error) {
+	return s.repo.GetThsHotConceptStats(days)
+}
+
+func (s *StockService) GetAllFutureUnlocks(days int) ([]model.RestrictedShareUnlock, error) {
+	return s.repo.GetAllFutureUnlocks(days)
+}
+
 func (s *StockService) GetDailyDragonTigerList(tradeDate string) ([]model.DragonTigerList, error) {
 	return s.repo.GetDailyDragonTigerList(tradeDate)
 }

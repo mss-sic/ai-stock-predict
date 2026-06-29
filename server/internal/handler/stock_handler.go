@@ -310,6 +310,36 @@ func (h *StockHandler) GetCninfoAnnouncements(c *gin.Context) {
 	response.Success(c, data)
 }
 
+func (h *StockHandler) GetThsHotConceptStats(c *gin.Context) {
+	days := 7
+	if d, err := strconv.Atoi(c.DefaultQuery("days", "7")); err == nil && d > 0 {
+		days = d
+	}
+	data, err := h.svc.GetThsHotConceptStats(days)
+	if err != nil {
+		response.Error(c, 500, response.CodeInternalError, "查询题材统计失败: "+err.Error())
+		return
+	}
+	if data == nil {
+		data = []map[string]interface{}{}
+	}
+	response.Success(c, data)
+}
+
+func (h *StockHandler) GetAllFutureUnlocks(c *gin.Context) {
+	days := 90
+	if d, err := strconv.Atoi(c.DefaultQuery("days", "90")); err == nil && d > 0 {
+		days = d
+	}
+	data, err := h.svc.GetAllFutureUnlocks(days)
+	if err != nil {
+		response.Error(c, 500, response.CodeInternalError, "查询解禁数据失败: "+err.Error())
+		return
+	}
+
+	response.Success(c, data)
+}
+
 func (h *StockHandler) GetRestrictedUnlocks(c *gin.Context) {
 	code := c.Param("code")
 	data, err := h.svc.GetRestrictedUnlocks(code)

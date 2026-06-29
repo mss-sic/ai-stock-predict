@@ -142,6 +142,8 @@ func main() {
 		api.GET("/dragon-tiger/:code/seats", stockH.GetDragonTigerSeats)
 		api.GET("/stocks/:code/block-trades", stockH.GetBlockTrades)
 		api.GET("/stocks/:code/announcements", stockH.GetCninfoAnnouncements)
+		api.GET("/ths-hot-concepts", stockH.GetThsHotConceptStats)
+		api.GET("/unlocks", stockH.GetAllFutureUnlocks)
 		api.GET("/stocks/:code/unlocks", stockH.GetRestrictedUnlocks)
 		api.POST("/stocks/:code/repair", stockH.RepairKLine)
 		api.GET("/reports/industry", stockH.GetIndustryReports)

@@ -26,6 +26,9 @@ import PkDetailPage from './pages/PkDetailPage';
 import PkAdminPage from './pages/PkAdminPage';
 import BacktestDetailPage from "./pages/BacktestDetailPage";
 import MarketStylePage from "./pages/MarketStylePage";
+import DragonTigerPage from "./pages/DragonTigerPage";
+import UnlockCalendarPage from "./pages/UnlockCalendarPage";
+import ThemeHeatPage from "./pages/ThemeHeatPage";
 
 import PkEntryDetailPage from './pages/PkEntryDetailPage';
 
@@ -82,6 +85,9 @@ const router = createBrowserRouter([
           { path: 'board/heatmap', element: <HeatmapPage /> },
           { path: 'board/concepts', element: <ConceptBoardPage /> },
           { path: 'concept/:code', element: <ConceptBoardDetailPage /> },
+          { path: 'dragon-tiger', element: <DragonTigerPage /> },
+          { path: 'unlocks', element: <UnlockCalendarPage /> },
+          { path: 'theme-heat', element: <ThemeHeatPage /> },
           { path: 'stock/:code', element: <StockDetailPage /> },
           { path: 'forecast/:code', element: <ForecastPage /> },
           { path: 'ai/:code', element: <AIAnalysisPage /> },

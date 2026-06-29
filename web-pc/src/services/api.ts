@@ -369,6 +369,8 @@ export const fetchDragonTiger = (code: string) => api.get(`/stocks/${code}/drago
 export const fetchBlockTrades = (code: string) => api.get(`/stocks/${code}/block-trades`);
 export const fetchAnnouncements = (code: string) => api.get(`/stocks/${code}/announcements`);
 export const fetchUnlocks = (code: string) => api.get(`/stocks/${code}/unlocks`);
+export const fetchAllFutureUnlocks = (days: number = 90) => api.get('/unlocks', { params: { days } });
+export const fetchThsHotConcepts = (days: number = 7) => api.get('/ths-hot-concepts', { params: { days } });
 
 export const fetchReports = (code: string) => fetchStockReports(code);
 
