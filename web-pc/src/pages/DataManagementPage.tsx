@@ -347,8 +347,11 @@ export default function DataManagementPage() {
 
   // ── SSE connect with exponential backoff reconnect ──
   const connectStream = () => {
+    // Stop any existing poll
+    if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
     setCollecting(true);
     collectingRef.current = true;
+    reconnectAttemptRef.current = 0;
     const tok = localStorage.getItem('aip_access_token');
     eventSourceRef.current?.close();
     const es = new EventSource(`/api/v1/collector/stream?token=${tok || ''}`);
@@ -358,6 +361,8 @@ export default function DataManagementPage() {
       if (!collectingRef.current) {
         es.close();
         eventSourceRef.current = null;
+        clearInterval(pollRef.current);
+        pollRef.current = null;
         return;
       }
       // Reconnect with exponential backoff: 1s, 2s, 4s, 8s... max 60s
@@ -366,6 +371,8 @@ export default function DataManagementPage() {
         addConsoleLine('⚠️ SSE 重连失败已达上限，请手动刷新', 'stderr');
         es.close();
         eventSourceRef.current = null;
+        clearInterval(pollRef.current);
+        pollRef.current = null;
         return;
       }
       const delay = Math.min(1000 * Math.pow(2, attempt), 60000);
@@ -376,6 +383,37 @@ export default function DataManagementPage() {
         connectStream();
       }, delay);
     };
+    // Poll for progress as fallback when SSE is quiet
+    pollRef.current = setInterval(async () => {
+      try {
+        const pr: any = await fetchCollectorProgress();
+        const data = pr.data?.data;
+        if (!data) return;
+        setProgress(data);
+        // Sync phaseProgress from server fallback
+        if (data.phaseTotal && data.phaseTotal > 0) {
+          setPhaseProgress({ current: data.phaseCurrent || 0, total: data.phaseTotal });
+        }
+        // Sync phaseResults from server state (for reconnect scenarios)
+        if (Array.isArray(data.results) && data.results.length > 0) {
+          setPhaseResults((prev: any[]) => {
+            const map = new Map(prev.map((r: any) => [r.phase, r]));
+            data.results.forEach((r: any) => map.set(r.phase, r));
+            const arr = Array.from(map.values());
+            const seen = new Set<string>();
+            return arr.filter((r: any) => { if (seen.has(r.phase)) return false; seen.add(r.phase); return true; });
+          });
+        }
+        if (!data.running && collectingRef.current) {
+          setCollecting(false);
+          setTotalDuration(Date.now() - startTimeRef.current);
+          clearInterval(pollRef.current);
+          pollRef.current = null;
+          eventSourceRef.current?.close();
+          loadProgress();
+        }
+      } catch {}
+    }, 3000);
   };
 
   const handleTrigger = async (phases: string[]) => {
@@ -433,7 +471,7 @@ export default function DataManagementPage() {
           if (data?.phaseTotal && data.phaseTotal > 0) {
             setPhaseProgress({ current: data.phaseCurrent || 0, total: data.phaseTotal });
           }
-          if (!data?.running && collecting) {
+          if (!data?.running && collectingRef.current) {
             setCollecting(false);
             setTotalDuration(Date.now() - startTimeRef.current);
             clearInterval(pollRef.current);
@@ -475,9 +513,10 @@ export default function DataManagementPage() {
       try {
         const pr: any = await fetchCollectorProgress();
         if (pr.data?.data?.running) {
-          setProgress(pr.data.data);
+          const d = pr.data.data;
+          setProgress(d);
           // Dedup results by phase to prevent double panels
-          const rawResults = pr.data.data.results || [];
+          const rawResults = d.results || [];
           const seen = new Set<string>();
           const deduped = rawResults.filter((r: any) => {
             const key = r.phase;
@@ -486,12 +525,20 @@ export default function DataManagementPage() {
             return true;
           });
           setPhaseResults(deduped);
-          if (pr.data.data.phaseCurrent !== undefined && pr.data.data.phaseTotal && pr.data.data.phaseTotal > 0) {
-            setPhaseProgress({ current: pr.data.data.phaseCurrent, total: pr.data.data.phaseTotal });
+          if (d.phaseCurrent !== undefined && d.phaseTotal && d.phaseTotal > 0) {
+            setPhaseProgress({ current: d.phaseCurrent, total: d.phaseTotal });
           }
-          if (pr.data.data.started) startTimeRef.current = new Date(pr.data.data.started).getTime();
-          addConsoleLine('🔄 检测到正在运行的采集，自动重连...', 'system');
-          // Use connectStream() for proper reconnect with exponential backoff + MAX_RECONNECT limit
+          if (d.started) startTimeRef.current = new Date(d.started).getTime();
+          // Show current phase info prominently
+          const phaseLabel = PHASE_LABELS[d.phase] || d.phase || '未知';
+          const phaseMsg = d.message || '';
+          const elapsed = d.started ? formatDuration(Date.now() - new Date(d.started).getTime()) : '';
+          addConsoleLine(`🔄 检测到正在运行的采集，自动重连...`, 'system');
+          addConsoleLine(`📌 当前阶段: ${phaseLabel} ${phaseMsg ? '— ' + phaseMsg : ''}`, 'phase');
+          if (elapsed) addConsoleLine(`⏱ 已运行: ${elapsed}`, 'info');
+          if (Array.isArray(deduped) && deduped.length > 0) {
+            addConsoleLine(`✅ 已完成 ${deduped.length} 个阶段: ${deduped.map((r: any) => PHASE_LABELS[r.phase] || r.phase).join(', ')}`, 'success');
+          }
           connectStream();
         }
       } catch {}

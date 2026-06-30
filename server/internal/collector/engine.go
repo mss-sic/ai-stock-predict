@@ -163,8 +163,8 @@ type PhaseResult struct {
 
 type CollectionProgress struct {
 	mu       sync.RWMutex
-	Running  bool
-	ExtraArgs []string          `json:"running"`
+	Running  bool              `json:"running"`
+	ExtraArgs []string          `json:"extraArgs,omitempty"`
 	Phase    string        `json:"phase"`
 	Current  int           `json:"current"`
 	Total    int           `json:"total"`
