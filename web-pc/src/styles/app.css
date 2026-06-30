@@ -90,18 +90,18 @@ body{
 
 /* ===== Shell ===== */
 .app-shell{display:grid;grid-template-columns:var(--sidebar-w) 1fr;height:100vh;background:var(--color-fill-1)}
-.app-main{display:flex;flex-direction:column;min-width:0;overflow:hidden;background:var(--color-fill-1)}
+.app-main{display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden;background:var(--color-fill-1)}
 .app-topbar{
   height:var(--topbar-h);background:var(--color-bg-1);border-bottom:1px solid var(--color-border-1);
   display:flex;align-items:center;padding:0 24px;gap:12px;flex:none
 }
 .app-topbar .title{font-size:14px;font-weight:600;color:var(--color-text-1);display:flex;align-items:center}
-.page-content{flex:1;overflow:auto;padding:20px 24px 24px;min-width:0;background:var(--color-fill-1)}
+.page-content{flex:1;overflow:auto;padding:20px 24px 24px;min-width:0;min-height:0;background:var(--color-fill-1)}
 
 /* ===== Sidebar ===== */
 .app-sidebar{
   background:var(--color-bg-1);border-right:1px solid var(--color-border-1);
-  display:flex;flex-direction:column
+  display:flex;flex-direction:column;overflow:hidden
 }
 .sidebar-brand{
   display:flex;align-items:center;gap:10px;padding:0 20px;height:var(--topbar-h);
