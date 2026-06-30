@@ -9,7 +9,7 @@
   python3 collect_fund_flow.py --last 20 --sample  # 样本股最近 20 个交易日
   python3 collect_fund_flow.py 600519           # 单只股票
 """
-import os, sys, time, json
+import os, sys, time, json, random
 from datetime import date, timedelta
 import psycopg2
 from psycopg2.extras import execute_values
@@ -20,7 +20,7 @@ PG_DSN = os.environ.get("PG_DSN", "host=localhost dbname=stock_predict user=stoc
 UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
 
 
-def fetch_fund_flow(code):
+def fetch_fund_flow(code, retries=2):
     market = 1 if code.startswith("6") else 0
     url = "https://push2his.eastmoney.com/api/qt/stock/fflow/daykline/get"
     params = {
@@ -34,11 +34,19 @@ def fetch_fund_flow(code):
         "Referer": "https://quote.eastmoney.com/",
         "Origin": "https://quote.eastmoney.com",
     }
-    req = urllib.request.Request(f"{url}?{urllib.parse.urlencode(params)}", headers=headers)
-    try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            d = json.loads(resp.read().decode("utf-8"))
-    except Exception as e:
+    last_err = None
+    for attempt in range(retries + 1):
+        try:
+            req = urllib.request.Request(f"{url}?{urllib.parse.urlencode(params)}", headers=headers)
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                d = json.loads(resp.read().decode("utf-8"))
+            break  # success
+        except Exception as e:
+            last_err = str(e)
+            if attempt < retries:
+                time.sleep(1 + attempt)
+    else:
+        print(f"  ⚠️ {code} fetch failed after {retries+1} attempts: {last_err[:80]}", flush=True)
         return None
 
     klines = d.get("data", {}).get("klines", [])
@@ -122,7 +130,7 @@ def main():
             errors += 1
             conn.rollback()
             continue
-        time.sleep(0.15)
+        time.sleep(0.3 + random.random() * 0.4)  # 0.3-0.7s to avoid rate limit
 
     cur.close()
     conn.close()
