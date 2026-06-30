@@ -1178,6 +1178,48 @@ Register(Migration{
 		},
 	})
 
+
+	Register(Migration{
+		Version:     42,
+		Description: "PG: stock_fund_flow table — daily main/small/mid/large/super net flow",
+		Up: func() error {
+			safeExec(`CREATE TABLE IF NOT EXISTS stock_fund_flow (
+				id SERIAL PRIMARY KEY,
+				code VARCHAR(10),
+				trade_date DATE,
+				main_net NUMERIC(18,4) DEFAULT 0,
+				small_net NUMERIC(18,4) DEFAULT 0,
+				mid_net NUMERIC(18,4) DEFAULT 0,
+				large_net NUMERIC(18,4) DEFAULT 0,
+				super_net NUMERIC(18,4) DEFAULT 0,
+				created_at TIMESTAMPTZ DEFAULT now()
+			)`)
+			safeExec(`CREATE INDEX IF NOT EXISTS idx_stock_fund_flow_code ON stock_fund_flow(code)`)
+			safeExec(`CREATE INDEX IF NOT EXISTS idx_stock_fund_flow_date ON stock_fund_flow(trade_date)`)
+			safeExec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_stock_fund_flow_unique ON stock_fund_flow(code, trade_date)`)
+			return nil
+		},
+	})
+
+
+	Register(Migration{
+		Version:     43,
+		Description: "PG: add unique indexes for ON CONFLICT support on collector tables",
+		Up: func() error {
+			safeExec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_dragon_tiger_list_unique ON dragon_tiger_list (code, trade_date)`)
+			safeExec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_dragon_tiger_detail_unique ON dragon_tiger_detail (code, trade_date, seat_name, net_amt)`)
+			safeExec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_margin_trading_unique ON margin_trading (code, trade_date)`)
+			safeExec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_block_trade_unique ON block_trade (code, trade_date, deal_price, deal_volume)`)
+			safeExec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_cninfo_announcements_unique ON cninfo_announcements (code, title, ann_date)`)
+			safeExec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_macro_news_unique ON macro_news (title, news_time)`)
+			safeExec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_dividend_history_unique ON dividend_history (code, ex_dividend_date)`)
+			safeExec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_ths_hot_stocks_unique ON ths_hot_stocks (code, trade_date)`)
+			safeExec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_ths_eps_forecast_unique ON ths_eps_forecast (code, year)`)
+			safeExec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_restricted_unlock_unique ON restricted_share_unlock (code, free_date, stock_type)`)
+			return nil
+		},
+	})
+
 	log.Printf("[migrate] registered %d migrations", len(migrations))
 
 

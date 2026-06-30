@@ -707,7 +707,7 @@ func (r *StockRepo) GetDailyDragonTigerEnriched(tradeDate string) ([]model.Drago
 		WHERE d.trade_date = ?
 		ORDER BY d.net_buy_amt DESC
 	`
-	err := db.PG.Raw(sql, tradeDate, tradeDate, tradeDate, tradeDate, tradeDate, tradeDate).Scan(&rows).Error
+	err := db.PG.Raw(sql, tradeDate, tradeDate).Scan(&rows).Error
 	if err != nil {
 		return nil, err
 	}
