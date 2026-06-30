@@ -36,3 +36,16 @@ type DragonTigerDetail struct {
 }
 
 func (DragonTigerDetail) TableName() string { return "dragon_tiger_detail" }
+
+// DragonTigerEnriched extends DragonTigerList with historical stats and algorithm pick info.
+type DragonTigerEnriched struct {
+	DragonTigerList
+	IsToday         bool    `json:"isToday"`
+	IsYesterday     bool    `json:"isYesterday"`
+	Cnt5d           int     `json:"cnt5d"`
+	Cnt20d          int     `json:"cnt20d"`
+	ConsecutiveDays int     `json:"consecutiveDays"`
+	IsAlgorithmPick bool    `json:"isAlgorithmPick"`
+	AlgorithmRank   int     `json:"algorithmRank"`
+	AlgorithmScore  float64 `json:"algorithmScore"`
+}

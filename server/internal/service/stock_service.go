@@ -135,6 +135,10 @@ func (s *StockService) GetAllFutureUnlocks(days int) ([]model.RestrictedShareUnl
 func (s *StockService) GetDailyDragonTigerList(tradeDate string) ([]model.DragonTigerList, error) {
 	return s.repo.GetDailyDragonTigerList(tradeDate)
 }
+func (s *StockService) GetDailyDragonTigerEnriched(tradeDate string) ([]model.DragonTigerEnriched, error) {
+	return s.repo.GetDailyDragonTigerEnriched(tradeDate)
+}
+
 
 func (s *StockService) GetDragonTigerSeats(code, tradeDate string) ([]model.DragonTigerDetail, error) {
 	return s.repo.GetDragonTigerSeats(code, tradeDate)

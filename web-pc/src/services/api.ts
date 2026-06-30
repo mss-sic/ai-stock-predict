@@ -362,6 +362,7 @@ export const fetchForecast = (code: string, horizon?: number) => api.get(`/forec
 
 
 
+export const fetchDailyDragonTigerEnriched = (date: string) => api.get('/dragon-tiger/enriched', { params: { date } });
 export const fetchDailyDragonTiger = (date?: string) => api.get('/dragon-tiger', { params: { date } });
 export const fetchDragonTigerSeats = (code: string, date: string) => api.get(`/dragon-tiger/${code}/seats`, { params: { date } });
 

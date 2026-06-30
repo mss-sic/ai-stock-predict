@@ -667,6 +667,98 @@ func (r *StockRepo) GetDailyDragonTigerList(tradeDate string) ([]model.DragonTig
 }
 
 // GetDragonTigerSeats returns seat detail for a stock on a given date.
+// GetDailyDragonTigerEnriched returns dragon tiger list with historical stats.
+func (r *StockRepo) GetDailyDragonTigerEnriched(tradeDate string) ([]model.DragonTigerEnriched, error) {
+	var rows []model.DragonTigerEnriched
+	sql := `
+		WITH pick_dates AS (
+			SELECT DISTINCT pick_date FROM algorithm_pick_details ORDER BY pick_date DESC
+		),
+		latest_pick AS (
+			SELECT pick_date FROM pick_dates WHERE pick_date <= ? ORDER BY pick_date DESC LIMIT 1
+		),
+		prev_pick AS (
+			SELECT pick_date FROM pick_dates WHERE pick_date < (SELECT pick_date FROM latest_pick) ORDER BY pick_date DESC LIMIT 1
+		),
+		pick_stats AS (
+			SELECT stock_code,
+				COUNT(*) FILTER (WHERE pick_date = (SELECT pick_date FROM latest_pick)) as is_today,
+				COUNT(*) FILTER (WHERE pick_date = (SELECT pick_date FROM prev_pick)) as is_yesterday,
+				COUNT(*) FILTER (WHERE pick_date >= (SELECT pick_date FROM latest_pick) - INTERVAL '10 days') as cnt_5d,
+				COUNT(*) FILTER (WHERE pick_date >= (SELECT pick_date FROM latest_pick) - INTERVAL '30 days') as cnt_20d
+			FROM algorithm_pick_details
+			WHERE pick_date >= (SELECT pick_date FROM latest_pick) - INTERVAL '30 days'
+			GROUP BY stock_code
+		)
+		SELECT d.id, d.code, d.name, d.trade_date, d.reason, d.close_price, d.change_pct,
+			d.net_buy_amt, d.buy_amt, d.sell_amt, d.turnover_pct, d.created_at,
+			COALESCE((ps.is_today > 0), false) as is_today,
+			COALESCE((ps.is_yesterday > 0), false) as is_yesterday,
+			COALESCE(ps.cnt_5d, 0) as cnt_5d,
+			COALESCE(ps.cnt_20d, 0) as cnt_20d,
+			0 as consecutive_days,
+			CASE WHEN ap.stock_code IS NOT NULL THEN true ELSE false END as is_algorithm_pick,
+			COALESCE(ap.rank, 0) as algorithm_rank,
+			COALESCE(ap.score, 0) as algorithm_score
+		FROM dragon_tiger_list d
+		LEFT JOIN pick_stats ps ON d.code = ps.stock_code
+		LEFT JOIN algorithm_pick_details ap ON ap.stock_code = d.code 
+			AND ap.pick_date = (SELECT pick_date FROM latest_pick)
+		WHERE d.trade_date = ?
+		ORDER BY d.net_buy_amt DESC
+	`
+	err := db.PG.Raw(sql, tradeDate, tradeDate, tradeDate, tradeDate, tradeDate, tradeDate).Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+
+	// Compute consecutive days in algorithm picks
+	codeSet := make(map[string]bool)
+	for _, row := range rows {
+		codeSet[row.Code] = true
+	}
+	if len(codeSet) > 0 {
+		codes := make([]string, 0, len(codeSet))
+		for c := range codeSet { codes = append(codes, c) }
+		type consRow struct { Code string; Days int }
+		var consRows []consRow
+		db.PG.Raw(`
+			WITH pick_dates AS (
+				SELECT DISTINCT pick_date FROM algorithm_pick_details ORDER BY pick_date DESC
+			),
+			latest AS (
+				SELECT pick_date FROM pick_dates WHERE pick_date <= ? ORDER BY pick_date DESC LIMIT 1
+			),
+			ordered AS (
+				SELECT apd.stock_code as code, apd.pick_date,
+					ROW_NUMBER() OVER (PARTITION BY apd.stock_code ORDER BY apd.pick_date DESC) as rn
+				FROM algorithm_pick_details apd
+				WHERE apd.stock_code IN ? AND apd.pick_date <= (SELECT pick_date FROM latest)
+			),
+			date_with_rn AS (
+				SELECT pick_date, ROW_NUMBER() OVER (ORDER BY pick_date DESC) as date_rn 
+				FROM pick_dates WHERE pick_date <= (SELECT pick_date FROM latest)
+			)
+			SELECT o.code,
+				COUNT(*) as days
+			FROM ordered o
+			JOIN date_with_rn d ON o.pick_date = d.pick_date
+			WHERE o.rn = d.date_rn
+			GROUP BY o.code
+		`, tradeDate, codes).Scan(&consRows)
+		consMap := make(map[string]int)
+		for _, cr := range consRows {
+			consMap[cr.Code] = cr.Days
+		}
+		for i := range rows {
+			rows[i].ConsecutiveDays = consMap[rows[i].Code]
+		}
+	}
+
+	return rows, nil
+}
+
+
 func (r *StockRepo) GetDragonTigerSeats(code, tradeDate string) ([]model.DragonTigerDetail, error) {
 	var rows []model.DragonTigerDetail
 	err := db.PG.Where("code = ? AND trade_date = ?", code, tradeDate).Order("net_amt DESC").Find(&rows).Error
