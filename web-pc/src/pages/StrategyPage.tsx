@@ -1535,8 +1535,8 @@ export default function StrategyPage() {
                     marginBottom: 0,
                   }}>
                     <Activity size={14} style={{ color: '#FF7D00' }} />
-                    <span>📊 查看全市场复盘 →</span>
-                    <span style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--color-text-4)' }}>风格曲线 · 结构性分析 · 每日复盘</span>
+                    <span>查看市场风格 →</span>
+                    <span style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--color-text-4)' }}>市场风格识别 · 结构性分析 · T-1 复盘</span>
                   </a>
 
                   <div style={{ padding: '14px 18px', background: 'var(--color-bg-1)', borderRadius: 10, border: '1px solid var(--color-border-1)' }}>

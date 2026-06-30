@@ -124,18 +124,18 @@ func NewMarketStyleService() *MarketStyleService {
 	return &MarketStyleService{cache: make(map[string]MarketStyle)}
 }
 
-// DetectStyle classifies the market regime for a given date
-func (s *MarketStyleService) DetectStyle(date string) MarketStyle {
-	if v, ok := s.cache[date]; ok {
-		return v
-	}
-	var row struct {
-		AvgScore float64
-		AvgUp    float64
-		AvgDiff  float64
-		AvgVol   float64
-		Trend    float64
-	}
+// StyleStats holds rolling 20-day averages used for style classification
+type StyleStats struct {
+	AvgScore float64
+	AvgUp    float64
+	AvgDiff  float64
+	AvgVol   float64
+	Trend    float64
+}
+
+// computeRollingStats computes 20-day rolling averages from market_sentiment
+func (s *MarketStyleService) computeRollingStats(date string) (StyleStats, error) {
+	var row StyleStats
 	err := db.PG.Raw(`
 		WITH rolling AS (
 			SELECT trade_date, composite_score,
@@ -159,10 +159,18 @@ func (s *MarketStyleService) DetectStyle(date string) MarketStyle {
 		)
 		SELECT s.*, COALESCE(t.slope,0) as trend FROM stats s, trend t
 	`, date, date, date, date, date, date).Scan(&row).Error
+	return row, err
+}
 
+// DetectStyle classifies the market regime for a given date
+func (s *MarketStyleService) DetectStyle(date string) MarketStyle {
+	if v, ok := s.cache[date]; ok {
+		return v
+	}
+	row, err := s.computeRollingStats(date)
 	var style MarketStyle
 	if err != nil {
-		log.Printf("[market_style] query failed for %s: %v", date, err)
+		log.Printf("[market_style] computeRollingStats failed for %s: %v", date, err)
 		style = StyleTransitional
 	} else {
 		style = classifyStyle(row.AvgScore, row.AvgUp, row.AvgDiff, row.AvgVol, row.Trend)
@@ -244,10 +252,13 @@ func (s *MarketStyleService) ComputeAndStore(date string) error {
 		Volatility      float64
 		NorthboundNet   float64
 	}
-	db.PG.Raw(`SELECT composite_score, up_count, down_count, total_stocks,
+	if err := db.PG.Raw(`SELECT composite_score, up_count, down_count, total_stocks,
 		limit_up_count, limit_down_count, sector_diffusion, volatility,
 		COALESCE(northbound_net,0)
-		FROM market_sentiment WHERE trade_date = ?`, date).Scan(&ms)
+		FROM market_sentiment WHERE trade_date = ?`, date).Scan(&ms).Error; err != nil {
+		log.Printf("[market_style] market_sentiment query failed for %s: %v", date, err)
+		return err
+	}
 
 	// Get market_daily_agg data
 	var agg struct {
@@ -256,48 +267,23 @@ func (s *MarketStyleService) ComputeAndStore(date string) error {
 		N60Low    int
 		TotalAmt  float64
 	}
-	db.PG.Raw(`SELECT COALESCE(ma20_count,0) as ma20_above, COALESCE(n52_high_count,0) as n52_high,
+	if err := db.PG.Raw(`SELECT COALESCE(ma20_count,0) as ma20_above, COALESCE(n52_high_count,0) as n52_high,
 		COALESCE(n60_low_count,0) as n60_low, COALESCE(total_amount,0) as total_amt
-		FROM market_daily_agg WHERE trade_date = ?`, date).Scan(&agg)
+		FROM market_daily_agg WHERE trade_date = ?`, date).Scan(&agg).Error; err != nil {
+		log.Printf("[market_style] market_daily_agg query failed for %s: %v", date, err)
+		return err
+	}
 
 	upRatio := 0.0
 	if ms.TotalStocks > 0 {
 		upRatio = float64(ms.UpCount) / float64(ms.TotalStocks)
 	}
 
-	// Compute rolling stats for confidence
-	var roll struct {
-		AvgScore float64
-		AvgUp    float64
-		AvgDiff  float64
-		AvgVol   float64
-		Trend    float64
+	// Compute rolling stats for confidence (reuse same query as DetectStyle)
+	roll, err := s.computeRollingStats(date)
+	if err != nil {
+		log.Printf("[market_style] computeRollingStats failed for %s: %v, confidence set to 0", date, err)
 	}
-	db.PG.Raw(`
-		WITH rolling AS (
-			SELECT trade_date, composite_score,
-				up_count::float/NULLIF(total_stocks,0) as up_ratio,
-				sector_diffusion, volatility,
-				ROW_NUMBER() OVER (ORDER BY trade_date) as rn
-			FROM market_sentiment
-			WHERE trade_date <= ?::date AND trade_date >= (?::date - INTERVAL '30 days')
-		)
-		SELECT COALESCE(AVG(composite_score),0), COALESCE(AVG(up_ratio),0),
-			COALESCE(AVG(sector_diffusion),0), COALESCE(AVG(volatility),0), 0
-		FROM rolling
-		WHERE trade_date <= ?::date AND trade_date >= (?::date - INTERVAL '20 days')
-	`, date, date, date, date).Scan(&roll)
-
-	// Also get trend
-	db.PG.Raw(`
-		WITH rolling AS (
-			SELECT ROW_NUMBER() OVER (ORDER BY trade_date) as rn, composite_score
-			FROM market_sentiment
-			WHERE trade_date <= ?::date AND trade_date >= (?::date - INTERVAL '10 days')
-		)
-		SELECT COALESCE(REGR_SLOPE(composite_score, rn::float),0) FROM rolling
-	`, date, date).Scan(&roll.Trend)
-
 	conf := confidenceScore(roll.AvgScore, roll.AvgUp, roll.AvgDiff, roll.AvgVol, roll.Trend, style)
 
 	// Compute style_duration and transition_signal
@@ -370,7 +356,7 @@ func (s *MarketStyleService) computeTransitionSignal(date, style string, trend, 
 		FROM market_style_daily WHERE trade_date <= ?
 		ORDER BY trade_date DESC LIMIT 14
 	) sub WHERE style != prev_style AND prev_style IS NOT NULL`, date).Scan(&styleChanges)
-	if styleChanges >= 2 {
+	if styleChanges >= 3 {
 		return "reversal"
 	}
 	return "none"

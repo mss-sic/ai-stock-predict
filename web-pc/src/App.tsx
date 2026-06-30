@@ -46,7 +46,7 @@ const navGroups = [
     items: [
       { key: '/risk', label: '风险监控', icon: ShieldAlert },
       { key: '/sentiment', label: '市场情绪', icon: TrendingUp },
-      { key: "/market-review", label: "市场复盘", icon: Activity },
+      { key: "/market-review", label: "市场风格", icon: Activity },
     ]
   },
   { label: '系统', items: [

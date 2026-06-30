@@ -4,7 +4,14 @@ import argparse, json, sys, time, requests
 
 def fetch_kline(code, days=365):
     """拉取日K线，优先用腾讯财经（不封IP）"""
-    prefix = "sh" if code.startswith(("6", "9")) else "sz"
+    if code.startswith("92"):
+        prefix = "nq"
+    elif code.startswith(("6", "9")):
+        prefix = "sh"
+    elif code.startswith("8"):
+        prefix = "nq"
+    else:
+        prefix = "sz"
     url = f"http://ifzq.gtimg.cn/appstock/app/fqkline/get"
     params = {
         "param": f"{prefix}{code},day,,,{days},qfq"
@@ -13,8 +20,13 @@ def fetch_kline(code, days=365):
     try:
         resp = requests.get(url, params=params, headers=headers, timeout=30)
         data = resp.json()
-        klines = data.get("data", {}).get(f"{prefix}{code}", {}).get("day", []) or \
-                 data.get("data", {}).get(f"{prefix}{code}", {}).get("qfqday", [])
+        stock_data = data.get("data", {})
+        klines = []
+        for pfx in [prefix, "sh", "sz", "nq"]:
+            sd = stock_data.get(f"{pfx}{code}", {})
+            klines = sd.get("day", []) or sd.get("qfqday", [])
+            if klines:
+                break
         result = []
         for row in klines:
             if len(row) >= 6:

@@ -45,7 +45,14 @@ def main():
         sys.exit(1)
 
     code = sys.argv[1]
-    prefix = "sh" if code.startswith(("6", "9")) else "sz"
+    if code.startswith("92"):
+        prefix = "nq"
+    elif code.startswith(("6", "9")):
+        prefix = "sh"
+    elif code.startswith("8"):
+        prefix = "nq"
+    else:
+        prefix = "sz"
 
     conn = psycopg2.connect(PG_DSN)
     cur = conn.cursor()
@@ -95,8 +102,13 @@ def main():
         cur.close(); conn.close()
         sys.exit(1)
 
-    klines = data.get("data", {}).get(f"{prefix}{code}", {}).get("qfqday", []) or \
-             data.get("data", {}).get(f"{prefix}{code}", {}).get("day", [])
+    stock_data = data.get("data", {})
+    klines = []
+    for pfx in [prefix, "sh", "sz", "nq"]:
+        sd = stock_data.get(f"{pfx}{code}", {})
+        klines = sd.get("qfqday", []) or sd.get("day", [])
+        if klines:
+            break
 
     if not klines:
         log(json.dumps({"error": "API返回空数据"}))

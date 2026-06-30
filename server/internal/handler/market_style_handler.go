@@ -84,8 +84,9 @@ func (h *MarketStyleHandler) BulkCompute(c *gin.Context) {
 
 	var dates []string
 	if err := db.PG.Raw(`
-		SELECT trade_date::text FROM market_sentiment
-		WHERE trade_date NOT IN (SELECT trade_date FROM market_style_daily)
+		SELECT trade_date::text FROM market_sentiment ms
+		WHERE ms.trade_date NOT IN (SELECT trade_date FROM market_style_daily)
+		   OR ms.trade_date IN (SELECT trade_date FROM market_style_daily WHERE style_confidence = 0)
 		ORDER BY trade_date
 	`).Pluck("trade_date", &dates).Error; err != nil {
 		response.InternalError(c, "查询日期失败: "+err.Error())

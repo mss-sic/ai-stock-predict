@@ -16,6 +16,13 @@ const STYLE_LABELS: Record<string, string> = {
 };
 const STYLE_ROWS = Object.entries(STYLE_LABELS).map(([key, label]) => ({ key, label }));
 
+/** Returns yesterday's date as YYYY-MM-DD (market data is T-1). */
+const getYesterday = () => {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  return d.toISOString().slice(0, 10);
+};
+
 type ViewMode = 'grid' | 'bar';
 
 export default function MarketStylePage() {
@@ -29,7 +36,7 @@ export default function MarketStylePage() {
 
   const loadCurve = async () => {
     try {
-      const to = new Date().toISOString().slice(0, 10);
+      const to = getYesterday();
       const from = new Date(Date.now() - 180 * 86400000).toISOString().slice(0, 10);
       const res: any = await fetchMarketStyleCurve({ from, to });
       const data = res.data?.data || [];
@@ -115,8 +122,8 @@ export default function MarketStylePage() {
           <Activity size={20} color="#fff" />
         </div>
         <div>
-          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>市场复盘</h2>
-          <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>风格识别 · 结构性分析 · 每日复盘</span>
+          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>市场风格</h2>
+          <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>市场风格识别 · 结构性分析 · T-1 复盘</span>
         </div>
       </div>
 
@@ -227,7 +234,11 @@ export default function MarketStylePage() {
         <div style={{ background: 'var(--color-bg-2)', borderRadius: 10, border: '1px solid var(--color-border-2)', padding: '14px 18px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
             <DatePicker value={selectedDate} onChange={(v: string) => { if (v && dateSet.has(v)) { setSelectedDate(v); loadReview(v); } }}
-              disabledDate={(current: any) => !dateSet.has(current?.format?.('YYYY-MM-DD') || '')}
+              disabledDate={(current: any) => {
+                const ds = current?.format?.('YYYY-MM-DD') || '';
+                if (ds > getYesterday()) return true;
+                return !dateSet.has(ds);
+              }}
               style={{ width: 160 }} size="small" />
             {reviewLoading ? <Spin size={16} /> : review ? (
               <>

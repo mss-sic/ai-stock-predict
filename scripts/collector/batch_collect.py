@@ -32,7 +32,14 @@ def fetch_kline(code, days=365):
     # Validate code format
     if not re.match(r'^[0-9]{6}$', code):
         return []
-    prefix = "sh" if code.startswith(("6", "9")) else "sz"
+    if code.startswith("92"):
+        prefix = "nq"
+    elif code.startswith(("6", "9")):
+        prefix = "sh"
+    elif code.startswith("8"):
+        prefix = "nq"
+    else:
+        prefix = "sz"
     url = f"http://ifzq.gtimg.cn/appstock/app/fqkline/get?param={prefix}{code},day,,,{days},qfq"
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
     ctx = ssl.create_default_context()
@@ -44,8 +51,14 @@ def fetch_kline(code, days=365):
         result = data.get("data", {})
         if isinstance(result, list):
             return []
-        return result.get(f"{prefix}{code}", {}).get("qfqday", []) or \
-               result.get(f"{prefix}{code}", {}).get("day", []) or []
+        stock_data = result.get("data", {})
+        klines = []
+        for pfx in [prefix, "sh", "sz", "nq"]:
+            sd = stock_data.get(f"{pfx}{code}", {})
+            klines = sd.get("qfqday", []) or sd.get("day", [])
+            if klines:
+                break
+        return klines
     except Exception as e:
         with _errors_lock:
             if code not in _fetch_errors:
@@ -116,7 +129,14 @@ def fetch_quote_batch(codes_batch):
     results = {}
     symbols = []
     for code in codes_batch:
-        prefix = "sh" if code.startswith(("6", "9")) else "sz"
+        if code.startswith("92"):
+            prefix = "nq"
+        elif code.startswith(("6", "9")):
+            prefix = "sh"
+        elif code.startswith("8"):
+            prefix = "nq"
+        else:
+            prefix = "sz"
         symbols.append(f"{prefix}{code}")
     url = f"http://qt.gtimg.cn/q={','.join(symbols)}"
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
@@ -142,10 +162,10 @@ def fetch_quote_batch(codes_batch):
                         'market_cap': mcap,
                         'circulating_market_cap': cmcap
                     }
-            except:
+            except Exception:
                 pass
-    except:
-        pass
+    except Exception as e:
+        print(f"  ⚠ fetch_quote_batch error: {e}, codes={codes_batch[:3]}...", flush=True)
     return results
 
 
@@ -160,7 +180,7 @@ def main():
         SELECT b.code, MAX(k.trade_date) as latest
         FROM stocks_basic b
         LEFT JOIN stocks_daily_k k ON b.code = k.code
-        WHERE b.code NOT LIKE '88%' AND b.code ~ '^[0-9]{6}$'
+        WHERE b.code ~ '^[0-9]{6}$'
         GROUP BY b.code
         ORDER BY latest NULLS FIRST
     """)
@@ -244,9 +264,48 @@ def main():
         print(f"STAT:kline_fetched={len(chunk_rows)},kline_new={chunk_new_count},kline_upserted={upserted}", flush=True)
         print(f"PROGRESS:{processed}/{len(stocks)}", flush=True)
 
-    # ─── 历史换手率回填 (跳过，实时行情阶段处理) ───
-    print(f"\n━━━ 阶段 2/2: 行情数据采集 ━━━", flush=True)
-    print(f"📊 通过腾讯行情接口 (qt.gtimg.cn) 采集换手率/PE/总市值/流通市值", flush=True)
+    # ─── 阶段 2/3: 换手率计算（流通股本）───
+    print(f"\n━━━ 阶段 2/3: 换手率计算 ━━━", flush=True)
+    print(f"📊 通过 stocks_basic 流通股本计算换手率", flush=True)
+    t0 = time.time()
+    turnover_computed = 0
+
+    # 获取所有股票的流通股本（从 stocks_daily_indicator: circulating_market_cap / close）
+    cur.execute("""
+        SELECT sdi.code, sdi.circulating_market_cap, sdk.close
+        FROM stocks_daily_indicator sdi
+        JOIN stocks_daily_k sdk ON sdk.code = sdi.code AND sdk.trade_date = sdi.trade_date
+        WHERE sdi.trade_date = (SELECT MAX(trade_date) FROM stocks_daily_indicator)
+          AND sdi.circulating_market_cap > 0 AND sdk.close > 0
+    """)
+    shares_map = {}
+    for r in cur.fetchall():
+        code, cmcap, close_p = r[0], float(r[1]), float(r[2])
+        if cmcap > 0 and close_p > 0:
+            shares_map[code] = int(cmcap / close_p)  # 流通市值/股价 = 流通股本
+    print(f"  流通股本数据(实时): {len(shares_map)} 只", flush=True)
+
+    # 对每只股票的最新交易日计算换手率
+    cur.execute("""
+        SELECT DISTINCT ON (code) code, trade_date, volume
+        FROM stocks_daily_k
+        WHERE code = ANY(%s) AND turnover_rate = 0
+        ORDER BY code, trade_date DESC
+    """, (codes_list,))
+    for r in cur.fetchall():
+        code, td, vol = r[0], r[1], r[2]
+        circ = shares_map.get(code, 0)
+        if circ > 0 and vol > 0:
+            to_val = round(float(vol) / float(circ), 6)
+            cur.execute("UPDATE stocks_daily_k SET turnover_rate = %s WHERE code = %s AND trade_date = %s", (to_val, code, td))
+            turnover_computed += 1
+    conn.commit()
+    print(f"  ✅ 换手率计算完成: {turnover_computed} 只 | 耗时 {time.time()-t0:.0f}s", flush=True)
+    print(f"STAT:turnover_computed={turnover_computed}", flush=True)
+
+    # ─── 阶段 3/3: 实时行情采集 ───
+    print(f"\n━━━ 阶段 3/3: 行情数据采集 ━━━", flush=True)
+    print(f"📊 通过腾讯行情接口 (qt.gtimg.cn) 采集PE/总市值/流通市值", flush=True)
     t0 = time.time()
     turnover_updated = 0
     indicator_updated = 0
