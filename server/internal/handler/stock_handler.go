@@ -326,21 +326,27 @@ func (h *StockHandler) GetFundFlowMinute(c *gin.Context) {
 	url := fmt.Sprintf("https://push2.eastmoney.com/api/qt/stock/fflow/kline/get?secid=%s.%s&klt=1&fields1=f1,f2,f3,f7&fields2=f51,f52,f53,f54,f55,f56,f57", market, code)
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		response.Error(c, 500, response.CodeInternalError, "创建请求失败")
+		response.Success(c, []interface{}{})
 		return
 	}
-	req.Header.Set("User-Agent", "Mozilla/5.0")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36")
 	req.Header.Set("Referer", "https://quote.eastmoney.com/")
-	client := &http.Client{Timeout: 10 * time.Second}
+	req.Header.Set("Origin", "https://quote.eastmoney.com")
+	client := &http.Client{Timeout: 5 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		response.Error(c, 500, response.CodeInternalError, "请求资金流失败: "+err.Error())
+		// Minute API often unavailable; return empty gracefully
+		response.Success(c, []interface{}{})
 		return
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		response.Success(c, []interface{}{})
+		return
+	}
 	var result map[string]interface{}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		response.Error(c, 500, response.CodeInternalError, "解析资金流失败")
+		response.Success(c, []interface{}{})
 		return
 	}
 	data, _ := result["data"].(map[string]interface{})

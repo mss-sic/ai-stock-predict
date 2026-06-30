@@ -11,11 +11,12 @@ import {
   RefreshCw, Send, Trash2, Loader2, Check, X, Layers, FileText, Users, Newspaper, Star, StarOff, ChevronLeft, ChevronRight, ExternalLink, Wrench, Clock,
 } from 'lucide-react';
 import { showToast } from '../components/Toast';
-import { authFetch, checkAPIError, fetchStockDetail, fetchKLine, fetchIndicator, fetchPredictionResult, fetchPredictionHitRate, fetchStockHeatmap, fetchSignal, fetchFinancials, fetchShareholders, fetchStockNews, fetchReports, fetchStockConceptTags, addToWatchlist, removeFromWatchlist, fetchWatchlist, fetchWatchlistGroups, createWatchlistGroup, fetchHoldings, fetchProfile, runProfile, repairStock, fetchRealtimeQuoteSingle, fetchDragonTiger, fetchBlockTrades, fetchAnnouncements, fetchUnlocks, fetchEpsForecast, fetchDragonTigerSeats, fetchFundFlow, fetchFundFlowMinute } from '../services/api';
+import { authFetch, checkAPIError, fetchStockDetail, fetchKLine, fetchIndicator, fetchPredictionResult, fetchPredictionHitRate, fetchStockHeatmap, fetchSignal, fetchFinancials, fetchShareholders, fetchStockNews, fetchReports, fetchStockConceptTags, addToWatchlist, removeFromWatchlist, fetchWatchlist, fetchWatchlistGroups, createWatchlistGroup, fetchHoldings, fetchProfile, runProfile, repairStock, fetchRealtimeQuoteSingle, fetchDragonTiger, fetchBlockTrades, fetchAnnouncements, fetchUnlocks, fetchEpsForecast, fetchDragonTigerSeats, fetchFundFlow, fetchFundFlowMinute, fetchConceptHeatmap } from '../services/api';
 import KLineChart from '../components/KLineChart';
 import BoardSidebar from '../components/BoardSidebar';
+import StockFundFlowTab from '../components/StockFundFlowTab';
 
-type TabKey = 'forecast' | 'analysis' | 'strategy' | 'technical' | 'trading' | 'financial' | 'shareholder' | 'reports' | 'news' | 'dragon_tiger' | 'block_trade' | 'announcements' | 'unlocks' | 'fund_flow';
+type TabKey = 'forecast' | 'analysis' | 'strategy' | 'kline' | 'pan_kou' | 'financial' | 'event' | 'info';
 
 interface ToolStatus { tool: string; label: string; index: number; total: number; turn: number; done?: boolean; startTime?: number }
 interface Message { role: 'user' | 'ai'; text: string; status?: { phase: string; label: string }; toolStatuses?: ToolStatus[]; startTime?: number }
@@ -472,6 +473,7 @@ export default function StockDetailPage() {
   const [repairLoading, setRepairLoading] = useState(false);
   const [signal, setSignal] = useState<number | null>(null);
   const [conceptTags, setConceptTags] = useState<any[]>([]);
+  const [conceptQuotes, setConceptQuotes] = useState<Record<string, { avgChgPct: number; stockCount: number; upCount: number; downCount: number }>>({});
   const [todayBoardRank, setTodayBoardRank] = useState<number | null>(null);
   const [financials, setFinancials] = useState<any[]>([]);
   const [shareholders, setShareholders] = useState<any[]>([]);
@@ -537,6 +539,18 @@ fetchPredictionResult(code).then((r: any) => {
     }).catch(() => {});
     fetchSignal(code).then((r: any) => setSignal(r.data?.data?.signalValue ?? r.data?.signalValue ?? null)).catch(() => {});
     fetchStockConceptTags(code).then((r: any) => setConceptTags(r.data?.data || [])).catch(() => {});
+    fetchConceptHeatmap().then((r: any) => {
+      const map: Record<string, any> = {};
+      (r.data?.data || []).forEach((item: any) => {
+        map[item.conceptCode || item.concept_code] = {
+          avgChgPct: item.avgChgPct ?? item.avg_chg_pct ?? 0,
+          stockCount: item.stockCount ?? item.stock_count ?? 0,
+          upCount: item.upCount ?? item.up_count ?? 0,
+          downCount: item.downCount ?? item.down_count ?? 0,
+        };
+      });
+      setConceptQuotes(map);
+    }).catch(() => {});
     fetchDragonTiger(code).then((r: any) => setDragonTiger(r.data?.data || [])).catch(() => {});
     fetchBlockTrades(code).then((r: any) => setBlockTradesState(r.data?.data || [])).catch(() => {});
     fetchAnnouncements(code).then((r: any) => setAnnouncements(r.data?.data || [])).catch(() => {});
@@ -973,19 +987,13 @@ const handleChatSend = async (text?: string) => {
 
   const tabs: { key: TabKey; label: string; icon: any }[] = [
     { key: 'forecast', label: '预测', icon: TrendingUp },
+    { key: 'pan_kou', label: '盘口', icon: DollarSign },
     { key: 'analysis', label: '分析', icon: Brain },
     { key: 'strategy', label: '策略', icon: Target },
-    { key: 'technical', label: 'K线技术', icon: Activity },
-    { key: 'trading', label: '交易数据', icon: Table2 },
+    { key: 'kline', label: 'K线', icon: Activity },
     { key: 'financial', label: '财务', icon: FileText },
-    { key: 'shareholder', label: '股东', icon: Users },
-    { key: 'reports', label: '研报', icon: FileText },
-    { key: 'news', label: '资讯', icon: Newspaper },
-    { key: 'dragon_tiger', label: '龙虎榜', icon: Swords },
-    { key: 'block_trade', label: '大宗交易', icon: TrendingDown },
-    { key: 'announcements', label: '公告', icon: FileWarning },
-    { key: 'unlocks', label: '解禁', icon: AlertTriangle },
-    { key: 'fund_flow', label: '资金流', icon: DollarSign },
+    { key: 'event', label: '异动', icon: Swords },
+    { key: 'info', label: '信息', icon: Newspaper },
   ];
 
   const horizons = [5, 10, 20];
@@ -1001,10 +1009,7 @@ const handleChatSend = async (text?: string) => {
                 <h2 style={{ fontSize: 22, fontWeight: 600, margin: 0 }}>{stock.name}</h2>
                 <span style={{ fontSize: 13, color: 'var(--color-text-3)', fontFamily: 'monospace' }}>{stock.code}</span>
                 <button onClick={toggleWL} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 10px', borderRadius: 4, border: 'none', cursor: 'pointer', fontSize: 12, background: isWatched ? 'var(--color-warning-bg)' : 'var(--color-fill-2)', color: isWatched ? 'var(--color-warning-text)' : 'var(--color-text-3)' }}>{isWatched ? <><StarOff size={13} /> 已自选</> : <><Star size={13} /> 加自选</>}</button>
-                {stock.industry && <Tag color="blue" style={{ fontSize: 11 }}>{stock.industry}</Tag>}
-                {conceptTags.map((ct: any, i: number) => (
-                  <Tag key={i} color="arcoblue" style={{ fontSize: 10, padding: '1px 6px', lineHeight: '16px' }}>{ct.conceptName}</Tag>
-                ))}
+                {/* industry/concept moved to 盘口 tab */}
                 {sug && <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 4, background: SUGGEST_BG[sug] || 'var(--color-fill-2)', color: SUGGEST_COLORS[sug] || 'var(--color-text-3)', border: '1px solid ' + (SUGGEST_COLORS[sug] || 'var(--color-border-1)') }}>{sug}</span>}
                 {risk && <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 4, background: RISK_BG[risk] || 'var(--color-fill-2)', color: RISK_COLORS[risk] || 'var(--color-text-3)', border: '1px solid ' + (RISK_COLORS[risk] || 'var(--color-border-1)') }}>{risk}</span>}
 
@@ -2108,7 +2113,7 @@ const handleChatSend = async (text?: string) => {
       )}
 
       {/* ── Technical Tab ── */}
-      {tab === 'technical' && (
+      {tab === 'kline' && (
         <div className="card">
           <div className="card-header"><span style={{ fontWeight: 600, fontSize: 14 }}><Activity size={14} /> 技术指标</span></div>
           <div className="card-body">
@@ -2274,7 +2279,7 @@ const handleChatSend = async (text?: string) => {
       )}
 
       {/* ── Trading Tab ── */}
-      {tab === 'trading' && (
+      {tab === 'kline' && (
         <div className="card">
           <div className="card-header"><span style={{ fontWeight: 600, fontSize: 14 }}><Table2 size={14} /> 近10日交易数据</span></div>
           <div className="card-body" style={{ padding: 0, overflow: 'auto' }}>
@@ -2387,7 +2392,7 @@ const handleChatSend = async (text?: string) => {
       )}
 
       {/* ── Shareholder Tab ── */}
-      {tab === 'shareholder' && (() => {
+      {tab === 'financial' && (() => {
         const shList = shareholders || [];
         const latestSH = shList.length > 0 ? shList[0] : null;
         const trendData = [...shList].reverse().slice(-10); // oldest→newest for chart
@@ -2701,7 +2706,7 @@ const handleChatSend = async (text?: string) => {
       })()}
 
       {/* ── Reports Tab ── */}
-      {tab === 'reports' && (
+      {tab === 'info' && (
         <div className="card">
           <div className="card-header"><span style={{ fontWeight: 600, fontSize: 14 }}><FileText size={14} /> 机构研报</span>
               <button onClick={() => handleRefreshStockData('reports')} disabled={refreshingPhase !== ''}
@@ -2787,7 +2792,7 @@ const handleChatSend = async (text?: string) => {
       )}
 
       {/* ── News Tab ── */}
-      {tab === 'news' && (
+      {tab === 'info' && (
         <div className="card">
           <div className="card-header"><span style={{ fontWeight: 600, fontSize: 14 }}><Newspaper size={14} /> 相关资讯</span>
               <button onClick={() => handleRefreshStockData('news')} disabled={refreshingPhase !== ''}
@@ -2821,7 +2826,7 @@ const handleChatSend = async (text?: string) => {
         </div>
       )}
       {/* ── Dragon Tiger Tab ── */}
-      {tab === 'dragon_tiger' && (
+      {tab === 'event' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           {/* Summary cards */}
           {dragonTiger.length > 0 && (() => {
@@ -2984,396 +2989,71 @@ const handleChatSend = async (text?: string) => {
       )}
 
             {/* ── Fund Flow Tab ── */}
-      {tab === 'fund_flow' && (() => {
-        const [minuteData, setMinuteData] = useState<any[]>([]);
-        const [showMinute, setShowMinute] = useState(false);
-        const [minuteLoading, setMinuteLoading] = useState(false);
-        const [activePeriod, setActivePeriod] = useState(20);
-        const [hoveredSlice, setHoveredSlice] = useState<number | null>(null);
-
-        const loadMinute = async () => {
-          if (minuteData.length > 0) { setShowMinute(!showMinute); return; }
-          setShowMinute(true); setMinuteLoading(true);
-          try {
-            const r: any = await fetchFundFlowMinute(code);
-            setMinuteData(r.data?.data || []);
-          } catch { setMinuteData([]); }
-          finally { setMinuteLoading(false); }
-        };
-
-        const ff = [...fundFlow].reverse();
-        const todayData = ff.length > 0 ? ff[ff.length - 1] : null;
-
-        const fmtW = (v: number) => {
-          const abs = Math.abs(v);
-          const sign = v >= 0 ? '+' : '';
-          if (abs >= 10000) return sign + (abs / 10000).toFixed(2) + '亿';
-          if (abs < 1 && abs > 0) return sign + (abs * 10000).toFixed(0) + '元';
-          return sign + abs.toFixed(0) + '万';
-        };
-
-        const periodNet = (days: number) => ff.slice(-days).reduce((s: number, d: any) => s + (d.mainNet || 0), 0);
-        const barData = ff.slice(-activePeriod);
-        const barMax = Math.max(...barData.map((d: any) => Math.abs(d.mainNet || 0)), 1);
-        const barTotal = periodNet(activePeriod);
-
-        const klineMap: Record<string, number> = {};
-        safeKlines.forEach((k: any) => {
-          const dt = (k.tradeDate || '').slice(0, 10);
-          if (dt && k.close > 0) klineMap[dt] = k.close;
-        });
-
-        const superAbs = Math.abs(todayData?.superNet || 0);
-        const largeAbs = Math.abs(todayData?.largeNet || 0);
-        const midAbs = Math.abs(todayData?.midNet || 0);
-        const smallAbs = Math.abs(todayData?.smallNet || 0);
-        const pieData = todayData ? [
-          { label: '超大单', value: superAbs, color: '#F53F3F' },
-          { label: '大单', value: largeAbs, color: '#FF7D00' },
-          { label: '中单', value: midAbs, color: '#165DFF' },
-          { label: '小单', value: smallAbs, color: '#00B42A' },
-        ].filter(d => d.value > 0) : [];
-        const pieTotal = pieData.reduce((s, d) => s + d.value, 0) || 1;
-
-        return (
+      {tab === 'pan_kou' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          {ff.length > 0 && (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
-              {[
-                { label: '近5日主力净流入', v: fmtW(periodNet(5)), c: periodNet(5) >= 0 ? '#F53F3F' : '#00B42A' },
-                { label: '近20日主力净流入', v: fmtW(periodNet(20)), c: periodNet(20) >= 0 ? '#F53F3F' : '#00B42A' },
-                { label: '近60日主力净流入', v: fmtW(periodNet(60)), c: periodNet(60) >= 0 ? '#F53F3F' : '#00B42A' },
-                { label: '数据覆盖', v: ff.length + '个交易日', c: 'var(--color-text-1)' },
-              ].map((c, i) => (
-                <div key={i} className="card" style={{ padding: '14px 16px' }}>
-                  <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 4 }}>{c.label}</div>
-                  <div style={{ fontSize: 20, fontWeight: 700, color: c.c, fontVariantNumeric: 'tabular-nums' }}>{c.v}</div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-            <div className="card">
-              <div className="card-header"><span style={{ fontWeight: 600, fontSize: 13 }}>今日资金流向分布</span></div>
-              <div className="card-body" style={{ padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 20 }}>
-                {pieData.length > 0 ? (
-                  <>
-                    <svg width="130" height="130" viewBox="0 0 130 130">
-                      {(() => {
-                        const cx = 65, cy = 65, r = 50;
-                        let angle = -Math.PI / 2;
-                        return pieData.map((d: any, i: number) => {
-                          const slice = (d.value / pieTotal) * Math.PI * 2;
-                          const s = hoveredSlice === i ? 1.08 : 1;
-                          const x1 = cx + r * s * Math.cos(angle);
-                          const y1 = cy + r * s * Math.sin(angle);
-                          const x2 = cx + r * s * Math.cos(angle + slice);
-                          const y2 = cy + r * s * Math.sin(angle + slice);
-                          const large = slice > Math.PI ? 1 : 0;
-                          const p = 'M ' + cx + ' ' + cy + ' L ' + x1 + ' ' + y1 + ' A ' + (r * s) + ' ' + (r * s) + ' 0 ' + large + ' 1 ' + x2 + ' ' + y2 + ' Z';
-                          angle += slice;
-                          return <path key={i} d={p} fill={d.color} stroke="var(--color-bg-1)" strokeWidth="1.5"
-                            style={{ cursor: 'pointer' }} onMouseEnter={() => setHoveredSlice(i)} onMouseLeave={() => setHoveredSlice(null)} />;
-                        });
-                      })()}
-                      <circle cx="65" cy="65" r="28" fill="var(--color-bg-2)" />
-                      <text x="65" y="60" textAnchor="middle" fontSize="12" fontWeight="700"
-                        fill={todayData?.mainNet >= 0 ? '#F53F3F' : '#00B42A'}>{fmtW(todayData?.mainNet || 0)}</text>
-                      <text x="65" y="76" textAnchor="middle" fontSize="9" fill="var(--color-text-3)">主力净额</text>
-                    </svg>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: 1 }}>
-                      {pieData.map((d: any, i: number) => (
-                        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12,
-                          background: hoveredSlice === i ? 'var(--color-fill-1)' : 'transparent', padding: '2px 6px', borderRadius: 4 }}>
-                          <div style={{ width: 10, height: 10, borderRadius: 2, background: d.color }} />
-                          <span style={{ color: 'var(--color-text-2)', minWidth: 40 }}>{d.label}</span>
-                          <span style={{ fontWeight: 600, flex: 1, textAlign: 'right' }}>{fmtW(d.value)}</span>
-                          <span style={{ fontSize: 10, color: 'var(--color-text-3)', minWidth: 35, textAlign: 'right' }}>
-                            {(d.value / pieTotal * 100).toFixed(1)}%
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </>
-                ) : (
-                  <div style={{ textAlign: 'center', padding: 30, color: 'var(--color-text-3)', fontSize: 12, flex: 1 }}>
-                    暂无今日数据
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div className="card">
-              <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ fontWeight: 600, fontSize: 13 }}>主力动向</span>
-                  <span style={{ fontSize: 11, color: barTotal >= 0 ? '#F53F3F' : '#00B42A' }}>
-                    累计 {fmtW(barTotal)}
-                  </span>
-                </div>
-                <div style={{ display: 'flex', gap: 4 }}>
-                  {[5, 10, 20, 60].map(d => (
-                    <button key={d} onClick={() => setActivePeriod(d)} style={{
-                      padding: '2px 8px', fontSize: 10, borderRadius: 4, cursor: 'pointer',
-                      border: '1px solid var(--color-border-2)',
-                      background: activePeriod === d ? 'var(--color-primary)' : 'transparent',
-                      color: activePeriod === d ? '#fff' : 'var(--color-text-2)',
-                    }}>近{d}日</button>
-                  ))}
-                </div>
-              </div>
-              <div className="card-body" style={{ padding: '8px 12px' }}>
-                {barData.length > 0 ? (() => {
-                  const BW = Math.max(barData.length * 18, 200);
-                  const H = 180;
-                  return (
-                  <svg width="100%" height={H} viewBox={'0 0 ' + BW + ' ' + H} preserveAspectRatio="xMidYMid meet">
-                    <defs>
-                      <linearGradient id="ffUp" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="#F53F3F" stopOpacity="0.85" />
-                        <stop offset="100%" stopColor="#F53F3F" stopOpacity="0.35" />
-                      </linearGradient>
-                      <linearGradient id="ffDown" x1="0" y1="1" x2="0" y2="0">
-                        <stop offset="0%" stopColor="#00B42A" stopOpacity="0.85" />
-                        <stop offset="100%" stopColor="#00B42A" stopOpacity="0.35" />
-                      </linearGradient>
-                    </defs>
-                    <line x1="8" y1={H - 20} x2={BW - 8} y2={H - 20} stroke="var(--color-border-1)" strokeWidth="1" strokeDasharray="4,3" />
-                    {barData.map((d: any, i: number) => {
-                      const barW = Math.max(4, Math.min(12, (BW - 16) / barData.length * 0.6));
-                      const gap = (BW - 16) / barData.length;
-                      const h = (Math.abs(d.mainNet || 0) / barMax) * (H - 35);
-                      const x = 8 + i * gap + (gap - barW) / 2;
-                      const fill = (d.mainNet || 0) >= 0 ? 'url(#ffUp)' : 'url(#ffDown)';
-                      return <rect key={i} x={x} y={(d.mainNet || 0) >= 0 ? H - 20 - h : H - 20}
-                        width={barW} height={Math.max(h, 1)} fill={fill} rx="2" />;
-                    })}
-                    {barData.filter((_: any, i: number) => barData.length <= 20 || i % Math.max(1, Math.floor(barData.length / 10)) === 0)
-                      .map((d: any, i: number) => (
-                      <text key={i} x={8 + (barData.indexOf(d) / Math.max(barData.length - 1, 1)) * (BW - 16)}
-                        y={H - 5} textAnchor="middle" fontSize="8" fill="var(--color-text-3)">
-                        {(d.tradeDate || '').slice(5, 10)}
-                      </text>
-                    ))}
-                  </svg>);
-                })() : (
-                  <div style={{ textAlign: 'center', padding: 30, color: 'var(--color-text-3)', fontSize: 12 }}>暂无数据</div>
-                )}
-              </div>
-            </div>
-          </div>
-
+          {/* Industry & Concepts */}
           <div className="card">
-            <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', cursor: 'pointer' }} onClick={loadMinute}>
+            <div className="card-header">
               <span style={{ fontWeight: 600, fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
-                <Clock size={14} /> 分时资金流趋势 {minuteLoading ? '(加载中...)' : showMinute ? String.fromCharCode(9660) : String.fromCharCode(9654)}
+                <Layers size={14} /> 行业与概念
               </span>
-              <span style={{ fontSize: 10, color: 'var(--color-text-3)' }}>实时调用 &middot; 不落库</span>
             </div>
-            {showMinute && (
-              <div className="card-body" style={{ padding: '8px 12px' }}>
-                {minuteData.length > 0 ? (() => {
-                  const mMin = Math.min(...minuteData.map((d: any) => d.mainNet || 0));
-                  const mMax = Math.max(...minuteData.map((d: any) => d.mainNet || 0));
-                  const mRange = Math.max(mMax - mMin, 1);
-                  const W = Math.max(minuteData.length * 4, 400), H = 170, pad = 40;
-                  const cw = W - pad * 2, ch = H - pad - 15;
-                  const cumData: number[] = [];
-                  let cum = 0;
-                  minuteData.forEach((d: any) => { cum += (d.mainNet || 0); cumData.push(cum); });
-                  const cMin = Math.min(...cumData);
-                  const cMax = Math.max(...cumData);
-                  const cRange = Math.max(cMax - cMin, 1);
-                  const mMaxIn = Math.max(...minuteData.map((d: any) => d.mainNet || 0));
-                  const mMaxOut = Math.min(...minuteData.map((d: any) => d.mainNet || 0));
-                  return (
-                  <div>
-                    <div style={{ display: 'flex', gap: 20, marginBottom: 8, fontSize: 11 }}>
-                      <span>主力累计 <b style={{ color: cum >= 0 ? '#F53F3F' : '#00B42A' }}>{fmtW(cum)}</b></span>
-                      <span>最大流入 <b style={{ color: '#F53F3F' }}>{fmtW(mMaxIn)}</b></span>
-                      <span>最大流出 <b style={{ color: '#00B42A' }}>{fmtW(mMaxOut)}</b></span>
+            <div className="card-body" style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {/* Industry row */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ fontSize: 12, color: 'var(--color-text-3)', minWidth: 32, fontWeight: 500 }}>行业</span>
+                {stock?.industry ? (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 10px', borderRadius: 6,
+                    background: 'linear-gradient(135deg, #165DFF12, #165DFF08)', border: '1px solid #165DFF20' }}>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: '#165DFF' }}>{stock.industry}</span>
+                  </div>
+                ) : <span style={{ fontSize: 11, color: 'var(--color-text-3)' }}>--</span>}
+              </div>
+              {/* Concepts row */}
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                <span style={{ fontSize: 12, color: 'var(--color-text-3)', minWidth: 32, fontWeight: 500, marginTop: 4 }}>概念</span>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                  {conceptTags.length > 0 ? conceptTags.map((ct: any, i: number) => {
+                    const q = conceptQuotes[ct.conceptCode];
+                    const chg = q?.avgChgPct ?? 0;
+                    const chgColor = chg > 0 ? '#F53F3F' : chg < 0 ? '#00B42A' : 'var(--color-text-3)';
+                    return (
+                    <div key={i} onClick={() => navigate('/concept/' + ct.conceptCode)}
+                      style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 6,
+                        background: 'var(--color-fill-1)', border: '1px solid var(--color-border-1)',
+                        cursor: 'pointer', transition: 'all 0.15s' }}
+                      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = '#165DFF'; (e.currentTarget as HTMLElement).style.background = '#165DFF08'; }}
+                      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--color-border-1)'; (e.currentTarget as HTMLElement).style.background = 'var(--color-fill-1)'; }}>
+                      <span style={{ fontSize: 12, color: 'var(--color-text-1)', fontWeight: 500 }}>{ct.conceptName}</span>
+                      <span style={{ fontSize: 10, fontWeight: 600, color: chgColor, fontVariantNumeric: 'tabular-nums' }}>
+                        {chg > 0 ? '+' : ''}{chg.toFixed(2)}%
+                      </span>
+                      {q && (
+                        <span style={{ fontSize: 9, color: 'var(--color-text-3)', whiteSpace: 'nowrap' }}>
+                          {q.upCount}↑{q.downCount}↓
+                        </span>
+                      )}
                     </div>
-                    <svg width="100%" height={H + 10} viewBox={'0 0 ' + W + ' ' + (H + 10)} preserveAspectRatio="xMidYMid meet">
-                      {[0, 0.25, 0.5, 0.75, 1].map(p => (
-                        <line key={p} x1={pad} y1={pad + ch * p} x2={W - pad} y2={pad + ch * p} stroke="var(--color-border-1)" strokeWidth="0.5" />
-                      ))}
-                      {minuteData.map((d: any, i: number) => {
-                        const x = pad + (i / Math.max(minuteData.length - 1, 1)) * cw;
-                        const barH = Math.max(1, (Math.abs(d.mainNet || 0) / mRange) * ch * 0.7);
-                        const y = (d.mainNet || 0) >= 0 ? pad + ch * 0.5 - barH : pad + ch * 0.5;
-                        return <rect key={i} x={x - 1} y={y} width={Math.max(1.5, cw / minuteData.length * 0.7)}
-                          height={barH} fill={(d.mainNet || 0) >= 0 ? '#F53F3F55' : '#00B42A55'} rx="1" />;
-                      })}
-                      {cumData.length > 1 && (
-                        <polyline points={cumData.map((v, i) =>
-                          (pad + (i / Math.max(cumData.length - 1, 1)) * cw) + ',' + (pad + ch - ((v - cMin) / cRange) * ch)).join(' ')}
-                          fill="none" stroke="#165DFF" strokeWidth="2" />)}
-                      <text x={pad} y={H - 5} fontSize="9" fill="var(--color-text-3)">{minuteData[0]?.time?.slice(-5) || ''}</text>
-                      <text x={W - pad} y={H - 5} textAnchor="end" fontSize="9" fill="var(--color-text-3)">{minuteData[minuteData.length - 1]?.time?.slice(-5) || ''}</text>
-                    </svg>
-                  </div>);
-                })() : (
-                  <div style={{ textAlign: 'center', padding: 30, color: 'var(--color-text-3)', fontSize: 12 }}>
-                    {minuteLoading ? '加载中...' : '当前非交易时段，数据为上一交易日'}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-
-          <div className="card">
-            <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontWeight: 600, fontSize: 13 }}>资金流趋势 vs 股价</span>
-              <div style={{ display: 'flex', gap: 4 }}>
-                {[5, 20, 60].map(d => (
-                  <button key={d} onClick={() => setActivePeriod(d)} style={{
-                    padding: '2px 8px', fontSize: 10, borderRadius: 4, cursor: 'pointer',
-                    border: '1px solid var(--color-border-2)',
-                    background: activePeriod === d ? 'var(--color-primary)' : 'transparent',
-                    color: activePeriod === d ? '#fff' : 'var(--color-text-2)',
-                  }}>{d}日</button>
-                ))}
+                    );
+                  }) : <span style={{ fontSize: 11, color: 'var(--color-text-3)' }}>--</span>}
+                </div>
               </div>
             </div>
-            <div className="card-body" style={{ padding: '12px 16px' }}>
-              {ff.length > 0 ? (() => {
-                const periodSlice = ff.slice(-activePeriod);
-                const merged = periodSlice.map((d: any) => ({
-                  date: (d.tradeDate || '').slice(0, 10),
-                  mainNet: d.mainNet || 0,
-                  close: klineMap[(d.tradeDate || '').slice(0, 10)] || 0,
-                })).filter((d: any) => d.close > 0);
-
-                if (merged.length < 2) return (
-                  <div style={{ textAlign: 'center', padding: 30, color: 'var(--color-text-3)', fontSize: 12 }}>
-                    需要更多K线数据，请先采集该股K线
-                  </div>
-                );
-
-                const totalNet = merged.reduce((s: number, d: any) => s + d.mainNet, 0);
-                const inflowRatio = merged.filter((d: any) => d.mainNet > 0).length / merged.length * 100;
-                const firstPrice = merged[0].close;
-                const lastPrice = merged[merged.length - 1].close;
-                const priceChg = ((lastPrice - firstPrice) / firstPrice * 100);
-
-                const fMax = Math.max(...merged.map((d: any) => Math.abs(d.mainNet)), 1);
-                const pMin = Math.min(...merged.map((d: any) => d.close));
-                const pMax = Math.max(...merged.map((d: any) => d.close));
-                const pRange = Math.max(pMax - pMin, 0.01);
-                const W = Math.max(merged.length * 35, 300), H = 220, pad = 48, padR = 20;
-                const cw = W - pad - padR, ch = H - pad - 20;
-
-                return (
-                  <div>
-                    <div style={{ display: 'flex', gap: 20, marginBottom: 10, fontSize: 12 }}>
-                      <span>主力净流入 <b style={{ color: totalNet >= 0 ? '#F53F3F' : '#00B42A' }}>{fmtW(totalNet)}</b></span>
-                      <span>日均 <b>{fmtW(totalNet / merged.length)}</b></span>
-                      <span>流入占比 <b>{inflowRatio.toFixed(0)}%</b></span>
-                      <span style={{ marginLeft: 'auto' }}>股价 <b style={{ color: priceChg >= 0 ? '#F53F3F' : '#00B42A' }}>
-                        {priceChg >= 0 ? '+' : ''}{priceChg.toFixed(2)}%
-                      </b></span>
-                    </div>
-                    <svg width="100%" height={H} viewBox={'0 0 ' + W + ' ' + H} preserveAspectRatio="xMidYMid meet">
-                      {[0, 0.25, 0.5, 0.75, 1].map(p => (
-                        <line key={p} x1={pad} y1={pad + ch * p} x2={W - padR} y2={pad + ch * p} stroke="var(--color-border-1)" strokeWidth="0.5" />
-                      ))}
-                      <line x1={pad} y1={pad + ch} x2={W - padR} y2={pad + ch} stroke="var(--color-text-3)" strokeWidth="1" strokeDasharray="4,4" />
-                      {merged.map((d: any, i: number) => {
-                        const barW = Math.max(4, Math.min(14, cw / merged.length * 0.5));
-                        const gap = cw / merged.length;
-                        const h = (Math.abs(d.mainNet) / fMax) * ch * 0.45;
-                        const x = pad + i * gap + (gap - barW) / 2;
-                        const color = d.mainNet >= 0 ? '#F53F3F88' : '#00B42A88';
-                        return <rect key={i} x={x} y={d.mainNet >= 0 ? pad + ch * 0.55 - h : pad + ch * 0.55}
-                          width={barW} height={Math.max(h, 1)} fill={color} rx="2" />;
-                      })}
-                      {merged.length > 1 && (
-                        <polyline points={merged.map((d: any, i: number) =>
-                          (pad + (i / Math.max(merged.length - 1, 1)) * cw) + ',' + (pad + (1 - (d.close - pMin) / pRange) * ch * 0.45)).join(' ')}
-                          fill="none" stroke="#165DFF" strokeWidth="2.5" />)}
-                      {merged.map((d: any, i: number) => (
-                        <circle key={i} cx={pad + (i / Math.max(merged.length - 1, 1)) * cw}
-                          cy={pad + (1 - (d.close - pMin) / pRange) * ch * 0.45} r="3"
-                          fill="#165DFF" stroke="var(--color-bg-1)" strokeWidth="1" />))}
-                      <text x={pad - 5} y={pad - 5} fontSize="9" fill="#165DFF">股价</text>
-                      <text x={pad - 5} y={pad + ch + 12} fontSize="9" fill="#F53F3F">资金</text>
-                      {merged.filter((_: any, i: number) => i % Math.max(1, Math.floor(merged.length / 6)) === 0)
-                        .map((d: any, i: number) => (
-                        <text key={i} x={pad + (merged.indexOf(d) / Math.max(merged.length - 1, 1)) * cw} y={H - 5}
-                          textAnchor="middle" fontSize="8" fill="var(--color-text-3)">{d.date.slice(5)}</text>
-                      ))}
-                    </svg>
-                  </div>
-                );
-              })() : (
-                <div style={{ textAlign: 'center', padding: 30, color: 'var(--color-text-3)', fontSize: 12 }}>
-                  暂无资金流数据，请先采集
-                </div>
-              )}
-            </div>
           </div>
-
-          <div className="card">
-            <div className="card-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span style={{ fontWeight: 600, fontSize: 14, display: 'flex', alignItems: 'center', gap: 6 }}>
-                <DollarSign size={14} /> 资金流明细
-              </span>
-              <button onClick={() => handleRefreshStockData('fund_flow')} disabled={refreshingPhase !== ''}
-                style={{ padding: '4px 10px', fontSize: 11, cursor: 'pointer', border: '1px solid var(--color-border-1)', borderRadius: 4, background: 'var(--color-bg-1)', color: 'var(--color-text-2)', display: 'flex', alignItems: 'center', gap: 4 }}>
-                <Repeat size={12} className={refreshingPhase === 'fund_flow' ? 'spin' : ''} />{refreshingPhase === 'fund_flow' ? '更新中...' : '更新'}
-              </button>
-            </div>
-            {refreshingPhase === 'fund_flow' && refreshLogs.length > 0 && (
-              <div style={{ padding: '6px 16px', background: 'var(--color-fill-1)', borderBottom: '1px solid var(--color-border-1)', maxHeight: 120, overflow: 'auto' }}>
-                {refreshLogs.map((log, i) => (
-                  <div key={i} style={{ fontSize: 11, color: 'var(--color-text-2)', fontFamily: 'monospace', opacity: i === refreshLogs.length - 1 ? 1 : 0.4 }}>{log}</div>
-                ))}
-              </div>
-            )}
-            <div className="card-body" style={{ padding: 0 }}>
-              {fundFlow.length > 0 ? (
-                <div style={{ maxHeight: 400, overflow: 'auto' }}>
-                  <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse', fontSize: 12 }}>
-                    <colgroup>
-                      <col style={{ width: '14%' }} /><col style={{ width: '17%' }} />
-                      <col style={{ width: '17%' }} /><col style={{ width: '17%' }} />
-                      <col style={{ width: '17%' }} /><col style={{ width: '17%' }} />
-                    </colgroup>
-                    <thead>
-                      <tr style={{ background: 'var(--color-fill-1)', borderBottom: '2px solid var(--color-border-2)', position: 'sticky', top: 0 }}>
-                        {['日期', '主力净流入', '超大单', '大单', '中单', '小单'].map(h => (
-                          <th key={h} style={{ padding: '8px 8px', textAlign: h === '日期' ? 'left' : 'right', fontSize: 11, color: 'var(--color-text-3)', fontWeight: 500 }}>{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {fundFlow.map((d: any, i: number) => (
-                        <tr key={i} style={{ borderBottom: '1px solid var(--color-border-1)' }}>
-                          <td style={{ padding: '5px 8px', fontSize: 11 }}>{d.tradeDate?.slice(0, 10)}</td>
-                          <td style={{ padding: '5px 8px', textAlign: 'right', fontWeight: 600, color: (d.mainNet || 0) >= 0 ? '#F53F3F' : '#00B42A', fontVariantNumeric: 'tabular-nums' }}>{fmtW(d.mainNet || 0)}</td>
-                          <td style={{ padding: '5px 8px', textAlign: 'right', color: (d.superNet || 0) >= 0 ? '#F53F3F' : '#00B42A', fontVariantNumeric: 'tabular-nums' }}>{fmtW(d.superNet || 0)}</td>
-                          <td style={{ padding: '5px 8px', textAlign: 'right', color: (d.largeNet || 0) >= 0 ? '#F53F3F' : '#00B42A', fontVariantNumeric: 'tabular-nums' }}>{fmtW(d.largeNet || 0)}</td>
-                          <td style={{ padding: '5px 8px', textAlign: 'right', color: (d.midNet || 0) >= 0 ? '#F53F3F' : '#00B42A', fontVariantNumeric: 'tabular-nums' }}>{fmtW(d.midNet || 0)}</td>
-                          <td style={{ padding: '5px 8px', textAlign: 'right', color: (d.smallNet || 0) >= 0 ? '#F53F3F' : '#00B42A', fontVariantNumeric: 'tabular-nums' }}>{fmtW(d.smallNet || 0)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ) : (
-                <div style={{ textAlign: 'center', padding: 48, fontSize: 13, color: 'var(--color-text-3)' }}>
-                  暂无资金流数据，请点击右上角「更新」按钮采集
-                </div>
-              )}
-            </div>
-          </div>
+          <StockFundFlowTab
+            code={code!}
+            fundFlow={fundFlow}
+            safeKlines={safeKlines}
+            refreshingPhase={refreshingPhase}
+            refreshLogs={refreshLogs}
+            handleRefreshStockData={handleRefreshStockData}
+          />
         </div>
-        );
-      })()}
+      )}
+
 
 {/* ── Block Trade Tab ── */}
-      {tab === 'block_trade' && (
+      {tab === 'event' && (
         <div className="card">
           <div className="card-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <span style={{ fontWeight: 600, fontSize: 14 }}><TrendingDown size={14} /> 大宗交易记录</span>
@@ -3424,7 +3104,7 @@ const handleChatSend = async (text?: string) => {
       )}
 
       {/* ── Announcements Tab ── */}
-      {tab === 'announcements' && (
+      {tab === 'info' && (
         <div className="card">
           <div className="card-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <span style={{ fontWeight: 600, fontSize: 14 }}><FileWarning size={14} /> 巨潮公告</span>
@@ -3464,7 +3144,7 @@ const handleChatSend = async (text?: string) => {
       )}
 
       {/* ── Unlocks Tab ── */}
-      {tab === 'unlocks' && (
+      {tab === 'event' && (
         <div className="card">
           <div className="card-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <span style={{ fontWeight: 600, fontSize: 14 }}><AlertTriangle size={14} /> 限售解禁</span>
