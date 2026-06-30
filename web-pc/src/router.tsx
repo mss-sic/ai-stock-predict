@@ -14,6 +14,7 @@ import StrategyPage from './pages/StrategyPage';
 import HoldingsPage from './pages/HoldingsPage';
 import RiskPage from './pages/RiskPage';
 import StockListPage from './pages/StockListPage';
+import LimitStatsPage from "./pages/LimitStatsPage";
 import SentimentDashboard from './pages/SentimentDashboard';
 import DataManagementPage from './pages/DataManagementPage';
 import SettingsPage from './pages/SettingsPage';
@@ -102,6 +103,8 @@ const router = createBrowserRouter([
           { path: 'holdings', element: <HoldingsPage /> },
           { path: 'risk', element: <RiskPage /> },
           { path: 'sentiment', element: <SentimentDashboard /> },
+          { path: "limit-stats", element: <LimitStatsPage /> },
+
           { path: "market-style", element: <MarketStylePage /> },
           { path: "industries", element: <IndustryComparePage /> },
 

@@ -72,3 +72,75 @@ func GetNorthboundHistory(days int) ([]model.NorthboundDailyView, error) {
 	}
 	return list, nil
 }
+
+// LimitStats represents daily limit-up/down statistics.
+type LimitStats struct {
+	TradeDate    string  `gorm:"column:trade_date" json:"tradeDate"`
+	UpCount      int     `gorm:"column:up_count" json:"upCount"`
+	DownCount    int     `gorm:"column:down_count" json:"downCount"`
+	RiseCount    int     `gorm:"column:rise_count" json:"riseCount"`
+	FallCount    int     `gorm:"column:fall_count" json:"fallCount"`
+	BoardBreak   int     `gorm:"column:board_break" json:"boardBreak"`
+	MaxStreak    int     `gorm:"column:max_streak" json:"maxStreak"`
+	TotalStocks  int     `gorm:"column:total_stocks" json:"totalStocks"`
+}
+
+// GetLimitStatsHistory returns daily limit-up/down statistics for the last N days.
+func GetLimitStatsHistory(days int) ([]LimitStats, error) {
+	sql := `
+		WITH daily_ret AS (
+			SELECT k.trade_date::text, k.code, b.board_type, COALESCE(b.is_st, false) as is_st,
+				(k.close - kp.close) / NULLIF(kp.close, 0) as ret,
+				-- Estimate board break: hit limit-up but closed far from limit
+				CASE
+					WHEN b.board_type IN ('kc','cy') AND (k.close - kp.close) / NULLIF(kp.close, 0) >= 0.1999
+						AND (k.high - k.close) / NULLIF(k.high, 0) > 0.02 THEN 1
+					WHEN b.board_type = 'bj' AND (k.close - kp.close) / NULLIF(kp.close, 0) >= 0.2999
+						AND (k.high - k.close) / NULLIF(k.high, 0) > 0.02 THEN 1
+					WHEN is_st AND (k.close - kp.close) / NULLIF(kp.close, 0) >= 0.0499
+						AND (k.high - k.close) / NULLIF(k.high, 0) > 0.02 THEN 1
+					WHEN (k.close - kp.close) / NULLIF(kp.close, 0) >= 0.0999
+						AND (k.high - k.close) / NULLIF(k.high, 0) > 0.02 THEN 1
+					ELSE 0
+				END as board_break
+			FROM stocks_daily_k k
+			JOIN LATERAL (
+				SELECT kp2.close FROM stocks_daily_k kp2
+				WHERE kp2.code = k.code AND kp2.trade_date < k.trade_date
+				ORDER BY kp2.trade_date DESC LIMIT 1
+			) kp ON TRUE
+			JOIN stocks_basic b ON b.code = k.code
+			WHERE k.trade_date >= (
+				SELECT MAX(trade_date) FROM market_daily_agg
+			) - ?::integer
+			  AND k.close > 0 AND kp.close > 0
+		)
+		SELECT trade_date,
+			COUNT(*) FILTER (
+				WHERE (board_type IN ('kc','cy') AND ret >= 0.1999)
+				   OR (board_type = 'bj' AND ret >= 0.2999)
+				   OR (is_st AND ret >= 0.0499)
+				   OR (ret >= 0.0999)
+			) as up_count,
+			COUNT(*) FILTER (
+				WHERE (board_type IN ('kc','cy') AND ret <= -0.1999)
+				   OR (board_type = 'bj' AND ret <= -0.2999)
+				   OR (is_st AND ret <= -0.0499)
+				   OR (ret <= -0.0999)
+			) as down_count,
+			COUNT(*) FILTER (WHERE ret > 0) as rise_count,
+			COUNT(*) FILTER (WHERE ret < 0) as fall_count,
+			SUM(board_break) as board_break,
+			0 as max_streak,
+			COUNT(*) as total_stocks
+		FROM daily_ret
+		GROUP BY trade_date
+		ORDER BY trade_date ASC
+	`
+
+	var list []LimitStats
+	if err := db.PG.Raw(sql, days).Scan(&list).Error; err != nil {
+		return nil, err
+	}
+	return list, nil
+}

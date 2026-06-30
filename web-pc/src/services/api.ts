@@ -424,4 +424,6 @@ export const fetchSentimentDetail = (date: string) => api.get('/sentiment/detail
 export const fetchSentimentRange = (start: string, end: string) => api.get('/sentiment/range', { params: { start, end } });
 export const fetchNorthbound = (days: number = 30) => api.get('/northbound', { params: { days } });
 
+export const fetchLimitStats = (days?: number) => api.get("/sentiment/limit-stats", { params: { days: days || 60 } });
+
 export const fetchReturnDistribution = () => api.get('/sentiment/distribution');

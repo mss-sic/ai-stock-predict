@@ -275,3 +275,22 @@ func (h *SentimentHandler) GetIndexKLine(c *gin.Context) {
 	}
 	response.Success(c, rows)
 }
+
+// GetLimitStats returns daily limit-up/down statistics for the last N days.
+func (h *SentimentHandler) GetLimitStats(c *gin.Context) {
+	daysStr := c.DefaultQuery("days", "60")
+	days, err := strconv.Atoi(daysStr)
+	if err != nil || days < 1 || days > 365 {
+		days = 60
+	}
+
+	list, err := service.GetLimitStatsHistory(days)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, 500, "获取涨跌停统计失败: "+err.Error())
+		return
+	}
+	if list == nil {
+		list = []service.LimitStats{}
+	}
+	response.Success(c, list)
+}
