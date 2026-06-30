@@ -71,6 +71,11 @@ func main() {
 	r.GET("/api/v1/concept-boards/heatmap", boardH.ConceptHeatmap)
 	r.GET("/api/v1/stocks/:code/concept-tags", boardH.StockConcepts)
 
+	// ── Industry comparison routes ──
+	industryH := handler.NewIndustryHandler()
+	r.GET("/api/v1/industries", industryH.List)
+	r.GET("/api/v1/industries/:name/stocks", industryH.Stocks)
+
 	// ── Protected routes ──
 	api := r.Group("/api/v1")
 	api.Use(handler.AuthMiddleware())

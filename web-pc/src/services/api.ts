@@ -355,6 +355,10 @@ export const fetchStockConceptTags = (stockCode: string) => api.get(`/stocks/${s
 // ── Index / Market APIs ──
 export const fetchIndices = () => api.get('/indices');
 
+// ── Industry Comparison APIs ──
+export const fetchIndustries = (date?: string) => api.get("/industries", { params: date ? { date } : {} });
+export const fetchIndustryStocks = (name: string, date?: string, sort?: string) => api.get(`/industries/${encodeURIComponent(name)}/stocks`, { params: { ...(date ? { date } : {}), ...(sort ? { sort } : {}) } });
+
 // ── Backward-compatible aliases ──
 export const fetchEnrichedHeatmap = () => fetchHeatmapEnriched();
 export const fetchForecast = (code: string, horizon?: number) => api.get(`/forecast/${code}`, { params: horizon ? { horizon } : {} });

@@ -4,7 +4,7 @@ import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from './services/AuthContext';
 import { fetchIndices, logout as logoutApi, getAccessToken, heartbeat } from './services/api';
 import Logo from './components/Logo';
-import { LayoutDashboard, History, Grid3X3, Layers, Star, Target, Briefcase, ShieldAlert, Database, Search, Settings, LogOut, UserCog, Shield, Sun, Moon, Trophy, TrendingUp, Activity, Swords, Calendar, Globe, FileWarning, ChevronDown } from 'lucide-react';
+import { Building2, LayoutDashboard, History, Grid3X3, Layers, Star, Target, Briefcase, ShieldAlert, Database, Search, Settings, LogOut, UserCog, Shield, Sun, Moon, Trophy, TrendingUp, Activity, Swords, Calendar, Globe, FileWarning, ChevronDown } from 'lucide-react';
 import { useTheme } from './services/ThemeContext';
 import '@arco-design/web-react/dist/css/arco.css';
 import './styles/app.css';
@@ -19,6 +19,7 @@ const navGroups = [
       { key: '/board/history', label: '历史榜单', icon: History },
       { key: '/board/heatmap', label: '上榜热力图', icon: Grid3X3 },
       { key: '/board/concepts', label: '概念板块', icon: Layers },
+      { key: '/industries', label: '行业对比', icon: Building2 },
     ]
   },
   {
