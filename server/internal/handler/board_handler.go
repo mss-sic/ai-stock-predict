@@ -181,10 +181,8 @@ func (h *BoardHandler) getEnrichedBoard(dateStr string) ([]EnrichedBoardItem, st
 	go func() {
 		defer wg.Done()
 		var indicators []IndicatorRow
-		if err := db.PG.Raw(fmt.Sprintf(`SELECT i.code, i.pe, i.pb, i.total_market_cap
-			FROM stocks_daily_indicator i
-			INNER JOIN (SELECT code, MAX(trade_date) as max_date FROM stocks_daily_indicator WHERE code IN (%s) GROUP BY code) latest
-			ON i.code = latest.code AND i.trade_date = latest.max_date`, inClause)).Scan(&indicators).Error; err != nil {
+		if err := db.PG.Raw(fmt.Sprintf(`SELECT DISTINCT ON (code) code, pe, pb, total_market_cap
+			FROM stocks_daily_indicator WHERE code IN (%s) ORDER BY code, trade_date DESC`, inClause)).Scan(&indicators).Error; err != nil {
 			log.Printf("[board] indicators query failed: %v", err)
 			return
 		}
@@ -211,9 +209,8 @@ func (h *BoardHandler) getEnrichedBoard(dateStr string) ([]EnrichedBoardItem, st
 	go func() {
 		defer wg.Done()
 		var latestCloses []LatestCloseRow
-		if err := db.PG.Raw(fmt.Sprintf(`SELECT l.code, l.close FROM stocks_daily_k l
-			INNER JOIN (SELECT code, MAX(trade_date) AS max_date FROM stocks_daily_k WHERE code IN (%s) GROUP BY code) latest
-			ON l.code = latest.code AND l.trade_date = latest.max_date`, inClause)).Scan(&latestCloses).Error; err != nil {
+		if err := db.PG.Raw(fmt.Sprintf(`WITH ld AS (SELECT MAX(trade_date) as max_d FROM stocks_daily_k)
+			SELECT code, close FROM stocks_daily_k WHERE code IN (%s) AND trade_date = (SELECT max_d FROM ld)`, inClause)).Scan(&latestCloses).Error; err != nil {
 			log.Printf("[board] latest_closes query failed: %v", err)
 			return
 		}
