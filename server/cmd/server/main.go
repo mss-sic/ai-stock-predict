@@ -53,6 +53,8 @@ func main() {
 
 	// Market sentiment (public)
 	sentimentH := &handler.SentimentHandler{}
+	capitalH := &handler.CapitalFlowHandler{}
+
 	r.GET("/api/v1/sentiment/latest", sentimentH.GetLatest)
 	r.GET("/api/v1/sentiment/history", sentimentH.GetHistory)
 	r.GET("/api/v1/sentiment/detail", sentimentH.GetDetail)
@@ -61,10 +63,17 @@ func main() {
 	r.GET("/api/v1/northbound/minute", sentimentH.GetNorthboundMinute)
 	r.GET("/api/v1/sentiment/index-kline/:code", sentimentH.GetIndexKLine)
 	r.GET("/api/v1/sentiment/distribution", sentimentH.GetReturnDistribution)
+
+	// Capital flow dashboard
+	r.GET("/api/v1/capital-flow/summary", capitalH.GetSummary)
+	r.GET("/api/v1/capital-flow/fund-top", capitalH.GetFundFlowTop)
+	r.GET("/api/v1/capital-flow/northbound-trend", capitalH.GetNorthboundTrend)
+	r.GET("/api/v1/capital-flow/daily", capitalH.GetFundFlowDaily)
 	r.GET("/api/v1/sentiment/turnover", sentimentH.GetMarketTurnover)
 	r.GET("/api/v1/sentiment/limit-stats", sentimentH.GetLimitStats)
 	r.GET("/api/v1/sentiment/fear-greed", sentimentH.GetFearGreedLatest)
 	r.GET("/api/v1/sentiment/fear-greed/history", sentimentH.GetFearGreedHistory)
+
 
 	// ── Concept Board routes ──
 	boardH := handler.NewBoardHandler()
