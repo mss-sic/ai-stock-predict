@@ -79,6 +79,9 @@ func (h *MarketStyleHandler) ComputeStyle(c *gin.Context) {
 
 // BulkCompute computes market style for all dates in market_sentiment that are missing
 func (h *MarketStyleHandler) BulkCompute(c *gin.Context) {
+	// Clean zero-filled rows first (caused by missing source data at time of initial insert)
+	db.PG.Exec(`DELETE FROM market_style_daily WHERE up_ratio = 0 AND total_amount = 0`)
+
 	var dates []string
 	if err := db.PG.Raw(`
 		SELECT trade_date::text FROM market_sentiment
