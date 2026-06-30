@@ -200,12 +200,13 @@ export default function DragonTigerPage() {
                     </tr>
                     {expanded === d.code && (
                       <tr key={d.id + '-seats'}>
-                        <td colSpan={11} style={{ padding: '0 12px 12px 50px', background: 'var(--color-fill-1)' }}>
+                        <td colSpan={12} style={{ padding: '0 12px 12px 50px', background: 'var(--color-fill-1)' }}>
                           <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6, color: 'var(--color-text-2)' }}>席位明细</div>
                           {seatsLoading[d.code] ? <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>加载中...</span> :
                             seats[d.code]?.length === 0 ? <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>暂无席位数据</span> :
                             <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse', fontSize: 11 }}>
                               <thead><tr style={{ borderBottom: '1px solid var(--color-border-1)' }}>
+                                <th style={{ padding: '4px 8px', textAlign: 'center', width: 48 }}>方向</th>
                                 <th style={{ padding: '4px 8px', textAlign: 'left' }}>席位名称</th>
                                 <th style={{ padding: '4px 8px', textAlign: 'right' }}>买入</th>
                                 <th style={{ padding: '4px 8px', textAlign: 'right' }}>卖出</th>
@@ -215,6 +216,11 @@ export default function DragonTigerPage() {
                               <tbody>
                                 {(seats[d.code] || []).map((s: DTSeat) => (
                                   <tr key={s.id} style={{ borderBottom: '1px solid var(--color-border-1)' }}>
+                                    <td style={{ padding: '3px 8px', textAlign: 'center' }}>
+                                      <Tag color={s.side === 'buy' ? 'red' : 'green'} style={{ fontSize: 10 }}>
+                                        {s.side === 'buy' ? '买入' : '卖出'}
+                                      </Tag>
+                                    </td>
                                     <td style={{ padding: '3px 8px' }}>{s.seatName}</td>
                                     <td style={{ padding: '3px 8px', textAlign: 'right', color: '#F53F3F' }}>{fmtW(s.buyAmt)}</td>
                                     <td style={{ padding: '3px 8px', textAlign: 'right', color: '#00B42A' }}>{fmtW(s.sellAmt)}</td>
