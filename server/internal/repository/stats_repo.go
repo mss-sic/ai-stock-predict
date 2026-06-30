@@ -366,6 +366,19 @@ func GetDataDetail(typ string) []StockDataCoverage {
 			ORDER BY count DESC
 		`).Scan(&results)
 
+	case "fund_flow":
+		db.PG.Raw(`
+			SELECT sb.code, sb.name,
+				COALESCE(ff.cnt, 0) as count,
+				ff.first_date, ff.last_date
+			FROM stocks_basic sb
+			LEFT JOIN (
+				SELECT code, COUNT(*) as cnt, MIN(trade_date) as first_date, MAX(trade_date) as last_date
+				FROM stock_fund_flow GROUP BY code
+			) ff ON ff.code = sb.code
+			ORDER BY COALESCE(ff.cnt, 0) DESC
+		`).Scan(&results)
+
 	case "market_daily_agg":
 		db.PG.Raw(`
 			SELECT TO_CHAR(trade_date, 'YYYY-MM-DD') as code, TO_CHAR(trade_date, 'YYYY-MM-DD') as name,
