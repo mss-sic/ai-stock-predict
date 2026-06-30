@@ -458,6 +458,12 @@ func RunManualCollection(phases []string, extraArgs ...string) {
 	if shouldRun("fund_flow") {
 		appendResult(runFundFlowPhase())
 	}
+	if shouldRun("northbound") {
+		appendResult(runNorthboundPhase())
+	}
+	if shouldRun("limit_stats") {
+		appendResult(runLimitStatsPhase())
+	}
 }
 
 
@@ -1035,4 +1041,12 @@ func runKLineYouziPhase() PhaseResult {
 // RepairStock runs the repair_kline.py script to delete + refetch + recalc all data for a stock.
 func RepairStock(code string) error {
 	return runPythonStreamWithArgs("repair_kline.py", code)
+}
+
+func runNorthboundPhase() PhaseResult {
+	return runStatsPhase("northbound", "北向资金", "collect_northbound.py")
+}
+
+func runLimitStatsPhase() PhaseResult {
+	return runStatsPhase("limit_stats", "涨跌停统计", "collect_limit_stats.py")
 }

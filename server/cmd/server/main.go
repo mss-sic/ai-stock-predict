@@ -63,6 +63,8 @@ func main() {
 	r.GET("/api/v1/sentiment/distribution", sentimentH.GetReturnDistribution)
 	r.GET("/api/v1/sentiment/turnover", sentimentH.GetMarketTurnover)
 	r.GET("/api/v1/sentiment/limit-stats", sentimentH.GetLimitStats)
+	r.GET("/api/v1/sentiment/fear-greed", sentimentH.GetFearGreedLatest)
+	r.GET("/api/v1/sentiment/fear-greed/history", sentimentH.GetFearGreedHistory)
 
 	// ── Concept Board routes ──
 	boardH := handler.NewBoardHandler()

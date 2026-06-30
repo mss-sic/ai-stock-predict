@@ -36,6 +36,8 @@ const PHASE_LABELS: Record<string, string> = {
   concept_full: '概念全量重建',
   ai_score: 'AI评分更新',
   fund_flow: '资金流向',
+  northbound: '北向资金',
+  limit_stats: '涨跌停统计',
 };
 
 const PHASE_DESCRIPTIONS: Record<string, string> = {
@@ -70,6 +72,8 @@ const PHASE_DESCRIPTIONS: Record<string, string> = {
   risk_scan: '扫描用户持仓股风险（跌幅/破位/业绩预警等）',
   concept_full: '全量重建概念板块成分股关联（东财slist反向采集）',
   ai_score: 'AI六维度量化评分更新（基本面/成长性/估值/资金面/技术面/行业景气）',
+  northbound: '采集沪股通/深股通每日北向资金净流入流出数据（分钟级）',
+  limit_stats: '预计算每日涨跌停家数/炸板率/涨跌比等情绪统计指标',
 };
 
 const PHASE_COLORS: Record<string, string> = {
@@ -78,6 +82,7 @@ const PHASE_COLORS: Record<string, string> = {
   financial: '#0fc6c2', news: '#f77234', reports: '#e865b7', concept: '#f5319d',
   backfill_financial: '#4080ff', backfill_shareholder: '#ff4080', backfill_indicator: '#00c853',
   dragon_tiger: '#e8654c', margin: '#f09b38', block_trade: '#00a870', unlock: '#ed7b2f',
+  northbound: '#ff5722', limit_stats: '#9c27b0',
   ths_hot: '#165dff', dividend: '#722ed1', ths_eps: '#14c9c9', cninfo: '#f5319d', macro_news: '#ff7d00',
 };
 
@@ -101,6 +106,8 @@ const HISTORY_CAPABLE_PHASES = new Set([
   'dividend',        // 分红送转（--last N / --all）
   'margin',          // 融资融券（--last N / --all）
   'backfill_financial', 'backfill_shareholder', 'backfill_indicator',
+  'limit_stats',     // 涨跌停统计（支持 --repair --from/--to/--all）
+  'northbound',      // 北向资金（重新拉取最新数据）
 ]);
 
 const RANGE_PRESETS = [

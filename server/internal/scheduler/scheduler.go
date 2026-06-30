@@ -56,6 +56,19 @@ func New(cronExpr string) *Scheduler {
 		log.Println("[scheduler] computing market sentiment...")
 		collector.RunSentimentComputation()
 	})
+
+	// Northbound flow collection: after market close Mon-Fri 15:30
+	s.cron.AddFunc("0 30 15 * * 1-5", func() {
+		log.Println("[scheduler] collecting northbound flow...")
+		collector.RunManualCollection([]string{"northbound"})
+	})
+
+	// Limit stats pre-computation: after market close Mon-Fri 16:00
+	s.cron.AddFunc("0 0 16 * * 1-5", func() {
+		log.Println("[scheduler] computing limit stats...")
+		collector.RunManualCollection([]string{"limit_stats"})
+	})
+
 	return s
 }
 

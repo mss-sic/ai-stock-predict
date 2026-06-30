@@ -98,12 +98,38 @@ def main():
     parser.add_argument("--backfill", action="store_true", help="回填所有历史日期")
     parser.add_argument("--date", type=str, help="指定日期 YYYY-MM-DD")
     parser.add_argument("--days", type=int, default=365, help="backfill 模式最大天数 (默认365)")
+    parser.add_argument("--repair", action="store_true", help="修复模式（配合 --from/--to/--all）")
+    parser.add_argument("--from", type=str, dest="from_date", help="修复起始日期 YYYY-MM-DD")
+    parser.add_argument("--to", type=str, dest="to_date", help="修复结束日期 YYYY-MM-DD")
+    parser.add_argument("--all", action="store_true", help="修复全部历史")
     args = parser.parse_args()
 
     conn = psycopg2.connect(PG_DSN)
     conn.autocommit = False
 
-    if args.date:
+    if args.repair:
+        if args.all:
+            cur = conn.cursor()
+            cur.execute("SELECT trade_date FROM market_daily_agg ORDER BY trade_date")
+            dates = [r[0].strftime("%Y-%m-%d") for r in cur.fetchall()]
+            print(f"修复全部: {len(dates)} 个交易日")
+        elif args.from_date and args.to_date:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT trade_date FROM market_daily_agg WHERE trade_date >= %s AND trade_date <= %s ORDER BY trade_date",
+                (args.from_date, args.to_date)
+            )
+            dates = [r[0].strftime("%Y-%m-%d") for r in cur.fetchall()]
+            print(f"修复区间: {args.from_date} ~ {args.to_date}, {len(dates)} 天")
+        else:
+            # Repair without range = repair last 60 days
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT trade_date FROM market_daily_agg ORDER BY trade_date DESC LIMIT 60"
+            )
+            dates = [r[0].strftime("%Y-%m-%d") for r in cur.fetchall()]
+            print(f"修复最近: {len(dates)} 个交易日")
+    elif args.date:
         dates = [args.date]
         print(f"计算指定日期: {args.date}")
     elif args.backfill:

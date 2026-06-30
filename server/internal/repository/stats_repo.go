@@ -56,6 +56,8 @@ func GetDataStats() []DataStat {
 		{"market_daily_agg", "市场日聚合", "market_daily_agg", "trade_date"},
 		{"market_sentiment", "市场情绪", "market_sentiment", "trade_date"},
 		{"fund_flow", "资金流向", "stock_fund_flow", "trade_date"},
+		{"northbound", "北向资金", "northbound_minute", "trade_date"},
+		{"limit_stats", "涨跌停统计", "limit_stats_daily", "trade_date"},
 	}
 
 	type result struct {
@@ -385,6 +387,28 @@ func GetDataDetail(typ string) []StockDataCoverage {
 				1 as count,
 				trade_date as first_date, trade_date as last_date
 			FROM market_daily_agg
+			ORDER BY trade_date DESC
+		`).Scan(&results)
+
+	case "northbound":
+		db.PG.Raw(`
+			SELECT TO_CHAR(trade_date, 'YYYY-MM-DD') as code, TO_CHAR(trade_date, 'YYYY-MM-DD') as name,
+				bars as count,
+				trade_date as first_date, trade_date as last_date
+			FROM (
+				SELECT trade_date, COUNT(*) as bars
+				FROM northbound_minute
+				GROUP BY trade_date
+			) sub
+			ORDER BY trade_date DESC
+		`).Scan(&results)
+
+	case "limit_stats":
+		db.PG.Raw(`
+			SELECT TO_CHAR(trade_date, 'YYYY-MM-DD') as code, TO_CHAR(trade_date, 'YYYY-MM-DD') as name,
+				total_stocks as count,
+				trade_date as first_date, trade_date as last_date
+			FROM limit_stats_daily
 			ORDER BY trade_date DESC
 		`).Scan(&results)
 

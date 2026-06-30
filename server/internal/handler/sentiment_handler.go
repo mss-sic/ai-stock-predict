@@ -294,3 +294,32 @@ func (h *SentimentHandler) GetLimitStats(c *gin.Context) {
 	}
 	response.Success(c, list)
 }
+
+// GetFearGreedLatest returns the latest Fear & Greed composite with 6 sub-factors.
+func (h *SentimentHandler) GetFearGreedLatest(c *gin.Context) {
+	data, err := service.ComputeFearGreedLatest()
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, 500, "计算恐慌贪婪指数失败: "+err.Error())
+		return
+	}
+	response.Success(c, data)
+}
+
+// GetFearGreedHistory returns Fear & Greed index history for the last N days.
+func (h *SentimentHandler) GetFearGreedHistory(c *gin.Context) {
+	daysStr := c.DefaultQuery("days", "60")
+	days, err := strconv.Atoi(daysStr)
+	if err != nil || days < 1 || days > 365 {
+		days = 60
+	}
+
+	list, err := service.ComputeFearGreedHistory(days)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, 500, "获取恐慌贪婪历史失败: "+err.Error())
+		return
+	}
+	if list == nil {
+		list = []service.FearGreedData{}
+	}
+	response.Success(c, list)
+}

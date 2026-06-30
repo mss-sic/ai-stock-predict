@@ -46,7 +46,9 @@ var DefaultTasks = []struct {
 	{"分红数据采集", "dividend", "0 0 5 * * 1"},            // weekly Mon 05:00
 	{"一致预期采集", "ths_eps", "0 0 6 * * 1"},             // weekly Mon 06:00
 	{"巨潮公告采集", "cninfo", "0 0 8 * * *"},              // daily 08:00
-	{"宏观资讯采集", "macro_news", "0 */30 * * * *"},       // every 30 min (7×24滚动)             // weekly Sun 20:00
+	{"宏观资讯采集", "macro_news", "0 */30 * * * *"},       // every 30 min (7×24滚动)
+	{"北向资金采集", "northbound", "0 30 15 * * 1-5"},       // 交易日 15:30 盘后
+	{"涨跌停统计更新", "limit_stats", "0 0 16 * * 1-5"},    // 交易日 16:00 盘后             // weekly Sun 20:00
 
 }
 
