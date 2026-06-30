@@ -1,9 +1,12 @@
 package handler
 
 import (
+	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/ai-stock-predict/server/internal/collector"
@@ -308,6 +311,68 @@ func (h *StockHandler) GetCninfoAnnouncements(c *gin.Context) {
 		return
 	}
 	response.Success(c, data)
+}
+
+func (h *StockHandler) GetFundFlowMinute(c *gin.Context) {
+	code := c.Param("code")
+	if code == "" {
+		response.Error(c, 400, response.CodeBadRequest, "股票代码不能为空")
+		return
+	}
+	market := "0"
+	if strings.HasPrefix(code, "6") {
+		market = "1"
+	}
+	url := fmt.Sprintf("https://push2.eastmoney.com/api/qt/stock/fflow/kline/get?secid=%s.%s&klt=1&fields1=f1,f2,f3,f7&fields2=f51,f52,f53,f54,f55,f56,f57", market, code)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		response.Error(c, 500, response.CodeInternalError, "创建请求失败")
+		return
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0")
+	req.Header.Set("Referer", "https://quote.eastmoney.com/")
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		response.Error(c, 500, response.CodeInternalError, "请求资金流失败: "+err.Error())
+		return
+	}
+	defer resp.Body.Close()
+	var result map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		response.Error(c, 500, response.CodeInternalError, "解析资金流失败")
+		return
+	}
+	data, _ := result["data"].(map[string]interface{})
+	klines, _ := data["klines"].([]interface{})
+	type MinuteFlow struct {
+		Time     string  `json:"time"`
+		MainNet  float64 `json:"mainNet"`
+		SmallNet float64 `json:"smallNet"`
+		MidNet   float64 `json:"midNet"`
+		LargeNet float64 `json:"largeNet"`
+		SuperNet float64 `json:"superNet"`
+	}
+	var rows []MinuteFlow
+	for _, line := range klines {
+		parts := strings.Split(line.(string), ",")
+		if len(parts) >= 6 {
+			mainNet, _ := strconv.ParseFloat(parts[1], 64)
+			smallNet, _ := strconv.ParseFloat(parts[2], 64)
+			midNet, _ := strconv.ParseFloat(parts[3], 64)
+			largeNet, _ := strconv.ParseFloat(parts[4], 64)
+			superNet, _ := strconv.ParseFloat(parts[5], 64)
+			rows = append(rows, MinuteFlow{
+				Time: parts[0],
+				MainNet: mainNet / 10000,
+				SmallNet: smallNet / 10000,
+				MidNet: midNet / 10000,
+				LargeNet: largeNet / 10000,
+				SuperNet: superNet / 10000,
+			})
+		}
+	}
+	response.Success(c, rows)
 }
 
 func (h *StockHandler) GetStockFundFlow(c *gin.Context) {
