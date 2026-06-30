@@ -96,6 +96,7 @@ const HISTORY_CAPABLE_PHASES = new Set([
   'reports',         // 研报（可按日期范围查询）
   'market_daily_agg', // 市场日聚合（--last N / --all）
   'market_sentiment', // 市场情绪（--last N / date）
+  'market_style',    // 市场风格（修复历史 = 重算缺失日期）
   'backfill_financial', 'backfill_shareholder', 'backfill_indicator',
 ]);
 

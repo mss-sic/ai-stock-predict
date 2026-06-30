@@ -394,8 +394,10 @@ func RepairTask(id uint, from, to string, all bool) error {
 	if err := db.MySQL.First(&task, id).Error; err != nil {
 		return err
 	}
-	// For market_style, run bulk compute: fill all missing dates
+	// For market_style, run bulk compute: clean zero rows + fill missing dates
 	if task.Phase == "market_style" {
+		// Clean zero-filled rows first (from failed previous computations)
+		db.PG.Exec(`DELETE FROM market_style_daily WHERE up_ratio = 0 AND total_amount = 0`)
 		var dates []string
 		if err := db.PG.Raw(`
 			SELECT trade_date::text FROM market_sentiment
