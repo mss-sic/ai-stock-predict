@@ -18,6 +18,13 @@ import urllib.request
 SAMPLE_CODES = ['600519', '601318', '688017', '000001', '002475', '300750', '600036', '688981']
 PG_DSN = os.environ.get("PG_DSN", "host=localhost dbname=stock_predict user=stock password=stock123")
 UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
+UA_POOL = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0",
+]
+FUND_FLOW_DELAY = float(os.environ.get("FUND_FLOW_DELAY", "0.5"))  # seconds, increase for non-mainland IP
 
 
 def fetch_fund_flow(code, retries=2):
@@ -30,9 +37,12 @@ def fetch_fund_flow(code, retries=2):
         "lmt": "120",
     }
     headers = {
-        "User-Agent": UA,
+        "User-Agent": random.choice(UA_POOL),
         "Referer": "https://quote.eastmoney.com/",
         "Origin": "https://quote.eastmoney.com",
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+        "Connection": "keep-alive",
     }
     last_err = None
     for attempt in range(retries + 1):
@@ -105,11 +115,15 @@ def main():
             elapsed = time.time() - t_start
             rate = (i + 1) / elapsed if elapsed > 0 else 0
             eta_min = (len(codes) - i - 1) / (rate * 60) if rate > 0 else 0
-            print(f"[资金流] {i+1}/{len(codes)} | 新增:{total} 跳过:{skip} API错误:{api_err} 空数据:{empty} | {rate:.1f}只/s | ETA:{eta_min:.0f}min", flush=True)
+            err_pct = api_err / (i + 1) * 100 if (i + 1) > 0 else 0
+            warn = " ⚠️ 风控中!" if err_pct > 10 else ""
+            print(f"[资金流] {i+1}/{len(codes)} | 新增:{total} 跳过:{skip} API错误:{api_err}({err_pct:.0f}%) 空数据:{empty} | {rate:.1f}只/s | ETA:{eta_min:.0f}min{warn}", flush=True)
         try:
             rows = fetch_fund_flow(code)
             if rows is None:
                 api_err += 1
+                # Rate-limited: extra backoff to cool down
+                time.sleep(2 + random.random() * 3)
                 continue
             if not rows:
                 empty += 1
@@ -140,7 +154,7 @@ def main():
             errors += 1
             conn.rollback()
             continue
-        time.sleep(0.3 + random.random() * 0.4)  # 0.3-0.7s to avoid rate limit
+        time.sleep(FUND_FLOW_DELAY + random.random() * FUND_FLOW_DELAY)  # configurable delay
 
     cur.close()
     conn.close()
