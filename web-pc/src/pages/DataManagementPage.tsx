@@ -35,6 +35,7 @@ const PHASE_LABELS: Record<string, string> = {
   risk_scan: '风险扫描',
   concept_full: '概念全量重建',
   ai_score: 'AI评分更新',
+  fund_flow: '资金流向',
 };
 
 const PHASE_DESCRIPTIONS: Record<string, string> = {
@@ -53,6 +54,7 @@ const PHASE_DESCRIPTIONS: Record<string, string> = {
   backfill_indicator: '全量回溯历史PE/PB指标，补齐所有交易日的估值数据',
   profile: 'AI生成结构化公司简介: 核心特征/主营业务/财报/成长/风险/展望',
   score: 'AI六维度量化评分: 基本面/成长性/估值/资金面/技术面/行业景气',
+  fund_flow: '采集个股每日资金流向数据，包含主力/超大单/大单/中单/小单净流入流出',
   dragon_tiger: '采集全市场龙虎榜上榜股票+买卖席位TOP5+机构动向',
   margin: '采集全市场融资余额/融券余额/融资买入/融券卖出等两融数据',
   block_trade: '采集大宗交易成交价/折溢价率/买卖方营业部',

@@ -452,6 +452,9 @@ func RunManualCollection(phases []string, extraArgs ...string) {
 	if shouldRun("macro_news") {
 		appendResult(runMacroNewsPhase())
 	}
+	if shouldRun("fund_flow") {
+		appendResult(runFundFlowPhase())
+	}
 }
 
 
@@ -537,6 +540,10 @@ func runThsEpsPhase() PhaseResult {
 
 func runCninfoPhase() PhaseResult {
 	return runStatsPhase("cninfo", "巨潮公告", "collect_cninfo.py")
+}
+
+func runFundFlowPhase() PhaseResult {
+	return runStatsPhase("fund_flow", "资金流向", "collect_fund_flow.py")
 }
 
 func runMacroNewsPhase() PhaseResult {
@@ -816,7 +823,10 @@ func RunStockCollection(phase, code string) error {
 	case "unlocks":
 		return runPythonStreamWithArgs("collect_unlock.py", code)
 	case "fund_flow":
-		return runPythonStreamWithArgs("collect_fund_flow.py", code)
+		if code != "" {
+			return runPythonStreamWithArgs("collect_fund_flow.py", code)
+		}
+		return runPythonStreamWithArgs("collect_fund_flow.py", "--last", "30")
 	default:
 		return fmt.Errorf("unknown phase: %s", phase)
 	}
