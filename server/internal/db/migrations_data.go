@@ -1224,4 +1224,28 @@ Register(Migration{
 
 
 
+
+	// ============================================================
+	// v044: MySQL seed missing scheduled_tasks rows
+	// ============================================================
+	Register(Migration{
+		Version:     44,
+		Description: "MySQL: seed missing scheduled_tasks (fund_flow)",
+		Up: func() error {
+			seeds := []struct{ Name, Phase, CronExpr string }{
+				{"资金流向采集", "fund_flow", "0 0 17 * * 1-5"},
+			}
+			for _, s := range seeds {
+				var count int64
+				MySQL.Raw("SELECT COUNT(*) FROM scheduled_tasks WHERE phase = ?", s.Phase).Scan(&count)
+				if count == 0 {
+					MySQL.Exec("INSERT INTO scheduled_tasks (name, phase, cron_expr, enabled, created_at, updated_at) VALUES (?, ?, ?, true, NOW(), NOW())",
+						s.Name, s.Phase, s.CronExpr)
+					log.Printf("[migrate v44] seeded scheduled_task: %s", s.Phase)
+				}
+			}
+			return nil
+		},
+	})
+
 }
