@@ -101,7 +101,7 @@ const router = createBrowserRouter([
           { path: 'holdings', element: <HoldingsPage /> },
           { path: 'risk', element: <RiskPage /> },
           { path: 'sentiment', element: <SentimentDashboard /> },
-          { path: "market-review", element: <MarketStylePage /> },
+          { path: "market-style", element: <MarketStylePage /> },
 
           { path: 'data', element: <DataManagementPage /> },
           { path: 'settings', element: <SettingsPage /> },

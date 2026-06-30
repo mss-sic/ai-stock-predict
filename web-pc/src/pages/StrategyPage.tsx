@@ -1527,7 +1527,7 @@ export default function StrategyPage() {
 
                   {/* ── 高级参数 (折叠) ── */}
                   {/* Market review link */}
-                  <a href="/market-review" style={{
+                  <a href="/market-style" style={{
                     display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px',
                     background: 'linear-gradient(135deg, #FF7D0010, #F7BA1E10)',
                     borderRadius: 8, border: '1px solid #FF7D0020',

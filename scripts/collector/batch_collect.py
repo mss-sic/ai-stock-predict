@@ -33,11 +33,11 @@ def fetch_kline(code, days=365):
     if not re.match(r'^[0-9]{6}$', code):
         return []
     if code.startswith("92"):
-        prefix = "nq"
+        prefix = "bj"
     elif code.startswith(("6", "9")):
         prefix = "sh"
-    elif code.startswith("8"):
-        prefix = "nq"
+    elif code.startswith("8") or code.startswith("4"):
+        prefix = "bj"
     else:
         prefix = "sz"
     url = f"http://ifzq.gtimg.cn/appstock/app/fqkline/get?param={prefix}{code},day,,,{days},qfq"
@@ -84,7 +84,7 @@ def fetch_one_stock(code, latest, today):
         if len(row) < 6:
             continue
         vol_shou = float(row[5])
-        vol_gu = int(vol_shou) if code.startswith("688") else int(vol_shou * 100)
+        vol_gu = int(vol_shou) if code.startswith("688") or code.startswith("8") or code.startswith("4") else int(vol_shou * 100)
         close_p = float(row[2])
         amt = close_p * float(vol_gu)
         rows.append((
@@ -130,11 +130,11 @@ def fetch_quote_batch(codes_batch):
     symbols = []
     for code in codes_batch:
         if code.startswith("92"):
-            prefix = "nq"
+            prefix = "bj"
         elif code.startswith(("6", "9")):
             prefix = "sh"
-        elif code.startswith("8"):
-            prefix = "nq"
+        elif code.startswith("8") or code.startswith("4"):
+            prefix = "bj"
         else:
             prefix = "sz"
         symbols.append(f"{prefix}{code}")

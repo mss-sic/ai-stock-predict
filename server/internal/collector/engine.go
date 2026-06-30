@@ -374,6 +374,9 @@ func RunManualCollection(phases []string, extraArgs ...string) {
 	if shouldRun("kline") {
 		appendResult(runKLinePhase())
 	}
+	if shouldRun("kline_youzi") {
+		appendResult(runKLineYouziPhase())
+	}
 	if shouldRun("indicator") {
 		appendResult(runIndicatorPhase())
 	}
@@ -1008,6 +1011,24 @@ func runBackfillIndicatorPhase() PhaseResult {
 	phaseRes.New = int(after - before)
 	phaseRes.DurationMs = time.Since(t0).Milliseconds()
 	sseSend(SSELine{Type: "result", Phase: "backfill_indicator", Result: &phaseRes, Level: "success", Message: fmt.Sprintf("指标回填: +%d 条", after-before)})
+	return phaseRes
+}
+
+// runKLineYouziPhase collects daily K-line from Youzi Big Data API (includes 北交所)
+func runKLineYouziPhase() PhaseResult {
+	setPhase("kline_youzi", "柚子K线采集...")
+	sseSend(SSELine{Type: "phase", Phase: "kline_youzi", Message: "开始从柚子大数据API采集全市日K线（含北交所）...", Level: "info"})
+	t0 := time.Now()
+	var before int64
+	db.PG.Raw("SELECT COUNT(DISTINCT code) FROM stocks_daily_k WHERE data_source = 'youzi'").Scan(&before)
+	runPythonStream("collect_kline_youzi.py")
+	phaseRes := PhaseResult{Phase: "kline_youzi"}
+	var after int64
+	db.PG.Raw("SELECT COUNT(DISTINCT code) FROM stocks_daily_k WHERE data_source = 'youzi'").Scan(&after)
+	phaseRes.Total = int(after)
+	phaseRes.New = int(after - before)
+	phaseRes.DurationMs = time.Since(t0).Milliseconds()
+	sseSend(SSELine{Type: "result", Phase: "kline_youzi", Result: &phaseRes, Level: "success", Message: fmt.Sprintf("柚子K线: %d 只", after)})
 	return phaseRes
 }
 

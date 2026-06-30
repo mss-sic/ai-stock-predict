@@ -1248,4 +1248,17 @@ Register(Migration{
 		},
 	})
 
+	// v045: stocks_daily_k extended columns for Youzi K-line API
+	Register(Migration{
+		Version:     45,
+		Description: "PG: stocks_daily_k add data_source + high_limit + low_limit + avg_price + is_paused columns",
+		Up: func() error {
+			safeExec(`ALTER TABLE stocks_daily_k ADD COLUMN IF NOT EXISTS data_source VARCHAR(20) DEFAULT 'tencent'`)
+			safeExec(`ALTER TABLE stocks_daily_k ADD COLUMN IF NOT EXISTS high_limit NUMERIC`)
+			safeExec(`ALTER TABLE stocks_daily_k ADD COLUMN IF NOT EXISTS low_limit NUMERIC`)
+			safeExec(`ALTER TABLE stocks_daily_k ADD COLUMN IF NOT EXISTS avg_price NUMERIC`)
+			safeExec(`ALTER TABLE stocks_daily_k ADD COLUMN IF NOT EXISTS is_paused BOOLEAN DEFAULT false`)
+			return nil
+		},
+	})
 }
