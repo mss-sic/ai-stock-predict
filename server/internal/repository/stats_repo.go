@@ -14,195 +14,97 @@ type DataStat struct {
 	UpdatedAt *time.Time `json:"updatedAt,omitempty"`
 }
 
+// statsCache holds cached data stats with a short TTL
+var statsCache = struct {
+	data      []DataStat
+	expiresAt time.Time
+}{}
+
 func GetDataStats() []DataStat {
-	var stats []DataStat
-
-	// stock count
-	var stockCount int64
-	db.PG.Model(&struct{}{}).Table("stocks_basic").Count(&stockCount)
-	stats = append(stats, DataStat{Key: "stocks", Label: "股票基础数据", Count: stockCount})
-
-	// kline count
-	var klineCount int64
-	var klineLast time.Time
-	db.PG.Table("stocks_daily_k").Count(&klineCount)
-	if err := db.PG.Table("stocks_daily_k").Select("MAX(trade_date)").Scan(&klineLast).Error; err != nil {
-		log.Printf("[stats] kline last date query failed: %v", err)
+	// Return cached result if still fresh (30s TTL)
+	if time.Now().Before(statsCache.expiresAt) && len(statsCache.data) > 0 {
+		return statsCache.data
 	}
-	stats = append(stats, DataStat{Key: "kline", Label: "日K线数据", Count: klineCount, UpdatedAt: &klineLast})
 
-	// indicator count
-	var indCount int64
-	var indLast time.Time
-	db.PG.Table("stocks_daily_indicator").Count(&indCount)
-	if err := db.PG.Table("stocks_daily_indicator").Select("MAX(trade_date)").Scan(&indLast).Error; err != nil {
-		log.Printf("[stats] indicator last date query failed: %v", err)
+	type statJob struct {
+		key   string
+		label string
+		table string
+		dateColumn string // trade_date, created_at, or empty for count-only
 	}
-	stats = append(stats, DataStat{Key: "indicator", Label: "PE/PB 指标数据", Count: indCount, UpdatedAt: &indLast})
-
-	// financial count
-	var finCount int64
-	var finLast time.Time
-	db.PG.Table("stock_financials").Count(&finCount)
-	if err := db.PG.Table("stock_financials").Select("MAX(created_at)").Scan(&finLast).Error; err != nil {
-		log.Printf("[stats] financials last date query failed: %v", err)
+	jobs := []statJob{
+		{"stocks", "股票基础数据", "stocks_basic", ""},
+		{"kline", "日K线数据", "stocks_daily_k", "trade_date"},
+		{"indicator", "PE/PB 指标数据", "stocks_daily_indicator", "trade_date"},
+		{"financial", "财务数据", "stock_financials", "created_at"},
+		{"shareholder", "股东数据", "stock_shareholders", "created_at"},
+		{"news", "资讯数据", "stock_news", "created_at"},
+		{"reports", "研报数据", "stock_reports", "created_at"},
+		{"board_picks", "上榜批次", "algorithm_picks", "pick_date"},
+		{"board_details", "上榜明细记录", "algorithm_pick_details", ""},
+		{"signals", "信号数据", "stock_signals", ""},
+		{"concept", "概念板块关联", "stock_concepts", "updated_at"},
+		{"dragon_tiger", "龙虎榜上榜", "dragon_tiger_list", "trade_date"},
+		{"margin", "融资融券", "margin_trading", "trade_date"},
+		{"block_trade", "大宗交易", "block_trade", "trade_date"},
+		{"unlock", "限售解禁", "restricted_share_unlock", "unlock_date"},
+		{"ths_hot", "同花顺热点", "ths_hot_stocks", "trade_date"},
+		{"dividend", "分红送转", "dividend_history", "ex_dividend_date"},
+		{"ths_eps", "一致预期EPS", "ths_eps_forecast", "created_at"},
+		{"cninfo", "巨潮公告", "cninfo_announcements", "ann_date"},
+		{"macro_news", "宏观资讯", "macro_news", "created_at"},
+		{"market_daily_agg", "市场日聚合", "market_daily_agg", "trade_date"},
+		{"market_sentiment", "市场情绪", "market_sentiment", "trade_date"},
+		{"fund_flow", "资金流向", "stock_fund_flow", "trade_date"},
 	}
-	stats = append(stats, DataStat{Key: "financial", Label: "财务数据", Count: finCount, UpdatedAt: &finLast})
 
-	// shareholder count
-	var shCount int64
-	var shLast time.Time
-	db.PG.Table("stock_shareholders").Count(&shCount)
-	if err := db.PG.Table("stock_shareholders").Select("MAX(created_at)").Scan(&shLast).Error; err != nil {
-		log.Printf("[stats] shareholders last date query failed: %v", err)
+	type result struct {
+		idx   int
+		key   string
+		label string
+		count int64
+		last  *time.Time
 	}
-	stats = append(stats, DataStat{Key: "shareholder", Label: "股东数据", Count: shCount, UpdatedAt: &shLast})
 
-	// news count
-	var newsCount int64
-	var newsLast time.Time
-	db.PG.Table("stock_news").Count(&newsCount)
-	if err := db.PG.Table("stock_news").Select("MAX(created_at)").Scan(&newsLast).Error; err != nil {
-		log.Printf("[stats] news last date query failed: %v", err)
+	ch := make(chan result, len(jobs))
+	for i, j := range jobs {
+		go func(idx int, job statJob) {
+			var count int64
+			var last time.Time
+			var lastPtr *time.Time
+
+			if err := db.PG.Table(job.table).Count(&count).Error; err != nil {
+				log.Printf("[stats] %s count failed: %v", job.key, err)
+			}
+
+			if job.dateColumn != "" {
+				if err := db.PG.Table(job.table).Select("MAX(" + job.dateColumn + ")").Scan(&last).Error; err != nil {
+					log.Printf("[stats] %s last date failed: %v", job.key, err)
+				}
+				if !last.IsZero() {
+					lastPtr = &last
+				}
+			}
+
+			ch <- result{idx, job.key, job.label, count, lastPtr}
+		}(i, j)
 	}
-	stats = append(stats, DataStat{Key: "news", Label: "资讯数据", Count: newsCount, UpdatedAt: &newsLast})
 
-	// reports count
-	var reportsCount int64
-	var reportsLast time.Time
-	db.PG.Table("stock_reports").Count(&reportsCount)
-	if err := db.PG.Table("stock_reports").Select("MAX(created_at)").Scan(&reportsLast).Error; err != nil {
-		log.Printf("[stats] reports last date query failed: %v", err)
+	// Collect results in order
+	results := make([]result, len(jobs))
+	for range jobs {
+		r := <-ch
+		results[r.idx] = r
 	}
-	stats = append(stats, DataStat{Key: "reports", Label: "研报数据", Count: reportsCount, UpdatedAt: &reportsLast})
 
-	// algorithm picks (Excel imported board data)
-	var picksCount int64
-	var picksLast time.Time
-	db.PG.Table("algorithm_picks").Count(&picksCount)
-	if err := db.PG.Table("algorithm_picks").Select("MAX(pick_date)").Scan(&picksLast).Error; err != nil {
-		log.Printf("[stats] picks last date query failed: %v", err)
+	stats := make([]DataStat, 0, len(jobs))
+	for _, r := range results {
+		stats = append(stats, DataStat{Key: r.key, Label: r.label, Count: r.count, UpdatedAt: r.last})
 	}
-	stats = append(stats, DataStat{Key: "board_picks", Label: "上榜批次", Count: picksCount, UpdatedAt: &picksLast})
 
-	var pickDetailsCount int64
-	db.PG.Table("algorithm_pick_details").Count(&pickDetailsCount)
-	stats = append(stats, DataStat{Key: "board_details", Label: "上榜明细记录", Count: pickDetailsCount})
-
-	// signals count
-	var signalsCount int64
-	db.PG.Table("stock_signals").Count(&signalsCount)
-	stats = append(stats, DataStat{Key: "signals", Label: "信号数据", Count: signalsCount})
-
-	// ── 新增数据源统计 (v041+) ──
-
-	// concept
-	var conceptCount int64
-	var conceptLast time.Time
-	db.PG.Table("stock_concepts").Count(&conceptCount)
-	if err := db.PG.Table("stock_concepts").Select("MAX(updated_at)").Scan(&conceptLast).Error; err != nil {
-		log.Printf("[stats] concept last date query failed: %v", err)
-	}
-	stats = append(stats, DataStat{Key: "concept", Label: "概念板块关联", Count: conceptCount, UpdatedAt: &conceptLast})
-
-	// dragon_tiger
-	var dtCount int64
-	var dtLast time.Time
-	db.PG.Table("dragon_tiger_list").Count(&dtCount)
-	if err := db.PG.Table("dragon_tiger_list").Select("MAX(trade_date)").Scan(&dtLast).Error; err != nil {
-		log.Printf("[stats] dragon_tiger last date query failed: %v", err)
-	}
-	stats = append(stats, DataStat{Key: "dragon_tiger", Label: "龙虎榜上榜", Count: dtCount, UpdatedAt: &dtLast})
-
-	// margin
-	var marginCount int64
-	var marginLast time.Time
-	db.PG.Table("margin_trading").Count(&marginCount)
-	if err := db.PG.Table("margin_trading").Select("MAX(trade_date)").Scan(&marginLast).Error; err != nil {
-		log.Printf("[stats] margin last date query failed: %v", err)
-	}
-	stats = append(stats, DataStat{Key: "margin", Label: "融资融券", Count: marginCount, UpdatedAt: &marginLast})
-
-	// block_trade
-	var btCount int64
-	var btLast time.Time
-	db.PG.Table("block_trade").Count(&btCount)
-	if err := db.PG.Table("block_trade").Select("MAX(trade_date)").Scan(&btLast).Error; err != nil {
-		log.Printf("[stats] block_trade last date query failed: %v", err)
-	}
-	stats = append(stats, DataStat{Key: "block_trade", Label: "大宗交易", Count: btCount, UpdatedAt: &btLast})
-
-	// unlock
-	var unlockCount int64
-	var unlockLast time.Time
-	db.PG.Table("restricted_share_unlock").Count(&unlockCount)
-	if err := db.PG.Table("restricted_share_unlock").Select("MAX(unlock_date)").Scan(&unlockLast).Error; err != nil {
-		log.Printf("[stats] unlock last date query failed: %v", err)
-	}
-	stats = append(stats, DataStat{Key: "unlock", Label: "限售解禁", Count: unlockCount, UpdatedAt: &unlockLast})
-
-	// ths_hot
-	var thsHotCount int64
-	var thsHotLast time.Time
-	db.PG.Table("ths_hot_stocks").Count(&thsHotCount)
-	if err := db.PG.Table("ths_hot_stocks").Select("MAX(trade_date)").Scan(&thsHotLast).Error; err != nil {
-		log.Printf("[stats] ths_hot last date query failed: %v", err)
-	}
-	stats = append(stats, DataStat{Key: "ths_hot", Label: "同花顺热点", Count: thsHotCount, UpdatedAt: &thsHotLast})
-
-	// dividend
-	var divCount int64
-	var divLast time.Time
-	db.PG.Table("dividend_history").Count(&divCount)
-	if err := db.PG.Table("dividend_history").Select("MAX(created_at)").Scan(&divLast).Error; err != nil {
-		log.Printf("[stats] dividend last date query failed: %v", err)
-	}
-	stats = append(stats, DataStat{Key: "dividend", Label: "分红送转", Count: divCount, UpdatedAt: &divLast})
-
-	// ths_eps
-	var epsCount int64
-	var epsLast time.Time
-	db.PG.Table("ths_eps_forecast").Count(&epsCount)
-	if err := db.PG.Table("ths_eps_forecast").Select("MAX(created_at)").Scan(&epsLast).Error; err != nil {
-		log.Printf("[stats] ths_eps last date query failed: %v", err)
-	}
-	stats = append(stats, DataStat{Key: "ths_eps", Label: "一致预期EPS", Count: epsCount, UpdatedAt: &epsLast})
-
-	// cninfo
-	var cninfoCount int64
-	var cninfoLast time.Time
-	db.PG.Table("cninfo_announcements").Count(&cninfoCount)
-	if err := db.PG.Table("cninfo_announcements").Select("MAX(ann_date)").Scan(&cninfoLast).Error; err != nil {
-		log.Printf("[stats] cninfo last date query failed: %v", err)
-	}
-	stats = append(stats, DataStat{Key: "cninfo", Label: "巨潮公告", Count: cninfoCount, UpdatedAt: &cninfoLast})
-
-	// macro_news
-	var macroCount int64
-	var macroLast time.Time
-	db.PG.Table("macro_news").Count(&macroCount)
-	if err := db.PG.Table("macro_news").Select("MAX(created_at)").Scan(&macroLast).Error; err != nil {
-		log.Printf("[stats] macro_news last date query failed: %v", err)
-	}
-	stats = append(stats, DataStat{Key: "macro_news", Label: "宏观资讯", Count: macroCount, UpdatedAt: &macroLast})
-
-	// market_daily_agg
-	var mdaCount int64
-	var mdaLast time.Time
-	db.PG.Table("market_daily_agg").Count(&mdaCount)
-	if err := db.PG.Table("market_daily_agg").Select("MAX(trade_date)").Scan(&mdaLast).Error; err != nil {
-		log.Printf("[stats] market_daily_agg last date query failed: %v", err)
-	}
-	stats = append(stats, DataStat{Key: "market_daily_agg", Label: "市场日聚合", Count: mdaCount, UpdatedAt: &mdaLast})
-
-	// market_sentiment
-	var msCount int64
-	var msLast time.Time
-	db.PG.Table("market_sentiment").Count(&msCount)
-	if err := db.PG.Table("market_sentiment").Select("MAX(trade_date)").Scan(&msLast).Error; err != nil {
-		log.Printf("[stats] market_sentiment last date query failed: %v", err)
-	}
-	stats = append(stats, DataStat{Key: "market_sentiment", Label: "市场情绪", Count: msCount, UpdatedAt: &msLast})
+	// Cache for 30 seconds
+	statsCache.data = stats
+	statsCache.expiresAt = time.Now().Add(30 * time.Second)
 
 	return stats
 }
