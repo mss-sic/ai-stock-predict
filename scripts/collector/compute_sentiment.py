@@ -267,6 +267,29 @@ def main():
 
     keys = ["breadth","style_risk","activity","profit","volatility","strength",
             "risk_appetite","limit_sent","sector_diff","northbound","capital_flow"]
+    # DB columns mapping: sub-indicator raw value → score
+    db_cols = {
+        "breadth": "market_breadth", "style_risk": "style_risk_pref",
+        "activity": "trade_activity", "profit": "profit_effect",
+        "volatility": "volatility", "strength": "price_strength",
+        "risk_appetite": "risk_appetite", "limit_sent": "limit_sentiment",
+        "sector_diff": "sector_diffusion", "northbound": "northbound_net",
+        "capital_flow": "capital_flow_net",
+    }
+    # Merge NEW raw data with EXISTING historical DB values for meaningful percentile ranks
+    hist_data = {k: {} for k in keys}
+    for k in keys:
+        col = db_cols[k]
+        cur.execute(f"SELECT trade_date, {col} FROM market_sentiment WHERE {col} IS NOT NULL ORDER BY trade_date")
+        for r in cur.fetchall():
+            hist_data[k][str(r[0])] = float(r[1])
+        # Overwrite with newly-computed values (may differ)
+        for d in raw:
+            hist_data[k][d["trade_date"]] = d[k]
+    # Build sorted series from merged data for percentile rank
+    full_series = {}
+    for k in keys:
+        full_series[k] = sorted(hist_data[k].items())
     # Optimized weights (backtested, 2026-06-20) — northbound/capital_flow excluded
     _w = {
         "breadth": 0.183, "style_risk": 0.175, "activity": 0.049,
@@ -276,8 +299,7 @@ def main():
     }
     score_maps = {}
     for k in keys:
-        series = [(d["trade_date"], d[k]) for d in raw]
-        score_maps[k] = rolling_pcts(series)
+        score_maps[k] = rolling_pcts(full_series[k])
 
     rows = []
     for d in raw:
