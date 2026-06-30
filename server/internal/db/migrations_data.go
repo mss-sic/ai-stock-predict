@@ -1261,4 +1261,25 @@ Register(Migration{
 			return nil
 		},
 	})
+	// v046: limit_stats_daily pre-computed table for fast limit-up/down dashboard
+	Register(Migration{
+		Version:     46,
+		Description: "PG: create limit_stats_daily for pre-computed limit-up/down stats",
+		Up: func() error {
+			safeExec(`CREATE TABLE IF NOT EXISTS limit_stats_daily (
+				id SERIAL PRIMARY KEY,
+				trade_date DATE NOT NULL,
+				up_count INT DEFAULT 0,
+				down_count INT DEFAULT 0,
+				rise_count INT DEFAULT 0,
+				fall_count INT DEFAULT 0,
+				board_break INT DEFAULT 0,
+				total_stocks INT DEFAULT 0,
+				created_at TIMESTAMPTZ DEFAULT now()
+			)`)
+			safeExec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_limit_stats_daily_date ON limit_stats_daily(trade_date)`)
+			return nil
+		},
+	})
+
 }

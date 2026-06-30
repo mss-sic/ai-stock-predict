@@ -86,61 +86,22 @@ type LimitStats struct {
 }
 
 // GetLimitStatsHistory returns daily limit-up/down statistics for the last N days.
+// Reads from pre-computed limit_stats_daily table (populated by collect_limit_stats.py).
 func GetLimitStatsHistory(days int) ([]LimitStats, error) {
-	sql := `
-		WITH daily_ret AS (
-			SELECT k.trade_date::text, k.code, b.board_type, COALESCE(b.is_st, false) as is_st,
-				(k.close - kp.close) / NULLIF(kp.close, 0) as ret,
-				-- Estimate board break: hit limit-up but closed far from limit
-				CASE
-					WHEN b.board_type IN ('kc','cy') AND (k.close - kp.close) / NULLIF(kp.close, 0) >= 0.1999
-						AND (k.high - k.close) / NULLIF(k.high, 0) > 0.02 THEN 1
-					WHEN b.board_type = 'bj' AND (k.close - kp.close) / NULLIF(kp.close, 0) >= 0.2999
-						AND (k.high - k.close) / NULLIF(k.high, 0) > 0.02 THEN 1
-					WHEN is_st AND (k.close - kp.close) / NULLIF(kp.close, 0) >= 0.0499
-						AND (k.high - k.close) / NULLIF(k.high, 0) > 0.02 THEN 1
-					WHEN (k.close - kp.close) / NULLIF(kp.close, 0) >= 0.0999
-						AND (k.high - k.close) / NULLIF(k.high, 0) > 0.02 THEN 1
-					ELSE 0
-				END as board_break
-			FROM stocks_daily_k k
-			JOIN LATERAL (
-				SELECT kp2.close FROM stocks_daily_k kp2
-				WHERE kp2.code = k.code AND kp2.trade_date < k.trade_date
-				ORDER BY kp2.trade_date DESC LIMIT 1
-			) kp ON TRUE
-			JOIN stocks_basic b ON b.code = k.code
-			WHERE k.trade_date >= (
-				SELECT MAX(trade_date) FROM market_daily_agg
-			) - ?::integer
-			  AND k.close > 0 AND kp.close > 0
-		)
-		SELECT trade_date,
-			COUNT(*) FILTER (
-				WHERE (board_type IN ('kc','cy') AND ret >= 0.1999)
-				   OR (board_type = 'bj' AND ret >= 0.2999)
-				   OR (is_st AND ret >= 0.0499)
-				   OR (ret >= 0.0999)
-			) as up_count,
-			COUNT(*) FILTER (
-				WHERE (board_type IN ('kc','cy') AND ret <= -0.1999)
-				   OR (board_type = 'bj' AND ret <= -0.2999)
-				   OR (is_st AND ret <= -0.0499)
-				   OR (ret <= -0.0999)
-			) as down_count,
-			COUNT(*) FILTER (WHERE ret > 0) as rise_count,
-			COUNT(*) FILTER (WHERE ret < 0) as fall_count,
-			SUM(board_break) as board_break,
-			0 as max_streak,
-			COUNT(*) as total_stocks
-		FROM daily_ret
-		GROUP BY trade_date
-		ORDER BY trade_date ASC
-	`
-
 	var list []LimitStats
-	if err := db.PG.Raw(sql, days).Scan(&list).Error; err != nil {
+	err := db.PG.Raw(`
+		SELECT trade_date::text, up_count, down_count, rise_count, fall_count,
+		       board_break, 0 as max_streak, total_stocks
+		FROM limit_stats_daily
+		ORDER BY trade_date DESC
+		LIMIT ?
+	`, days).Scan(&list).Error
+	if err != nil {
 		return nil, err
+	}
+	// Reverse to ascending for chart display
+	for i, j := 0, len(list)-1; i < j; i, j = i+1, j-1 {
+		list[i], list[j] = list[j], list[i]
 	}
 	return list, nil
 }

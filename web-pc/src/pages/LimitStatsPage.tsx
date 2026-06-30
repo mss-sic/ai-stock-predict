@@ -44,15 +44,16 @@ export default function LimitStatsPage() {
   const upDownChart = useMemo(() => ({
     tooltip: { trigger: 'axis' },
     legend: { bottom: 0, textStyle: { fontSize: 11, color: 'var(--color-text-2)' } },
-    grid: { left: 50, right: 50, top: 10, bottom: 28 },
+    grid: { left: 50, right: 50, top: 10, bottom: 44 },
     xAxis: { type: 'category', data: data.map(d => d.tradeDate.slice(5)), axisLabel: { fontSize: 10 } },
     yAxis: [
       { type: 'value', name: '涨停/跌停', axisLabel: { fontSize: 10 } },
       { type: 'value', name: '炸板', axisLabel: { fontSize: 10 } },
     ],
+    dataZoom: [{ type: 'slider', start: 0, end: data.length > 30 ? 50 : 100, height: 20, bottom: 4 }],
     series: [
-      { name: '涨停', type: 'bar', data: data.map(d => d.upCount), itemStyle: { color: '#ef4444' }, barWidth: 10 },
-      { name: '跌停', type: 'bar', data: data.map(d => d.downCount), itemStyle: { color: '#22c55e' }, barWidth: 10 },
+      { name: '涨停', type: 'bar', data: data.map(d => d.upCount), itemStyle: { color: '#ef4444' }, barMaxWidth: 14, barCategoryGap: '30%' },
+      { name: '跌停', type: 'bar', data: data.map(d => d.downCount), itemStyle: { color: '#22c55e' }, barMaxWidth: 14, barCategoryGap: '30%' },
       { name: '炸板', type: 'line', yAxisIndex: 1, data: data.map(d => d.boardBreak), smooth: true, lineStyle: { color: '#f59e0b', width: 1.5 }, symbol: 'none' },
     ],
   }), [data]);
@@ -60,15 +61,15 @@ export default function LimitStatsPage() {
   const advDeclChart = useMemo(() => ({
     tooltip: { trigger: 'axis' },
     legend: { bottom: 0, textStyle: { fontSize: 11 } },
-    grid: { left: 50, right: 50, top: 10, bottom: 28 },
+    grid: { left: 50, right: 50, top: 10, bottom: 44 },
     xAxis: { type: 'category', data: data.map(d => d.tradeDate.slice(5)), axisLabel: { fontSize: 10 } },
     yAxis: [
       { type: 'value', name: '家数', axisLabel: { fontSize: 10 } },
       { type: 'value', name: '涨跌比', axisLabel: { fontSize: 10 } },
     ],
+    dataZoom: [{ type: 'slider', start: 0, end: data.length > 30 ? 50 : 100, height: 20, bottom: 4 }],
     series: [
-      { name: '上涨', type: 'bar', data: data.map(d => d.riseCount), stack: 'x', itemStyle: { color: '#ef4444' }, barWidth: 14 },
-      { name: '下跌', type: 'bar', data: data.map(d => d.fallCount), stack: 'x', itemStyle: { color: '#22c55e' }, barWidth: 14 },
+      { name: '上涨', type: 'bar', data: data.map(d => d.riseCount), stack: 'x', itemStyle: { color: '#ef4444' }, barMaxWidth: 20 },
       {
         name: '涨跌比', type: 'line', yAxisIndex: 1,
         data: data.map(d => {
@@ -88,7 +89,7 @@ export default function LimitStatsPage() {
 
   const upDownRatioChart = useMemo(() => ({
     tooltip: { trigger: 'axis' },
-    grid: { left: 50, right: 20, top: 10, bottom: 20 },
+    grid: { left: 50, right: 20, top: 10, bottom: 44 },
     xAxis: { type: 'category', data: data.map(d => d.tradeDate.slice(5)), axisLabel: { fontSize: 10 } },
     yAxis: { type: 'value', name: '涨停/跌停比', axisLabel: { fontSize: 10 }, min: 0 },
     visualMap: {
@@ -101,13 +102,14 @@ export default function LimitStatsPage() {
         { gte: 3, color: '#ef4444' },
       ],
     },
+    dataZoom: [{ type: 'slider', start: 0, end: data.length > 30 ? 50 : 100, height: 20, bottom: 4 }],
     series: [{
       type: 'bar',
       data: data.map(d => {
         const r = d.downCount > 0 ? d.upCount / d.downCount : 10;
         return Math.min(r, 10);
       }),
-      barWidth: 12,
+      barMaxWidth: 18,
       markLine: {
         silent: true,
         data: [

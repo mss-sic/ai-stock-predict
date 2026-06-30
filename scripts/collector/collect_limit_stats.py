@@ -1,0 +1,138 @@
+#!/usr/bin/env python3
+"""预计算每日涨跌停统计，写入 limit_stats_daily 表。
+数据源: stocks_daily_k + stocks_basic (PostgreSQL)
+用法:
+  增量: python3 collect_limit_stats.py              # 计算最新交易日
+  回填: python3 collect_limit_stats.py --backfill    # 回填所有历史日期
+  指定: python3 collect_limit_stats.py --date 2026-06-30
+"""
+import os, sys, argparse
+import psycopg2
+from psycopg2.extras import execute_values
+
+PG_DSN = os.environ.get("PG_DSN", "host=localhost dbname=stock_predict user=stock password=stock123")
+
+SQL_COMPUTE_ONE_DAY = """
+    WITH returns AS (
+        SELECT k.code, b.board_type, COALESCE(b.is_st, false) as is_st,
+            (k.close - kp.close) / NULLIF(kp.close, 0) as ret,
+            k.high, k.close as close_price
+        FROM stocks_daily_k k
+        JOIN LATERAL (
+            SELECT k2.close FROM stocks_daily_k k2
+            WHERE k2.code = k.code AND k2.trade_date < k.trade_date
+            ORDER BY k2.trade_date DESC LIMIT 1
+        ) kp ON TRUE
+        JOIN stocks_basic b ON b.code = k.code
+        WHERE k.trade_date = %s
+          AND k.close > 0 AND kp.close > 0
+    )
+    SELECT
+        COUNT(*) FILTER (
+            WHERE (board_type IN ('kc','cy') AND ret >= 0.1999)
+               OR (board_type = 'bj' AND ret >= 0.2999)
+               OR (is_st AND ret >= 0.0499)
+               OR (ret >= 0.0999)
+        ) as up_count,
+        COUNT(*) FILTER (
+            WHERE (board_type IN ('kc','cy') AND ret <= -0.1999)
+               OR (board_type = 'bj' AND ret <= -0.2999)
+               OR (is_st AND ret <= -0.0499)
+               OR (ret <= -0.0999)
+        ) as down_count,
+        COUNT(*) FILTER (WHERE ret > 0) as rise_count,
+        COUNT(*) FILTER (WHERE ret < 0) as fall_count,
+        SUM(
+            CASE
+                WHEN board_type IN ('kc','cy') AND ret >= 0.1999
+                    AND (high - close_price) / NULLIF(high, 0) > 0.02 THEN 1
+                WHEN board_type = 'bj' AND ret >= 0.2999
+                    AND (high - close_price) / NULLIF(high, 0) > 0.02 THEN 1
+                WHEN is_st AND ret >= 0.0499
+                    AND (high - close_price) / NULLIF(high, 0) > 0.02 THEN 1
+                WHEN ret >= 0.0999
+                    AND (high - close_price) / NULLIF(high, 0) > 0.02 THEN 1
+                ELSE 0
+            END
+        ) as board_break,
+        COUNT(*) as total_stocks
+    FROM returns
+"""
+
+SQL_UPSERT = """
+    INSERT INTO limit_stats_daily (trade_date, up_count, down_count, rise_count, fall_count, board_break, total_stocks)
+    VALUES (%s, %s, %s, %s, %s, %s, %s)
+    ON CONFLICT (trade_date) DO UPDATE SET
+        up_count = EXCLUDED.up_count,
+        down_count = EXCLUDED.down_count,
+        rise_count = EXCLUDED.rise_count,
+        fall_count = EXCLUDED.fall_count,
+        board_break = EXCLUDED.board_break,
+        total_stocks = EXCLUDED.total_stocks,
+        created_at = now()
+"""
+
+SQL_GET_DATES = """
+    SELECT trade_date FROM market_daily_agg ORDER BY trade_date DESC LIMIT %s
+"""
+
+
+def compute_and_store(conn, trade_date):
+    """Compute limit stats for one trading day and upsert into limit_stats_daily."""
+    cur = conn.cursor()
+    cur.execute(SQL_COMPUTE_ONE_DAY, (trade_date,))
+    row = cur.fetchone()
+    if not row or row[5] == 0:  # total_stocks == 0 means no data
+        print(f"  [{trade_date}] 无数据，跳过")
+        return False
+
+    up_count, down_count, rise_count, fall_count, board_break, total_stocks = row
+    cur.execute(SQL_UPSERT, (trade_date, up_count, down_count, rise_count, fall_count, board_break, total_stocks))
+    conn.commit()
+    print(f"  [{trade_date}] 涨停={up_count} 跌停={down_count} 涨={rise_count} 跌={fall_count} 炸板={board_break} 总数={total_stocks}")
+    return True
+
+
+def main():
+    parser = argparse.ArgumentParser(description="预计算每日涨跌停统计")
+    parser.add_argument("--backfill", action="store_true", help="回填所有历史日期")
+    parser.add_argument("--date", type=str, help="指定日期 YYYY-MM-DD")
+    parser.add_argument("--days", type=int, default=365, help="backfill 模式最大天数 (默认365)")
+    args = parser.parse_args()
+
+    conn = psycopg2.connect(PG_DSN)
+    conn.autocommit = False
+
+    if args.date:
+        dates = [args.date]
+        print(f"计算指定日期: {args.date}")
+    elif args.backfill:
+        cur = conn.cursor()
+        cur.execute(SQL_GET_DATES, (args.days,))
+        dates = [r[0].strftime("%Y-%m-%d") for r in cur.fetchall()]
+        print(f"回填模式: 最近 {len(dates)} 个交易日")
+    else:
+        # Default: latest trading day only
+        cur = conn.cursor()
+        cur.execute("SELECT MAX(trade_date) FROM market_daily_agg")
+        latest = cur.fetchone()[0]
+        dates = [latest.strftime("%Y-%m-%d")]
+        print(f"增量模式: 最新交易日 {dates[0]}")
+
+    success = 0
+    for i, d in enumerate(dates):
+        try:
+            if compute_and_store(conn, d):
+                success += 1
+        except Exception as e:
+            conn.rollback()
+            print(f"  [{d}] 错误: {e}")
+        if (i + 1) % 10 == 0:
+            print(f"  进度: {i+1}/{len(dates)}, 成功={success}")
+
+    conn.close()
+    print(f"\n完成: {success}/{len(dates)} 天写入成功")
+
+
+if __name__ == "__main__":
+    main()
