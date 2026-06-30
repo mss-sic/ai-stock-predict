@@ -97,13 +97,22 @@ def main():
         codes = [row[0] for row in cur.fetchall()]
         print(f"[资金流] 全量模式: {len(codes)} 只" + (f", 最近 {last_days} 天" if last_days > 0 else ""))
 
-    total, skip, errors = 0, 0, 0
+    total, skip, api_err, empty = 0, 0, 0, 0
+    t_start = time.time()
     for i, code in enumerate(codes):
-        if (i + 1) % 100 == 0:
-            print(f"[资金流] 进度: {i+1}/{len(codes)} (新增 {total}, 跳过 {skip}, 错误 {errors})")
+        # Progress every 50 stocks with ETA
+        if (i + 1) % 50 == 0:
+            elapsed = time.time() - t_start
+            rate = (i + 1) / elapsed if elapsed > 0 else 0
+            eta_min = (len(codes) - i - 1) / (rate * 60) if rate > 0 else 0
+            print(f"[资金流] {i+1}/{len(codes)} | 新增:{total} 跳过:{skip} API错误:{api_err} 空数据:{empty} | {rate:.1f}只/s | ETA:{eta_min:.0f}min", flush=True)
         try:
             rows = fetch_fund_flow(code)
+            if rows is None:
+                api_err += 1
+                continue
             if not rows:
+                empty += 1
                 skip += 1
                 continue
 
@@ -112,6 +121,7 @@ def main():
                 rows = [r for r in rows if r[1] >= cutoff_date]
 
             if not rows:
+                empty += 1
                 skip += 1
                 continue
 
@@ -134,8 +144,9 @@ def main():
 
     cur.close()
     conn.close()
-    print(f"[资金流] 采集完成: 新增 {total} 条, 跳过 {skip} 只, 错误 {errors} 只")
-    print(f"STAT:records_new={total},records_skip={skip},records_err={errors},fund_flow_new={total}", flush=True)
+    elapsed = time.time() - t_start
+    print(f"[资金流] 完成 | 耗时:{elapsed/60:.0f}min | 新增:{total}条 跳过:{skip} API错误:{api_err} 空数据:{empty}", flush=True)
+    print(f"STAT:records_new={total},records_skip={skip},records_err={api_err},fund_flow_new={total}", flush=True)
 
 
 if __name__ == "__main__":
