@@ -128,11 +128,9 @@ def main():
         codes = [c.strip() for c in codes_arg.split(',') if c.strip()]
     else:
         cur.execute("""
-            SELECT b.code FROM stocks_basic b
-            LEFT JOIN stock_financials f ON b.code = f.code
-            WHERE f.code IS NULL
+            SELECT DISTINCT b.code FROM stocks_basic b
+            INNER JOIN stocks_daily_k k ON b.code = k.code
             ORDER BY b.code
-            LIMIT 200
         """)
         codes = [r[0] for r in cur.fetchall()]
     

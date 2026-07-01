@@ -161,28 +161,13 @@ def main():
     if codes_arg:
         codes = [c.strip() for c in codes_arg.split(',') if c.strip()]
     else:
-        # 增量策略: 优先无数据股票，再拉取报告期超3个月的
+        # 全量模式: 采集所有有K线数据的股票
         cur.execute("""
-            SELECT b.code FROM stocks_basic b
-            LEFT JOIN stock_shareholders s ON b.code = s.code
-            WHERE s.code IS NULL
-            ORDER BY b.code LIMIT 300
+            SELECT DISTINCT b.code FROM stocks_basic b
+            INNER JOIN stocks_daily_k k ON b.code = k.code
+            ORDER BY b.code
         """)
-        codes_new = [r[0] for r in cur.fetchall()]
-
-        cur.execute("""
-            SELECT b.code FROM stocks_basic b
-            INNER JOIN (
-                SELECT code, MAX(report_date) as latest FROM stock_shareholders GROUP BY code
-            ) s ON b.code = s.code
-            WHERE s.latest < TO_CHAR(CURRENT_DATE - INTERVAL '3 months', 'YYYY-MM-DD')
-            ORDER BY s.latest ASC
-            LIMIT 200
-        """)
-        codes_stale = [r[0] for r in cur.fetchall()]
-
-        codes = list(dict.fromkeys(codes_new + codes_stale))
-    
+                codes = [r[0] for r in cur.fetchall()]    
     if not codes:
         print("股东数据已是最新", flush=True)
         return
