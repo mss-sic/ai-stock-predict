@@ -41,7 +41,12 @@ func New(cronExpr string) *Scheduler {
 		s.mu.Unlock()
 	})
 
-	// Risk scan: every hour at minute 5
+	// 以下任务已迁移至 TaskManager 统一管理，避免双调度冲突：
+	// - northbound, limit_stats: TaskManager 定时任务
+	// - market_sentiment: TaskManager 定时任务
+	// - 全量采集: 由 TaskManager 各阶段独立调度
+
+	// Risk scan: every hour at minute 5 (独立逻辑，不在 TaskManager 中)
 	s.cron.AddFunc("0 5 * * * *", func() {
 		count, err := service.ScanUserHoldings()
 		if err != nil {
@@ -49,24 +54,6 @@ func New(cronExpr string) *Scheduler {
 		} else {
 			log.Printf("[scheduler] risk scan: %d alerts", count)
 		}
-	})
-
-	// Sentiment computation: after market close every trading day (Mon-Fri 15:45)
-	s.cron.AddFunc("0 45 15 * * 1-5", func() {
-		log.Println("[scheduler] computing market sentiment...")
-		collector.RunSentimentComputation()
-	})
-
-	// Northbound flow collection: after market close Mon-Fri 15:30
-	s.cron.AddFunc("0 30 15 * * 1-5", func() {
-		log.Println("[scheduler] collecting northbound flow...")
-		collector.RunManualCollection([]string{"northbound"})
-	})
-
-	// Limit stats pre-computation: after market close Mon-Fri 16:00
-	s.cron.AddFunc("0 0 16 * * 1-5", func() {
-		log.Println("[scheduler] computing limit stats...")
-		collector.RunManualCollection([]string{"limit_stats"})
 	})
 
 	return s

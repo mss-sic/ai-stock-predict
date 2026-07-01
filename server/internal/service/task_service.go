@@ -71,6 +71,12 @@ func InitTaskManager() *TaskManager {
 	// Reset any tasks stuck in "running" state from previous crash
 	db.MySQL.Model(&model.ScheduledTask{}).Where("last_status = ?", "running").
 		Update("last_status", "unknown")
+	// Also finalize stuck TaskLog entries
+	db.MySQL.Model(&model.TaskLog{}).Where("status = ?", "running").
+		Updates(map[string]interface{}{
+			"status": "unknown", "finished_at": time.Now(),
+			"error_msg": "服务重启，任务中断",
+		})
 
 	// Load existing tasks from DB and schedule them
 	var tasks []model.ScheduledTask
@@ -137,12 +143,19 @@ func (tm *TaskManager) ScheduleTask(task *model.ScheduledTask) {
 }
 
 func (tm *TaskManager) executeTask(taskID uint, phase, name string) {
-	// Panic recovery
+	// Panic recovery — also finalize TaskLog
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("[TaskManager] PANIC in task %s (phase=%s): %v", name, phase, r)
+			now := time.Now()
 			db.MySQL.Model(&model.ScheduledTask{}).Where("id = ?", taskID).
-				Updates(map[string]interface{}{"last_status": "failed"})
+				Updates(map[string]interface{}{"last_status": "failed", "last_run": now})
+			// Finalize any running TaskLog for this task
+			db.MySQL.Model(&model.TaskLog{}).Where("task_id = ? AND status = ?", taskID, "running").
+				Updates(map[string]interface{}{
+					"status": "failed", "finished_at": now,
+					"error_msg": fmt.Sprintf("PANIC: %v", r),
+				})
 		}
 	}()
 
@@ -218,18 +231,23 @@ func (tm *TaskManager) executeTask(taskID uint, phase, name string) {
 			totalNew += r.New
 			totalSkip += r.Skipped
 			totalErr += r.Errors
+			if r.Errors > 0 {
+				errMsgs = append(errMsgs, fmt.Sprintf("[%s] errors=%d", r.Phase, r.Errors))
+			}
 		}
 
 		var err error
 		if len(prog.Errors) > 0 {
-			err = fmt.Errorf(strings.Join(prog.Errors, "; "))
-			errMsgs = prog.Errors
+			allErrs := append(prog.Errors, errMsgs...)
+			err = fmt.Errorf(strings.Join(allErrs, "; "))
+		} else if len(errMsgs) > 0 {
+			err = fmt.Errorf(strings.Join(errMsgs, "; "))
 		}
 
 		finishTaskLog(&logEntry, totalNew, totalSkip, totalErr, err)
-		if len(errMsgs) > 0 {
+		if err != nil {
 			db.MySQL.Model(&model.TaskLog{}).Where("id = ?", logEntry.ID).
-				Update("error_msg", strings.Join(errMsgs, "; "))
+				Update("error_msg", err.Error())
 		}
 	}
 
