@@ -91,7 +91,7 @@ def main():
     log(f"[{code}] 已清除历史数据")
 
     # ── Step 3: 从腾讯API拉取全量前复权K线 ──
-    url = f"http://ifzq.gtimg.cn/appstock/app/fqkline/get?param={prefix}{code},day,,,1100,qfq"
+    url = f"https://ifzq.gtimg.cn/appstock/app/fqkline/get?param={prefix}{code},day,,,1100,qfq"
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
     ctx = ssl.create_default_context()
     try:

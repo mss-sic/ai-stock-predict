@@ -12,7 +12,7 @@ def fetch_kline(code, days=365):
         prefix = "nq"
     else:
         prefix = "sz"
-    url = f"http://ifzq.gtimg.cn/appstock/app/fqkline/get"
+    url = f"https://ifzq.gtimg.cn/appstock/app/fqkline/get"
     params = {
         "param": f"{prefix}{code},day,,,{days},qfq"
     }

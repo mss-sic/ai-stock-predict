@@ -40,7 +40,7 @@ def fetch_kline(code, days=365):
         prefix = "bj"
     else:
         prefix = "sz"
-    url = f"http://ifzq.gtimg.cn/appstock/app/fqkline/get?param={prefix}{code},day,,,{days},qfq"
+    url = f"https://ifzq.gtimg.cn/appstock/app/fqkline/get?param={prefix}{code},day,,,{days},qfq"
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
     ctx = ssl.create_default_context()
     try:
@@ -51,7 +51,8 @@ def fetch_kline(code, days=365):
         result = data.get("data", {})
         if isinstance(result, list):
             return []
-        stock_data = result.get("data", {})
+        # Tencent API 2026-07 flattened: no longer nested data.data
+        stock_data = result.get("data", result)
         klines = []
         for pfx in [prefix, "sh", "sz", "nq"]:
             sd = stock_data.get(f"{pfx}{code}", {})

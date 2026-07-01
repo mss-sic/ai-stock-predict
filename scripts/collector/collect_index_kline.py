@@ -41,7 +41,7 @@ UPSERT_SQL = """
 """
 
 def fetch_kline(api_code, days=750):
-    url = f"http://ifzq.gtimg.cn/appstock/app/fqkline/get?param={api_code},day,,,{days},qfq"
+    url = f"https://ifzq.gtimg.cn/appstock/app/fqkline/get?param={api_code},day,,,{days},qfq"
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
     ctx = ssl.create_default_context()
     try:

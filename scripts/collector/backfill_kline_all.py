@@ -11,7 +11,7 @@ total_inserted = 0
 
 for i, code in enumerate(codes):
     prefix = "sh" if code.startswith(("6", "9")) else "sz"
-    url = f"http://ifzq.gtimg.cn/appstock/app/fqkline/get?param={prefix}{code},day,,,1100,qfq"
+    url = f"https://ifzq.gtimg.cn/appstock/app/fqkline/get?param={prefix}{code},day,,,1100,qfq"
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
     ctx = ssl.create_default_context()
     try:
