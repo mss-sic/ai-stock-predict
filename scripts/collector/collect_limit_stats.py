@@ -13,10 +13,21 @@ from psycopg2.extras import execute_values
 PG_DSN = os.environ.get("PG_DSN", "host=localhost dbname=stock_predict user=stock password=stock123")
 
 SQL_COMPUTE_ONE_DAY = """
-    WITH returns AS (
+    WITH prices AS (
         SELECT k.code, b.board_type, COALESCE(b.is_st, false) as is_st,
-            (k.close - kp.close) / NULLIF(kp.close, 0) as ret,
-            k.high, k.close as close_price
+            kp.close as prev_close, k.close as close_price, k.high,
+            CASE
+                WHEN b.board_type IN ('kc','cy') THEN ROUND(kp.close * 1.20::numeric, 2)
+                WHEN b.board_type = 'bj' THEN ROUND(kp.close * 1.30::numeric, 2)
+                WHEN COALESCE(b.is_st, false) THEN ROUND(kp.close * 1.05::numeric, 2)
+                ELSE ROUND(kp.close * 1.10::numeric, 2)
+            END as limit_up_price,
+            CASE
+                WHEN b.board_type IN ('kc','cy') THEN ROUND(kp.close * 0.80::numeric, 2)
+                WHEN b.board_type = 'bj' THEN ROUND(kp.close * 0.70::numeric, 2)
+                WHEN COALESCE(b.is_st, false) THEN ROUND(kp.close * 0.95::numeric, 2)
+                ELSE ROUND(kp.close * 0.90::numeric, 2)
+            END as limit_down_price
         FROM stocks_daily_k k
         JOIN LATERAL (
             SELECT k2.close FROM stocks_daily_k k2
@@ -28,35 +39,19 @@ SQL_COMPUTE_ONE_DAY = """
           AND k.close > 0 AND kp.close > 0
     )
     SELECT
-        COUNT(*) FILTER (
-            WHERE (board_type IN ('kc','cy') AND ret >= 0.1999)
-               OR (board_type = 'bj' AND ret >= 0.2999)
-               OR (is_st AND ret >= 0.0499)
-               OR (board_type NOT IN ('kc','cy','bj') AND NOT COALESCE(is_st, false) AND ret >= 0.0999)
-        ) as up_count,
-        COUNT(*) FILTER (
-            WHERE (board_type IN ('kc','cy') AND ret <= -0.1999)
-               OR (board_type = 'bj' AND ret <= -0.2999)
-               OR (is_st AND ret <= -0.0499)
-               OR (board_type NOT IN ('kc','cy','bj') AND NOT COALESCE(is_st, false) AND ret <= -0.0999)
-        ) as down_count,
-        COUNT(*) FILTER (WHERE ret > 0) as rise_count,
-        COUNT(*) FILTER (WHERE ret < 0) as fall_count,
+        COUNT(*) FILTER (WHERE close_price = limit_up_price) as up_count,
+        COUNT(*) FILTER (WHERE close_price = limit_down_price) as down_count,
+        COUNT(*) FILTER (WHERE close_price > prev_close) as rise_count,
+        COUNT(*) FILTER (WHERE close_price < prev_close) as fall_count,
         SUM(
             CASE
-                WHEN board_type IN ('kc','cy') AND ret >= 0.1999
-                    AND (high - close_price) / NULLIF(high, 0) > 0.02 THEN 1
-                WHEN board_type = 'bj' AND ret >= 0.2999
-                    AND (high - close_price) / NULLIF(high, 0) > 0.02 THEN 1
-                WHEN is_st AND ret >= 0.0499
-                    AND (high - close_price) / NULLIF(high, 0) > 0.02 THEN 1
-                WHEN board_type NOT IN ('kc','cy','bj') AND NOT COALESCE(is_st, false) AND ret >= 0.0999
+                WHEN close_price = limit_up_price
                     AND (high - close_price) / NULLIF(high, 0) > 0.02 THEN 1
                 ELSE 0
             END
         ) as board_break,
         COUNT(*) as total_stocks
-    FROM returns
+    FROM prices
 """
 
 SQL_UPSERT = """
