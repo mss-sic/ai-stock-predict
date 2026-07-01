@@ -47,7 +47,11 @@ func (h *CollectorHandler) Trigger(c *gin.Context) {
 		}
 	}
 
-	h.sched.Trigger(schedPhases)
+	// Only trigger scheduler if there are non-market_style phases;
+	// empty slice triggers ALL phases in RunManualCollection.
+	if len(schedPhases) > 0 {
+		h.sched.Trigger(schedPhases)
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"message": "采集已触发",
