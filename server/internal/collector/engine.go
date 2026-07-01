@@ -1140,3 +1140,14 @@ func runNorthboundPhase() PhaseResult {
 func runLimitStatsPhase() PhaseResult {
 	return runStatsPhase("limit_stats", "涨跌停统计", "collect_limit_stats.py")
 }
+
+// ── Exported wrappers for external callers (handler, service) ──
+
+// SetPhase sets the current collection phase.
+func SetPhase(phase, msg string) { setPhase(phase, msg) }
+
+// SSESend sends an SSE line.
+func SSESend(line SSELine) { sseSend(line) }
+
+// AppendResult appends a phase result.
+func AppendResult(r PhaseResult) { appendResult(r) }

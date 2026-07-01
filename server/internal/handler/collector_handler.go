@@ -17,6 +17,7 @@ import (
 	"github.com/ai-stock-predict/server/internal/db"
 	"github.com/ai-stock-predict/server/internal/model"
 	"github.com/ai-stock-predict/server/internal/scheduler"
+	"github.com/ai-stock-predict/server/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/ai-stock-predict/server/pkg/response"
 )
@@ -34,12 +35,52 @@ func (h *CollectorHandler) Trigger(c *gin.Context) {
 		Phases []string `json:"phases"`
 	}
 	c.ShouldBindJSON(&body)
+
+	// market_style is a Go-native computation, not a Python phase
+	for _, phase := range body.Phases {
+		if phase == "market_style" {
+			go runMarketStyleCollection()
+		}
+	}
+
 	h.sched.Trigger(body.Phases)
 
 	c.JSON(http.StatusOK, gin.H{
 		"message": "采集已触发",
 		"data":    collector.GetProgress(),
 	})
+}
+
+// runMarketStyleCollection runs market style computation and reports via SSE
+func runMarketStyleCollection() {
+	svc := service.NewMarketStyleService()
+	var dates []string
+	db.PG.Raw(`SELECT trade_date::text FROM market_sentiment
+		WHERE trade_date NOT IN (SELECT trade_date FROM market_style_daily)
+		ORDER BY trade_date`).Pluck("trade_date", &dates)
+
+	collector.SetPhase("market_style", "市场风格计算...")
+	collector.SSESend(collector.SSELine{Type: "phase", Phase: "market_style", Message: fmt.Sprintf("开始计算市场风格 (%d 个缺失日期)", len(dates)), Level: "info"})
+
+	success, fail := 0, 0
+	for _, d := range dates {
+		if err := svc.ComputeAndStore(d); err != nil {
+			fail++
+			log.Printf("[market_style] collection FAIL %s: %v", d, err)
+		} else {
+			success++
+		}
+	}
+
+	pr := collector.PhaseResult{Phase: "market_style", New: success, Errors: fail, Total: len(dates)}
+	level := "success"
+	msg := fmt.Sprintf("市场风格: %d/%d 完成", success, len(dates))
+	if fail > 0 {
+		level = "error"
+		msg += fmt.Sprintf(", %d 失败", fail)
+	}
+	collector.SSESend(collector.SSELine{Type: "result", Phase: "market_style", Result: &pr, Level: level, Message: msg})
+	collector.AppendResult(pr)
 }
 
 func (h *CollectorHandler) Status(c *gin.Context) {
