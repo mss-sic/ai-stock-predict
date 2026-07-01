@@ -41,6 +41,10 @@ INSERT_SQL = """
         up5_total=EXCLUDED.up5_total, created_at=NOW()
 """
 
+
+# Minimum stock count threshold — skip dates with insufficient K-line data
+MIN_TOTAL_STOCKS = 1000
+
 def load_data(cur, min_date):
     """Load all K-line data from min_date onwards into a dict by code."""
     print(f"  Loading K-line data from {min_date}...", flush=True)
@@ -163,7 +167,20 @@ def main():
     aggs = compute_aggs(data, all_dates, target)
     
     # Save
-    rows = [(td,) + aggs[td] for td in target if td in aggs]
+    rows = []
+    skipped = 0
+    for td in target:
+        if td not in aggs:
+            continue
+        up, down, total = aggs[td][0], aggs[td][1], aggs[td][2]
+        if total < MIN_TOTAL_STOCKS:
+            skipped += 1
+            if skipped <= 3:
+                print(f"  ⚠️ {td} 股票数不足 ({total} < {MIN_TOTAL_STOCKS}), 跳过 (K线数据可能未采集)", flush=True)
+            continue
+        rows.append((td,) + aggs[td])
+    if skipped > 0:
+        print(f"  ⚠️ 共跳过 {skipped} 个数据不足的日期 (total < {MIN_TOTAL_STOCKS})", flush=True)
     execute_values(cur, INSERT_SQL, rows, page_size=50)
     conn.commit()
     
