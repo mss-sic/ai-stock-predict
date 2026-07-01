@@ -36,14 +36,18 @@ func (h *CollectorHandler) Trigger(c *gin.Context) {
 	}
 	c.ShouldBindJSON(&body)
 
-	// market_style is a Go-native computation, not a Python phase
+	// Filter Go-native phases (market_style) from old scheduler;
+	// they are handled by TaskManager.executeTask instead.
+	var schedPhases []string
 	for _, phase := range body.Phases {
 		if phase == "market_style" {
 			go runMarketStyleCollection()
+		} else {
+			schedPhases = append(schedPhases, phase)
 		}
 	}
 
-	h.sched.Trigger(body.Phases)
+	h.sched.Trigger(schedPhases)
 
 	c.JSON(http.StatusOK, gin.H{
 		"message": "采集已触发",
@@ -60,10 +64,21 @@ func runMarketStyleCollection() {
 		ORDER BY trade_date`).Pluck("trade_date", &dates)
 
 	collector.SetPhase("market_style", "市场风格计算...")
+
+	if len(dates) == 0 {
+		collector.SSESend(collector.SSELine{Type: "phase", Phase: "market_style", Message: "市场风格已是最新，无需计算", Level: "info"})
+		pr := collector.PhaseResult{Phase: "market_style", New: 0, Total: 0}
+		collector.SSESend(collector.SSELine{Type: "result", Phase: "market_style", Result: &pr, Level: "success", Message: "已是最新"})
+		collector.SSESend(collector.SSELine{Type: "done", Phase: "done", Level: "success", Message: "市场风格已是最新"})
+		collector.AppendResult(pr)
+		return
+	}
+
 	collector.SSESend(collector.SSELine{Type: "phase", Phase: "market_style", Message: fmt.Sprintf("开始计算市场风格 (%d 个缺失日期)", len(dates)), Level: "info"})
 
 	success, fail := 0, 0
 	for _, d := range dates {
+		log.Printf("[market_style] computing %s (%d/%d)", d, success+fail+1, len(dates))
 		if err := svc.ComputeAndStore(d); err != nil {
 			fail++
 			log.Printf("[market_style] collection FAIL %s: %v", d, err)
@@ -80,6 +95,7 @@ func runMarketStyleCollection() {
 		msg += fmt.Sprintf(", %d 失败", fail)
 	}
 	collector.SSESend(collector.SSELine{Type: "result", Phase: "market_style", Result: &pr, Level: level, Message: msg})
+	collector.SSESend(collector.SSELine{Type: "done", Phase: "done", Level: level, Message: msg})
 	collector.AppendResult(pr)
 }
 
