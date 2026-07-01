@@ -298,12 +298,17 @@ func runQuotePhase() PhaseResult {
 	return phaseRes
 }
 
-// RunManualCollection runs all phases. If phases is non-empty, only those phases run.
+// RunManualCollection runs specified phases. Phases must be non-empty.
 func RunManualCollection(phases []string, extraArgs ...string) {
 	progress.mu.Lock()
 	if progress.Running {
 		progress.mu.Unlock()
 		log.Println("[collector] already running, skip")
+		return
+	}
+	if len(phases) == 0 {
+		progress.mu.Unlock()
+		log.Println("[collector] RunManualCollection called with empty phases, refusing to run all")
 		return
 	}
 	progress.Running = true
@@ -314,9 +319,6 @@ func RunManualCollection(phases []string, extraArgs ...string) {
 	progress.Phase = "starting"
 	progress.Current = 0
 	totalPhases := len(phases)
-	if totalPhases == 0 {
-		totalPhases = 15
-	}
 	progress.Total = totalPhases
 	progress.Results = nil
 	progress.Errors = nil
