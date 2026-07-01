@@ -101,6 +101,69 @@ def load_agg(cur, td):
         "amt": float(r[7] or 0), "up5": int(r[8] or 0), "up5_total": int(r[9] or 0),
     }
 
+def load_limit_stats(cur, td):
+    """Load pre-computed limit-up/down/board_break from limit_stats_daily table.
+    Falls back to None if no pre-computed data exists."""
+    cur.execute("""
+        SELECT up_count, down_count, board_break, total_stocks
+        FROM limit_stats_daily WHERE trade_date=%s
+    """, (td,))
+    r = cur.fetchone()
+    if r and r[3] and r[3] > 0:
+        return {
+            "lu": int(r[0] or 0), "ld": int(r[1] or 0), 
+            "bb": int(r[2] or 0), "total": int(r[3] or 0)
+        }
+    return None
+
+def compute_limit_stats_fallback(cur, td_str, stock_lookup, total):
+    """Fallback: compute limit stats from K-line when limit_stats_daily is missing.
+    Uses return-based判断 (same as collect_limit_stats.py)."""
+    cur.execute("""
+        SELECT k.code, k.close, k.high, kp.close as prev_close
+        FROM stocks_daily_k k
+        JOIN LATERAL (SELECT k2.close FROM stocks_daily_k k2 
+                      WHERE k2.code=k.code AND k2.trade_date<%s 
+                      ORDER BY k2.trade_date DESC LIMIT 1) kp ON TRUE
+        WHERE k.trade_date=%s
+    """, (td_str, td_str))
+    daily = {r[0]: {"close": float(r[1] or 0), "high": float(r[2] or 0), "prev_close": float(r[3] or 0)} 
+             for r in cur.fetchall()}
+    
+    lu_set, ld_cnt, bb_cnt = set(), 0, 0
+    for code, d in daily.items():
+        if d["prev_close"] <= 0: continue
+        st = stock_lookup.get(code)
+        if not st: continue
+        ret = (d["close"] - d["prev_close"]) / d["prev_close"]
+        bt, is_st = st
+        
+        if bt in ('kc', 'cy'):
+            limit_pct = 0.20
+        elif bt == 'bj':
+            limit_pct = 0.30
+        elif is_st:
+            limit_pct = 0.05
+        else:
+            limit_pct = 0.10
+        
+        if ret >= limit_pct - 0.0001:  # tolerance for float comparison
+            if d["high"] >= d["close"]:
+                # Check board_break: touched limit but fell back >2%
+                limit_price = d["prev_close"] * (1 + limit_pct)
+                if d["high"] >= limit_price:
+                    if (d["high"] - d["close"]) / max(d["high"], 0.01) > 0.02:
+                        bb_cnt += 1
+                    else:
+                        lu_set.add(code)
+                else:
+                    lu_set.add(code)
+        
+        if ret <= -(limit_pct - 0.0001):
+            ld_cnt += 1
+    
+    return {"lu": len(lu_set), "ld": ld_cnt, "bb": bb_cnt, "total": total}
+
 def avg20_amt(cur, td):
     cur.execute("SELECT AVG(total_amount) FROM (SELECT total_amount FROM market_daily_agg WHERE trade_date < %s ORDER BY trade_date DESC LIMIT 20) t", (td,))
     r = cur.fetchone()
@@ -146,57 +209,26 @@ def compute_one(cur, td_str, stocks, stock_lookup):
     bond_rets = [load_index_ret(cur, c, td_str, 20) for c in BOND_ETF]
     risk_app = ret300 - (sum(bond_rets)/len(bond_rets) if bond_rets else 0)
 
-    # 8. Limit Sentiment
-    cur.execute("""
-        SELECT k.code, k.close, k.high, k.low, kp.close as prev_close
-        FROM stocks_daily_k k
-        JOIN LATERAL (SELECT k2.close FROM stocks_daily_k k2 WHERE k2.code=k.code AND k2.trade_date<%s ORDER BY k2.trade_date DESC LIMIT 1) kp ON TRUE
-        WHERE k.trade_date=%s
-    """, (td_str, td_str))
-    daily = {r[0]: {"close": float(r[1] or 0), "high": float(r[2] or 0), "low": float(r[3] or 0), "prev_close": float(r[4] or 0)} for r in cur.fetchall()}
+    # 8. Limit Sentiment — use pre-computed limit_stats_daily, fallback to K-line
+    ls = load_limit_stats(cur, td_str)
+    if ls is None:
+        ls = compute_limit_stats_fallback(cur, td_str, stock_lookup, total)
+    lu_ratio = ls["lu"] / total
+    touched = ls["lu"] + ls["bb"]
+    anti_break = 1 - (ls["bb"] / max(touched, 1))
 
-    lu_set, ld_cnt, bb_cnt = set(), 0, 0
-    for code, d in daily.items():
-        if d["prev_close"] <= 0: continue
-        st = stock_lookup.get(code)
-        if not st: continue
-        lu, ld = limit_prices(d["prev_close"], st[0], st[1])
-        if d["high"] >= lu:
-            if d["close"] >= lu: lu_set.add(code)
-            else: bb_cnt += 1
-        if ld > 0 and d["close"] <= ld: ld_cnt += 1
-
-    lu_ratio = len(lu_set) / total
-    touched = len(lu_set) + bb_cnt
-    anti_break = 1 - (bb_cnt / max(touched, 1))
-
-    # 昨涨停收益
+    # 昨涨停收益 — use pre-computed yesterday limit stats
     cur.execute("SELECT trade_date FROM stocks_daily_k WHERE trade_date < %s ORDER BY trade_date DESC LIMIT 1", (td_str,))
     r = cur.fetchone()
     yest_ret = 0
     if r:
         yest_date = str(r[0])
-        cur.execute("""
-            SELECT k.code, k.close, kp.close as prev_close
-            FROM stocks_daily_k k
-            JOIN LATERAL (SELECT k2.close FROM stocks_daily_k k2 WHERE k2.code=k.code AND k2.trade_date<%s ORDER BY k2.trade_date DESC LIMIT 1) kp ON TRUE
-            WHERE k.trade_date=%s
-        """, (yest_date, yest_date))
-        yest_daily = {r2[0]: {"close": float(r2[1] or 0), "prev_close": float(r2[2] or 0)} for r2 in cur.fetchall()}
-        yest_up = set()
-        for code, yd in yest_daily.items():
-            if yd["prev_close"] <= 0: continue
-            st = stock_lookup.get(code)
-            if not st: continue
-            lu, _ = limit_prices(yd["prev_close"], st[0], st[1])
-            if yd["close"] >= lu: yest_up.add(code)
-        rets = []
-        for code in yest_up:
-            d = daily.get(code)
-            if d and d["prev_close"] > 0:
-                rets.append((d["close"]-d["prev_close"])/d["prev_close"])
-        yest_ret = sum(rets)/len(rets) if rets else 0
-    yest_score = max(0, min(1, (yest_ret + 0.05) / 0.10))
+        yest_ls = load_limit_stats(cur, yest_date)
+        yest_lu = yest_ls["lu"] if yest_ls else 0
+        yest_score = max(0, min(1, (yest_lu / max(total, 1)) * 3))
+        yest_ret = yest_score
+    else:
+        yest_score = 0
     limit_sent = 0.4 * lu_ratio + 0.3 * anti_break + 0.3 * yest_score
 
     # 9. Sector Diffusion
@@ -226,7 +258,7 @@ def compute_one(cur, td_str, stocks, stock_lookup):
         "risk_appetite": risk_app, "limit_sent": limit_sent, "sector_diff": sector_diff,
         "northbound": nb, "capital_flow": cf,
         "up": a["up"], "down": a["down"],
-        "lu": len(lu_set), "ld": ld_cnt, "bb": bb_cnt,
+        "lu": ls["lu"], "ld": ls["ld"], "bb": ls["bb"],
         "total": total,
     }
 

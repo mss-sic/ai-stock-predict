@@ -244,19 +244,33 @@ func runPythonStreamWithArgs(script string, args ...string) error {
 	cmd.Dir = scriptsRoot()
 	cmd.Env = append(cmd.Environ(), "PYTHONUNBUFFERED=1", "PYTHONIOENCODING=utf-8")
 
-	// Ensure activeWriter exists so Python stdout/stderr are always shared
+	// Capture Python output for logging when no SSE connection is active
+	var logBuf strings.Builder
+	hasSSE := false
 	writerMu.Lock()
 	if activeWriter == nil {
 		activeWriter = &sseWriter{level: "info"}
+	} else {
+		hasSSE = true
 	}
 	aw := activeWriter // shared reference for both stdout and stderr
 	writerMu.Unlock()
 
-	cmd.Stdout = aw
-	cmd.Stderr = aw
+	// Tee output: always write to sseWriter, also capture for server log
+	teeWriter := io.MultiWriter(aw, &logBuf)
+	cmd.Stdout = teeWriter
+	cmd.Stderr = teeWriter
 	err := cmd.Run()
 	// Flush remaining data through the shared writer
 	aw.flushRemaining()
+
+	// When running as background task (no SSE), log Python output to Go log
+	if !hasSSE && logBuf.Len() > 0 {
+		log.Printf("[collector:%s] Python output:\n%s", script, logBuf.String())
+	}
+	if err != nil {
+		log.Printf("[collector:%s] Python error: %v", script, err)
+	}
 	return err
 }
 
@@ -482,10 +496,11 @@ func runStatsPhase(phase, label, script string, args ...string) PhaseResult {
 	progress.mu.RUnlock()
 
 	t0 := time.Now()
+	var pyErr error
 	if len(args) > 0 {
-		runPythonStreamWithArgs(script, args...)
+		pyErr = runPythonStreamWithArgs(script, args...)
 	} else {
-		runPythonStream(script)
+		pyErr = runPythonStream(script)
 	}
 
 	// Read STAT results
@@ -495,9 +510,14 @@ func runStatsPhase(phase, label, script string, args ...string) PhaseResult {
 	errRec := progress.BehaviorStats["records_err"] - snapBefore["records_err"]
 	progress.mu.RUnlock()
 
-	// Fallback: if STAT not emitted, estimate from DB
+	// Fallback: if STAT not emitted AND Python failed, report error
 	if newRec == 0 && skipRec == 0 && errRec == 0 {
-		newRec = 1 // at least signal completion
+		if pyErr != nil {
+			errRec = 1
+			log.Printf("[collector:%s] %s Python failed: %v", script, label, pyErr)
+		} else {
+			newRec = 1 // at least signal completion
+		}
 	}
 
 	phaseRes := PhaseResult{
@@ -565,14 +585,19 @@ func runScorePhase() PhaseResult {
 	t0 := time.Now()
 	var before int64
 	db.PG.Model(&model.AIStockScore{}).Where("DATE(analyzed_at) = CURRENT_DATE").Count(&before)
-	runPythonStreamWithArgs("stock_score_collect.py", "--batch")
+	err := runPythonStreamWithArgs("stock_score_collect.py", "--batch")
 	phaseRes := PhaseResult{Phase: "score", Skipped: int(before)}
 	var after int64
 	db.PG.Model(&model.AIStockScore{}).Where("DATE(analyzed_at) = CURRENT_DATE").Count(&after)
 	phaseRes.Total = int(after)
 	phaseRes.New = int(after - before)
 	phaseRes.DurationMs = time.Since(t0).Milliseconds()
-	sseSend(SSELine{Type: "result", Phase: "score", Result: &phaseRes, Level: "success", Message: fmt.Sprintf("六维评分: 新增 %d 条", after-before)})
+	if err != nil {
+		phaseRes.Errors = 1
+		sseSend(SSELine{Type: "result", Phase: "score", Result: &phaseRes, Level: "error", Message: fmt.Sprintf("六维评分失败: %v", err)})
+	} else {
+		sseSend(SSELine{Type: "result", Phase: "score", Result: &phaseRes, Level: "success", Message: fmt.Sprintf("六维评分: 新增 %d 条", after-before)})
+	}
 	return phaseRes
 }
 
@@ -582,14 +607,19 @@ func runProfilePhase() PhaseResult {
 	t0 := time.Now()
 	var before int64
 	db.PG.Model(&model.StockProfile{}).Count(&before)
-	runPythonStreamWithArgs("stock_profile_collect.py", "--batch")
+	err := runPythonStreamWithArgs("stock_profile_collect.py", "--batch")
 	phaseRes := PhaseResult{Phase: "profile", Skipped: int(before)}
 	var after int64
 	db.PG.Model(&model.StockProfile{}).Count(&after)
 	phaseRes.Total = int(after)
 	phaseRes.New = int(after - before)
 	phaseRes.DurationMs = time.Since(t0).Milliseconds()
-	sseSend(SSELine{Type: "result", Phase: "profile", Result: &phaseRes, Level: "success", Message: fmt.Sprintf("AI简介: 新增 %d 份", after-before)})
+	if err != nil {
+		phaseRes.Errors = 1
+		sseSend(SSELine{Type: "result", Phase: "profile", Result: &phaseRes, Level: "error", Message: fmt.Sprintf("AI简介失败: %v", err)})
+	} else {
+		sseSend(SSELine{Type: "result", Phase: "profile", Result: &phaseRes, Level: "success", Message: fmt.Sprintf("AI简介: 新增 %d 份", after-before)})
+	}
 	return phaseRes
 }
 
@@ -638,14 +668,19 @@ func runFullSyncPhase() PhaseResult {
 	t0 := time.Now()
 	var before int64
 	db.PG.Model(&model.StockBasic{}).Count(&before)
-	runPythonStream("full_sync.py")
+	errFullSync := runPythonStream("full_sync.py")
 	phaseRes := PhaseResult{Phase: "full_sync", Skipped: int(before)}
 	var after int64
 	db.PG.Model(&model.StockBasic{}).Count(&after)
 	phaseRes.Total = int(after)
 	phaseRes.New = int(after - before)
 	phaseRes.DurationMs = time.Since(t0).Milliseconds()
-	sseSend(SSELine{Type: "result", Phase: "full_sync", Result: &phaseRes, Level: "success", Message: fmt.Sprintf("列表同步: %d 只", after)})
+	if errFullSync != nil {
+		phaseRes.Errors = 1
+		sseSend(SSELine{Type: "result", Phase: "full_sync", Result: &phaseRes, Level: "error", Message: fmt.Sprintf("列表同步失败: %v", errFullSync)})
+	} else {
+		sseSend(SSELine{Type: "result", Phase: "full_sync", Result: &phaseRes, Level: "success", Message: fmt.Sprintf("列表同步: %d 只", after)})
+	}
 	return phaseRes
 }
 
@@ -706,14 +741,19 @@ func runIndicatorPhase() PhaseResult {
 	t0 := time.Now()
 	var before int64
 	db.PG.Model(&model.StockDailyIndicator{}).Count(&before)
-	runPythonStream("daily_indicator.py")
+	errInd := runPythonStream("daily_indicator.py")
 	phaseRes := PhaseResult{Phase: "indicator", Skipped: int(before)}
 	var after int64
 	db.PG.Model(&model.StockDailyIndicator{}).Count(&after)
 	phaseRes.Total = int(after)
 	phaseRes.New = int(after - before)
 	phaseRes.DurationMs = time.Since(t0).Milliseconds()
-	sseSend(SSELine{Type: "result", Phase: "indicator", Result: &phaseRes, Level: "success", Message: fmt.Sprintf("PE/PB: 新增 %d", after-before)})
+	if errInd != nil {
+		phaseRes.Errors = 1
+		sseSend(SSELine{Type: "result", Phase: "indicator", Result: &phaseRes, Level: "error", Message: fmt.Sprintf("PE/PB采集失败: %v", errInd)})
+	} else {
+		sseSend(SSELine{Type: "result", Phase: "indicator", Result: &phaseRes, Level: "success", Message: fmt.Sprintf("PE/PB: 新增 %d", after-before)})
+	}
 	return phaseRes
 }
 
@@ -723,14 +763,19 @@ func runIndustryPhase() PhaseResult {
 	t0 := time.Now()
 	var before int64
 	db.PG.Model(&model.StockBasic{}).Where("industry IS NOT NULL AND industry != ''").Count(&before)
-	runPythonStream("populate_industry.py")
+	errIndu := runPythonStream("populate_industry.py")
 	phaseRes := PhaseResult{Phase: "industry", Skipped: int(before)}
 	var after int64
 	db.PG.Model(&model.StockBasic{}).Where("industry IS NOT NULL AND industry != ''").Count(&after)
 	phaseRes.Total = int(after)
 	phaseRes.New = int(after - before)
 	phaseRes.DurationMs = time.Since(t0).Milliseconds()
-	sseSend(SSELine{Type: "result", Phase: "industry", Result: &phaseRes, Level: "success", Message: fmt.Sprintf("行业: 新增 %d", after-before)})
+	if errIndu != nil {
+		phaseRes.Errors = 1
+		sseSend(SSELine{Type: "result", Phase: "industry", Result: &phaseRes, Level: "error", Message: fmt.Sprintf("行业分类失败: %v", errIndu)})
+	} else {
+		sseSend(SSELine{Type: "result", Phase: "industry", Result: &phaseRes, Level: "success", Message: fmt.Sprintf("行业: 新增 %d", after-before)})
+	}
 	return phaseRes
 }
 
@@ -742,14 +787,19 @@ func runShareholderPhase() PhaseResult {
 	t0 := time.Now()
 	var before int64
 	db.PG.Model(&model.StockShareholder{}).Count(&before)
-	runPythonStream("shareholder_collect.py")
+	errSH := runPythonStream("shareholder_collect.py")
 	phaseRes := PhaseResult{Phase: "shareholder", Skipped: int(before)}
 	var after int64
 	db.PG.Model(&model.StockShareholder{}).Count(&after)
 	phaseRes.Total = int(after)
 	phaseRes.New = int(after - before)
 	phaseRes.DurationMs = time.Since(t0).Milliseconds()
-	sseSend(SSELine{Type: "result", Phase: "shareholder", Result: &phaseRes, Level: "success", Message: fmt.Sprintf("股东: 新增 %d", after-before)})
+	if errSH != nil {
+		phaseRes.Errors = 1
+		sseSend(SSELine{Type: "result", Phase: "shareholder", Result: &phaseRes, Level: "error", Message: fmt.Sprintf("股东采集失败: %v", errSH)})
+	} else {
+		sseSend(SSELine{Type: "result", Phase: "shareholder", Result: &phaseRes, Level: "success", Message: fmt.Sprintf("股东: 新增 %d", after-before)})
+	}
 	return phaseRes
 }
 
@@ -770,7 +820,7 @@ func runFinancialPhase() PhaseResult {
 		return pr
 	}
 	sseSend(SSELine{Type: "log", Message: fmt.Sprintf("需采集财务: %d 只 (总计 %d, 已有 %d)", need, totalStocks, existing), Level: "info"})
-	runPythonStream("financial_collect.py")
+	errFin := runPythonStream("financial_collect.py")
 	phaseRes := PhaseResult{Phase: "financial", Skipped: int(existing)}
 	var after int64
 	if err := db.PG.Model(&model.StockFinancial{}).Select("COUNT(DISTINCT code)").Scan(&after).Error; err != nil {
@@ -779,7 +829,12 @@ func runFinancialPhase() PhaseResult {
 	phaseRes.Total = int(after)
 	phaseRes.New = int(after - existing)
 	phaseRes.DurationMs = time.Since(t0).Milliseconds()
-	sseSend(SSELine{Type: "result", Phase: "financial", Result: &phaseRes, Level: "success", Message: fmt.Sprintf("财务: %d 只", after)})
+	if errFin != nil {
+		phaseRes.Errors = 1
+		sseSend(SSELine{Type: "result", Phase: "financial", Result: &phaseRes, Level: "error", Message: fmt.Sprintf("财务采集失败: %v", errFin)})
+	} else {
+		sseSend(SSELine{Type: "result", Phase: "financial", Result: &phaseRes, Level: "success", Message: fmt.Sprintf("财务: %d 只", after)})
+	}
 	return phaseRes
 }
 
@@ -800,7 +855,7 @@ func runNewsPhase() PhaseResult {
 		return pr
 	}
 	sseSend(SSELine{Type: "log", Message: fmt.Sprintf("需采集资讯: %d 只 (总计 %d, 已有 %d)", need, totalStocks, existing), Level: "info"})
-	runPythonStream("news_collect.py")
+	errNews := runPythonStream("news_collect.py")
 	phaseRes := PhaseResult{Phase: "news", Skipped: int(existing)}
 	var after int64
 	if err := db.PG.Model(&model.StockNews{}).Select("COUNT(DISTINCT code)").Scan(&after).Error; err != nil {
@@ -809,7 +864,12 @@ func runNewsPhase() PhaseResult {
 	phaseRes.Total = int(after)
 	phaseRes.New = int(after - existing)
 	phaseRes.DurationMs = time.Since(t0).Milliseconds()
-	sseSend(SSELine{Type: "result", Phase: "news", Result: &phaseRes, Level: "success", Message: fmt.Sprintf("资讯: %d 只", after)})
+	if errNews != nil {
+		phaseRes.Errors = 1
+		sseSend(SSELine{Type: "result", Phase: "news", Result: &phaseRes, Level: "error", Message: fmt.Sprintf("资讯采集失败: %v", errNews)})
+	} else {
+		sseSend(SSELine{Type: "result", Phase: "news", Result: &phaseRes, Level: "success", Message: fmt.Sprintf("资讯: %d 只", after)})
+	}
 	return phaseRes
 }
 
@@ -926,14 +986,19 @@ func runMarketDailyAggPhase() PhaseResult {
 	t0 := time.Now()
 	var before int64
 	db.PG.Raw("SELECT COUNT(*) FROM market_daily_agg").Scan(&before)
-	runPythonStreamWithArgs("precompute_aggs.py", getExtraArgsOrDefault("--last", "60")...)
+	errMDA := runPythonStreamWithArgs("precompute_aggs.py", getExtraArgsOrDefault("--last", "60")...)
 	phaseRes := PhaseResult{Phase: "market_daily_agg", Skipped: int(before)}
 	var after int64
 	db.PG.Raw("SELECT COUNT(*) FROM market_daily_agg").Scan(&after)
 	phaseRes.Total = int(after)
 	phaseRes.New = int(after - before)
 	phaseRes.DurationMs = time.Since(t0).Milliseconds()
-	sseSend(SSELine{Type: "result", Phase: "market_daily_agg", Result: &phaseRes, Level: "success", Message: fmt.Sprintf("市场日聚合: %d 天 (%+d)", after, after-before)})
+	if errMDA != nil {
+		phaseRes.Errors = 1
+		sseSend(SSELine{Type: "result", Phase: "market_daily_agg", Result: &phaseRes, Level: "error", Message: fmt.Sprintf("市场日聚合失败: %v", errMDA)})
+	} else {
+		sseSend(SSELine{Type: "result", Phase: "market_daily_agg", Result: &phaseRes, Level: "success", Message: fmt.Sprintf("市场日聚合: %d 天 (%+d)", after, after-before)})
+	}
 	return phaseRes
 }
 
@@ -943,14 +1008,19 @@ func runMarketSentimentPhase() PhaseResult {
 	t0 := time.Now()
 	var before int64
 	db.PG.Raw("SELECT COUNT(*) FROM market_sentiment").Scan(&before)
-	runPythonStreamWithArgs("compute_sentiment.py", getExtraArgsOrDefault("--last", "60")...)
+	err := runPythonStreamWithArgs("compute_sentiment.py", getExtraArgsOrDefault("--last", "60")...)
 	phaseRes := PhaseResult{Phase: "market_sentiment", Skipped: int(before)}
 	var after int64
 	db.PG.Raw("SELECT COUNT(*) FROM market_sentiment").Scan(&after)
 	phaseRes.Total = int(after)
 	phaseRes.New = int(after - before)
 	phaseRes.DurationMs = time.Since(t0).Milliseconds()
-	sseSend(SSELine{Type: "result", Phase: "market_sentiment", Result: &phaseRes, Level: "success", Message: fmt.Sprintf("市场情绪: %d 天 (%+d)", after, after-before)})
+	if err != nil {
+		phaseRes.Errors = 1
+		sseSend(SSELine{Type: "result", Phase: "market_sentiment", Result: &phaseRes, Level: "error", Message: fmt.Sprintf("市场情绪计算失败: %v", err)})
+	} else {
+		sseSend(SSELine{Type: "result", Phase: "market_sentiment", Result: &phaseRes, Level: "success", Message: fmt.Sprintf("市场情绪: %d 天 (%+d)", after, after-before)})
+	}
 	return phaseRes
 }
 
@@ -975,14 +1045,19 @@ func runBackfillFinancialPhase() PhaseResult {
 	t0 := time.Now()
 	var before int64
 	db.PG.Model(&model.StockFinancial{}).Count(&before)
-	runPythonStream("backfill_financial.py")
+	errBF := runPythonStream("backfill_financial.py")
 	phaseRes := PhaseResult{Phase: "backfill_financial", Skipped: int(before)}
 	var after int64
 	db.PG.Model(&model.StockFinancial{}).Count(&after)
 	phaseRes.Total = int(after)
 	phaseRes.New = int(after - before)
 	phaseRes.DurationMs = time.Since(t0).Milliseconds()
-	sseSend(SSELine{Type: "result", Phase: "backfill_financial", Result: &phaseRes, Level: "success", Message: fmt.Sprintf("财报回填: +%d 条", after-before)})
+	if errBF != nil {
+		phaseRes.Errors = 1
+		sseSend(SSELine{Type: "result", Phase: "backfill_financial", Result: &phaseRes, Level: "error", Message: fmt.Sprintf("财报回填失败: %v", errBF)})
+	} else {
+		sseSend(SSELine{Type: "result", Phase: "backfill_financial", Result: &phaseRes, Level: "success", Message: fmt.Sprintf("财报回填: +%d 条", after-before)})
+	}
 	return phaseRes
 }
 
@@ -992,14 +1067,19 @@ func runBackfillShareholderPhase() PhaseResult {
 	t0 := time.Now()
 	var before int64
 	db.PG.Model(&model.StockShareholder{}).Count(&before)
-	runPythonStream("backfill_shareholder.py")
+	errBS := runPythonStream("backfill_shareholder.py")
 	phaseRes := PhaseResult{Phase: "backfill_shareholder", Skipped: int(before)}
 	var after int64
 	db.PG.Model(&model.StockShareholder{}).Count(&after)
 	phaseRes.Total = int(after)
 	phaseRes.New = int(after - before)
 	phaseRes.DurationMs = time.Since(t0).Milliseconds()
-	sseSend(SSELine{Type: "result", Phase: "backfill_shareholder", Result: &phaseRes, Level: "success", Message: fmt.Sprintf("股东回填: +%d 条", after-before)})
+	if errBS != nil {
+		phaseRes.Errors = 1
+		sseSend(SSELine{Type: "result", Phase: "backfill_shareholder", Result: &phaseRes, Level: "error", Message: fmt.Sprintf("股东回填失败: %v", errBS)})
+	} else {
+		sseSend(SSELine{Type: "result", Phase: "backfill_shareholder", Result: &phaseRes, Level: "success", Message: fmt.Sprintf("股东回填: +%d 条", after-before)})
+	}
 	return phaseRes
 }
 
@@ -1009,14 +1089,19 @@ func runBackfillIndicatorPhase() PhaseResult {
 	t0 := time.Now()
 	var before int64
 	db.PG.Model(&model.StockDailyIndicator{}).Count(&before)
-	runPythonStreamWithArgs("backfill_indicator.py", "2024-01-01")
+	errBI := runPythonStreamWithArgs("backfill_indicator.py", "2024-01-01")
 	phaseRes := PhaseResult{Phase: "backfill_indicator", Skipped: int(before)}
 	var after int64
 	db.PG.Model(&model.StockDailyIndicator{}).Count(&after)
 	phaseRes.Total = int(after)
 	phaseRes.New = int(after - before)
 	phaseRes.DurationMs = time.Since(t0).Milliseconds()
-	sseSend(SSELine{Type: "result", Phase: "backfill_indicator", Result: &phaseRes, Level: "success", Message: fmt.Sprintf("指标回填: +%d 条", after-before)})
+	if errBI != nil {
+		phaseRes.Errors = 1
+		sseSend(SSELine{Type: "result", Phase: "backfill_indicator", Result: &phaseRes, Level: "error", Message: fmt.Sprintf("指标回填失败: %v", errBI)})
+	} else {
+		sseSend(SSELine{Type: "result", Phase: "backfill_indicator", Result: &phaseRes, Level: "success", Message: fmt.Sprintf("指标回填: +%d 条", after-before)})
+	}
 	return phaseRes
 }
 
@@ -1027,14 +1112,19 @@ func runKLineYouziPhase() PhaseResult {
 	t0 := time.Now()
 	var before int64
 	db.PG.Raw("SELECT COUNT(DISTINCT code) FROM stocks_daily_k WHERE data_source = 'youzi'").Scan(&before)
-	runPythonStream("collect_kline_youzi.py")
+	errKY := runPythonStream("collect_kline_youzi.py")
 	phaseRes := PhaseResult{Phase: "kline_youzi"}
 	var after int64
 	db.PG.Raw("SELECT COUNT(DISTINCT code) FROM stocks_daily_k WHERE data_source = 'youzi'").Scan(&after)
 	phaseRes.Total = int(after)
 	phaseRes.New = int(after - before)
 	phaseRes.DurationMs = time.Since(t0).Milliseconds()
-	sseSend(SSELine{Type: "result", Phase: "kline_youzi", Result: &phaseRes, Level: "success", Message: fmt.Sprintf("柚子K线: %d 只", after)})
+	if errKY != nil {
+		phaseRes.Errors = 1
+		sseSend(SSELine{Type: "result", Phase: "kline_youzi", Result: &phaseRes, Level: "error", Message: fmt.Sprintf("柚子K线采集失败: %v", errKY)})
+	} else {
+		sseSend(SSELine{Type: "result", Phase: "kline_youzi", Result: &phaseRes, Level: "success", Message: fmt.Sprintf("柚子K线: %d 只", after)})
+	}
 	return phaseRes
 }
 

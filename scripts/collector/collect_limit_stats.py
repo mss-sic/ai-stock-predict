@@ -32,13 +32,13 @@ SQL_COMPUTE_ONE_DAY = """
             WHERE (board_type IN ('kc','cy') AND ret >= 0.1999)
                OR (board_type = 'bj' AND ret >= 0.2999)
                OR (is_st AND ret >= 0.0499)
-               OR (ret >= 0.0999)
+               OR (board_type NOT IN ('kc','cy','bj') AND NOT COALESCE(is_st, false) AND ret >= 0.0999)
         ) as up_count,
         COUNT(*) FILTER (
             WHERE (board_type IN ('kc','cy') AND ret <= -0.1999)
                OR (board_type = 'bj' AND ret <= -0.2999)
                OR (is_st AND ret <= -0.0499)
-               OR (ret <= -0.0999)
+               OR (board_type NOT IN ('kc','cy','bj') AND NOT COALESCE(is_st, false) AND ret <= -0.0999)
         ) as down_count,
         COUNT(*) FILTER (WHERE ret > 0) as rise_count,
         COUNT(*) FILTER (WHERE ret < 0) as fall_count,
@@ -50,7 +50,7 @@ SQL_COMPUTE_ONE_DAY = """
                     AND (high - close_price) / NULLIF(high, 0) > 0.02 THEN 1
                 WHEN is_st AND ret >= 0.0499
                     AND (high - close_price) / NULLIF(high, 0) > 0.02 THEN 1
-                WHEN ret >= 0.0999
+                WHEN board_type NOT IN ('kc','cy','bj') AND NOT COALESCE(is_st, false) AND ret >= 0.0999
                     AND (high - close_price) / NULLIF(high, 0) > 0.02 THEN 1
                 ELSE 0
             END
