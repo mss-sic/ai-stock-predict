@@ -164,15 +164,36 @@ func (tm *TaskManager) executeTask(taskID uint, phase, name string) {
 		count, err := ScanUserHoldings()
 		finishTaskLog(&logEntry, count, 0, 0, err)
 	} else if phase == "market_style" {
-		// Market style computation — direct Go service call
+		// Market style computation — use latest trading day, not wall clock
 		svc := NewMarketStyleService()
-		date := time.Now().Format("2006-01-02")
-		err := svc.ComputeAndStore(date)
-		count := 1
-		if err != nil {
-			count = 0
+		var date string
+		db.PG.Raw("SELECT trade_date::text FROM market_sentiment ORDER BY trade_date DESC LIMIT 1").Scan(&date)
+		if date == "" {
+			db.PG.Raw("SELECT trade_date::text FROM market_daily_agg ORDER BY trade_date DESC LIMIT 1").Scan(&date)
 		}
-		finishTaskLog(&logEntry, count, 0, 0, err)
+		if date == "" {
+			finishTaskLog(&logEntry, 0, 0, 0, fmt.Errorf("无可用交易日期"))
+		} else {
+			// Also fill any missing dates between last computed and latest
+			var missing []string
+			db.PG.Raw(`SELECT trade_date::text FROM market_sentiment
+				WHERE trade_date NOT IN (SELECT trade_date FROM market_style_daily)
+				ORDER BY trade_date`).Pluck("trade_date", &missing)
+			success, fail := 0, 0
+			for _, d := range missing {
+				if err := svc.ComputeAndStore(d); err != nil {
+					fail++
+					log.Printf("[market_style] scheduled FAIL %s: %v", d, err)
+				} else {
+					success++
+				}
+			}
+			var taskErr error
+			if fail > 0 {
+				taskErr = fmt.Errorf("%d/%d 失败", fail, success+fail)
+			}
+			finishTaskLog(&logEntry, success, fail, 0, taskErr)
+		}
 	} else {
 		// Run collector phase (Python scripts: kline, indicator, market_sentiment, market_daily_agg, etc.)
 		phaseName := phase
@@ -419,6 +440,12 @@ func RepairTask(id uint, from, to string, all bool) error {
 			}
 		}
 		log.Printf("[market_style] repair done: %d dates, %d ok, %d fail", len(dates), success, fail)
+		if fail > 0 {
+			return fmt.Errorf("市场风格修复: %d/%d 成功, %d 失败", success, len(dates), fail)
+		}
+		if success == 0 && len(dates) == 0 {
+			return fmt.Errorf("没有缺失日期需要修复（market_style_daily 已是最新）")
+		}
 		return nil
 	}
 	args := []string{"--repair"}
