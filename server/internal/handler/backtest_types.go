@@ -14,7 +14,7 @@ const (
 	// REDUCE_COOLDOWN_DAYS prevents repeated reduce signals within N trading days
 	REDUCE_COOLDOWN_DAYS = 5
 	// MIN_REDUCE_QTY is the minimum shares for a reduce; below this, skip or sell all
-	MIN_REDUCE_QTY = 10
+	MIN_REDUCE_QTY = 100
 )
 
 func (a ActionType) Label() string {

@@ -489,9 +489,26 @@ func generateSignalsV2(
 				// evalSingleWithValue returns (passed, rawValue) for fuzzy scoring
 					evalWithVal := func(cond model.StrategyCondition, code, date string) (bool, float64) {
 						ind := cond.Indicator
-						// Try cache first (preloaded indicators: rsi, volume_ratio, ma, etc.)
+						// Try cache first with exact date (preloaded daily indicators)
 						if val, ok := icache.get(ind, code, date); ok {
 							return checkOp(val, cond.Operator, cond.Value), val
+						}
+						// AI scores and financials are stored with empty date (date-independent)
+						if val, ok := icache.get(ind, code, ""); ok {
+							return checkOp(val, cond.Operator, cond.Value), val
+						}
+						// PE/PB/PS/市值 are preloaded but not daily — walk kcache dates backwards for latest
+						if ind == "pe" || ind == "pb" || ind == "ps" || ind == "total_market_cap" {
+							dates := kcache.dates
+							idx := -1
+							for i, d := range dates {
+								if d == date { idx = i; break }
+							}
+							for i := idx; i >= 0; i-- {
+								if val, ok := icache.get(ind, code, dates[i]); ok {
+									return checkOp(val, cond.Operator, cond.Value), val
+								}
+							}
 						}
 						// Fast path: momentum computed from kcache (avoids per-stock SQL)
 						switch ind {
@@ -532,7 +549,7 @@ func generateSignalsV2(
 							val := checkMACDFast(kcache, code, date)
 							return val != 0, val
 						}
-						// Slow path: SQL-based indicator (PE, PB, AI scores, etc.)
+						// Slow path: SQL-based indicator (percentile, shareholder — only if not preloaded)
 						rawVal := getIndicatorValue(cond, code, date)
 						passed := checkOp(rawVal, cond.Operator, cond.Value)
 						return passed, rawVal

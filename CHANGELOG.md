@@ -1,3 +1,14 @@
+## v1.8.2 (2026-07-01)
+
+### 策略执行修复 & 性能优化
+
+- **MIN_REDUCE_QTY 修复**: 减仓碎片化阈值从 10 股修正为 100 股（A股一手），避免剩余不可交易碎片
+- **止损卖出重复信号**: Legacy 模式止损信号与 sell/reduce 循环隔离，新增 `stopCodeSet` 防止同天对同一股票生成重复卖出信号
+- **AI/财务指标批量预加载**: `ai_stock_scores`（7维）和 `stock_financials`（7维）在回测初始化时批量加载到 icache，消除逐只 SQL N+1 查询
+- **PE/PB 非日频数据日期回退**: 估值数据非每日更新，缓存按精确日期 miss 时向前回退查找最近可用值，消除数千次 `getIndicator` SQL
+- **概念缓存 SQL 修复**: `preloadConceptRanks` 中 `ANY(?)` 与 Go []string 不兼容，改用 `IN` 子句。修复后概念板块过滤生效，评分池从 2956 只降至 1355 只（-54%）
+- **评分漏斗增强**: `evalWithVal`/`evalSingle`/`evalSingleWithDetail` 统一增加空日期和回退日期双重缓存查找逻辑
+
 ## v1.8.0 (2026-06-29)
 
 ### 数据补全 — 10 项新数据源 + 采集系统重构

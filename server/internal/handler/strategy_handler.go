@@ -1722,20 +1722,13 @@ func preloadIndicators(conds []model.StrategyCondition, codes []string, startDat
 		case "daily_change", "momentum_5", "momentum_20":
 			continue // computed from kcache.GetClose
 		}
-		// Skip indicators from other tables (fast enough with simple queries)
+		// Skip indicators that require complex per-stock computation (loaded separately below)
 		switch {
-		case strings.HasPrefix(ind, "ai_"):
-			continue
-		case ind == "algo_score", ind == "signal_value":
-			continue
-		case ind == "algo_score", ind == "signal_value":
-			continue
 		case ind == "pe_percentile", ind == "pb_percentile":
-			continue
-		case ind == "roe", ind == "revenue_growth", ind == "profit_growth", ind == "gross_margin", ind == "net_margin", ind == "debt_ratio", ind == "eps":
 			continue
 		case ind == "shareholder_change", ind == "inst_hold_ratio":
 			continue
+		// Note: AI scores, financial metrics, algo_score, signal_value are batch-preloaded below
 		}
 		needPreload[ind] = true
 	}
@@ -2199,6 +2192,126 @@ func preloadIndicators(conds []model.StrategyCondition, codes []string, startDat
 		log.Printf("[backtest] unbatched indicators (fallback to per-stock): %v", keys)
 	}
 
+	// Batch preload: AI scores (7 dimensions from ai_stock_scores)
+	// Take latest score per stock up to endDate; these are weekly-refresh data so exact date match not needed
+	if needPreload["ai_score"] || needPreload["ai_fundamental"] || needPreload["ai_technical"] || needPreload["ai_valuation"] || needPreload["ai_growth"] || needPreload["ai_industry"] || needPreload["ai_capital"] {
+		log.Printf("[backtest] batch preloading AI scores for %d stocks...", len(codes))
+		inClause := db.CodesToInClause(codes)
+		query := fmt.Sprintf(`
+			SELECT code,
+				COALESCE(composite_score, 0) as ai_score,
+				COALESCE(fundamental_score, 0) as ai_fundamental,
+				COALESCE(technical_score, 0) as ai_technical,
+				COALESCE(valuation_score, 0) as ai_valuation,
+				COALESCE(growth_score, 0) as ai_growth,
+				COALESCE(industry_score, 0) as ai_industry,
+				COALESCE(capital_score, 0) as ai_capital
+			FROM ai_stock_scores
+			WHERE code IN (%s) AND created_at <= ?::date
+		`, inClause)
+		type AIRow struct {
+			Code           string
+			AiScore        float64
+			AiFundamental  float64
+			AiTechnical    float64
+			AiValuation    float64
+			AiGrowth       float64
+			AiIndustry     float64
+			AiCapital      float64
+		}
+		var rows []AIRow
+		if err := db.PG.Raw(query, endDate).Scan(&rows).Error; err != nil {
+			log.Printf("[backtest] AI scores preload failed: %v", err)
+		} else {
+			// AI scores are date-independent (one row per stock), store with empty date
+			for _, r := range rows {
+				if needPreload["ai_score"]       { cache.set("ai_score",       r.Code, "", r.AiScore) }
+				if needPreload["ai_fundamental"]  { cache.set("ai_fundamental",  r.Code, "", r.AiFundamental) }
+				if needPreload["ai_technical"]    { cache.set("ai_technical",    r.Code, "", r.AiTechnical) }
+				if needPreload["ai_valuation"]    { cache.set("ai_valuation",    r.Code, "", r.AiValuation) }
+				if needPreload["ai_growth"]       { cache.set("ai_growth",       r.Code, "", r.AiGrowth) }
+				if needPreload["ai_industry"]     { cache.set("ai_industry",     r.Code, "", r.AiIndustry) }
+				if needPreload["ai_capital"]      { cache.set("ai_capital",      r.Code, "", r.AiCapital) }
+			}
+		}
+		delete(needPreload, "ai_score")
+		delete(needPreload, "ai_fundamental")
+		delete(needPreload, "ai_technical")
+		delete(needPreload, "ai_valuation")
+		delete(needPreload, "ai_growth")
+		delete(needPreload, "ai_industry")
+		delete(needPreload, "ai_capital")
+	}
+
+	// Batch preload: Financial metrics from stock_financials (latest report before endDate)
+	if needPreload["roe"] || needPreload["revenue_growth"] || needPreload["profit_growth"] || needPreload["gross_margin"] || needPreload["net_margin"] || needPreload["debt_ratio"] || needPreload["eps"] {
+		log.Printf("[backtest] batch preloading financials for %d stocks...", len(codes))
+		inClause := db.CodesToInClause(codes)
+		query := fmt.Sprintf(`
+			SELECT DISTINCT ON (code) code,
+				COALESCE(roe, 0) as roe,
+				COALESCE(revenue_growth, 0) as revenue_growth,
+				COALESCE(profit_growth, 0) as profit_growth,
+				COALESCE(gross_margin, 0) as gross_margin,
+				COALESCE(net_margin, 0) as net_margin,
+				COALESCE(debt_ratio, 0) as debt_ratio,
+				COALESCE(eps, 0) as eps
+			FROM stock_financials
+			WHERE code IN (%s) AND report_date <= ?
+			ORDER BY code, report_date DESC
+		`, inClause)
+		type FinRow struct {
+			Code          string
+			ROE           float64
+			RevenueGrowth float64
+			ProfitGrowth  float64
+			GrossMargin   float64
+			NetMargin     float64
+			DebtRatio     float64
+			EPS           float64
+		}
+		var rows []FinRow
+		if err := db.PG.Raw(query, endDate).Scan(&rows).Error; err != nil {
+			log.Printf("[backtest] financials preload failed: %v", err)
+		} else {
+			for _, r := range rows {
+				if needPreload["roe"]            { cache.set("roe",            r.Code, "", r.ROE) }
+				if needPreload["revenue_growth"] { cache.set("revenue_growth", r.Code, "", r.RevenueGrowth) }
+				if needPreload["profit_growth"]  { cache.set("profit_growth",  r.Code, "", r.ProfitGrowth) }
+				if needPreload["gross_margin"]   { cache.set("gross_margin",   r.Code, "", r.GrossMargin) }
+				if needPreload["net_margin"]     { cache.set("net_margin",     r.Code, "", r.NetMargin) }
+				if needPreload["debt_ratio"]     { cache.set("debt_ratio",     r.Code, "", r.DebtRatio) }
+				if needPreload["eps"]            { cache.set("eps",            r.Code, "", r.EPS) }
+			}
+		}
+		delete(needPreload, "roe")
+		delete(needPreload, "revenue_growth")
+		delete(needPreload, "profit_growth")
+		delete(needPreload, "gross_margin")
+		delete(needPreload, "net_margin")
+		delete(needPreload, "debt_ratio")
+		delete(needPreload, "eps")
+	}
+
+	// Batch preload: algo_score from algorithm_pick_details
+	if needPreload["algo_score"] {
+		log.Printf("[backtest] batch preloading algo_score for %d stocks...", len(codes))
+		cache.batchScanWithCodes("algo_score", codes,
+			`SELECT stock_code as code, TO_CHAR(pick_date, 'YYYY-MM-DD') as date, COALESCE(score, 0) as value
+			FROM algorithm_pick_details WHERE stock_code IN (%s) AND pick_date BETWEEN ? AND ?`,
+			startDate, endDate)
+		delete(needPreload, "algo_score")
+	}
+
+	// Batch preload: signal_value from stock_signals (one row per stock, date-independent)
+	if needPreload["signal_value"] {
+		log.Printf("[backtest] batch preloading signal_value for %d stocks...", len(codes))
+		inClause := db.CodesToInClause(codes)
+		query := fmt.Sprintf(`SELECT code, COALESCE(signal_value, 0) as value FROM stock_signals WHERE code IN (%s)`, inClause)
+		cache.batchScan("signal_value", query)
+		delete(needPreload, "signal_value")
+	}
+
 	// Batch preload: PE/PB/PS/market_cap from stocks_daily_indicator
 	if needPreload["pe"] || needPreload["pb"] || needPreload["ps"] || needPreload["total_market_cap"] {
 		log.Printf("[backtest] batch preloading PE/PB/PS/市值 for %d stocks...", len(codes))
@@ -2389,10 +2502,10 @@ func preloadConceptRanks(codes []string, startDate, endDate string) *ConceptRank
         ConceptName string
     }
     var mappings []conceptRow
-    if err := db.PG.Raw(`
-        SELECT code, concept_name FROM stock_concepts 
-        WHERE concept_type = 'concept' AND code = ANY(?)
-    `, codes).Scan(&mappings).Error; err != nil {
+    inClause1 := db.CodesToInClause(codes)
+    query1 := fmt.Sprintf(`SELECT code, concept_name FROM stock_concepts 
+        WHERE concept_type = 'concept' AND code IN (%s)`, inClause1)
+    if err := db.PG.Raw(query1).Scan(&mappings).Error; err != nil {
         log.Printf("[concept_cache] stock→concept preload failed: %v", err)
         return crc
     }
@@ -2408,14 +2521,15 @@ func preloadConceptRanks(codes []string, startDate, endDate string) *ConceptRank
         AvgChg      float64
     }
     var perfs []conceptPerf
-    if err := db.PG.Raw(`
+    inClause2 := db.CodesToInClause(codes)
+    query2 := fmt.Sprintf(`
         WITH daily_chg AS (
             SELECT code, trade_date,
                    (close - LAG(close) OVER (PARTITION BY code ORDER BY trade_date)) 
                    / NULLIF(LAG(close) OVER (PARTITION BY code ORDER BY trade_date), 0) * 100 as chg
             FROM stocks_daily_k
             WHERE trade_date >= ? AND trade_date <= ?
-              AND code = ANY(?)
+              AND code IN (%s)
         )
         SELECT TO_CHAR(dc.trade_date, 'YYYY-MM-DD') as trade_date,
                sc.concept_name,
@@ -2426,7 +2540,8 @@ func preloadConceptRanks(codes []string, startDate, endDate string) *ConceptRank
         GROUP BY dc.trade_date, sc.concept_name
         HAVING COUNT(*) >= 3
         ORDER BY dc.trade_date
-    `, startDate, endDate, codes).Scan(&perfs).Error; err != nil {
+    `, inClause2)
+    if err := db.PG.Raw(query2, startDate, endDate).Scan(&perfs).Error; err != nil {
         log.Printf("[concept_cache] concept performance query failed: %v", err)
         return crc
     }
@@ -2818,9 +2933,26 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 	// Local evaluateSingleCondition that uses the preloaded cache
 	evalSingle := func(cond model.StrategyCondition, code, date string) bool {
 		ind := cond.Indicator
-		// Try cache first
+		// Try cache first with exact date
 		if val, ok := icache.get(ind, code, date); ok {
 			return checkOp(val, cond.Operator, cond.Value)
+		}
+		// AI scores and financials are stored with empty date (date-independent)
+		if val, ok := icache.get(ind, code, ""); ok {
+			return checkOp(val, cond.Operator, cond.Value)
+		}
+		// PE/PB/PS/市值 are preloaded but sparse — try previous dates
+		if ind == "pe" || ind == "pb" || ind == "ps" || ind == "total_market_cap" {
+			dates := kcache.dates
+			idx := -1
+			for i, d := range dates {
+				if d == date { idx = i; break }
+			}
+			for i := idx; i >= 0; i-- {
+				if val, ok := icache.get(ind, code, dates[i]); ok {
+					return checkOp(val, cond.Operator, cond.Value)
+				}
+			}
 		}
 		// Compute from close cache for simple momentum indicators
 		switch ind {
@@ -2889,6 +3021,21 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 		var val float64
 		if v, ok := icache.get(ind, code, date); ok {
 			val = v
+		} else if v, ok := icache.get(ind, code, ""); ok {
+			// AI scores and financials stored with empty date
+			val = v
+		} else if ind == "pe" || ind == "pb" || ind == "ps" || ind == "total_market_cap" {
+			// PE/PB sparse data — try previous dates from kcache
+			dates := kcache.dates
+			idx := -1
+			for i, d := range dates {
+				if d == date { idx = i; break }
+			}
+			for i := idx; i >= 0; i-- {
+				if v, ok := icache.get(ind, code, dates[i]); ok {
+					val = v; break
+				}
+			}
 		} else {
 			switch ind {
 			case "daily_change":
@@ -2994,6 +3141,7 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 		}
 
 		// --- Stop-profit / Stop-loss checks ---
+		stopCodeSet := make(map[string]bool)
 		for _, pos := range positions {
 			closePrice := kcache.GetClose(pos.Code, date)
 			if closePrice <= 0 {
@@ -3017,6 +3165,7 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 					Status: "pending",
 					Reason: fmt.Sprintf("止损触发 %.1f%% ≤ %.1f%%", chgPct, s.StopLoss),
 				})
+				stopCodeSet[pos.Code] = true
 				continue
 			}
 
@@ -3031,11 +3180,16 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 					Status: "pending",
 					Reason: fmt.Sprintf("止盈触发 %.1f%% ≥ %.1f%%", chgPct, s.StopProfit),
 				})
+				stopCodeSet[pos.Code] = true
 			}
 		}
 
 		// --- Sell/Reduce checks ---
 		for _, pos := range positions {
+			// Skip if already has a stop signal today
+			if stopCodeSet[pos.Code] {
+				continue
+			}
 			// T+1: cannot sell if bought today
 			if pos.BuyDate == date {
 				continue
