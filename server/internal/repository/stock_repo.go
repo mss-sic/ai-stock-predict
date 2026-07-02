@@ -349,7 +349,7 @@ func (r *StockRepo) GetUnusual(boardType string, limit int) ([]UnusualRow, error
 		COALESCE(k.amount, 0) AS amount,
 		COALESCE(k.turnover_rate, 0) AS turnover_rate,
 		TO_CHAR(k.trade_date, 'YYYY-MM-DD') AS trade_date,
-		COALESCE((k.high - k.low) / NULLIF(p.close, 0) * 100, 0) AS amplitude,
+		COALESCE(k.amplitude, 0) AS amplitude,
 		COALESCE(avg20.avg_vol, 0) AS avg_vol20
 		FROM stocks_basic sb
 		LEFT JOIN stocks_daily_k k ON k.code = sb.code AND k.trade_date = ?::date

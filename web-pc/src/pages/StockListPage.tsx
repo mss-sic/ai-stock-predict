@@ -313,7 +313,7 @@ export default function StockListPage() {
     {
       title: '换手率', dataIndex: 'turnoverRate', width: 80,
       render: (v: number) => v ? (
-        <span style={{ fontFamily: "'SF Mono', monospace", fontSize: 11 }}>{v.toFixed(2)}%</span>
+        <span style={{ fontFamily: "'SF Mono', monospace", fontSize: 11 }}>{((v || 0) * 100).toFixed(2)}%</span>
       ) : <span className="muted">—</span>,
     },
     {

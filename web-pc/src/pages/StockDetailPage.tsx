@@ -753,7 +753,7 @@ fetchPredictionResult(code).then((r: any) => {
     const chg = (latest?.close ?? 0) - (prev?.close ?? 0), chgPct = (prev?.close ?? 0) > 0 ? (chg / (prev?.close ?? 1)) * 100 : 0;
     const high = Math.max(...safeKlines.slice(-20).map((k: any) => k.high)), low = Math.min(...safeKlines.slice(-20).map((k: any) => k.low));
     const vol = latest.volume ?? 0, amount = latest.amount ?? 0; const turnover = (latest.turnoverRate ?? 0) * 100;
-    const amplitude = (latest?.open ?? 0) > 0 ? (((latest?.high ?? 0) - (latest?.low ?? 0)) / (latest?.open ?? 1)) * 100 : 0;
+    const amplitude = latest?.amplitude ?? 0;
     return { price: latest?.close ?? 0, chg, chgPct, high, low, prevClose: prev?.close ?? 0, open: latest?.open ?? 0, vol, amount, amplitude, turnover };
   }, [safeKlines]);
 

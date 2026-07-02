@@ -62,7 +62,7 @@ func GetIndustryList(date string) ([]IndustrySummary, error) {
 				COALESCE(di.ps, 0) as ps,
 				COALESCE(di.total_market_cap, 0) as mcap,
 				COALESCE(k.close, 0) as close,
-				COALESCE((k.close - kp.close) / NULLIF(kp.close, 0) * 100, 0) as change_pct,
+				COALESCE(k.change_pct, 0) as change_pct,
 				COALESCE((k.close - kw.close) / NULLIF(kw.close, 0) * 100, 0) as week_return,
 				COALESCE((k.close - km.close) / NULLIF(km.close, 0) * 100, 0) as month_return
 			FROM stocks_basic sb
@@ -140,7 +140,7 @@ func GetIndustryStocks(industry, date, sortBy string) ([]IndustryStock, error) {
 				COALESCE(di.ps, 0) as ps,
 				COALESCE(di.total_market_cap, 0) as market_cap,
 				COALESCE(k.close, 0) as close,
-				COALESCE((k.close - kp.close) / NULLIF(kp.close, 0) * 100, 0) as change_pct,
+				COALESCE(k.change_pct, 0) as change_pct,
 				COALESCE((k.close - kw.close) / NULLIF(kw.close, 0) * 100, 0) as week_return,
 				ROW_NUMBER() OVER (ORDER BY CASE WHEN di.pe > 0 THEN di.pe ELSE 999999 END ASC) as pe_rank
 			FROM stocks_basic sb
