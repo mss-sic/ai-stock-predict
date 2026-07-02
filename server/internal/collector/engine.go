@@ -393,6 +393,12 @@ func RunManualCollection(phases []string, extraArgs ...string) {
 	if shouldRun("kline_youzi") {
 		appendResult(runKLineYouziPhase())
 	}
+	if shouldRun("tushare_kline") {
+		appendResult(runTushareKLinePhase())
+	}
+	if shouldRun("tushare_indicator") {
+		appendResult(runTushareIndicatorPhase())
+	}
 	if shouldRun("industry") {
 		appendResult(runIndustryPhase())
 	}
@@ -715,6 +721,50 @@ func runKLinePhase() PhaseResult {
 	idxMsg := ""
 	if indexCollected { idxMsg = " +大盘指数" }
 	sseSend(SSELine{Type: "result", Phase: "kline", Result: &phaseRes, Level: "success", Message: fmt.Sprintf("K线: %d 只%s", after, idxMsg)})
+	return phaseRes
+}
+
+func runTushareKLinePhase() PhaseResult {
+	setPhase("tushare_kline", "Tushare日K采集...")
+	sseSend(SSELine{Type: "phase", Phase: "tushare_kline", Message: "开始从 Tushare API 采集全市场日K线（支持指定日期）...", Level: "info"})
+	t0 := time.Now()
+	var before int64
+	db.PG.Raw("SELECT COUNT(DISTINCT code) FROM stocks_daily_k WHERE data_source = 'tushare'").Scan(&before)
+	errTK := runPythonStream("tushare_kline.py")
+	phaseRes := PhaseResult{Phase: "tushare_kline", Skipped: int(before)}
+	var after int64
+	db.PG.Raw("SELECT COUNT(DISTINCT code) FROM stocks_daily_k WHERE data_source = 'tushare'").Scan(&after)
+	phaseRes.Total = int(after)
+	phaseRes.New = int(after - before)
+	phaseRes.DurationMs = time.Since(t0).Milliseconds()
+	if errTK != nil {
+		phaseRes.Errors = 1
+		sseSend(SSELine{Type: "result", Phase: "tushare_kline", Result: &phaseRes, Level: "error", Message: fmt.Sprintf("Tushare日K采集失败: %v", errTK)})
+	} else {
+		sseSend(SSELine{Type: "result", Phase: "tushare_kline", Result: &phaseRes, Level: "success", Message: fmt.Sprintf("Tushare日K: %d 只", after)})
+	}
+	return phaseRes
+}
+
+func runTushareIndicatorPhase() PhaseResult {
+	setPhase("tushare_indicator", "Tushare技术指标采集...")
+	sseSend(SSELine{Type: "phase", Phase: "tushare_indicator", Message: "开始从 Tushare daily_basic 采集技术指标（PE/PB/PS/股息率/换手率/股本/市值）...", Level: "info"})
+	t0 := time.Now()
+	var before int64
+	db.PG.Raw("SELECT COUNT(DISTINCT code) FROM stocks_daily_indicator WHERE data_source = 'tushare'").Scan(&before)
+	errTI := runPythonStream("tushare_indicator.py")
+	phaseRes := PhaseResult{Phase: "tushare_indicator", Skipped: int(before)}
+	var after int64
+	db.PG.Raw("SELECT COUNT(DISTINCT code) FROM stocks_daily_indicator WHERE data_source = 'tushare'").Scan(&after)
+	phaseRes.Total = int(after)
+	phaseRes.New = int(after - before)
+	phaseRes.DurationMs = time.Since(t0).Milliseconds()
+	if errTI != nil {
+		phaseRes.Errors = 1
+		sseSend(SSELine{Type: "result", Phase: "tushare_indicator", Result: &phaseRes, Level: "error", Message: fmt.Sprintf("Tushare技术指标采集失败: %v", errTI)})
+	} else {
+		sseSend(SSELine{Type: "result", Phase: "tushare_indicator", Result: &phaseRes, Level: "success", Message: fmt.Sprintf("Tushare技术指标: %d 只", after)})
+	}
 	return phaseRes
 }
 

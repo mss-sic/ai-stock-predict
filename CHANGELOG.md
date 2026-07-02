@@ -1,3 +1,17 @@
+## v1.8.3 (2026-07-02)
+
+### Tushare 日K + 技术指标采集
+
+- **Tushare 日K采集** (`tushare_kline.py`): 全市场日K未复权行情，`daily` 接口无频率限制，支持指定日期/默认最新交易日
+  - 新增字段: `pre_close`(昨收)、`change_amount`(涨跌额)
+  - 单位转换: vol(手→股×100)、amount(千元→元×1000)
+  - 与腾讯前复权数据互不覆盖 (ON CONFLICT DO NOTHING)
+- **Tushare 技术指标采集** (`tushare_indicator.py`): `daily_basic` 接口，每小时一次(16:00-20:00)
+  - `stocks_daily_indicator` 字段从 7→18: 新增 pe_ttm/ps_ttm/turnover_rate/turnover_rate_f/volume_ratio/dv_ratio/dv_ttm/total_share/float_share/free_share
+  - 定时: 交易日 16:00-20:00 每小时 (配合 1次/小时 限流)
+- **采集控制台**: 前端新增「日K采集-Tushare」「技术指标-Tushare」两个采集按钮
+- **迁移**: v048(pre_close/change_amount) + v049(10个指标字段)
+
 ## v1.8.2 (2026-07-01)
 
 ### 策略执行修复 & 性能优化

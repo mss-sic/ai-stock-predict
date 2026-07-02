@@ -13,7 +13,7 @@ import {
 } from '../services/api';
 
 const PHASE_LABELS: Record<string, string> = {
-  full_sync: '股票列表同步', kline: '日K线数据',
+  full_sync: '股票列表同步', kline: '日K线数据', tushare_kline: '日K采集-Tushare', tushare_indicator: '技术指标-Tushare',
   industry: '行业分类', quote: '实时行情', shareholder: '股东数据',
   financial: '财务数据', news: '资讯数据', reports: '研报数据', concept: '概念板块',
   backfill_financial: '财报全量回填', backfill_shareholder: '股东全量回填',
@@ -41,7 +41,9 @@ const PHASE_LABELS: Record<string, string> = {
 
 const PHASE_DESCRIPTIONS: Record<string, string> = {
   full_sync: '同步全市场股票代码、名称、上市日期、所属行业等基础信息',
-  kline: '采集每日开/高/低/收价格、成交量、成交额等K线数据',
+  kline: '采集每日开/高/低/收价格、成交量、成交额等K线数据（腾讯前复权）',
+  tushare_kline: 'Tushare日K采集：原始未复权行情，含昨收/涨跌额/涨跌幅，单位标准化（股/元/%）',
+  tushare_indicator: 'Tushare技术指标：PE/PB/PS/股息率/换手率/量比/股本/市值（daily_basic接口）',
   industry: '同步申万行业分类标准，建立行业板块映射',
   quote: '采集实时买卖盘价格、成交量、换手率等盘中行情快照',
   shareholder: '采集股东总人数、人均持股、前十大股东、机构持股比例等筹码数据',
@@ -74,7 +76,7 @@ const PHASE_DESCRIPTIONS: Record<string, string> = {
 };
 
 const PHASE_COLORS: Record<string, string> = {
-  full_sync: '#165dff', kline: '#ff7d00',
+  full_sync: '#165dff', kline: '#ff7d00', tushare_kline: '#e8654c', tushare_indicator: '#0fc6c2',
   industry: '#722ed1', quote: '#14c9c9', shareholder: '#f53f3f',
   financial: '#0fc6c2', news: '#f77234', reports: '#e865b7', concept: '#f5319d',
   backfill_financial: '#4080ff', backfill_shareholder: '#ff4080',

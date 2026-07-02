@@ -1298,4 +1298,37 @@ Register(Migration{
 		},
 	})
 
+
+	// v048: Tushare daily fields: pre_close + change_amount
+	Register(Migration{
+		Version:     48,
+		Description: "PG: add pre_close and change_amount to stocks_daily_k for Tushare data source",
+		Up: func() error {
+			safeExec(`ALTER TABLE stocks_daily_k ADD COLUMN IF NOT EXISTS pre_close NUMERIC(12,4) DEFAULT 0`)
+			safeExec(`ALTER TABLE stocks_daily_k ADD COLUMN IF NOT EXISTS change_amount NUMERIC(12,4) DEFAULT 0`)
+			return nil
+		},
+	})
+
+
+	// v049: Tushare daily_basic indicator fields
+	Register(Migration{
+		Version:     49,
+		Description: "PG: add daily_basic indicator fields to stocks_daily_indicator",
+		Up: func() error {
+			safeExec(`ALTER TABLE stocks_daily_indicator ADD COLUMN IF NOT EXISTS pe_ttm NUMERIC(14,4) DEFAULT 0`)
+			safeExec(`ALTER TABLE stocks_daily_indicator ADD COLUMN IF NOT EXISTS ps_ttm NUMERIC(14,4) DEFAULT 0`)
+			safeExec(`ALTER TABLE stocks_daily_indicator ADD COLUMN IF NOT EXISTS turnover_rate NUMERIC(10,4) DEFAULT 0`)
+			safeExec(`ALTER TABLE stocks_daily_indicator ADD COLUMN IF NOT EXISTS turnover_rate_f NUMERIC(10,4) DEFAULT 0`)
+			safeExec(`ALTER TABLE stocks_daily_indicator ADD COLUMN IF NOT EXISTS volume_ratio NUMERIC(10,4) DEFAULT 0`)
+			safeExec(`ALTER TABLE stocks_daily_indicator ADD COLUMN IF NOT EXISTS dv_ratio NUMERIC(10,4) DEFAULT 0`)
+			safeExec(`ALTER TABLE stocks_daily_indicator ADD COLUMN IF NOT EXISTS dv_ttm NUMERIC(10,4) DEFAULT 0`)
+			safeExec(`ALTER TABLE stocks_daily_indicator ADD COLUMN IF NOT EXISTS total_share NUMERIC(20,4) DEFAULT 0`)
+			safeExec(`ALTER TABLE stocks_daily_indicator ADD COLUMN IF NOT EXISTS float_share NUMERIC(20,4) DEFAULT 0`)
+			safeExec(`ALTER TABLE stocks_daily_indicator ADD COLUMN IF NOT EXISTS free_share NUMERIC(20,4) DEFAULT 0`)
+			safeExec(`ALTER TABLE stocks_daily_indicator ADD COLUMN IF NOT EXISTS data_source VARCHAR(20) DEFAULT ''`)
+			return nil
+		},
+	})
+
 }

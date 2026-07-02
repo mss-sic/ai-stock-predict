@@ -23,6 +23,8 @@ var DefaultTasks = []struct {
 	{"概念全量重建", "concept_full", "0 0 6 * * 0"},        // weekly Sun 06:00
 	{"实时行情监控", "quote", "0 */5 9-15 * * 1-5"},  // every 5 min during trading hours Mon-Fri
 	{"日K线采集", "kline", "0 */30 9-16 * * 1-5"},    // every 30min on weekdays 9:00-16:30
+	{"Tushare日K采集", "tushare_kline", "0 10 16 * * 1-5"},  // 交易日 16:10 盘后
+	{"Tushare技术指标采集", "tushare_indicator", "0 0 16-20 * * 1-5"},  // 交易日 16:00-20:00 每小时
 	{"行业分类采集", "industry", "0 0 2 * * 1"},         // weekly Mon 2:00
 	{"股票列表同步", "full_sync", "0 0 3 * * 1"},        // weekly Mon 3:00
 	{"股东数据采集", "shareholder", "0 0 17 * * *"},     // daily 17:00
