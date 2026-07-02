@@ -13,11 +13,10 @@ import {
 } from '../services/api';
 
 const PHASE_LABELS: Record<string, string> = {
-  full_sync: '股票列表同步', kline: '日K线数据', indicator: 'PE/PB指标',
+  full_sync: '股票列表同步', kline: '日K线数据',
   industry: '行业分类', quote: '实时行情', shareholder: '股东数据',
   financial: '财务数据', news: '资讯数据', reports: '研报数据', concept: '概念板块',
   backfill_financial: '财报全量回填', backfill_shareholder: '股东全量回填',
-  backfill_indicator: 'PE/PB历史回填',
   profile: 'AI简介+评分',
   score: 'AI六维评分',
   dragon_tiger: '龙虎榜',
@@ -43,7 +42,6 @@ const PHASE_LABELS: Record<string, string> = {
 const PHASE_DESCRIPTIONS: Record<string, string> = {
   full_sync: '同步全市场股票代码、名称、上市日期、所属行业等基础信息',
   kline: '采集每日开/高/低/收价格、成交量、成交额等K线数据',
-  indicator: '采集市盈率(PE)、市净率(PB)、市销率(PS)、总市值、流通市值、换手率等指标',
   industry: '同步申万行业分类标准，建立行业板块映射',
   quote: '采集实时买卖盘价格、成交量、换手率等盘中行情快照',
   shareholder: '采集股东总人数、人均持股、前十大股东、机构持股比例等筹码数据',
@@ -53,7 +51,6 @@ const PHASE_DESCRIPTIONS: Record<string, string> = {
   concept: '采集东方财富概念板块、行业板块分类及成分股关联',
   backfill_financial: '全量回溯历史财报数据，补齐所有报告期的财务指标',
   backfill_shareholder: '全量回溯历史股东数据，补齐所有报告期的股东变化',
-  backfill_indicator: '全量回溯历史PE/PB指标，补齐所有交易日的估值数据',
   profile: 'AI生成结构化公司简介: 核心特征/主营业务/财报/成长/风险/展望',
   score: 'AI六维度量化评分: 基本面/成长性/估值/资金面/技术面/行业景气',
   fund_flow: '采集个股每日资金流向数据，包含主力/超大单/大单/中单/小单净流入流出',
@@ -77,10 +74,10 @@ const PHASE_DESCRIPTIONS: Record<string, string> = {
 };
 
 const PHASE_COLORS: Record<string, string> = {
-  full_sync: '#165dff', kline: '#ff7d00', indicator: '#00b42a',
+  full_sync: '#165dff', kline: '#ff7d00',
   industry: '#722ed1', quote: '#14c9c9', shareholder: '#f53f3f',
   financial: '#0fc6c2', news: '#f77234', reports: '#e865b7', concept: '#f5319d',
-  backfill_financial: '#4080ff', backfill_shareholder: '#ff4080', backfill_indicator: '#00c853',
+  backfill_financial: '#4080ff', backfill_shareholder: '#ff4080',
   dragon_tiger: '#e8654c', margin: '#f09b38', block_trade: '#00a870', unlock: '#ed7b2f',
   northbound: '#ff5722', limit_stats: '#9c27b0',
   ths_hot: '#165dff', dividend: '#722ed1', ths_eps: '#14c9c9', cninfo: '#f5319d', macro_news: '#ff7d00',
@@ -91,7 +88,6 @@ const LONG_RUNNING_PHASES: Record<string, number> = {
   concept_full: 120, // full rebuild ~30-80 min
   backfill_financial: 60,
   backfill_shareholder: 60,
-  backfill_indicator: 60,
 };
 
 // 支持历史数据修复的 Phase（数据源可查询任意历史日期）
@@ -105,7 +101,7 @@ const HISTORY_CAPABLE_PHASES = new Set([
   'fund_flow',       // 资金流向（--last N / --all）
   'dividend',        // 分红送转（--last N / --all）
   'margin',          // 融资融券（--last N / --all）
-  'backfill_financial', 'backfill_shareholder', 'backfill_indicator',
+  'backfill_financial', 'backfill_shareholder',
   'limit_stats',     // 涨跌停统计（支持 --repair --from/--to/--all）
   'northbound',      // 北向资金（重新拉取最新数据）
 ]);
@@ -634,7 +630,6 @@ export default function DataManagementPage() {
                   {dataStats.map((stat: DataStat) => {
                     const iconDefs: Record<string, { icon: JSX.Element; color: string }> = {
                       stocks: { icon: <TrendingUp size={18} />, color: '#165dff' }, kline: { icon: <BarChart3 size={18} />, color: '#ff7d00' },
-                      indicator: { icon: <PieChart size={18} />, color: '#00b42a' }, quote: { icon: <Activity size={18} />, color: '#14c9c9' },
                       financial: { icon: <Banknote size={18} />, color: '#0fc6c2' }, shareholder: { icon: <Users size={18} />, color: '#f53f3f' },
                       news: { icon: <Newspaper size={18} />, color: '#f77234' }, reports: { icon: <FileText size={18} />, color: '#e865b7' },
                       concept: { icon: <PieChart size={18} />, color: '#f5319d' },

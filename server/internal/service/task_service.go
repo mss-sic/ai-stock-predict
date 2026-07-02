@@ -23,7 +23,6 @@ var DefaultTasks = []struct {
 	{"概念全量重建", "concept_full", "0 0 6 * * 0"},        // weekly Sun 06:00
 	{"实时行情监控", "quote", "0 */5 9-15 * * 1-5"},  // every 5 min during trading hours Mon-Fri
 	{"日K线采集", "kline", "0 */30 9-16 * * 1-5"},    // every 30min on weekdays 9:00-16:30
-	{"PE/PB指标采集", "indicator", "0 30 16 * * *"},     // daily 16:30
 	{"行业分类采集", "industry", "0 0 2 * * 1"},         // weekly Mon 2:00
 	{"股票列表同步", "full_sync", "0 0 3 * * 1"},        // weekly Mon 3:00
 	{"股东数据采集", "shareholder", "0 0 17 * * *"},     // daily 17:00
@@ -32,7 +31,6 @@ var DefaultTasks = []struct {
 	{"研报数据采集", "reports", "0 0 18 * * *"},          // daily 18:00
 	{"财报全量回填", "backfill_financial", "0 0 3 1 * *"}, // monthly 1st
 	{"股东全量回填", "backfill_shareholder", "0 0 4 1 * *"}, // monthly 1st
-	{"PE/PB历史回填", "backfill_indicator", "0 0 5 1 * *"}, // monthly 1st
 	{"风险扫描", "risk_scan", "0 5 * * * *"},             // hourly at :05
 {"市场日聚合", "market_daily_agg", "40 10 16 * * *"},     // daily 16:10 (after K-line completes)
 {"市场情绪计算", "market_sentiment", "10 0 17 * * *"},   // daily 17:00

@@ -393,9 +393,6 @@ func RunManualCollection(phases []string, extraArgs ...string) {
 	if shouldRun("kline_youzi") {
 		appendResult(runKLineYouziPhase())
 	}
-	if shouldRun("indicator") {
-		appendResult(runIndicatorPhase())
-	}
 	if shouldRun("industry") {
 		appendResult(runIndustryPhase())
 	}
@@ -419,9 +416,6 @@ func RunManualCollection(phases []string, extraArgs ...string) {
 	}
 	if shouldRun("backfill_shareholder") {
 		appendResult(runBackfillShareholderPhase())
-	}
-	if shouldRun("backfill_indicator") {
-		appendResult(runBackfillIndicatorPhase())
 	}
 	if shouldRun("concept") {
 		appendResult(runConceptPhase())
@@ -721,28 +715,6 @@ func runKLinePhase() PhaseResult {
 	idxMsg := ""
 	if indexCollected { idxMsg = " +大盘指数" }
 	sseSend(SSELine{Type: "result", Phase: "kline", Result: &phaseRes, Level: "success", Message: fmt.Sprintf("K线: %d 只%s", after, idxMsg)})
-	return phaseRes
-}
-
-func runIndicatorPhase() PhaseResult {
-	setPhase("indicator", "采集PE/PB指标...")
-	sseSend(SSELine{Type: "phase", Phase: "indicator", Message: "开始采集PE/PB指标...", Level: "info"})
-	t0 := time.Now()
-	var before int64
-	db.PG.Model(&model.StockDailyIndicator{}).Count(&before)
-	errInd := runPythonStream("daily_indicator.py")
-	phaseRes := PhaseResult{Phase: "indicator", Skipped: int(before)}
-	var after int64
-	db.PG.Model(&model.StockDailyIndicator{}).Count(&after)
-	phaseRes.Total = int(after)
-	phaseRes.New = int(after - before)
-	phaseRes.DurationMs = time.Since(t0).Milliseconds()
-	if errInd != nil {
-		phaseRes.Errors = 1
-		sseSend(SSELine{Type: "result", Phase: "indicator", Result: &phaseRes, Level: "error", Message: fmt.Sprintf("PE/PB采集失败: %v", errInd)})
-	} else {
-		sseSend(SSELine{Type: "result", Phase: "indicator", Result: &phaseRes, Level: "success", Message: fmt.Sprintf("PE/PB: 新增 %d", after-before)})
-	}
 	return phaseRes
 }
 
@@ -1071,30 +1043,6 @@ func runBackfillShareholderPhase() PhaseResult {
 	}
 	return phaseRes
 }
-
-func runBackfillIndicatorPhase() PhaseResult {
-	setPhase("backfill_indicator", "PE/PB指标历史回填...")
-	sseSend(SSELine{Type: "phase", Phase: "backfill_indicator", Message: "开始计算历史PE/PB/PS指标（从K线×财报）...", Level: "info"})
-	t0 := time.Now()
-	var before int64
-	db.PG.Model(&model.StockDailyIndicator{}).Count(&before)
-	errBI := runPythonStreamWithArgs("backfill_indicator.py", "2024-01-01")
-	phaseRes := PhaseResult{Phase: "backfill_indicator", Skipped: int(before)}
-	var after int64
-	db.PG.Model(&model.StockDailyIndicator{}).Count(&after)
-	phaseRes.Total = int(after)
-	phaseRes.New = int(after - before)
-	phaseRes.DurationMs = time.Since(t0).Milliseconds()
-	if errBI != nil {
-		phaseRes.Errors = 1
-		sseSend(SSELine{Type: "result", Phase: "backfill_indicator", Result: &phaseRes, Level: "error", Message: fmt.Sprintf("指标回填失败: %v", errBI)})
-	} else {
-		sseSend(SSELine{Type: "result", Phase: "backfill_indicator", Result: &phaseRes, Level: "success", Message: fmt.Sprintf("指标回填: +%d 条", after-before)})
-	}
-	return phaseRes
-}
-
-// runKLineYouziPhase collects daily K-line from Youzi Big Data API (includes 北交所)
 func runKLineYouziPhase() PhaseResult {
 	setPhase("kline_youzi", "柚子K线采集...")
 	sseSend(SSELine{Type: "phase", Phase: "kline_youzi", Message: "开始从柚子大数据API采集全市日K线（含北交所）...", Level: "info"})
