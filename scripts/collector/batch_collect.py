@@ -1,6 +1,20 @@
 #!/usr/bin/env python3
-"""增量采集日K线 — 腾讯前复权API，并发拉取 + 批量upsert"""
-import os, re, sys, time, json, ssl, urllib.request
+"""
+增量采集日K线 + 估值指标 — 腾讯前复权 API (V4 unified)
+单次请求同时获取 K线(qfqday) + 行情(qt: 换手率/PE/PB/市值/涨跌停)
+
+数据标准化:
+  volume → 股(×100 for 主板/创业板)
+  amount → 元(close×volume_股)
+  turnoverRate → %值(0.26=0.26%)
+  marketCap → 元(qt[44/45]原为亿,×1e8)
+  PE/PB → 原始倍数
+
+用法:
+  python3 batch_collect.py              # 增量(各股按缺口)
+  python3 batch_collect.py --last 10    # 强制拉最近10个日历日
+"""
+import os, re, sys, json, ssl, time, urllib.request
 from datetime import date
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Lock
@@ -11,104 +25,99 @@ from psycopg2.extras import execute_values
 os.environ['PYTHONUNBUFFERED'] = '1'
 
 PG_DSN = os.environ.get("PG_DSN", "host=localhost dbname=stock_predict user=stock password=stock123")
-
 MAX_WORKERS = int(os.environ.get("COLLECTOR_WORKERS", "15"))
 CHUNK_SIZE  = int(os.environ.get("COLLECTOR_CHUNK",  "200"))
 
-# ── Global progress lock ──
-progress_lock = Lock()
-progress_done = 0
-progress_new_stocks = 0
-progress_records = 0
+# Boards where Tencent returns volume in 股 (not 手)
+BOARDS_VOL_IN_GU = {"688", "8", "4", "92"}
 
-# ── Per-thread error tracking ──
-_fetch_errors = set()   # codes that failed at least once
+progress_lock = Lock()
+_fetch_errors = set()
 _errors_lock = Lock()
 
-# ──────────────────────────────────────────────
-#  fetch_kline — thread-safe, pure function
-# ──────────────────────────────────────────────
+# ── Tencent K-line API ──────────────────────────────────────────
 def fetch_kline(code, days=365):
-    # Validate code format
+    """Fetch K-line + qt from Tencent. Returns (klines_list, qt_list_or_None)."""
     if not re.match(r'^[0-9]{6}$', code):
-        return []
-    if code.startswith("92"):
-        prefix = "bj"
-    elif code.startswith(("6", "9")):
-        prefix = "sh"
-    elif code.startswith("8") or code.startswith("4"):
-        prefix = "bj"
-    else:
-        prefix = "sz"
-    url = f"https://ifzq.gtimg.cn/appstock/app/fqkline/get?param={prefix}{code},day,,,{days},qfq"
+        return [], None
+    p = "bj" if code.startswith(("92","8","4")) else ("sh" if code.startswith(("6","9")) else "sz")
+    url = f"https://ifzq.gtimg.cn/appstock/app/fqkline/get?param={p}{code},day,,,{days},qfq"
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-    ctx = ssl.create_default_context()
     try:
-        with urllib.request.urlopen(req, timeout=15, context=ctx) as resp:
+        with urllib.request.urlopen(req, timeout=15, context=ssl.create_default_context()) as resp:
             data = json.loads(resp.read().decode())
-        if isinstance(data, list):
-            return []
-        result = data.get("data", {})
-        if isinstance(result, list):
-            return []
-        # Tencent API 2026-07 flattened: no longer nested data.data
-        stock_data = result.get("data", result)
-        klines = []
-        for pfx in [prefix, "sh", "sz", "nq"]:
-            sd = stock_data.get(f"{pfx}{code}", {})
-            klines = sd.get("qfqday", []) or sd.get("day", [])
-            if klines:
-                break
-        return klines
     except Exception as e:
         with _errors_lock:
             if code not in _fetch_errors:
                 _fetch_errors.add(code)
-                print(f"  ⚠ fetch_kline error for {code}: {e}", flush=True)
-        return []
+                print(f"  ⚠ fetch error {code}: {e}", flush=True)
+        return [], None
 
+    stock_data = data.get("data", {}).get(f"{p}{code}", {})
+    if not stock_data:
+        return [], None
 
-# ──────────────────────────────────────────────
-#  fetch_one_stock — one unit of concurrent work
-# ──────────────────────────────────────────────
-def fetch_one_stock(code, latest, today, force_days=None):
-    """Returns (code, rows_for_upsert, is_new_stock)"""
-    if force_days is not None:
-        days_to_fetch = max(force_days, 10)
-    elif latest is None:
-        days_to_fetch = 60
-    else:
-        missing = (today - latest).days
-        days_to_fetch = max(5, missing + 5)
+    klines = stock_data.get("qfqday", []) or stock_data.get("day", [])
+    # qt field contains 88-field real-time quote array
+    qt = stock_data.get("qt", {}).get(f"{p}{code}", None)
+    return klines, qt
 
-    klines = fetch_kline(code, days=days_to_fetch)
-    rows = []
+# ── Unified row builder ──────────────────────────────────────────
+def build_rows(code, klines, qt):
+    """
+    Build standardized rows for stocks_daily_k and stocks_daily_indicator.
+    Returns (k_rows, ind_rows) — lists of tuples ready for execute_values.
+    """
+    k_rows = []
+    ind_rows = []
+
+    is_gu_board = any(code.startswith(p) for p in BOARDS_VOL_IN_GU)
+
     for row in klines:
         if len(row) < 6:
             continue
-        vol_shou = float(row[5])
-        vol_gu = int(vol_shou) if code.startswith("688") or code.startswith("8") or code.startswith("4") else int(vol_shou * 100)
+
+        # Parse K-line fields: [date, open, close, high, low, volume(手/股)]
+        td = row[0]
+        open_p  = float(row[1])
         close_p = float(row[2])
-        amt = close_p * float(vol_gu)
-        rows.append((
-            code,
-            row[0],           # trade_date
-            float(row[1]),    # open
-            float(row[3]),    # high
-            float(row[4]),    # low
-            close_p,          # close
-            vol_gu,           # volume
-            amt,              # amount
-            0.0,              # turnover_rate (filled later by quote phase)
-        ))
-    is_new = len(rows) > 0
-    return code, rows, is_new
+        high_p  = float(row[3])
+        low_p   = float(row[4])
+        vol_shou = float(row[5])
 
+        # Normalize volume → 股
+        vol_gu = int(vol_shou) if is_gu_board else int(vol_shou * 100)
+        # Amount → 元
+        amt = round(close_p * float(vol_gu), 2)
 
-# ──────────────────────────────────────────────
-#  batch_upsert_chunk
-# ──────────────────────────────────────────────
-UPSERT_SQL = """
+        # Turnover rate from qt[38] (same for all rows → we use it as daily value)
+        # PE from qt[39], PB from qt[46], market cap from qt[44]/qt[45]
+        turnover = 0.0
+        pe = 0.0
+        pb = 0.0
+        total_mcap = 0.0
+        circ_mcap = 0.0
+
+        if qt and len(qt) > 48:
+            try:
+                turnover = float(qt[38]) if qt[38] else 0.0
+                pe = float(qt[39]) if qt[39] else 0.0
+                pb = float(qt[46]) if qt[46] else 0.0
+                # qt[44/45] already in 亿 → store as-is
+                circ_mcap  = float(qt[44]) if qt[44] else 0.0
+                total_mcap = float(qt[45]) if qt[45] else 0.0
+            except (ValueError, IndexError):
+                pass
+
+        k_rows.append((code, td, open_p, high_p, low_p, close_p, vol_gu, amt, turnover))
+
+        if pe > 0 or pb > 0:
+            ind_rows.append((code, td, pe, pb, 0.0, total_mcap, circ_mcap))
+
+    return k_rows, ind_rows
+
+# ── SQL templates ────────────────────────────────────────────────
+UPSERT_KLINE = """
     INSERT INTO stocks_daily_k (code, trade_date, open, high, low, close, volume, amount, turnover_rate)
     VALUES %s
     ON CONFLICT (code, trade_date) DO UPDATE SET
@@ -117,69 +126,26 @@ UPSERT_SQL = """
         turnover_rate = EXCLUDED.turnover_rate
 """
 
-def batch_upsert_chunk(cur, all_rows):
-    """Batch upsert all collected rows for a chunk."""
-    if not all_rows:
+UPSERT_INDICATOR = """
+    INSERT INTO stocks_daily_indicator (code, trade_date, pe, pb, ps, total_market_cap, circulating_market_cap)
+    VALUES %s
+    ON CONFLICT (code, trade_date) DO UPDATE SET
+        pe = EXCLUDED.pe, pb = EXCLUDED.pb, ps = EXCLUDED.ps,
+        total_market_cap = EXCLUDED.total_market_cap,
+        circulating_market_cap = EXCLUDED.circulating_market_cap
+"""
+
+def batch_upsert(cur, sql, rows):
+    if not rows:
         return 0
-    execute_values(cur, UPSERT_SQL, all_rows, page_size=200)
-    return len(all_rows)
+    execute_values(cur, sql, rows, page_size=200)
+    return len(rows)
 
-
-# ──────────────────────────────────────────────
-#  fetch_quote_batch (unchanged)
-# ──────────────────────────────────────────────
-def fetch_quote_batch(codes_batch):
-    results = {}
-    symbols = []
-    for code in codes_batch:
-        if code.startswith("92"):
-            prefix = "bj"
-        elif code.startswith(("6", "9")):
-            prefix = "sh"
-        elif code.startswith("8") or code.startswith("4"):
-            prefix = "bj"
-        else:
-            prefix = "sz"
-        symbols.append(f"{prefix}{code}")
-    url = f"http://qt.gtimg.cn/q={','.join(symbols)}"
-    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-    ctx = ssl.create_default_context()
-    try:
-        with urllib.request.urlopen(req, timeout=10, context=ctx) as resp:
-            text = resp.read().decode('gbk', errors='replace')
-        for line in text.strip().split('\n'):
-            if '="' not in line:
-                continue
-            try:
-                code_part = line.split('_')[1].split('="')[0] if '_' in line else ''
-                code = code_part[2:] if len(code_part) > 2 else code_part
-                fields = line.split('="')[1].rstrip('";').split('~')
-                if len(fields) > 45:
-                    turnover = float(fields[38]) if fields[38] else 0
-                    pe = float(fields[39]) if fields[39] else 0
-                    mcap = float(fields[44]) if fields[44] else 0
-                    cmcap = float(fields[45]) if fields[45] else 0
-                    results[code] = {
-                        'turnover': turnover,
-                        'pe': pe,
-                        'market_cap': mcap,
-                        'circulating_market_cap': cmcap
-                    }
-            except Exception:
-                pass
-    except Exception as e:
-        print(f"  ⚠ fetch_quote_batch error: {e}, codes={codes_batch[:3]}...", flush=True)
-    return results
-
-
-# ══════════════════════════════════════════════
-#  main
-# ══════════════════════════════════════════════
+# ── Main ─────────────────────────────────────────────────────────
 def main():
     conn = psycopg2.connect(PG_DSN)
     cur = conn.cursor()
 
-    # Parse --last N argument (fetch last N calendar days for all stocks)
     force_days = None
     if "--last" in sys.argv:
         idx = sys.argv.index("--last")
@@ -195,182 +161,81 @@ def main():
         ORDER BY latest NULLS FIRST
     """)
     stocks = [(r[0], r[1]) for r in cur.fetchall()]
-    codes_list = [s[0] for s in stocks]
-
     today = date.today()
     has_k = sum(1 for _, d in stocks if d is not None)
-    need = len(stocks) - has_k
-    # ── Split into chunks ──
-    chunks = [stocks[i:i + CHUNK_SIZE] for i in range(0, len(stocks), CHUNK_SIZE)]
-    total_chunks = len(chunks)
 
-    mode_str = f"强制拉取最近 {force_days} 天" if force_days else "增量（按各股缺口）"
-    print(f"📊 数据源: 腾讯财经 (ifzq.gtimg.cn) | 前复权(qfq)", flush=True)
-    print(f"⚙️  并发: {MAX_WORKERS} 线程 | 批量: {CHUNK_SIZE} 只/chunk | 共 {total_chunks} 批次", flush=True)
-    print(f"📋 总计 {len(stocks)} 只股票 | 已有K线 {has_k} 只 | 待采集 {need} 只", flush=True)
-    print(f"🔧 模式: {mode_str}", flush=True)
-    print(f"🚀 开始采集K线数据...", flush=True)
+    chunks = [stocks[i:i + CHUNK_SIZE] for i in range(0, len(stocks), CHUNK_SIZE)]
+    mode_str = f"强制(最近{force_days}天)" if force_days else "增量(按缺口)"
+
+    print(f"📊 数据源: 腾讯财经 ifzq.gtimg.cn | 前复权(qfq) | 统一单位(股/元/%)", flush=True)
+    print(f"⚙️  并发: {MAX_WORKERS}线程 | {CHUNK_SIZE}只/批 | {len(chunks)}批", flush=True)
+    print(f"📋 {len(stocks)}只 | 已有K线 {has_k}只 | 模式: {mode_str}", flush=True)
+    print(f"🚀 开始采集...", flush=True)
 
     start = time.time()
-    total_new = 0
-    total_records = 0
+    total_k_records = 0
+    total_ind_records = 0
+    total_new_stocks = 0
 
     for chunk_idx, chunk in enumerate(chunks):
         chunk_start = time.time()
+        all_k_rows = []
+        all_ind_rows = []
+        new_count = 0
 
-        # ── Phase 1: concurrent fetch ──
         with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
-            futures = {
-                pool.submit(fetch_one_stock, code, latest, today, force_days): code
-                for code, latest in chunk
-            }
-            chunk_rows = []
-            chunk_new_count = 0
-            for fut in as_completed(futures):
-                code, rows, is_new = fut.result()
-                if rows:
-                    chunk_rows.extend(rows)
-                if is_new:
-                    chunk_new_count += 1
+            def fetch_one(code, latest):
+                if force_days is not None:
+                    days = max(force_days, 10)
+                elif latest is None:
+                    days = 60
+                else:
+                    days = max(5, (today - latest).days + 5)
+                klines, qt = fetch_kline(code, days=days)
+                k_rows, ind_rows = build_rows(code, klines, qt)
+                return code, k_rows, ind_rows, len(k_rows) > 0
 
-        # ── Phase 2: batch upsert ──
-        upserted = batch_upsert_chunk(cur, chunk_rows)
+            futures = {pool.submit(fetch_one, code, latest): code for code, latest in chunk}
+            for fut in as_completed(futures):
+                code, k_rows, ind_rows, is_new = fut.result()
+                all_k_rows.extend(k_rows)
+                all_ind_rows.extend(ind_rows)
+                if is_new:
+                    new_count += 1
+
+        upserted_k = batch_upsert(cur, UPSERT_KLINE, all_k_rows)
+        upserted_ind = batch_upsert(cur, UPSERT_INDICATOR, all_ind_rows)
         conn.commit()
 
-        total_new += chunk_new_count
-        total_records += upserted
+        total_k_records += upserted_k
+        total_ind_records += upserted_ind
+        total_new_stocks += new_count
 
         elapsed = time.time() - start
-        chunk_time = time.time() - chunk_start
         processed = min((chunk_idx + 1) * CHUNK_SIZE, len(stocks))
         pct = processed * 100 // len(stocks)
         rate = processed / max(elapsed, 1)
-        eta_sec = max(0, (len(stocks) - processed) / max(rate, 0.01))
-        eta_str = f"{int(eta_sec//60)}分{int(eta_sec%60)}秒" if eta_sec < 3600 else f"{eta_sec/3600:.1f}时"
-        # ── 计算本批日期范围 ──
-        chunk_dates = set()
-        chunk_new_codes = set()
-        for row in chunk_rows:
-            chunk_dates.add(row[1])  # trade_date is second field
-        date_str = ""
-        if chunk_dates:
-            sorted_dates = sorted(chunk_dates)
-            date_str = f"{sorted_dates[0]}~{sorted_dates[-1]}" if len(sorted_dates) > 1 else sorted_dates[0]
-        new_records = len(chunk_rows)
-        updated_records = sum(1 for c, _ in chunk if c not in [_fetch_errors])
+        eta = max(0, (len(stocks) - processed) / max(rate, 0.01))
+        eta_str = f"{int(eta//60)}分{int(eta%60)}秒" if eta < 3600 else f"{eta/3600:.1f}时"
 
-        print(f"  📈 腾讯K线 [{chunk_idx + 1}/{total_chunks}] 已处理 {processed}/{len(stocks)} ({pct}%) "
-              f"| 日期 {date_str} "
-              f"| 本批拉取 {new_records} 条，新入库 {chunk_new_count} 只 "
-              f"| 累计入库 {total_records} 条，更新 {total_new} 只 "
-              f"| 预计剩余 {eta_str}", flush=True)
-        if date_str:
-            print(f"     📊 关键行为: 通过腾讯财经(ifzq.gtimg.cn)获取 {date_str} 日K线 {new_records} 条, "
-                  f"本批新增 {chunk_new_count} 只股票K线", flush=True)
+        print(f"  📈 [{chunk_idx + 1}/{len(chunks)}] {processed}/{len(stocks)} ({pct}%)"
+              f" | K线 {upserted_k}条 + 指标 {upserted_ind}条"
+              f" | 新入库 {new_count}只 | 累计K {total_k_records}条 指标 {total_ind_records}条"
+              f" | 剩余 {eta_str}", flush=True)
         if _fetch_errors:
-            print(f"     ⚠️  累积 {len(_fetch_errors)} 只获取失败: {', '.join(sorted(_fetch_errors)[:5])}", flush=True)
-        print(f"STAT:kline_fetched={len(chunk_rows)},kline_new={chunk_new_count},kline_upserted={upserted}", flush=True)
+            print(f"     ⚠️  {len(_fetch_errors)}只失败: {', '.join(sorted(_fetch_errors)[:5])}", flush=True)
+        print(f"STAT:kline={upserted_k},indicator={upserted_ind},new={new_count}", flush=True)
         print(f"PROGRESS:{processed}/{len(stocks)}", flush=True)
-
-    # ─── 阶段 2/3: 换手率计算（流通股本）───
-    print(f"\n━━━ 阶段 2/3: 换手率计算 ━━━", flush=True)
-    print(f"📊 通过 stocks_basic 流通股本计算换手率", flush=True)
-    t0 = time.time()
-    turnover_computed = 0
-
-    # 获取所有股票的流通股本（从 stocks_daily_indicator: circulating_market_cap / close）
-    cur.execute("""
-        SELECT sdi.code, sdi.circulating_market_cap, sdk.close
-        FROM stocks_daily_indicator sdi
-        JOIN stocks_daily_k sdk ON sdk.code = sdi.code AND sdk.trade_date = sdi.trade_date
-        WHERE sdi.trade_date = (SELECT MAX(trade_date) FROM stocks_daily_indicator)
-          AND sdi.circulating_market_cap > 0 AND sdk.close > 0
-    """)
-    shares_map = {}
-    for r in cur.fetchall():
-        code, cmcap, close_p = r[0], float(r[1]), float(r[2])
-        if cmcap > 0 and close_p > 0:
-            shares_map[code] = int(cmcap / close_p)  # 流通市值/股价 = 流通股本
-    print(f"  流通股本数据(实时): {len(shares_map)} 只", flush=True)
-
-    # 对每只股票的最新交易日计算换手率
-    cur.execute("""
-        SELECT DISTINCT ON (code) code, trade_date, volume
-        FROM stocks_daily_k
-        WHERE code = ANY(%s) AND turnover_rate = 0
-        ORDER BY code, trade_date DESC
-    """, (codes_list,))
-    for r in cur.fetchall():
-        code, td, vol = r[0], r[1], r[2]
-        circ = shares_map.get(code, 0)
-        if circ > 0 and vol > 0:
-            to_val = round(float(vol) / float(circ), 6)
-            cur.execute("UPDATE stocks_daily_k SET turnover_rate = %s WHERE code = %s AND trade_date = %s", (to_val, code, td))
-            turnover_computed += 1
-    conn.commit()
-    print(f"  ✅ 换手率计算完成: {turnover_computed} 只 | 耗时 {time.time()-t0:.0f}s", flush=True)
-    print(f"STAT:turnover_computed={turnover_computed}", flush=True)
-
-    # ─── 阶段 3/3: 实时行情采集 ───
-    print(f"\n━━━ 阶段 3/3: 行情数据采集 ━━━", flush=True)
-    print(f"📊 通过腾讯行情接口 (qt.gtimg.cn) 采集PE/总市值/流通市值", flush=True)
-    t0 = time.time()
-    turnover_updated = 0
-    indicator_updated = 0
-    for i in range(0, len(codes_list), 80):
-        batch = codes_list[i:i+80]
-        quotes = fetch_quote_batch(batch)
-        for code, q in quotes.items():
-            if q['turnover'] > 0:
-                cur.execute("""
-                    UPDATE stocks_daily_k SET turnover_rate = %s
-                    WHERE code = %s AND trade_date = (
-                        SELECT MAX(trade_date) FROM stocks_daily_k WHERE code = %s
-                    )
-                """, (q['turnover'] / 100, code, code))
-                if cur.rowcount > 0:
-                    turnover_updated += 1
-            if q['pe'] > 0 or q['market_cap'] > 0:
-                # Guard: skip codes with no kline data to avoid NULL trade_date
-                cur.execute("SELECT MAX(trade_date) FROM stocks_daily_k WHERE code = %s", (code,))
-                latest_td = cur.fetchone()[0]
-                if latest_td is None:
-                    continue
-                try:
-                    cur.execute("""
-                        INSERT INTO stocks_daily_indicator (code, trade_date, pe, total_market_cap, circulating_market_cap)
-                        VALUES (%s, %s, %s, %s, %s)
-                        ON CONFLICT (code, trade_date) DO UPDATE SET
-                            pe = EXCLUDED.pe,
-                            total_market_cap = EXCLUDED.total_market_cap,
-                            circulating_market_cap = EXCLUDED.circulating_market_cap
-                    """, (code, latest_td, q['pe'], q['market_cap'], q['circulating_market_cap']))
-                    if cur.rowcount > 0:
-                        indicator_updated += 1
-                except Exception as e:
-                    print(f"     ⚠️  指标写入失败 {code}: {e}", flush=True)
-        if (i + 80) % 400 == 0 or i == 0:
-            pct_q = min(i+80, len(codes_list)) * 100 // len(codes_list)
-            print(f"  📊 行情采集 {min(i+80, len(codes_list))}/{len(codes_list)} ({pct_q}%) | 换手率更新 {turnover_updated} 只 | PE/市值更新 {indicator_updated} 只", flush=True)
-            print(f"STAT:turnover_updated={turnover_updated},indicator_updated={indicator_updated}", flush=True)
-            print(f"PROGRESS:{min(i+80, len(codes_list))}/{len(codes_list)}", flush=True)
-    conn.commit()
-    quote_elapsed = time.time()-t0
-    print(f"  ✅ 行情采集完成: 换手率 {turnover_updated} 只 | PE/市值 {indicator_updated} 只 | 耗时 {quote_elapsed:.0f}s", flush=True)
 
     elapsed = time.time() - start
     failed = len(_fetch_errors)
     print(f"\n{'─'*50}", flush=True)
-    print(f"✅ 日K线采集完成", flush=True)
-    print(f"   数据源: 腾讯财经 (ifzq.gtimg.cn) 前复权", flush=True)
-    print(f"   处理股票: {len(stocks)} 只，其中 {total_new} 只有新数据", flush=True)
-    print(f"   入库记录: {total_records} 条 (含新增+更新)", flush=True)
-    print(f"   换手率回填: {turnover_updated} 只", flush=True)
-    print(f"   PE/市值更新: {indicator_updated} 只", flush=True)
-    if failed > 0:
-        print(f"   失败: {failed} 只", flush=True)
-    print(f"   总耗时: {elapsed:.0f}s ({elapsed/60:.1f}分)", flush=True)
-    print(f"{'─'*50}\n", flush=True)
+    print(f"✅ 采集完成", flush=True)
+    print(f"   数据源: 腾讯财经 ifzq.gtimg.cn (K线 + qt行情)", flush=True)
+    print(f"   K线入库: {total_k_records}条 | 指标入库: {total_ind_records}条", flush=True)
+    print(f"   新增股票: {total_new_stocks}只 | 失败: {failed}只", flush=True)
+    print(f"   耗时: {elapsed:.0f}s ({elapsed/60:.1f}分)", flush=True)
+    print(f"{'─'*50}", flush=True)
 
     cur.close()
     conn.close()
