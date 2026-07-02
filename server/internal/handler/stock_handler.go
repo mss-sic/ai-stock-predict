@@ -388,29 +388,18 @@ func (h *StockHandler) GetStockFundFlow(c *gin.Context) {
 		response.Error(c, 400, response.CodeBadRequest, "股票代码不能为空")
 		return
 	}
-	data, err := h.svc.GetStockFundFlow(code)
-	if err != nil {
-		response.Error(c, 500, response.CodeInternalError, "查询资金流失败: "+err.Error())
-		return
-	}
-	response.Success(c, data)
-}
+	// 并行查两个数据源
+	fundFlow, _ := h.svc.GetStockFundFlow(code)
+	buySellFlow, _ := h.svc.GetBuySellFlow(code, "30")
 
-// GetBuySellFlow 内外盘资金流（fund_flow fallback）
-func (h *StockHandler) GetBuySellFlow(c *gin.Context) {
-	code := c.Param("code")
-	if code == "" {
-		response.Error(c, 400, 1001, "code is required")
-		return
-	}
-	days := c.DefaultQuery("days", "30")
-	data, err := h.svc.GetBuySellFlow(code, days)
-	if err != nil {
-		response.Error(c, 500, response.CodeInternalError, "查询内外盘流失败: "+err.Error())
-		return
-	}
-	if data == nil { data = []model.BuySellFlowItem{} }
-	response.Success(c, data)
+	if fundFlow == nil { fundFlow = []model.StockFundFlow{} }
+	if buySellFlow == nil { buySellFlow = []model.BuySellFlowItem{} }
+
+	response.Success(c, gin.H{
+		"fundFlow":    fundFlow,
+		"buySellFlow": buySellFlow,
+		"hasFundFlow": len(fundFlow) > 0,
+	})
 }
 
 func (h *StockHandler) GetAllAnnouncements(c *gin.Context) {

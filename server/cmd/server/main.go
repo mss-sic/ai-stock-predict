@@ -163,7 +163,6 @@ func main() {
 		api.GET("/announcements", stockH.GetAllAnnouncements)
 		api.GET("/stocks/:code/fund-flow-minute", stockH.GetFundFlowMinute)
 		api.GET("/stocks/:code/fund-flow", stockH.GetStockFundFlow)
-		api.GET("/stocks/:code/buy-sell-flow", stockH.GetBuySellFlow)
 		api.GET("/stocks/:code/eps-forecast", stockH.GetThsEpsForecast)
 		api.GET("/macro-news", stockH.GetMacroNews)
 		api.GET("/macro-news/categories", stockH.GetMacroCategories)

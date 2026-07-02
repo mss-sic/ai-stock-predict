@@ -556,7 +556,7 @@ fetchPredictionResult(code).then((r: any) => {
     fetchAnnouncements(code).then((r: any) => setAnnouncements(r.data?.data || [])).catch(() => {});
     fetchUnlocks(code).then((r: any) => setUnlocks(r.data?.data || [])).catch(() => {});
     fetchEpsForecast(code).then((r: any) => setEpsData(r.data?.data || [])).catch(() => {});
-    fetchFundFlow(code).then((r: any) => setFundFlow(r.data?.data || [])).catch(() => {});
+    fetchFundFlow(code).then((r: any) => { const d = r.data?.data || {}; setFundFlow(Array.isArray(d) ? d : (d.buySellFlow || [])); }).catch(() => {});
 
     (async () => {
       try {
@@ -935,7 +935,7 @@ const handleChatSend = async (text?: string) => {
             if (phase === 'block_trade') fetchBlockTrades(code).then((r: any) => setBlockTradesState(r.data?.data || []));
             if (phase === 'announcements') fetchAnnouncements(code).then((r: any) => setAnnouncements(r.data?.data || []));
             if (phase === 'unlocks') fetchUnlocks(code).then((r: any) => setUnlocks(r.data?.data || []));
-            if (phase === 'fund_flow') fetchFundFlow(code).then((r: any) => setFundFlow(r.data?.data || []));
+            if (phase === 'fund_flow') fetchFundFlow(code).then((r: any) => { const d = r.data?.data || {}; setFundFlow(Array.isArray(d) ? d : (d.buySellFlow || [])); });
             setRefreshingPhase('');
           }
         } catch {}
@@ -950,7 +950,7 @@ const handleChatSend = async (text?: string) => {
         if (phase === 'block_trade') fetchBlockTrades(code).then((r: any) => setBlockTradesState(r.data?.data || []));
         if (phase === 'announcements') fetchAnnouncements(code).then((r: any) => setAnnouncements(r.data?.data || []));
         if (phase === 'unlocks') fetchUnlocks(code).then((r: any) => setUnlocks(r.data?.data || []));
-            if (phase === 'fund_flow') fetchFundFlow(code).then((r: any) => setFundFlow(r.data?.data || []));
+            if (phase === 'fund_flow') fetchFundFlow(code).then((r: any) => { const d = r.data?.data || {}; setFundFlow(Array.isArray(d) ? d : (d.buySellFlow || [])); });
         setRefreshingPhase('');
       };
       return;
@@ -972,7 +972,7 @@ const handleChatSend = async (text?: string) => {
       if (phase === 'block_trade') await fetchBlockTrades(code).then((r: any) => setBlockTradesState(r.data?.data || []));
       if (phase === 'announcements') await fetchAnnouncements(code).then((r: any) => setAnnouncements(r.data?.data || []));
       if (phase === 'unlocks') await fetchUnlocks(code).then((r: any) => setUnlocks(r.data?.data || []));
-      if (phase === 'fund_flow') await fetchFundFlow(code).then((r: any) => setFundFlow(r.data?.data || []));
+      if (phase === 'fund_flow') await fetchFundFlow(code).then((r: any) => { const d = r.data?.data || {}; setFundFlow(Array.isArray(d) ? d : (d.buySellFlow || [])); });
     } catch {}
     setRefreshingPhase('');
   };
