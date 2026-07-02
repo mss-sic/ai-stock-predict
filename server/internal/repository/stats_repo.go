@@ -35,7 +35,6 @@ func GetDataStats() []DataStat {
 	jobs := []statJob{
 		{"stocks", "股票基础数据", "stocks_basic", ""},
 		{"kline", "日K线数据", "stocks_daily_k", "trade_date"},
-		{"indicator", "PE/PB 指标数据", "stocks_daily_indicator", "trade_date"},
 		{"financial", "财务数据", "stock_financials", "created_at"},
 		{"shareholder", "股东数据", "stock_shareholders", "created_at"},
 		{"news", "资讯数据", "stock_news", "created_at"},
@@ -144,18 +143,6 @@ func GetDataDetail(typ string) []StockDataCoverage {
 			ORDER BY COALESCE(k.cnt, 0) DESC
 		`).Scan(&results)
 
-	case "indicator":
-		db.PG.Raw(`
-			SELECT sb.code, sb.name,
-				COALESCE(i.cnt, 0) as count,
-				i.first_date, i.last_date
-			FROM stocks_basic sb
-			LEFT JOIN (
-				SELECT code, COUNT(*) as cnt, MIN(trade_date) as first_date, MAX(trade_date) as last_date
-				FROM stocks_daily_indicator GROUP BY code
-			) i ON i.code = sb.code
-			ORDER BY COALESCE(i.cnt, 0) DESC
-		`).Scan(&results)
 
 	case "financial":
 		db.PG.Raw(`
