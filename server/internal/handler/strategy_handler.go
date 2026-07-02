@@ -462,6 +462,10 @@ func buildValueRangeHint(m *IndicatorMeta) string {
 		return ">0（>1.2放量）"
 	case "turnover_rate":
 		return "%（>5活跃/<1冷清）"
+	case "net_flow_ratio":
+		return "%（>0净流入/<0净流出）"
+	case "buy_sell_ratio":
+		return "比值（>1主动买/<1主动卖）"
 	// ADX/DMI
 	case "adx":
 		return "0-100（>25趋势强）"
@@ -1737,7 +1741,7 @@ func preloadIndicators(conds []model.StrategyCondition, codes []string, startDat
 	// Preload volume data for volume-related indicators
 	needVolume := false
 	for ind := range needPreload {
-		if strings.HasPrefix(ind, "volume") || ind == "turnover_rate" || ind == "mfi" {
+		if strings.HasPrefix(ind, "volume") || ind == "turnover_rate" || ind == "net_flow_ratio" || ind == "buy_sell_ratio" || ind == "mfi" {
 			needVolume = true
 			break
 		}
@@ -4443,6 +4447,8 @@ func buildIndicatorListLegacy() []map[string]interface{} {
 		{"key": "volume_ratio", "label": "量比(5日)", "type": "number", "operators": []string{"gte", "lte", "gt", "lt"}, "desc": "当日成交量与前5日均量之比", "backtestSafe": true, "dataNote": "✅ K线衍生，全量历史覆盖", "suggestion": "买入建议 > 1.5 放量，量价配合更可靠"},
 		{"key": "volume_ma_ratio", "label": "量比(20日)", "type": "number", "operators": []string{"gte", "lte", "gt", "lt"}, "desc": "当日成交量与20日均量之比，>1.5放量", "backtestSafe": true, "dataNote": "✅ K线衍生，全量历史覆盖", "suggestion": "买入建议 > 1.2，20日均量以上为活跃"},
 		{"key": "turnover_rate", "label": "换手率", "type": "number", "operators": []string{"gte", "lte", "gt", "lt"}, "desc": "当日换手率 (%)", "backtestSafe": true, "dataNote": "✅ K线衍生，全量历史覆盖", "suggestion": "买入建议 3-10%，过高需警惕出货"},
+		{"key": "net_flow_ratio", "label": "资金净流比", "type": "number", "operators": []string{"gte", "lte", "gt", "lt"}, "desc": "(外盘-内盘)/成交量×100，>0主动买入占优", "backtestSafe": false, "dataNote": "⏳ 2026-07起积累", "suggestion": "买入建议 > 5 资金主动流入"},
+		{"key": "buy_sell_ratio", "label": "内外盘比", "type": "number", "operators": []string{"gte", "lte", "gt", "lt"}, "desc": "外盘/内盘，>1主动买入多于主动卖出", "backtestSafe": false, "dataNote": "⏳ 2026-07起积累", "suggestion": "买入建议 > 1.2 主动买入明显"},
 		{"key": "atr", "label": "ATR(14)", "type": "number", "operators": []string{"gte", "lte", "gt", "lt"}, "desc": "平均真实波幅，衡量波动率", "backtestSafe": true, "dataNote": "✅ K线衍生，全量历史覆盖", "suggestion": "波动率指标，值越大波动越大，无固定阈值"},
 
 		// ═══ 技术面 — 形态与强度 (100% K线数据覆盖) ═══
@@ -4660,6 +4666,10 @@ func getValueExample(m *IndicatorMeta) string {
 		return "1.5"
 	case "turnover_rate":
 		return "5"
+	case "net_flow_ratio":
+		return "2"
+	case "buy_sell_ratio":
+		return "1.1"
 	case "atr":
 		return "0.5"
 	case "atr_pct":
@@ -4763,7 +4773,7 @@ func getValueRange(key string) (*float64, *float64, bool) {
 		return f(0), f(100), true
 	case "volume_ratio", "volume_ma_ratio":
 		return f(0), f(10), true
-	case "turnover_rate":
+	case "turnover_rate", "net_flow_ratio", "buy_sell_ratio":
 		return f(0), f(50), true
 	case "streak_count", "pick_count_5d":
 		return f(0), f(20), true
@@ -5052,6 +5062,10 @@ func getIndicatorValue(cond model.StrategyCondition, code, date string) float64 
 		return getPSYMA(code, date)
 	case "turnover_rate":
 		return getTurnoverRate(code, date)
+	case "net_flow_ratio":
+		return getNetFlowRatio(code, date)
+	case "buy_sell_ratio":
+		return getBuySellRatio(code, date)
 	case "atr":
 		return getATR(code, date, 14)
 
@@ -5510,6 +5524,20 @@ func getTurnoverRate(code, date string) float64 {
 	var tr float64
 	db.PG.Raw("SELECT COALESCE(turnover_rate, 0) FROM stocks_daily_k WHERE code = ? AND trade_date <= ?::date ORDER BY trade_date DESC LIMIT 1", code, date).Scan(&tr)
 	return tr
+}
+
+func getNetFlowRatio(code, date string) float64 {
+	var buy, sell, vol float64
+	db.PG.Raw("SELECT COALESCE(buy_vol, 0), COALESCE(sell_vol, 0), COALESCE(volume, 1) FROM stocks_daily_k WHERE code = ? AND trade_date <= ?::date ORDER BY trade_date DESC LIMIT 1", code, date).Row().Scan(&buy, &sell, &vol)
+	if vol == 0 { return 0 }
+	return (buy - sell) / vol * 100
+}
+
+func getBuySellRatio(code, date string) float64 {
+	var buy, sell float64
+	db.PG.Raw("SELECT COALESCE(buy_vol, 0), COALESCE(sell_vol, 1) FROM stocks_daily_k WHERE code = ? AND trade_date <= ?::date ORDER BY trade_date DESC LIMIT 1", code, date).Row().Scan(&buy, &sell)
+	if sell == 0 { return 1 }
+	return buy / sell
 }
 
 func getATR(code, date string, period int) float64 {
@@ -6337,7 +6365,7 @@ func getIndicatorDataSourceLegacy(indicator string) string {
 		indicator == "ma_5", indicator == "ma_10", indicator == "ma_20", indicator == "ma_30", indicator == "ma_60", indicator == "ma_deviation", indicator == "ma_cross", indicator == "macd",
 		indicator == "ema_cross", indicator == "macd_dif", indicator == "macd_dea", indicator == "rsi", indicator == "rsi_6", indicator == "rsi_12", indicator == "rsi_24", indicator == "kdj_k", indicator == "kdj_d", indicator == "kdj_j",
 		indicator == "boll_position", indicator == "boll_width", indicator == "boll_squeeze", indicator == "boll_upper", indicator == "boll_middle", indicator == "boll_lower",
-		indicator == "volume_ratio", indicator == "volume_ma_ratio", indicator == "turnover_rate",
+		indicator == "volume_ratio", indicator == "volume_ma_ratio", indicator == "turnover_rate", indicator == "net_flow_ratio", indicator == "buy_sell_ratio",
 		indicator == "atr", indicator == "atr_pct", indicator == "drawdown_20", indicator == "new_high_20",
 		indicator == "up_days_ratio", indicator == "price_position_20", indicator == "price_position_60",
 		indicator == "adx", indicator == "dmi_plus", indicator == "dmi_minus",

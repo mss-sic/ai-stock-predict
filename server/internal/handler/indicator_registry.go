@@ -311,6 +311,18 @@ var IndicatorRegistry = map[string]*IndicatorMeta{
 		Desc: "当日换手率 (%)", BacktestSafe: true, DataNote: "✅ K线衍生，全量历史覆盖",
 		Suggestion: "买入建议 3-10% 活跃，>20% 警惕出货", UseFor: "both", DataSource: "stocks_daily_k",
 	},
+	"net_flow_ratio": {
+		Key: "net_flow_ratio", Label: "资金净流比", Category: "技术面-量价", Unit: "%", Type: "number",
+		Operators: []string{"gte", "lte", "gt", "lt"},
+		Desc: "当日(外盘-内盘)/成交量，>0主动买入占优", BacktestSafe: false, DataNote: "⏳ 2026-07起积累，需30+交易日历史方可回测",
+		Suggestion: "买入建议 > 5% 资金主动流入，卖出建议 < -5% 资金主动流出", UseFor: "both", DataSource: "stocks_daily_k",
+	},
+	"buy_sell_ratio": {
+		Key: "buy_sell_ratio", Label: "内外盘比", Category: "技术面-量价", Unit: "比值", Type: "number",
+		Operators: []string{"gte", "lte", "gt", "lt"},
+		Desc: "外盘/内盘，>1主动买入多于主动卖出", BacktestSafe: false, DataNote: "⏳ 2026-07起积累，需30+交易日历史方可回测",
+		Suggestion: "买入建议 > 1.2 主动买入明显，卖出建议 < 0.8 主动卖出明显", UseFor: "both", DataSource: "stocks_daily_k",
+	},
 
 	// ═══ 技术面 — 波动与结构 ═══
 	"atr": {
