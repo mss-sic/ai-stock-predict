@@ -22,7 +22,7 @@ var DefaultTasks = []struct {
 	{"概念板块采集", "concept", "0 0 8 * * *"},        // daily 08:00
 	{"概念全量重建", "concept_full", "0 0 6 * * 0"},        // weekly Sun 06:00
 	{"实时行情监控", "quote", "0 */5 9-15 * * 1-5"},  // every 5 min during trading hours Mon-Fri
-	{"日K线采集", "kline", "0 0 16 * * *"},             // daily 16:00
+	{"日K线采集", "kline", "0 */30 9-16 * * 1-5"},    // every 30min on weekdays 9:00-16:30
 	{"PE/PB指标采集", "indicator", "0 30 16 * * *"},     // daily 16:30
 	{"行业分类采集", "industry", "0 0 2 * * 1"},         // weekly Mon 2:00
 	{"股票列表同步", "full_sync", "0 0 3 * * 1"},        // weekly Mon 3:00
