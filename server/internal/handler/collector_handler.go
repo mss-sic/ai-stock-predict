@@ -35,12 +35,14 @@ func (h *CollectorHandler) Trigger(c *gin.Context) {
 		Phases []string `json:"phases"`
 	}
 	c.ShouldBindJSON(&body)
+	log.Printf("[collector] Trigger received phases=%v (len=%d)", body.Phases, len(body.Phases))
 
 	// Filter Go-native phases (market_style) from old scheduler;
 	// they are handled by TaskManager.executeTask instead.
 	var schedPhases []string
 	for _, phase := range body.Phases {
 		if phase == "market_style" {
+			log.Printf("[collector] routing market_style to Go-native handler")
 			go runMarketStyleCollection()
 		} else {
 			schedPhases = append(schedPhases, phase)
@@ -50,7 +52,10 @@ func (h *CollectorHandler) Trigger(c *gin.Context) {
 	// Only trigger scheduler if there are non-market_style phases;
 	// empty slice triggers ALL phases in RunManualCollection.
 	if len(schedPhases) > 0 {
+		log.Printf("[collector] triggering scheduler with phases=%v", schedPhases)
 		h.sched.Trigger(schedPhases)
+	} else {
+		log.Printf("[collector] no non-market_style phases, skipping scheduler")
 	}
 
 	c.JSON(http.StatusOK, gin.H{
