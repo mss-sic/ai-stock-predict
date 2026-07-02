@@ -6,7 +6,7 @@
 数据标准化:
   volume → 股(×100 for 主板/创业板)
   amount → 元(close×volume_股)
-  turnoverRate → %值(0.26=0.26%)
+  turnoverRate → 原始比率(0.0026=0.26%, 即 qt[38]/100)
   marketCap → 元(qt[44/45]原为亿,×1e8)
   PE/PB → 原始倍数
 
@@ -114,7 +114,7 @@ def build_rows(code, klines, qt):
                 sell_vol = int(sell_vol_raw) if is_gu_board else int(sell_vol_raw * 100)
                 change_pct = float(qt[32]) if qt[32] else 0.0
                 amount_wan = float(qt[37]) if qt[37] else 0.0
-                turnover = float(qt[38]) if qt[38] else 0.0
+                turnover = float(qt[38]) / 100.0 if qt[38] else 0.0
                 pe = float(qt[39]) if qt[39] else 0.0
                 amplitude = float(qt[43]) if qt[43] else 0.0
                 pb = float(qt[46]) if qt[46] else 0.0
@@ -143,7 +143,7 @@ UPSERT_KLINE = """
     ON CONFLICT (code, trade_date) DO UPDATE SET
         open = EXCLUDED.open, high = EXCLUDED.high, low = EXCLUDED.low,
         close = EXCLUDED.close, volume = EXCLUDED.volume, amount = EXCLUDED.amount,
-        turnover_rate = EXCLUDED.turnover_rate,
+        turnover_rate = CASE WHEN EXCLUDED.turnover_rate > 0 THEN EXCLUDED.turnover_rate ELSE stocks_daily_k.turnover_rate END,
         buy_vol = EXCLUDED.buy_vol, sell_vol = EXCLUDED.sell_vol,
         change_pct = EXCLUDED.change_pct, amplitude = EXCLUDED.amplitude,
         volume_ratio = EXCLUDED.volume_ratio
