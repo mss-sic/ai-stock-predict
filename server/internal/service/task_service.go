@@ -191,19 +191,27 @@ func (tm *TaskManager) executeTask(taskID uint, phase, name string) {
 			log.Printf("[market_style] no trading date available, aborting")
 			finishTaskLog(&logEntry, 0, 0, 0, fmt.Errorf("无可用交易日期：market_sentiment 和 market_daily_agg 均无数据"))
 		} else {
-			// Also fill any missing dates between last computed and latest
-			var missing []string
+			// Collect dates to compute: missing dates + always recompute latest
+			var dates []string
 			db.PG.Raw(`SELECT trade_date::text FROM market_sentiment
 				WHERE trade_date NOT IN (SELECT trade_date FROM market_style_daily)
-				ORDER BY trade_date`).Pluck("trade_date", &missing)
-			log.Printf("[market_style] missing dates count: %d", len(missing))
-			if len(missing) == 0 {
-				log.Printf("[market_style] all dates up to %s are already computed, no work needed", date)
-				finishTaskLog(&logEntry, 0, 0, 0, fmt.Errorf("market_style_daily 已是最新（最新数据日期: %s）", date))
+				ORDER BY trade_date`).Pluck("trade_date", &dates)
+			// Always include the latest date for recompute (overwrite stale data)
+			hasLatest := false
+			for _, d := range dates {
+				if d == date { hasLatest = true; break }
+			}
+			if !hasLatest && date != "" {
+				dates = append(dates, date)
+			}
+			log.Printf("[market_style] dates to compute: %d (latest=%s, force_overwrite=%v)", len(dates), date, !hasLatest)
+			if len(dates) == 0 {
+				log.Printf("[market_style] no dates available")
+				finishTaskLog(&logEntry, 0, 0, 0, fmt.Errorf("无可用日期"))
 			} else {
 				success, fail := 0, 0
-				for _, d := range missing {
-					log.Printf("[market_style] computing %s (%d/%d)", d, success+fail+1, len(missing))
+				for _, d := range dates {
+					log.Printf("[market_style] computing %s (%d/%d)", d, success+fail+1, len(dates))
 					if err := svc.ComputeAndStore(d); err != nil {
 						fail++
 						log.Printf("[market_style] scheduled FAIL %s: %v", d, err)

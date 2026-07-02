@@ -67,6 +67,19 @@ func runMarketStyleCollection() {
 		WHERE trade_date NOT IN (SELECT trade_date FROM market_style_daily)
 		ORDER BY trade_date`).Pluck("trade_date", &dates)
 
+	// Always include the latest date for recompute (overwrite stale data)
+	var latestDate string
+	db.PG.Raw("SELECT trade_date::text FROM market_sentiment ORDER BY trade_date DESC LIMIT 1").Scan(&latestDate)
+	if latestDate != "" {
+		hasLatest := false
+		for _, d := range dates {
+			if d == latestDate { hasLatest = true; break }
+		}
+		if !hasLatest {
+			dates = append(dates, latestDate)
+		}
+	}
+
 	collector.SetPhase("market_style", "市场风格计算...")
 
 	if len(dates) == 0 {
