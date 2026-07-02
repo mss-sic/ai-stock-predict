@@ -90,40 +90,63 @@ def build_rows(code, klines, qt):
         # Amount → 元
         amt = round(close_p * float(vol_gu), 2)
 
-        # Turnover rate from qt[38] (same for all rows → we use it as daily value)
-        # PE from qt[39], PB from qt[46], market cap from qt[44]/qt[45]
+        # Extract daily-frequency fields from qt.
+        # IMPORTANT: qt is a real-time snapshot — only accurate for the latest trading day.
+        # For historical rows in this batch, leave qt-derived fields as 0.
+        buy_vol = 0
+        sell_vol = 0
+        change_pct = 0.0
+        amplitude = 0.0
+        volume_ratio = 0.0
         turnover = 0.0
         pe = 0.0
         pb = 0.0
         total_mcap = 0.0
         circ_mcap = 0.0
+        amount_wan = 0.0
+        is_latest = (td == klines[-1][0])  # only apply qt to the most recent date row
 
-        if qt and len(qt) > 48:
+        if is_latest and qt and len(qt) > 51:
             try:
+                buy_vol_raw = float(qt[7]) if qt[7] else 0.0
+                sell_vol_raw = float(qt[8]) if qt[8] else 0.0
+                buy_vol = int(buy_vol_raw) if is_gu_board else int(buy_vol_raw * 100)
+                sell_vol = int(sell_vol_raw) if is_gu_board else int(sell_vol_raw * 100)
+                change_pct = float(qt[32]) if qt[32] else 0.0
+                amount_wan = float(qt[37]) if qt[37] else 0.0
                 turnover = float(qt[38]) if qt[38] else 0.0
                 pe = float(qt[39]) if qt[39] else 0.0
+                amplitude = float(qt[43]) if qt[43] else 0.0
                 pb = float(qt[46]) if qt[46] else 0.0
-                # qt[44/45] already in 亿 → store as-is
+                volume_ratio = float(qt[49]) if qt[49] else 0.0
                 circ_mcap  = float(qt[44]) if qt[44] else 0.0
                 total_mcap = float(qt[45]) if qt[45] else 0.0
             except (ValueError, IndexError):
                 pass
 
-        k_rows.append((code, td, open_p, high_p, low_p, close_p, vol_gu, amt, turnover))
+        final_amount = amount_wan * 1e4 if amount_wan > 0 else amt
 
-        if pe > 0 or pb > 0:
+        k_rows.append((code, td, open_p, high_p, low_p, close_p,
+                       vol_gu, final_amount, turnover,
+                       buy_vol, sell_vol, change_pct, amplitude, volume_ratio))
+
+        if is_latest and (pe > 0 or pb > 0):
             ind_rows.append((code, td, pe, pb, 0.0, total_mcap, circ_mcap))
 
     return k_rows, ind_rows
 
 # ── SQL templates ────────────────────────────────────────────────
 UPSERT_KLINE = """
-    INSERT INTO stocks_daily_k (code, trade_date, open, high, low, close, volume, amount, turnover_rate)
+    INSERT INTO stocks_daily_k (code, trade_date, open, high, low, close,
+        volume, amount, turnover_rate, buy_vol, sell_vol, change_pct, amplitude, volume_ratio)
     VALUES %s
     ON CONFLICT (code, trade_date) DO UPDATE SET
         open = EXCLUDED.open, high = EXCLUDED.high, low = EXCLUDED.low,
         close = EXCLUDED.close, volume = EXCLUDED.volume, amount = EXCLUDED.amount,
-        turnover_rate = EXCLUDED.turnover_rate
+        turnover_rate = EXCLUDED.turnover_rate,
+        buy_vol = EXCLUDED.buy_vol, sell_vol = EXCLUDED.sell_vol,
+        change_pct = EXCLUDED.change_pct, amplitude = EXCLUDED.amplitude,
+        volume_ratio = EXCLUDED.volume_ratio
 """
 
 UPSERT_INDICATOR = """

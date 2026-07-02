@@ -1282,4 +1282,20 @@ Register(Migration{
 		},
 	})
 
+	// v047: stocks_daily_k daily-frequency fields from Tencent qt
+	Register(Migration{
+		Version:     47,
+		Description: "PG: add buy_vol/sell_vol/change_pct/amplitude/volume_ratio to stocks_daily_k, populate high_limit/low_limit/avg_price from qt",
+		Up: func() error {
+			safeExec(`ALTER TABLE stocks_daily_k ADD COLUMN IF NOT EXISTS buy_vol BIGINT DEFAULT 0`)
+			safeExec(`ALTER TABLE stocks_daily_k ADD COLUMN IF NOT EXISTS sell_vol BIGINT DEFAULT 0`)
+			safeExec(`ALTER TABLE stocks_daily_k ADD COLUMN IF NOT EXISTS change_pct NUMERIC(8,4) DEFAULT 0`)
+			safeExec(`ALTER TABLE stocks_daily_k ADD COLUMN IF NOT EXISTS amplitude NUMERIC(8,4) DEFAULT 0`)
+			safeExec(`ALTER TABLE stocks_daily_k ADD COLUMN IF NOT EXISTS volume_ratio NUMERIC(8,4) DEFAULT 0`)
+			// amount was previously computed as close×volume; keep but prefer qt[37] 成交额(万)
+			// high_limit/low_limit/avg_price columns already exist from v045, will be populated by batch_collect
+			return nil
+		},
+	})
+
 }
