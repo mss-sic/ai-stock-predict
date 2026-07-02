@@ -71,9 +71,11 @@ def fetch_kline(code, days=365):
 # ──────────────────────────────────────────────
 #  fetch_one_stock — one unit of concurrent work
 # ──────────────────────────────────────────────
-def fetch_one_stock(code, latest, today):
+def fetch_one_stock(code, latest, today, force_days=None):
     """Returns (code, rows_for_upsert, is_new_stock)"""
-    if latest is None:
+    if force_days is not None:
+        days_to_fetch = max(force_days, 10)
+    elif latest is None:
         days_to_fetch = 60
     else:
         missing = (today - latest).days
@@ -177,6 +179,13 @@ def main():
     conn = psycopg2.connect(PG_DSN)
     cur = conn.cursor()
 
+    # Parse --last N argument (fetch last N calendar days for all stocks)
+    force_days = None
+    if "--last" in sys.argv:
+        idx = sys.argv.index("--last")
+        if idx + 1 < len(sys.argv):
+            force_days = int(sys.argv[idx + 1])
+
     cur.execute("""
         SELECT b.code, MAX(k.trade_date) as latest
         FROM stocks_basic b
@@ -195,13 +204,11 @@ def main():
     chunks = [stocks[i:i + CHUNK_SIZE] for i in range(0, len(stocks), CHUNK_SIZE)]
     total_chunks = len(chunks)
 
+    mode_str = f"强制拉取最近 {force_days} 天" if force_days else "增量（按各股缺口）"
     print(f"📊 数据源: 腾讯财经 (ifzq.gtimg.cn) | 前复权(qfq)", flush=True)
     print(f"⚙️  并发: {MAX_WORKERS} 线程 | 批量: {CHUNK_SIZE} 只/chunk | 共 {total_chunks} 批次", flush=True)
     print(f"📋 总计 {len(stocks)} 只股票 | 已有K线 {has_k} 只 | 待采集 {need} 只", flush=True)
-    stale_info = ""
-    if has_k > 0 and need == 0:
-        print(f"⚠️  K线数据可能过期，将重新拉取最新数据", flush=True)
-        stale_info = ",stale=1"
+    print(f"🔧 模式: {mode_str}", flush=True)
     print(f"🚀 开始采集K线数据...", flush=True)
 
     start = time.time()
@@ -214,7 +221,7 @@ def main():
         # ── Phase 1: concurrent fetch ──
         with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
             futures = {
-                pool.submit(fetch_one_stock, code, latest, today): code
+                pool.submit(fetch_one_stock, code, latest, today, force_days): code
                 for code, latest in chunk
             }
             chunk_rows = []

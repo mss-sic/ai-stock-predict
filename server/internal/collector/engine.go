@@ -697,24 +697,11 @@ func runKLinePhase() PhaseResult {
 	log.Printf("[collector] stocksWithK query failed: %v", err)
 }
 
-	// 检查数据新鲜度：最近交易日距今超过 3 天则重新采集
-	needK := int(totalStocks - stocksWithK)
-	var latestDate time.Time
-	if err := db.PG.Raw("SELECT MAX(trade_date) FROM stocks_daily_k").Scan(&latestDate).Error; err != nil {
-	log.Printf("[collector] latestDate query failed: %v", err)
-}
-	stale := time.Since(latestDate) > 72*time.Hour
-
+	// Always run K-line collection — script handles incremental per-stock,
+	// fetching recent trading days and filling gaps via ON CONFLICT DO UPDATE.
 	indexCollected := false
-	if needK <= 0 && !stale {
-		sseSend(SSELine{Type: "log", Message: fmt.Sprintf("个股K线已完整 (%d 只), 跳过个股采集", stocksWithK), Level: "info"})
-	} else {
-		if stale && needK <= 0 {
-			sseSend(SSELine{Type: "log", Message: fmt.Sprintf("K线数据过期 (最新: %s), 重新采集", latestDate.Format("2006-01-02")), Level: "info"})
-		}
-		sseSend(SSELine{Type: "log", Message: fmt.Sprintf("需采集K线: %d 只", needK), Level: "info"})
-		runPythonStream("batch_collect.py")
-	}
+	sseSend(SSELine{Type: "log", Message: fmt.Sprintf("开始采集个股K线 (%d 只已有数据)", stocksWithK), Level: "info"})
+	runPythonStreamWithArgs("batch_collect.py", "--last", "10")
 
 	// Always collect index + bond ETF K-line (5 indices + 3 bonds, very fast)
 	sseSend(SSELine{Type: "log", Message: "采集大盘指数+国债ETF K线...", Level: "info"})
