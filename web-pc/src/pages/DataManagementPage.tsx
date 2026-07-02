@@ -829,7 +829,7 @@ export default function DataManagementPage() {
             <div className="card-body" style={{ padding: '14px 20px' }}>
               {/* Phase tabs */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>
-                {scheduledTasks.filter((t: any) => t.enabled && t.phase !== 'quote').map(t => t.phase).filter((v, i, a) => a.indexOf(v) === i).map(phase => {
+                {scheduledTasks.filter((t: any) => t.enabled && t.phase !== 'quote' && PHASE_LABELS[t.phase]).map(t => t.phase).filter((v, i, a) => a.indexOf(v) === i).map(phase => {
                   const isActive = collecting && progress?.phase === phase;
                   const isSelected = selectedCollectPhase === phase;
                   return (

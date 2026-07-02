@@ -343,6 +343,21 @@ func InitializeDefaultTasks() (int, error) {
 		created++
 		GetTaskManager().ScheduleTask(&task)
 	}
+	// Cleanup: disable tasks that are no longer in DefaultTasks
+	defaultNames := make(map[string]bool)
+	for _, dt := range DefaultTasks {
+		defaultNames[dt.Name] = true
+	}
+	var allTasks []model.ScheduledTask
+	db.MySQL.Find(&allTasks)
+	for _, t := range allTasks {
+		if !defaultNames[t.Name] && t.Enabled {
+			db.MySQL.Model(&t).Update("enabled", false)
+			// removed from schedule by disabling
+			log.Printf("[TaskManager] disabled stale task: %s (phase=%s)", t.Name, t.Phase)
+		}
+	}
+
 	log.Printf("[TaskManager] initialized %d default tasks", created)
 	return created, nil
 }
