@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/ai-stock-predict/server/internal/collector"
+	"github.com/ai-stock-predict/server/internal/model"
 	"github.com/ai-stock-predict/server/internal/repository"
 	"github.com/ai-stock-predict/server/internal/service"
 	"github.com/ai-stock-predict/server/pkg/response"
@@ -392,6 +393,23 @@ func (h *StockHandler) GetStockFundFlow(c *gin.Context) {
 		response.Error(c, 500, response.CodeInternalError, "查询资金流失败: "+err.Error())
 		return
 	}
+	response.Success(c, data)
+}
+
+// GetBuySellFlow 内外盘资金流（fund_flow fallback）
+func (h *StockHandler) GetBuySellFlow(c *gin.Context) {
+	code := c.Param("code")
+	if code == "" {
+		response.Error(c, 400, 1001, "code is required")
+		return
+	}
+	days := c.DefaultQuery("days", "30")
+	data, err := h.svc.GetBuySellFlow(code, days)
+	if err != nil {
+		response.Error(c, 500, response.CodeInternalError, "查询内外盘流失败: "+err.Error())
+		return
+	}
+	if data == nil { data = []model.BuySellFlowItem{} }
 	response.Success(c, data)
 }
 

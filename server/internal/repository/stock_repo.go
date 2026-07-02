@@ -590,6 +590,24 @@ func (r *StockRepo) GetStockFundFlow(code string) ([]model.StockFundFlow, error)
 	return rows, err
 }
 
+// GetBuySellFlow returns buy_vol/sell_vol based flow from stocks_daily_k (fallback for fund_flow)
+func (r *StockRepo) GetBuySellFlow(code, days string) ([]model.BuySellFlowItem, error) {
+	var rows []model.BuySellFlowItem
+	err := db.PG.Raw(`
+		SELECT TO_CHAR(trade_date, 'YYYY-MM-DD') as trade_date,
+			COALESCE(buy_vol, 0) as buy_vol,
+			COALESCE(sell_vol, 0) as sell_vol,
+			COALESCE(buy_vol, 0) - COALESCE(sell_vol, 0) as net_flow,
+			CASE WHEN volume > 0 THEN (buy_vol::numeric - sell_vol) / volume * 100 ELSE 0 END as net_flow_ratio
+		FROM stocks_daily_k
+		WHERE code = ? AND buy_vol > 0
+		ORDER BY trade_date DESC
+		LIMIT ?
+	`, code, days).Scan(&rows).Error
+	return rows, err
+}
+
+
 func (r *StockRepo) GetAllAnnouncements(limit int) ([]model.CninfoAnnouncement, error) {
 	if limit <= 0 { limit = 200 }
 	var rows []model.CninfoAnnouncement

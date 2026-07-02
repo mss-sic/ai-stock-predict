@@ -108,6 +108,11 @@ func (s *StockService) GetStockFundFlow(code string) ([]model.StockFundFlow, err
 	return s.repo.GetStockFundFlow(code)
 }
 
+// GetBuySellFlow 内外盘资金流（fund_flow fallback）
+func (s *StockService) GetBuySellFlow(code, days string) ([]model.BuySellFlowItem, error) {
+	return s.repo.GetBuySellFlow(code, days)
+}
+
 func (s *StockService) GetAllAnnouncements(limit int) ([]model.CninfoAnnouncement, error) {
 	return s.repo.GetAllAnnouncements(limit)
 }

@@ -16,3 +16,13 @@ type StockFundFlow struct {
 }
 
 func (StockFundFlow) TableName() string { return "stock_fund_flow" }
+
+
+// BuySellFlowItem 内外盘资金流（fund_flow 的 fallback）
+type BuySellFlowItem struct {
+	TradeDate    string  `json:"tradeDate"`
+	BuyVol       int64   `json:"buyVol"`
+	SellVol      int64   `json:"sellVol"`
+	NetFlow      int64   `json:"netFlow"`
+	NetFlowRatio float64 `json:"netFlowRatio"`
+}
