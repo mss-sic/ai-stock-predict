@@ -126,10 +126,11 @@ def main():
                 seen.add(key)
                 final_tags.append(t)
 
+        # Write sw_l1 separately for market style usage
         cur.execute("""
-            UPDATE stocks_basic SET concept_tags = %s::jsonb, updated_at = NOW()
+            UPDATE stocks_basic SET concept_tags = %s::jsonb, sw_l1 = %s, updated_at = NOW()
             WHERE code = %s
-        """, (json.dumps(final_tags, ensure_ascii=False), code))
+        """, (json.dumps(final_tags, ensure_ascii=False), sw_ind, code))
         updated += 1
 
         if (i+1) % 100 == 0:

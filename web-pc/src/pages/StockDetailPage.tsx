@@ -11,7 +11,7 @@ import {
   RefreshCw, Send, Trash2, Loader2, Check, X, Layers, FileText, Users, Newspaper, Star, StarOff, ChevronLeft, ChevronRight, ExternalLink, Wrench, Clock,
 } from 'lucide-react';
 import { showToast } from '../components/Toast';
-import { authFetch, checkAPIError, fetchStockDetail, fetchKLine, fetchIndicator, fetchPredictionResult, fetchPredictionHitRate, fetchStockHeatmap, fetchSignal, fetchFinancials, fetchShareholders, fetchStockNews, fetchReports, fetchStockConceptTags, addToWatchlist, removeFromWatchlist, fetchWatchlist, fetchWatchlistGroups, createWatchlistGroup, fetchHoldings, fetchProfile, runProfile, repairStock, fetchRealtimeQuoteSingle, fetchDragonTiger, fetchBlockTrades, fetchAnnouncements, fetchUnlocks, fetchEpsForecast, fetchDragonTigerSeats, fetchFundFlow, fetchFundFlowMinute, fetchConceptHeatmap } from '../services/api';
+import { authFetch, checkAPIError, fetchStockDetail, fetchKLine, fetchIndicator, fetchPredictionResult, fetchPredictionHitRate, fetchStockHeatmap, fetchSignal, fetchFinancials, fetchShareholders, fetchStockNews, fetchReports, fetchStockConceptTags, addToWatchlist, removeFromWatchlist, fetchWatchlist, fetchWatchlistGroups, createWatchlistGroup, fetchHoldings, fetchProfile, runProfile, repairStock, fetchRealtimeQuoteSingle, fetchDragonTiger, fetchBlockTrades, fetchAnnouncements, fetchUnlocks, fetchEpsForecast, fetchDragonTigerSeats, fetchFundFlow, fetchFundFlowMinute, fetchConceptHeatmap, fetchIndustryHeatmap } from '../services/api';
 import KLineChart from '../components/KLineChart';
 import BoardSidebar from '../components/BoardSidebar';
 import StockFundFlowTab from '../components/StockFundFlowTab';
@@ -474,6 +474,7 @@ export default function StockDetailPage() {
   const [signal, setSignal] = useState<number | null>(null);
   const [conceptTags, setConceptTags] = useState<any[]>([]);
   const [conceptQuotes, setConceptQuotes] = useState<Record<string, { avgChgPct: number; stockCount: number; upCount: number; downCount: number }>>({});
+  const [industryQuotes, setIndustryQuotes] = useState<Record<string, { avgChgPct: number; stockCount: number; upCount: number; downCount: number }>>({});
   const [todayBoardRank, setTodayBoardRank] = useState<number | null>(null);
   const [financials, setFinancials] = useState<any[]>([]);
   const [shareholders, setShareholders] = useState<any[]>([]);
@@ -550,6 +551,19 @@ fetchPredictionResult(code).then((r: any) => {
         };
       });
       setConceptQuotes(map);
+    }).catch(() => {});
+    fetchIndustryHeatmap().then((r: any) => {
+      const map: Record<string, any> = {};
+      (r.data?.data || []).forEach((item: any) => {
+        const name = item.conceptName || item.concept_name || '';
+        map[name] = {
+          avgChgPct: item.avgChgPct ?? item.avg_chg_pct ?? 0,
+          stockCount: item.stockCount ?? item.stock_count ?? 0,
+          upCount: item.upCount ?? item.up_count ?? 0,
+          downCount: item.downCount ?? item.down_count ?? 0,
+        };
+      });
+      setIndustryQuotes(map);
     }).catch(() => {});
     fetchDragonTiger(code).then((r: any) => setDragonTiger(r.data?.data || [])).catch(() => {});
     fetchBlockTrades(code).then((r: any) => setBlockTradesState(r.data?.data || [])).catch(() => {});
@@ -2999,16 +3013,42 @@ const handleChatSend = async (text?: string) => {
               </span>
             </div>
             <div className="card-body" style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {/* Industry row */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <span style={{ fontSize: 12, color: 'var(--color-text-3)', minWidth: 32, fontWeight: 500 }}>行业</span>
-                {stock?.industry ? (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 10px', borderRadius: 6,
-                    background: 'linear-gradient(135deg, #165DFF12, #165DFF08)', border: '1px solid #165DFF20' }}>
-                    <span style={{ fontSize: 12, fontWeight: 600, color: '#165DFF' }}>{stock.industry}</span>
+              {/* Industry hierarchy: 申万一级 → 二级 → 东财二级 */}
+              {(() => {
+                const swL1 = stock?.swL1 || '';
+                const swL2 = stock?.swL2 || '';
+                const swL2Dc = stock?.swL2Dc || '';
+                const tdxInd = stock?.industry || '';
+                const hasSw = swL1 || swL2 || swL2Dc;
+
+                const renderIndustryTag = (label: string, name: string) => {
+                  const q = industryQuotes[name];
+                  const chg = q?.avgChgPct ?? 0;
+                  const chgColor = chg > 0 ? '#F53F3F' : chg < 0 ? '#00B42A' : 'var(--color-text-3)';
+                  return (
+                    <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ fontSize: 11, color: 'var(--color-text-4)', minWidth: 44, fontWeight: 500 }}>{label}</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 10px', borderRadius: 6,
+                        background: 'var(--color-fill-1)', border: '1px solid var(--color-border-1)' }}>
+                        <span style={{ fontSize: 12, fontWeight: 600, color: '#165DFF' }}>{name}</span>
+                        <span style={{ fontSize: 11, fontWeight: 600, color: chgColor, fontVariantNumeric: 'tabular-nums' }}>
+                          {chg > 0 ? '+' : ''}{chg.toFixed(2)}%
+                        </span>
+                        {q && <span style={{ fontSize: 9, color: 'var(--color-text-4)' }}>{q.upCount}↑{q.downCount}↓</span>}
+                      </div>
+                    </div>
+                  );
+                };
+
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {swL1 && renderIndustryTag('申万一级', swL1)}
+                    {swL2 && renderIndustryTag('申万二级', swL2)}
+                    {swL2Dc && renderIndustryTag('东财行业', swL2Dc)}
+                    {!hasSw && tdxInd && renderIndustryTag('行业', tdxInd)}
                   </div>
-                ) : <span style={{ fontSize: 11, color: 'var(--color-text-3)' }}>--</span>}
-              </div>
+                );
+              })()}
               {/* Concepts row */}
               <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
                 <span style={{ fontSize: 12, color: 'var(--color-text-3)', minWidth: 32, fontWeight: 500, marginTop: 4 }}>概念</span>

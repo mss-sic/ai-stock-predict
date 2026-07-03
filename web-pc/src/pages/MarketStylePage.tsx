@@ -1,25 +1,47 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { DatePicker, Spin, Tag, Tooltip, Select } from '@arco-design/web-react';
-import { Activity, TrendingUp, DollarSign, Shield, Zap, Info, ChevronRight, BarChart3, GanttChart } from 'lucide-react';
+import { Activity, TrendingUp, DollarSign, Shield, Zap, Info, ChevronRight, BarChart3, GanttChart, Target, RefreshCw, Building2 } from 'lucide-react';
 import { fetchMarketStyleCurve, fetchMarketDailyReview } from '../services/api';
 
 const STYLE_COLORS: Record<string, string> = {
-  bull_rally: '#00B42A', mild_bull: '#23C343', recovery: '#F7BA1E',
-  structural: '#FF7D00', rotation: '#E6A23C', bottoming: '#8B5E3C',
-  bear: '#F53F3F', crash: '#1A1A1A', transitional: '#86909C',
+  broad_rally: '#F7BA1E', trend_up: '#00B42A', structural: '#FF7D00',
+  choppy: '#E6A23C', weak_range: '#D97A1E', decline: '#F53F3F', crash: '#1A1A1A',
 };
 const STYLE_LABELS: Record<string, string> = {
-  bull_rally: '牛市普涨', mild_bull: '温和上涨', recovery: '回暖修复',
-  structural: '结构分化', rotation: '震荡轮动', bottoming: '底部磨底',
-  bear: '熊市下跌', crash: '恐慌暴跌', transitional: '过渡整理',
+  broad_rally: '普涨行情', trend_up: '趋势上行', structural: '结构行情',
+  choppy: '震荡博弈', weak_range: '弱势震荡', decline: '持续下跌', crash: '恐慌崩盘',
+};
+const STYLE_ACTIONS: Record<string, string> = {
+  broad_rally: '重仓做多', trend_up: '正常做多', structural: '精选个股',
+  choppy: '轻仓波段', weak_range: '观望为主', decline: '减仓/空仓', crash: '清仓避险',
 };
 const STYLE_ROWS = Object.entries(STYLE_LABELS).map(([key, label]) => ({ key, label }));
 
-/** Returns yesterday's date as YYYY-MM-DD (market data is T-1). */
-const getYesterday = () => {
+/** Maps legacy style codes to current ones */
+
+const REGIME_COLORS: Record<string, string> = {
+  expansion: '#00B42A', neutral: '#86909C', contraction: '#F53F3F',
+};
+const REGIME_LABELS: Record<string, string> = {
+  expansion: '上涨格局', neutral: '震荡格局', contraction: '下跌格局',
+};
+const REGIME_ADVICE: Record<string, string> = {
+  expansion: '顺势做多，仓位70-90%', neutral: '高抛低吸，仓位40-60%', contraction: '防守观望，仓位10-30%',
+};
+const normalizeStyle = (s: string) => {
+  const m: Record<string, string> = {
+    bull_rally: 'trend_up', mild_bull: 'trend_up',
+    recovery: 'choppy', bear: 'decline', divergence: 'decline',
+    transitional: 'choppy', rotation: 'choppy',
+    risk_off: 'decline', bottoming: 'weak_range',
+  };
+  return m[s] || s;
+};
+
+/** Returns today's date as YYYY-MM-DD. */
+const getToday = () => {
   const d = new Date();
-  d.setDate(d.getDate() - 1);
   return d.toISOString().slice(0, 10);
 };
 
@@ -36,7 +58,7 @@ export default function MarketStylePage() {
 
   const loadCurve = async () => {
     try {
-      const to = getYesterday();
+      const to = getToday();
       const from = new Date(Date.now() - 180 * 86400000).toISOString().slice(0, 10);
       const res: any = await fetchMarketStyleCurve({ from, to });
       const data = res.data?.data || [];
@@ -123,9 +145,61 @@ export default function MarketStylePage() {
         </div>
         <div>
           <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>市场风格</h2>
-          <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>市场风格识别 · 结构性分析 · T-1 复盘</span>
+          <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>市场风格识别 · 结构性分析 · 最新: {curveData.length > 0 ? curveData[curveData.length - 1].tradeDate : '—'}</span>
         </div>
       </div>
+
+      {/* Layer 1: Market Regime Banner */}
+      {curveData.length > 0 && (() => {
+        const latest = curveData[curveData.length - 1];
+        const regime = latest.marketRegime || 'neutral';
+        const leadIndustry = latest.leadIndustry || '';
+        const leadConcept = latest.leadConcept || '';
+        const gdFlow = latest.growthDefenseFlow || 0;
+        const regimeColor = REGIME_COLORS[regime] || '#86909C';
+        const flowColor = gdFlow > 0.3 ? '#00B42A' : gdFlow < -0.3 ? '#F53F3F' : '#86909C';
+        const flowLabel = gdFlow > 0.5 ? '进攻' : gdFlow > 0.1 ? '偏进攻' : gdFlow < -0.5 ? '防御' : gdFlow < -0.1 ? '偏防御' : '均衡';
+        return (
+          <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
+            {/* Regime Card */}
+            <div style={{ flex: 1, background: 'var(--color-bg-2)', borderRadius: 10, border: '1px solid var(--color-border-2)', padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ width: 8, height: 8, borderRadius: '50%', background: regimeColor }} />
+              <div>
+                <div style={{ fontSize: 11, color: 'var(--color-text-3)' }}>大盘格局</div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: regimeColor }}>{REGIME_LABELS[regime] || regime}</div>
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--color-text-4)', marginLeft: 8 }}>{REGIME_ADVICE[regime] || ''}</div>
+            </div>
+            {/* Leadership Card - split industry & concept */}
+            <div style={{ flex: 1, background: 'var(--color-bg-2)', borderRadius: 10, border: '1px solid var(--color-border-2)', padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Building2 size={14} style={{ color: leadIndustry ? '#165DFF' : 'var(--color-text-4)' }} />
+                <span style={{ fontSize: 11, color: 'var(--color-text-3)' }}>领涨行业</span>
+                <span style={{ fontSize: 13, fontWeight: 600, color: leadIndustry ? '#165DFF' : 'var(--color-text-3)' }}>
+                  {leadIndustry || '—'}
+                </span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Target size={14} style={{ color: leadConcept ? '#FF7D00' : 'var(--color-text-4)' }} />
+                <span style={{ fontSize: 11, color: 'var(--color-text-3)' }}>热门概念</span>
+                <span style={{ fontSize: 13, fontWeight: 600, color: leadConcept ? '#FF7D00' : 'var(--color-text-3)' }}>
+                  {leadConcept || '—'}
+                </span>
+              </div>
+            </div>
+            {/* Flow Card */}
+            <div style={{ flex: 1, background: 'var(--color-bg-2)', borderRadius: 10, border: '1px solid var(--color-border-2)', padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
+              <RefreshCw size={18} style={{ color: flowColor }} />
+              <div>
+                <div style={{ fontSize: 11, color: 'var(--color-text-3)' }}>资金偏好</div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: flowColor, fontFamily: "'SF Mono',monospace" }}>
+                  {gdFlow > 0 ? '+' : ''}{gdFlow.toFixed(2)}% <span style={{ fontSize: 11, fontWeight: 400 }}>{flowLabel}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Style Timeline */}
       <div style={{ background: 'var(--color-bg-2)', borderRadius: 10, border: '1px solid var(--color-border-2)', padding: '16px 18px', marginBottom: 16 }}>
@@ -190,11 +264,11 @@ export default function MarketStylePage() {
           <div style={{ overflowX: 'auto' }}>
             <div style={{ display: 'flex', height: 36, borderRadius: 6, overflow: 'hidden', minWidth: Math.max(curveData.length * 8, 600) }}>
               {segments.map((seg, i) => (
-                <Tooltip key={i} content={`${STYLE_LABELS[seg.style] || seg.style}\n${seg.startDate} → ${seg.endDate}\n持续 ${seg.duration} 天`}>
+                <Tooltip key={i} content={`${STYLE_LABELS[normalizeStyle(seg.style)] || seg.style}\n${seg.startDate} → ${seg.endDate}\n持续 ${seg.duration} 天`}>
                   <div onClick={() => { setSelectedDate(seg.startDate); loadReview(seg.startDate); }}
                     style={{
                       width: `${(seg.duration / curveData.length) * 100}%`, height: '100%',
-                      background: STYLE_COLORS[seg.style] || '#86909C', cursor: 'pointer',
+                      background: STYLE_COLORS[normalizeStyle(seg.style)] || '#86909C', cursor: 'pointer',
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
                     }}>
                     {seg.duration >= 5 && (
@@ -210,7 +284,7 @@ export default function MarketStylePage() {
             <div style={{ display: 'flex', gap: 10, marginTop: 8, flexWrap: 'wrap' }}>
               {segments.filter(s => s.duration >= 5).map((s, i) => (
                 <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, color: 'var(--color-text-3)' }}>
-                  <div style={{ width: 10, height: 10, borderRadius: 2, background: STYLE_COLORS[s.style], flexShrink: 0 }} />
+                  <div style={{ width: 10, height: 10, borderRadius: 2, background: STYLE_COLORS[normalizeStyle(s.style)], flexShrink: 0 }} />
                   {s.startDate.slice(5)}
                 </div>
               ))}
@@ -236,16 +310,17 @@ export default function MarketStylePage() {
             <DatePicker value={selectedDate} onChange={(v: string) => { if (v && dateSet.has(v)) { setSelectedDate(v); loadReview(v); } }}
               disabledDate={(current: any) => {
                 const ds = current?.format?.('YYYY-MM-DD') || '';
-                if (ds > getYesterday()) return true;
+                if (ds > getToday()) return true;
                 return !dateSet.has(ds);
               }}
               style={{ width: 160 }} size="small" />
             {reviewLoading ? <Spin size={16} /> : review ? (
               <>
                 {review.style && (
-                  <Tag color={['bull_rally','mild_bull'].includes(review.style) ? 'green'
-                    : ['bear','crash'].includes(review.style) ? 'red'
-                    : review.style === 'structural' ? 'orangered' : 'orange'} size="medium">
+                  <Tag color={['broad_rally','trend_up'].includes(normalizeStyle(review.style)) ? 'green'
+                    : ['decline','crash'].includes(normalizeStyle(review.style)) ? 'red'
+                    : ['weak_range'].includes(normalizeStyle(review.style)) ? 'orangered'
+                    : 'orange'} size="medium">
                     {review.styleName || review.style}
                   </Tag>
                 )}
@@ -307,8 +382,14 @@ export default function MarketStylePage() {
               </div>
               <div style={{ background: 'var(--color-bg-2)', borderRadius: 10, border: '1px solid var(--color-border-2)', padding: '14px 18px' }}>
                 <Activity size={14} style={{ marginRight: 6, color: '#FF7D00' }} />
-                <span style={{ fontSize: 13, fontWeight: 600 }}>结构信号</span>
+                <span style={{ fontSize: 13, fontWeight: 600 }}>结构与体制</span>
                 <div style={{ marginTop: 8 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                    <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>大盘格局</span>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: REGIME_COLORS[review.marketRegime] || '#86909C' }}>
+                      {REGIME_LABELS[review.marketRegime] || '—'}
+                    </span>
+                  </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
                     <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>板块扩散度</span>
                     <span style={{ fontSize: 13, fontFamily: "'SF Mono',monospace" }}>
@@ -316,14 +397,70 @@ export default function MarketStylePage() {
                     </span>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>波动率</span>
-                    <span style={{ fontSize: 13, fontFamily: "'SF Mono',monospace" }}>
-                      {((review.volatility || 0) * 100).toFixed(1)}%
+                    <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>资金偏好</span>
+                    <span style={{ fontSize: 13, fontFamily: "'SF Mono',monospace",
+                      color: (review.growthDefenseFlow || 0) > 0 ? '#00B42A' : (review.growthDefenseFlow || 0) < 0 ? '#F53F3F' : 'var(--color-text-1)' }}>
+                      {(review.growthDefenseFlow || 0) > 0 ? '+' : ''}{(review.growthDefenseFlow || 0).toFixed(2)}%
                     </span>
                   </div>
                 </div>
               </div>
             </div>
+
+            {/* Micro Structure Indicators */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+              <div style={{ background: 'var(--color-bg-2)', borderRadius: 10, border: '1px solid var(--color-border-2)', padding: '12px 14px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                  <Zap size={13} style={{ color: '#FF7D00' }} />
+                  <span style={{ fontSize: 11, color: 'var(--color-text-3)' }}>炸板率</span>
+                </div>
+                <span style={{ fontSize: 16, fontWeight: 700, fontFamily: "'SF Mono',monospace",
+                  color: (review.breakRate || 0) > 0.3 ? '#F53F3F' : 'var(--color-text-1)' }}>
+                  {((review.breakRate || 0) * 100).toFixed(1)}%
+                </span>
+                <div style={{ fontSize: 10, color: 'var(--color-text-4)', marginTop: 2 }}>
+                  {(review.breakRate || 0) > 0.3 ? '封板意愿弱' : '封板正常'}
+                </div>
+              </div>
+              <div style={{ background: 'var(--color-bg-2)', borderRadius: 10, border: '1px solid var(--color-border-2)', padding: '12px 14px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                  <Target size={13} style={{ color: '#165DFF' }} />
+                  <span style={{ fontSize: 11, color: 'var(--color-text-3)' }}>资金集中度</span>
+                </div>
+                <span style={{ fontSize: 16, fontWeight: 700, fontFamily: "'SF Mono',monospace" }}>
+                  {((review.concentration || 0) * 100).toFixed(1)}%
+                </span>
+                <div style={{ fontSize: 10, color: 'var(--color-text-4)', marginTop: 2 }}>
+                  Top100成交占比
+                </div>
+              </div>
+              <div style={{ background: 'var(--color-bg-2)', borderRadius: 10, border: '1px solid var(--color-border-2)', padding: '12px 14px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                  <RefreshCw size={13} style={{ color: '#F7BA1E' }} />
+                  <span style={{ fontSize: 11, color: 'var(--color-text-3)' }}>轮动速度</span>
+                </div>
+                <span style={{ fontSize: 16, fontWeight: 700, fontFamily: "'SF Mono',monospace",
+                  color: (review.rotationSpeed || 0) > 0.6 ? '#F53F3F' : 'var(--color-text-1)' }}>
+                  {((review.rotationSpeed || 0) * 100).toFixed(0)}%
+                </span>
+                <div style={{ fontSize: 10, color: 'var(--color-text-4)', marginTop: 2 }}>
+                  Top5行业更换率
+                </div>
+              </div>
+            </div>
+
+            {/* AI Analysis Summary */}
+            {review.analysisSummary && (
+              <div style={{ background: 'linear-gradient(135deg, #165DFF10, #722ED110)', borderRadius: 10, border: '1px solid var(--color-border-2)', padding: '14px 18px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                  <Zap size={14} style={{ color: '#722ED1' }} />
+                  <span style={{ fontSize: 13, fontWeight: 600, color: '#722ED1' }}>AI 市场解读</span>
+                </div>
+                <div style={{ fontSize: 13, lineHeight: 1.7, color: 'var(--color-text-2)' }}>
+                  {review.analysisSummary}
+                </div>
+              </div>
+            )}
 
             {/* Top Concepts */}
             {review.topConcepts && Array.isArray(review.topConcepts) && review.topConcepts.length > 0 && (

@@ -656,6 +656,46 @@ func (h *BoardHandler) HeatmapEnriched(c *gin.Context) {
 	response.Success(c, rows)
 }
 
+
+// IndustryHeatmap returns heatmap data for industry boards (industry_l2 + industry)
+func (h *BoardHandler) IndustryHeatmap(c *gin.Context) {
+	var items []model.ConceptHeatmapItem
+	rows, err := db.PG.Raw(`
+		WITH latest_prices AS (
+			SELECT code, close,
+				LAG(close) OVER (PARTITION BY code ORDER BY trade_date) as prev_close,
+				ROW_NUMBER() OVER (PARTITION BY code ORDER BY trade_date DESC) as rn
+			FROM stocks_daily_k
+			WHERE trade_date >= (SELECT MAX(trade_date) FROM stocks_daily_k) - INTERVAL '3 days'
+		),
+		stock_changes AS (
+			SELECT code, close, prev_close
+			FROM latest_prices
+			WHERE rn = 1
+		)
+		SELECT cb.concept_code, cb.concept_name, cb.concept_type, cb.stock_count,
+			COALESCE(AVG(CASE WHEN sc2.prev_close > 0 THEN (sc2.close - sc2.prev_close) / sc2.prev_close * 100 END), 0) as avg_chg_pct,
+			COUNT(CASE WHEN sc2.close > sc2.prev_close THEN 1 END) as up_count,
+			COUNT(CASE WHEN sc2.close < sc2.prev_close THEN 1 END) as down_count
+		FROM concept_boards cb
+		LEFT JOIN stock_concepts sc ON sc.concept_code = cb.concept_code
+		LEFT JOIN stock_changes sc2 ON sc2.code = sc.code
+		WHERE cb.concept_type IN ('industry_l2', 'industry')
+		GROUP BY cb.concept_code, cb.concept_name, cb.concept_type, cb.stock_count
+		ORDER BY avg_chg_pct DESC
+	`).Rows()
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var item model.ConceptHeatmapItem
+			rows.Scan(&item.ConceptCode, &item.ConceptName, &item.ConceptType, &item.StockCount,
+				&item.AvgChgPct, &item.UpCount, &item.DownCount)
+			items = append(items, item)
+		}
+	}
+	response.Success(c, items)
+}
+
 func (h *BoardHandler) StockHeatmap(c *gin.Context) {
 	code := c.Param("code")
 	data, err := h.repo.GetStockHeatmap(code)

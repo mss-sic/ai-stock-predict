@@ -50,7 +50,7 @@ export default function LimitStatsPage() {
       { type: 'value', name: '涨停/跌停', axisLabel: { fontSize: 10 } },
       { type: 'value', name: '炸板', axisLabel: { fontSize: 10 } },
     ],
-    dataZoom: [{ type: 'slider', start: 0, end: data.length > 30 ? 50 : 100, height: 20, bottom: 4 }],
+    dataZoom: [{ type: 'slider', start: data.length > 30 ? 40 : 0, end: 100, height: 20, bottom: 4 }],
     series: [
       { name: '涨停', type: 'bar', data: data.map(d => d.upCount), itemStyle: { color: '#ef4444' }, barMaxWidth: 14, barCategoryGap: '30%' },
       { name: '跌停', type: 'bar', data: data.map(d => d.downCount), itemStyle: { color: '#22c55e' }, barMaxWidth: 14, barCategoryGap: '30%' },
@@ -67,7 +67,7 @@ export default function LimitStatsPage() {
       { type: 'value', name: '家数', axisLabel: { fontSize: 10 } },
       { type: 'value', name: '涨跌比', axisLabel: { fontSize: 10 } },
     ],
-    dataZoom: [{ type: 'slider', start: 0, end: data.length > 30 ? 50 : 100, height: 20, bottom: 4 }],
+    dataZoom: [{ type: 'slider', start: data.length > 30 ? 40 : 0, end: 100, height: 20, bottom: 4 }],
     series: [
       { name: '上涨', type: 'bar', data: data.map(d => d.riseCount), stack: 'x', itemStyle: { color: '#ef4444' }, barMaxWidth: 20 },
       {
@@ -102,7 +102,7 @@ export default function LimitStatsPage() {
         { gte: 3, color: '#ef4444' },
       ],
     },
-    dataZoom: [{ type: 'slider', start: 0, end: data.length > 30 ? 50 : 100, height: 20, bottom: 4 }],
+    dataZoom: [{ type: 'slider', start: data.length > 30 ? 40 : 0, end: 100, height: 20, bottom: 4 }],
     series: [{
       type: 'bar',
       data: data.map(d => {
@@ -133,7 +133,7 @@ export default function LimitStatsPage() {
         </div>
         <div>
           <h1 style={{ fontSize: 18, fontWeight: 700, margin: 0, color: 'var(--color-text-1)' }}>涨跌停情绪</h1>
-          <p style={{ margin: '2px 0 0', fontSize: 12, color: 'var(--color-text-3)' }}>涨停/跌停家数 · 炸板率 · 涨跌比 · 情绪带</p>
+          <p style={{ margin: '2px 0 0', fontSize: 12, color: 'var(--color-text-3)' }}>{latest?.tradeDate?.slice(0, 10) || '—'} · 涨停/跌停家数 · 炸板率 · 涨跌比 · 情绪带</p>
         </div>
       </div>
 

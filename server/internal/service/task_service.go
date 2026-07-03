@@ -36,7 +36,7 @@ var DefaultTasks = []struct {
 	{"风险扫描", "risk_scan", "0 5 * * * *"},             // hourly at :05
 {"市场日聚合", "market_daily_agg", "40 10 16 * * *"},     // daily 16:10 (after K-line completes)
 {"市场情绪计算", "market_sentiment", "10 0 17 * * *"},   // daily 17:00
-{"市场风格计算", "market_style", "0 30 17 * * *"},       // daily 17:30
+{"市场风格计算", "market_style", "0 10,40 17 * * 1-5"},  // 交易日 17:10 + 17:40 盘后多次更新
 {"AI评分更新", "ai_score", "0 0 20 * * 0"},
 	{"龙虎榜采集", "dragon_tiger", "0 0 17 * * *"},        // daily 17:00 (盘后龙虎榜更新)
 	{"融资融券采集", "margin", "0 0 9 * * *"},             // daily 09:00 (盘前更新)
@@ -178,18 +178,24 @@ func (tm *TaskManager) executeTask(taskID uint, phase, name string) {
 		finishTaskLog(&logEntry, count, 0, 0, err)
 	} else if phase == "market_style" {
 		// Market style computation — use latest trading day, not wall clock
-		log.Printf("[market_style] task started")
+		log.Printf("[market_style] ⏰ 定时任务触发")
 		svc := NewMarketStyleService()
 		var date string
 		db.PG.Raw("SELECT trade_date::text FROM market_sentiment ORDER BY trade_date DESC LIMIT 1").Scan(&date)
-		log.Printf("[market_style] latest market_sentiment date: %q", date)
+		log.Printf("[market_style] 📊 market_sentiment最新日期: %q", date)
 		if date == "" {
 			db.PG.Raw("SELECT trade_date::text FROM market_daily_agg ORDER BY trade_date DESC LIMIT 1").Scan(&date)
-			log.Printf("[market_style] fallback to market_daily_agg date: %q", date)
+			log.Printf("[market_style] ⚠️  market_sentiment 无数据，降级到 market_daily_agg: %q", date)
 		}
+		var latestStyleDate string
+		db.PG.Raw("SELECT trade_date::text FROM market_style_daily ORDER BY trade_date DESC LIMIT 1").Scan(&latestStyleDate)
+		log.Printf("[market_style] 📋 market_style_daily最新日期: %q", latestStyleDate)
 		if date == "" {
-			log.Printf("[market_style] no trading date available, aborting")
-			finishTaskLog(&logEntry, 0, 0, 0, fmt.Errorf("无可用交易日期：market_sentiment 和 market_daily_agg 均无数据"))
+			log.Printf("[market_style] ❌ 无可用交易日期，跳过本次")
+			finishTaskLog(&logEntry, 0, 0, 0, fmt.Errorf("无可用交易日期"))
+		} else if date == latestStyleDate {
+			log.Printf("[market_style] ✅ 数据已是最新 (market_style_daily=%s = market_sentiment=%s)，跳过", latestStyleDate, date)
+			finishTaskLog(&logEntry, 0, 0, 0, nil)
 		} else {
 			// Collect dates to compute: missing dates + always recompute latest
 			var dates []string
@@ -204,14 +210,14 @@ func (tm *TaskManager) executeTask(taskID uint, phase, name string) {
 			if !hasLatest && date != "" {
 				dates = append(dates, date)
 			}
-			log.Printf("[market_style] dates to compute: %d (latest=%s, force_overwrite=%v)", len(dates), date, !hasLatest)
+			log.Printf("[market_style] 📝 待计算日期: %d 个 (最新=%s, 包含重新计算=%v)", len(dates), date, !hasLatest)
 			if len(dates) == 0 {
-				log.Printf("[market_style] no dates available")
+				log.Printf("[market_style] ⚠️  无待计算日期")
 				finishTaskLog(&logEntry, 0, 0, 0, fmt.Errorf("无可用日期"))
 			} else {
 				success, fail := 0, 0
 				for _, d := range dates {
-					log.Printf("[market_style] computing %s (%d/%d)", d, success+fail+1, len(dates))
+					log.Printf("[market_style] 🔄 计算 %s (%d/%d) | 最新数据日期=%s", d, success+fail+1, len(dates), date)
 					if err := svc.ComputeAndStore(d); err != nil {
 						fail++
 						log.Printf("[market_style] scheduled FAIL %s: %v", d, err)
@@ -223,7 +229,7 @@ func (tm *TaskManager) executeTask(taskID uint, phase, name string) {
 				if fail > 0 {
 					taskErr = fmt.Errorf("%d/%d 失败", fail, success+fail)
 				}
-				log.Printf("[market_style] task complete: %d success, %d fail", success, fail)
+				log.Printf("[market_style] 🏁 任务完成: 成功=%d 失败=%d 最新数据日期=%s", success, fail, date)
 				finishTaskLog(&logEntry, success, fail, 0, taskErr)
 			}
 		}
@@ -487,7 +493,7 @@ func RepairTask(id uint, from, to string, all bool) error {
 		for _, date := range dates {
 			if err := svc.ComputeAndStore(date); err != nil {
 				fail++
-				log.Printf("[market_style] repair FAIL %s: %v", date, err)
+				log.Printf("[market_style] ❌ 修复失败 %s: %v | 最新数据日期检查...", date, err)
 			} else {
 				success++
 			}

@@ -54,6 +54,7 @@ function pctTag(v: number) {
 }
 
 export default function IndustryComparePage() {
+  const [industryType, setIndustryType] = useState('tdx');
   const [industries, setIndustries] = useState<IndustrySummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedIndustry, setExpandedIndustry] = useState<string | null>(null);
@@ -63,25 +64,31 @@ export default function IndustryComparePage() {
 
   useEffect(() => {
     setLoading(true);
-    fetchIndustries()
+    fetchIndustries(undefined, industryType)
       .then((r: any) => {
         const data = r.data?.data || r.data || [];
         setIndustries(Array.isArray(data) ? data : []);
       })
       .catch((err) => console.error('[IndustryCompare] fetch industries failed:', err))
       .finally(() => setLoading(false));
-  }, []);
+  }, [industryType]);
 
   const loadStocks = useCallback(async (industry: string, sort: string) => {
     setStocksLoading(true);
     try {
-      const r: any = await fetchIndustryStocks(industry, undefined, sort);
+      const r: any = await fetchIndustryStocks(industry, undefined, sort, industryType);
       setStocks(r.data?.data || r.data || []);
     } catch (err) {
       console.error('[IndustryCompare] fetch stocks failed:', err);
     } finally {
       setStocksLoading(false);
     }
+  }, [industryType]);
+
+  const handleIndustryTypeChange = useCallback((val: string) => {
+    setIndustryType(val);
+    setExpandedIndustry(null);
+    setStocks([]);
   }, []);
 
   const handleExpand = useCallback((industry: string) => {
@@ -265,12 +272,22 @@ export default function IndustryComparePage() {
         }}>
           <Layers size={22} color="#fff" />
         </div>
-        <div>
+        <div style={{ flex: 1 }}>
           <h1 style={{ fontSize: 18, fontWeight: 700, margin: 0, color: 'var(--color-text-1)' }}>行业横向对比</h1>
           <p style={{ margin: '2px 0 0', fontSize: 12, color: 'var(--color-text-3)' }}>
-            申万行业 PE / PB / PS 中位数对比 & 涨跌排名
+            {industryType === 'sw_l1' ? '申万一级' : industryType === 'sw_l2_dc' ? '东财二级' : '传统行业'} PE / PB / PS 中位数对比 & 涨跌排名
           </p>
         </div>
+        <Select
+          value={industryType}
+          onChange={handleIndustryTypeChange}
+          style={{ width: 130 }}
+          options={[
+            { label: '申万一级', value: 'sw_l1' },
+            { label: '东财二级', value: 'sw_l2_dc' },
+            { label: '传统行业', value: 'tdx' },
+          ]}
+        />
       </div>
 
       {/* Stats Cards */}

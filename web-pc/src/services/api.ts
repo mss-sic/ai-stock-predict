@@ -350,14 +350,15 @@ export const fetchConceptBoardStocks = (code: string) => api.get(`/concept-board
 export const fetchConceptAnalysis = (code: string, refresh?: boolean) => api.get(`/concept-boards/${code}/analysis`, { params: { refresh: refresh ? '1' : '0' }, timeout: 180000 });
 export const fetchConceptBoardKline = (code: string, days?: number) => api.get(`/concept-boards/${code}/kline`, { params: { days: days || 60 } });
 export const fetchConceptHeatmap = () => api.get('/concept-boards/heatmap');
+export const fetchIndustryHeatmap = () => api.get('/industry/heatmap');
 export const fetchStockConceptTags = (stockCode: string) => api.get(`/stocks/${stockCode}/concept-tags`);
 
 // ── Index / Market APIs ──
 export const fetchIndices = () => api.get('/indices');
 
 // ── Industry Comparison APIs ──
-export const fetchIndustries = (date?: string) => api.get("/industries", { params: date ? { date } : {} });
-export const fetchIndustryStocks = (name: string, date?: string, sort?: string) => api.get(`/industries/${encodeURIComponent(name)}/stocks`, { params: { ...(date ? { date } : {}), ...(sort ? { sort } : {}) } });
+export const fetchIndustries = (date?: string, industryType?: string) => api.get("/industries", { params: { ...(date ? { date } : {}), ...(industryType ? { type: industryType } : {}) } });
+export const fetchIndustryStocks = (name: string, date?: string, sort?: string, industryType?: string) => api.get(`/industries/${encodeURIComponent(name)}/stocks`, { params: { ...(date ? { date } : {}), ...(sort ? { sort } : {}), ...(industryType ? { type: industryType } : {}) } });
 
 // ── Backward-compatible aliases ──
 export const fetchEnrichedHeatmap = () => fetchHeatmapEnriched();

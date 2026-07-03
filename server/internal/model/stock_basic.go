@@ -20,6 +20,9 @@ type StockBasic struct {
 	Code        string    `gorm:"primaryKey;size:10" json:"code"`
 	Name        string    `gorm:"size:50" json:"name"`
 	Industry    string    `gorm:"size:50" json:"industry"`
+	SwL1        string    `gorm:"column:sw_l1;size:50" json:"swL1"`
+	SwL2        string    `gorm:"column:sw_l2;size:50" json:"swL2"`
+	SwL2Dc      string    `gorm:"column:sw_l2_dc;size:50" json:"swL2Dc"`
 	ConceptTags JSONArray `gorm:"type:jsonb" json:"conceptTags"`
 	ListedDate  *time.Time `json:"listedDate"`
 	TotalShares int64     `json:"totalShares"`

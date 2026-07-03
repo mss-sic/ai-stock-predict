@@ -110,7 +110,7 @@ export default function FearGreedPage() {
       axisLabel: { fontSize: 10 },
       splitLine: { lineStyle: { color: 'var(--color-border-1)' } },
     },
-    dataZoom: [{ type: 'slider', start: 0, end: history.length > 30 ? 50 : 100, height: 20, bottom: 4 }],
+    dataZoom: [{ type: 'slider', start: history.length > 30 ? 40 : 0, end: 100, height: 20, bottom: 4 }],
     visualMap: {
       show: false,
       pieces: [
@@ -151,7 +151,7 @@ export default function FearGreedPage() {
         </div>
         <div>
           <h1 style={{ fontSize: 18, fontWeight: 700, margin: 0, color: 'var(--color-text-1)' }}>恐慌贪婪指数</h1>
-          <p style={{ margin: '2px 0 0', fontSize: 12, color: 'var(--color-text-3)' }}>6因子综合：涨跌停比 · 涨跌家数 · 量能 · 北向 · 波动 · 炸板</p>
+          <p style={{ margin: '2px 0 0', fontSize: 12, color: 'var(--color-text-3)' }}>{data?.tradeDate?.slice(0, 10) || '—'} · 6因子综合：涨跌停比 · 涨跌家数 · 量能 · 北向 · 波动 · 炸板</p>
         </div>
       </div>
 

@@ -24,6 +24,7 @@ type MarketStyleDaily struct {
 	TopSectors       string    `gorm:"type:jsonb" json:"topSectors"`
 	TopConcepts      string    `gorm:"type:jsonb" json:"topConcepts"`
 	AnalysisSummary  string    `gorm:"type:text" json:"analysisSummary"`
+	LeadIndustry      string    `gorm:"size:100" json:"leadIndustry"`
 	CreatedAt        time.Time `json:"createdAt"`
 }
 

@@ -112,6 +112,22 @@ try:
     execute_values(cur, "INSERT INTO concept_boards (concept_code,concept_name,concept_type,stock_count) VALUES %s ON CONFLICT (concept_code) DO UPDATE SET concept_name=EXCLUDED.concept_name,stock_count=EXCLUDED.stock_count,updated_at=NOW()", brds, page_size=200)
     conn.commit()
     
+    # Reclassify BK04xx real industries as industry_l2
+    log('DB: reclassifying BK04xx industries...')
+    cur.execute("""
+        UPDATE concept_boards SET concept_type = 'industry_l2', updated_at = NOW()
+        WHERE concept_code LIKE 'BK04%%'
+          AND concept_name NOT IN ('军工','节能环保','新能源','AH股','AB股','煤化工概念','酿酒概念')
+    """)
+    cur.execute("""
+        UPDATE stock_concepts SET concept_type = 'industry_l2', updated_at = NOW()
+        WHERE concept_code IN (SELECT concept_code FROM concept_boards WHERE concept_type = 'industry_l2')
+    """)
+    conn.commit()
+    cur.execute("SELECT COUNT(*) FROM concept_boards WHERE concept_type = 'industry_l2'")
+    l2_count = cur.fetchone()[0]
+    log(f'DB: {l2_count} industry_l2 boards reclassified')
+
     cur.execute("SELECT COUNT(*), COUNT(DISTINCT code) FROM stock_concepts WHERE concept_type='concept'")
     rr = cur.fetchone()
     log(f'DONE: {len(concept_map)} concepts, {rr[0]} mappings, {rr[1]} stocks, {elapsed/60:.1f}min total')

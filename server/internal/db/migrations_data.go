@@ -1331,4 +1331,48 @@ Register(Migration{
 		},
 	})
 
+
+	// v050: add sector_dispersion and score_change to market_style_daily
+	Register(Migration{
+		Version:     50,
+		Description: "PG: add sector_dispersion and score_change to market_style_daily",
+		Up: func() error {
+			safeExec(`ALTER TABLE market_style_daily ADD COLUMN IF NOT EXISTS sector_dispersion NUMERIC(7,4) DEFAULT 0`)
+			safeExec(`ALTER TABLE market_style_daily ADD COLUMN IF NOT EXISTS score_change NUMERIC(7,2) DEFAULT 0`)
+			return nil
+		},
+	})
+
+	// v051: add micro-structure indicators to market_style_daily
+	Register(Migration{
+		Version:     51,
+		Description: "PG: add break_rate, concentration, rotation_speed to market_style_daily",
+		Up: func() error {
+			safeExec(`ALTER TABLE market_style_daily ADD COLUMN IF NOT EXISTS break_rate NUMERIC(5,4) DEFAULT 0`)
+			safeExec(`ALTER TABLE market_style_daily ADD COLUMN IF NOT EXISTS concentration NUMERIC(5,4) DEFAULT 0`)
+			safeExec(`ALTER TABLE market_style_daily ADD COLUMN IF NOT EXISTS rotation_speed NUMERIC(5,4) DEFAULT 0`)
+			return nil
+		},
+	})
+
+	// v052: add sw_l1/sw_l2/sw_l2_dc to stocks_basic + lead_industry to market_style_daily + BK04xx reclassify
+	Register(Migration{
+		Version:     52,
+		Description: "PG: stocks_basic sw industry fields + market_style_daily lead_industry + BK04xx reclassify",
+		Up: func() error {
+			safeExec(`ALTER TABLE stocks_basic ADD COLUMN IF NOT EXISTS sw_l1 VARCHAR(50) DEFAULT ''`)
+			safeExec(`ALTER TABLE stocks_basic ADD COLUMN IF NOT EXISTS sw_l2 VARCHAR(50) DEFAULT ''`)
+			safeExec(`ALTER TABLE stocks_basic ADD COLUMN IF NOT EXISTS sw_l2_dc VARCHAR(50) DEFAULT ''`)
+			safeExec(`ALTER TABLE market_style_daily ADD COLUMN IF NOT EXISTS lead_industry VARCHAR(100) DEFAULT ''`)
+
+			// Reclassify BK04xx real industries → industry_l2 (exclude concept-like)
+			safeExec(`UPDATE concept_boards SET concept_type = 'industry_l2'
+				WHERE concept_code LIKE 'BK04%'
+				  AND concept_name NOT IN ('军工','节能环保','新能源','AH股','AB股','煤化工概念','酿酒概念')`)
+			safeExec(`UPDATE stock_concepts SET concept_type = 'industry_l2'
+				WHERE concept_code IN (SELECT concept_code FROM concept_boards WHERE concept_type = 'industry_l2')`)
+			return nil
+		},
+	})
+
 }

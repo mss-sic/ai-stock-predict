@@ -45,7 +45,8 @@ func getLatestDate() (string, error) {
 }
 
 // GetIndustryList returns industry-level aggregate comparisons for a given date.
-func GetIndustryList(date string) ([]IndustrySummary, error) {
+// industryType: "sw_l1" (申万一级), "sw_l2_dc" (东财二级), "tdx" (传统TDX, 默认)
+func GetIndustryList(date string, industryType string) ([]IndustrySummary, error) {
 	if date == "" {
 		var err error
 		date, err = getLatestDate()
@@ -53,10 +54,26 @@ func GetIndustryList(date string) ([]IndustrySummary, error) {
 			return nil, err
 		}
 	}
+	if industryType == "" { industryType = "tdx" }
+	log.Printf("[industry] GetIndustryList industryType=%s date=%s", industryType, date)
 
-	sql := `
+	var col string
+	var filter string
+	switch industryType {
+	case "sw_l1":
+		col = "sb.sw_l1"
+		filter = "sb.sw_l1 IS NOT NULL AND sb.sw_l1 != ''"
+	case "sw_l2_dc":
+		col = "sb.sw_l2_dc"
+		filter = "sb.sw_l2_dc IS NOT NULL AND sb.sw_l2_dc != ''"
+	default: // tdx
+		col = "sb.industry"
+		filter = "sb.industry IS NOT NULL AND sb.industry != '' AND sb.industry !~ '^[0-9]' AND sb.industry !~ '^行业[0-9]'"
+	}
+
+	sql := fmt.Sprintf(`
 		WITH stock_metrics AS (
-			SELECT sb.code, sb.name, sb.industry,
+			SELECT sb.code, sb.name, %s as industry,
 				COALESCE(di.pe, 0) as pe,
 				COALESCE(di.pb, 0) as pb,
 				COALESCE(di.ps, 0) as ps,
@@ -83,7 +100,7 @@ func GetIndustryList(date string) ([]IndustrySummary, error) {
 				WHERE km2.code = sb.code AND km2.trade_date < ?
 				ORDER BY km2.trade_date DESC LIMIT 1 OFFSET 19
 			) km ON TRUE
-			WHERE sb.industry IS NOT NULL AND sb.industry != '' AND sb.industry !~ '^[0-9]' AND sb.industry !~ '^行业[0-9]'
+			WHERE %s
 		)
 		SELECT industry,
 			COUNT(*) as stock_count,
@@ -99,19 +116,20 @@ func GetIndustryList(date string) ([]IndustrySummary, error) {
 		GROUP BY industry
 		HAVING COUNT(*) >= 3
 		ORDER BY avg_week_return DESC
-	`
+	`, col, filter)
 
 	var list []IndustrySummary
 	if err := db.PG.Raw(sql, date, date, date, date, date).Scan(&list).Error; err != nil {
 		log.Printf("[industry] GetIndustryList query failed: %v", err)
 		return nil, fmt.Errorf("query industry list: %w", err)
 	}
-	log.Printf("[industry] GetIndustryList date=%s industries=%d", date, len(list))
+	log.Printf("[industry] GetIndustryList type=%s date=%s industries=%d", industryType, date, len(list))
 	return list, nil
 }
 
 // GetIndustryStocks returns all stocks in a given industry, ranked by PE ascending (default).
-func GetIndustryStocks(industry, date, sortBy string) ([]IndustryStock, error) {
+// industryType: "sw_l1", "sw_l2_dc", "tdx"
+func GetIndustryStocks(industry, date, sortBy, industryType string) ([]IndustryStock, error) {
 	if date == "" {
 		var err error
 		date, err = getLatestDate()
@@ -122,6 +140,19 @@ func GetIndustryStocks(industry, date, sortBy string) ([]IndustryStock, error) {
 
 	if sortBy == "" {
 		sortBy = "pe"
+	}
+	if industryType == "" {
+		industryType = "tdx"
+	}
+
+	var filterCol string
+	switch industryType {
+	case "sw_l1":
+		filterCol = "sb.sw_l1"
+	case "sw_l2_dc":
+		filterCol = "sb.sw_l2_dc"
+	default:
+		filterCol = "sb.industry"
 	}
 
 	orderClause := "ORDER BY CASE WHEN pe > 0 THEN pe ELSE 999999 END ASC"
@@ -156,12 +187,12 @@ func GetIndustryStocks(industry, date, sortBy string) ([]IndustryStock, error) {
 				WHERE kw2.code = sb.code AND kw2.trade_date < $4
 				ORDER BY kw2.trade_date DESC LIMIT 1 OFFSET 4
 			) kw ON TRUE
-			WHERE sb.industry = $5
+			WHERE %s = $5
 		)
 		SELECT code, name, pe, pb, ps, market_cap, week_return, close, change_pct, pe_rank
 		FROM ranked
 		%s
-	`, orderClause)
+	`, filterCol, orderClause)
 
 	var list []IndustryStock
 	if err := db.PG.Raw(sql, date, date, date, date, industry).Scan(&list).Error; err != nil {

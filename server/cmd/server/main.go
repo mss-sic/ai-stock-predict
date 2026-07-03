@@ -84,6 +84,7 @@ func main() {
 			r.GET("/api/v1/concept-boards/:code/kline", boardH.ConceptBoardKline)
 			r.GET("/api/v1/concept-boards/:code/stocks", boardH.ConceptBoardStocks)
 	r.GET("/api/v1/concept-boards/heatmap", boardH.ConceptHeatmap)
+	r.GET("/api/v1/industry/heatmap", boardH.IndustryHeatmap)
 	r.GET("/api/v1/stocks/:code/concept-tags", boardH.StockConcepts)
 
 	// ── Industry comparison routes ──

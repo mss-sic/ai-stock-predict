@@ -2597,6 +2597,8 @@ const (
     StyleBear         MarketStyle = "bear"          // 🔴 熊市下跌
     StyleCrash        MarketStyle = "crash"         // ⚫ 恐慌暴跌
     StyleTransitional MarketStyle = "transitional"  // ⬜ 过渡
+    StyleTrendUp      MarketStyle = "trend_up"      // 🟢 趋势上涨 (new)
+    StyleRiskOff      MarketStyle = "risk_off"      // 🔴 风险释放 (new)
 )
 
 // StyleParams holds the strategy parameter adjustments for a market style.
@@ -2657,6 +2659,21 @@ func defaultStyleParams(style MarketStyle) StyleParams {
             StopProfitAdj: -5, StopLossAdj: 3,
             TrailingStopDrawdown: 4, // 磨底收紧回撤
         }
+    case StyleTrendUp:
+        return StyleParams{
+            BuyPct: 20, AddPct: 12, BuyLogic: "or",
+            AllowBuy: true, AllowAdd: true,
+            ConceptTopPct: 0.40, PositionBias: 1.2,
+            StopProfitAdj: 5, StopLossAdj: -3,
+            TrailingStopDrawdown: 10,
+        }
+    case StyleRiskOff:
+        return StyleParams{
+            BuyPct: 0, AddPct: 0, BuyLogic: "and",
+            AllowBuy: false, AllowAdd: false,
+            ConceptTopPct: 0, PositionBias: 0.1,
+            SellPctMult: 1.5,
+        }
     case StyleBear, StyleCrash:
         return StyleParams{
             BuyPct: 0, AddPct: 0, BuyLogic: "and",
@@ -2684,6 +2701,7 @@ func styleName(style MarketStyle) string {
         StyleRotation: "🟡 震荡轮动", StyleBottoming: "🟤 底部磨底",
         StyleBear: "🔴 熊市下跌", StyleCrash: "⚫ 恐慌暴跌",
         StyleTransitional: "⬜ 过渡整理",
+        StyleTrendUp: "🟢 趋势上涨", StyleRiskOff: "🔴 风险释放",
     }
     return names[style]
 }

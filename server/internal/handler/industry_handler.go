@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"log"
 	"net/http"
 
 	"github.com/ai-stock-predict/server/internal/service"
@@ -17,9 +18,11 @@ func NewIndustryHandler() *IndustryHandler { return &IndustryHandler{} }
 // List returns industry-level aggregate comparisons.
 // Query params: ?date=2026-01-15 (optional, defaults to latest trading day)
 func (h *IndustryHandler) List(c *gin.Context) {
+	log.Printf("[industry-handler] List called with query: %s", c.Request.URL.RawQuery)
 	date := c.DefaultQuery("date", "")
+	industryType := c.DefaultQuery("type", "tdx")
 
-	list, err := service.GetIndustryList(date)
+	list, err := service.GetIndustryList(date, industryType)
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, 500, "获取行业对比数据失败: "+err.Error())
 		return
@@ -37,8 +40,9 @@ func (h *IndustryHandler) Stocks(c *gin.Context) {
 	}
 	date := c.DefaultQuery("date", "")
 	sortBy := c.DefaultQuery("sort", "pe")
+	industryType := c.DefaultQuery("type", "tdx")
 
-	list, err := service.GetIndustryStocks(industry, date, sortBy)
+	list, err := service.GetIndustryStocks(industry, date, sortBy, industryType)
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, 500, "获取行业个股数据失败: "+err.Error())
 		return

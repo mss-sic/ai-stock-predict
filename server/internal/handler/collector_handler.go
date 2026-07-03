@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"bufio"
 	"bytes"
 	"encoding/json"
@@ -67,40 +68,64 @@ func (h *CollectorHandler) Trigger(c *gin.Context) {
 // runMarketStyleCollection runs market style computation and reports via SSE
 func runMarketStyleCollection() {
 	svc := service.NewMarketStyleService()
+
+	// Check latest data availability
+	var latestSentimentDate, latestStyleDate string
+	db.PG.Raw("SELECT trade_date::text FROM market_sentiment ORDER BY trade_date DESC LIMIT 1").Scan(&latestSentimentDate)
+	db.PG.Raw("SELECT trade_date::text FROM market_style_daily ORDER BY trade_date DESC LIMIT 1").Scan(&latestStyleDate)
+	log.Printf("[market_style] 📊 market_sentiment最新=%s, market_style_daily最新=%s", latestSentimentDate, latestStyleDate)
+
+	// Manual trigger: always recompute latest date (to fix stale data like northbound updates)
+	// Scheduled task in task_service.go has its own skip logic for efficiency
+
+	// Find missing dates
 	var dates []string
 	db.PG.Raw(`SELECT trade_date::text FROM market_sentiment
 		WHERE trade_date NOT IN (SELECT trade_date FROM market_style_daily)
 		ORDER BY trade_date`).Pluck("trade_date", &dates)
 
-	// Always include the latest date for recompute (overwrite stale data)
-	var latestDate string
-	db.PG.Raw("SELECT trade_date::text FROM market_sentiment ORDER BY trade_date DESC LIMIT 1").Scan(&latestDate)
-	if latestDate != "" {
+	// Always include the latest date for recompute (manual trigger = force refresh)
+	if latestSentimentDate != "" {
 		hasLatest := false
 		for _, d := range dates {
-			if d == latestDate { hasLatest = true; break }
+			if d == latestSentimentDate { hasLatest = true; break }
 		}
 		if !hasLatest {
-			dates = append(dates, latestDate)
+			dates = append(dates, latestSentimentDate)
+			log.Printf("[market_style] 📝 追加最新日期 %s 用于计算", latestSentimentDate)
 		}
 	}
 
 	collector.SetPhase("market_style", "市场风格计算...")
 
 	if len(dates) == 0 {
-		collector.SSESend(collector.SSELine{Type: "phase", Phase: "market_style", Message: "市场风格已是最新，无需计算", Level: "info"})
+		log.Printf("[market_style] ⚠️  无待计算日期（可能 market_sentiment 无新数据）")
+		collector.SSESend(collector.SSELine{Type: "phase", Phase: "market_style", Message: "无待计算日期，market_sentiment 无新数据", Level: "info"})
 		pr := collector.PhaseResult{Phase: "market_style", New: 0, Total: 0}
-		collector.SSESend(collector.SSELine{Type: "result", Phase: "market_style", Result: &pr, Level: "success", Message: "已是最新"})
-		collector.SSESend(collector.SSELine{Type: "done", Phase: "done", Level: "success", Message: "市场风格已是最新"})
+		collector.SSESend(collector.SSELine{Type: "result", Phase: "market_style", Result: &pr, Level: "success", Message: "无需计算"})
+		collector.SSESend(collector.SSELine{Type: "done", Phase: "done", Level: "success", Message: "市场风格无新数据"})
 		collector.AppendResult(pr)
 		return
 	}
 
-	collector.SSESend(collector.SSELine{Type: "phase", Phase: "market_style", Message: fmt.Sprintf("开始计算市场风格 (%d 个缺失日期)", len(dates)), Level: "info"})
+	log.Printf("[market_style] 📝 待计算日期: %d 个 | 最新数据日期=%s", len(dates), latestSentimentDate)
+	collector.SSESend(collector.SSELine{Type: "phase", Phase: "market_style", Message: fmt.Sprintf("开始计算市场风格 (%d 个日期, 最新=%s)", len(dates), latestSentimentDate), Level: "info"})
 
 	success, fail := 0, 0
 	for _, d := range dates {
-		log.Printf("[market_style] computing %s (%d/%d)", d, success+fail+1, len(dates))
+		log.Printf("[market_style] 🔄 刷新 sentiment 数据 for %s", d)
+		// Refresh market_sentiment first (northbound, capital flow may have updated)
+		ctx2, cancel2 := context.WithTimeout(context.Background(), 60*time.Second)
+		cmd := exec.CommandContext(ctx2, "python3", "-u", "../scripts/collector/compute_sentiment.py", d)
+		out, err := cmd.CombinedOutput()
+		cancel2()
+		if err != nil {
+			log.Printf("[market_style] ⚠️  sentiment refresh for %s: %v\n%s", d, err, string(out))
+		} else {
+			log.Printf("[market_style] ✅ sentiment refreshed for %s", d)
+		}
+
+		log.Printf("[market_style] 🔄 计算 %s (%d/%d) | 最新数据日期=%s", d, success+fail+1, len(dates), latestSentimentDate)
 		if err := svc.ComputeAndStore(d); err != nil {
 			fail++
 			log.Printf("[market_style] collection FAIL %s: %v", d, err)
