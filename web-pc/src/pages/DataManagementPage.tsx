@@ -179,7 +179,7 @@ export default function DataManagementPage() {
   const [colHistory, setColHistory] = useState<any[]>([]);
   const [progress, setProgress] = useState<any>(null);
   const [collecting, setCollecting] = useState(false);
-  const [consoleLines, setConsoleLines] = useState<{ text: string; level: string; time: string }[]>([]);
+  const [consoleLines, setConsoleLines] = useState<{ text: string; level: string; time: string; phase?: string }[]>([]);
   const [phaseResults, setPhaseResults] = useState<PhaseResult[]>([]);
   const [phaseProgress, setPhaseProgress] = useState({ current: 0, total: 0 });
   const [totalDuration, setTotalDuration] = useState(0);
@@ -262,9 +262,9 @@ export default function DataManagementPage() {
 
   const showToast = useCallback((type: 'success' | 'error' | 'info', msg: string) => { setToast({ type, msg }); }, []);
 
-  const addConsoleLine = useCallback((text: string, level: string = 'info') => {
+  const addConsoleLine = useCallback((text: string, level: string = 'info', phase?: string) => {
     const time = new Date().toLocaleTimeString('zh-CN', { hour12: false });
-    setConsoleLines(prev => [...prev.slice(-500), { text, level, time }]);
+    setConsoleLines(prev => [...prev.slice(-500), { text, level, time, phase }]);
   }, []);
 
   useEffect(() => { if (consoleRef.current) consoleRef.current.scrollTop = consoleRef.current.scrollHeight; }, [consoleLines]);
@@ -350,7 +350,7 @@ export default function DataManagementPage() {
         const line: SSELine = JSON.parse(event.data);
         if (line.type === 'connected') return;
         if (line.type === 'log' && line.message) {
-          addConsoleLine(line.message, line.level || 'info');
+          addConsoleLine(line.message, line.level || 'info', line.phase);
         } else if (line.type === 'stat') {
           // Stats are accumulated server-side; human-readable behavior logs
           // come through regular 'log' type lines from Python print() statements.
@@ -358,14 +358,14 @@ export default function DataManagementPage() {
           setPhaseProgress({ current: line.progressCurrent || 0, total: line.progressTotal || 0 });
           if (line.message) {
             const pct = line.progressTotal ? Math.round((line.progressCurrent || 0) / line.progressTotal * 100) : 0;
-            addConsoleLine(`⏳ 进度 ${line.message} (${pct}%)`, 'progress');
+            addConsoleLine(`⏳ 进度 ${line.message} (${pct}%)`, 'progress', line.phase);
           }
         } else if (line.type === 'phase' && line.message) {
           setPhaseProgress({ current: 0, total: 0 });
-          addConsoleLine(`\n━━━ ${line.message} ━━━`, 'phase');
+          addConsoleLine(`\n━━━ ${line.message} ━━━`, 'phase', line.phase);
         } else if (line.type === 'result' && line.result) {
           if (line.result.new === 0 && line.result.total > 0 && line.result.errors === 0) {
-            addConsoleLine(`💡 ${PHASE_LABELS[line.result.phase] || line.result.phase}: 数据已是最新，共 ${line.result.total} 条无需更新`, 'info');
+            addConsoleLine(`💡 ${PHASE_LABELS[line.result.phase] || line.result.phase}: 数据已是最新，共 ${line.result.total} 条无需更新`, 'info', line.phase);
           }
           setPhaseResults(prev => {
             const map = new Map(prev.map(r => [r.phase, r]));
@@ -379,9 +379,9 @@ export default function DataManagementPage() {
               return true;
             });
           });
-          addConsoleLine(`${line.result.errors > 0 ? '⚠️' : '✅'} ${PHASE_LABELS[line.result.phase] || line.result.phase}: 总计${line.result.total} | 新增${line.result.new} | 耗时${(line.result.durationMs / 1000).toFixed(1)}s`, line.result.errors > 0 ? 'stderr' : 'success');
+          addConsoleLine(`${line.result.errors > 0 ? '⚠️' : '✅'} ${PHASE_LABELS[line.result.phase] || line.result.phase}: 总计${line.result.total} | 新增${line.result.new} | 耗时${(line.result.durationMs / 1000).toFixed(1)}s`, line.result.errors > 0 ? 'stderr' : 'success', line.phase);
         } else if (line.type === 'done') {
-          addConsoleLine(`\n${line.message}`, 'success');
+          addConsoleLine(`\n${line.message}`, 'success', line.phase);
           setCollecting(false);
           collectingRef.current = false;
           setTotalDuration(Date.now() - startTimeRef.current);
@@ -544,7 +544,7 @@ export default function DataManagementPage() {
 
   const formatDuration = (ms: number) => { if (ms < 1000) return `${ms}ms`; if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`; return `${Math.floor(ms / 60000)}m ${Math.round((ms % 60000) / 1000)}s`; };
 
-  const renderConsoleLine = (line: { text: string; level: string; time: string }, i: number) => {
+  const renderConsoleLine = (line: { text: string; level: string; time: string; phase?: string }, i: number) => {
     const cm: Record<string, string> = { info: 'var(--color-border-1)', stderr: '#f76965', success: '#00b42a', phase: '#4080ff', system: '#ffb400' };
     return <div key={i} style={{ fontFamily: '"JetBrains Mono","Fira Code","SF Mono",monospace', fontSize: 12, lineHeight: '18px', color: cm[line.level] || 'var(--color-border-1)', whiteSpace: 'pre-wrap', wordBreak: 'break-all', padding: line.level === 'phase' ? '4px 0' : '0', fontWeight: line.level === 'phase' ? 600 : 400 }}><span style={{ color: '#666', marginRight: 8, userSelect: 'none' }}>{line.time}</span>{line.text}</div>;
   };
@@ -1071,9 +1071,9 @@ export default function DataManagementPage() {
                       <Tag color="orange" style={{ display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ width: 6, height: 6, borderRadius: '50%', background: '#ff7d00', display: 'inline-block' }} />采集中</Tag>
                     ) : (
                       <>
-                        <Button size="small" type="primary" icon={<Play size={12} />} onClick={() => handleTrigger([selectedCollectPhase])} disabled={collecting}>采集</Button>
+                        <Button size="small" type="primary" icon={<Play size={12} />} onClick={() => handleTrigger([selectedCollectPhase])} disabled={collecting && progress?.phase === selectedCollectPhase}>采集</Button>
                         {HISTORY_CAPABLE_PHASES.has(selectedCollectPhase) && (
-                        <Button size="small" type="outline" icon={<History size={12} />} onClick={() => { setRepairPhase(selectedCollectPhase); setRepairDateRange([]); setRepairAll(false); setRepairModalVisible(true); }} disabled={collecting}>修复历史</Button>
+                        <Button size="small" type="outline" icon={<History size={12} />} onClick={() => { setRepairPhase(selectedCollectPhase); setRepairDateRange([]); setRepairAll(false); setRepairModalVisible(true); }} disabled={collecting && progress?.phase === selectedCollectPhase}>修复历史</Button>
                         )}
                       </>
                     )}
@@ -1116,7 +1116,7 @@ export default function DataManagementPage() {
                   {consoleLines.length > 0 && (
                     <div>
                       <div ref={consoleRef} style={{ background: '#121215', borderRadius: 6, padding: '10px 14px', maxHeight: 300, overflow: 'auto', fontFamily: '"JetBrains Mono","Fira Code","SF Mono",monospace', fontSize: 12, lineHeight: '18px' }}>
-                        {consoleLines.slice(-80).map((line, i) => renderConsoleLine(line, i))}
+                        {(collecting ? consoleLines.filter(l => !l.phase || l.phase === selectedCollectPhase) : consoleLines).slice(-80).map((line, i) => renderConsoleLine(line, i))}
                       </div>
                       <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
                         {collecting ? (
