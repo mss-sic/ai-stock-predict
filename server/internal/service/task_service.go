@@ -522,6 +522,11 @@ func RepairTask(id uint, from, to string, all bool) error {
 			log.Printf("[market_style] repair missing: %d dates", len(dates))
 		}
 
+		// Prevent re-entry: same task must run serially
+		if task.LastStatus == "running" && task.LastRun != nil && time.Since(*task.LastRun) < 10*time.Minute {
+			return fmt.Errorf("任务 %s 正在运行中，请等待完成", task.Name)
+		}
+
 		// Create TaskLog and mark as running so frontend can track progress
 		now := time.Now()
 		logEntry := model.TaskLog{
@@ -553,6 +558,9 @@ func RepairTask(id uint, from, to string, all bool) error {
 			repairErr = fmt.Errorf("市场风格修复: %d/%d 成功, %d 失败", success, len(dates), fail)
 		}
 		finishTaskLog(&logEntry, success, 0, fail, repairErr)
+		// Restore last_status so the task can be re-triggered later
+		db.MySQL.Model(&model.ScheduledTask{}).Where("id = ?", task.ID).
+			Updates(map[string]interface{}{"last_status": logEntry.Status})
 		return repairErr
 	}
 	args := []string{"--repair"}
