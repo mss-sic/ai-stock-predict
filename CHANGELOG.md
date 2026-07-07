@@ -1,3 +1,89 @@
+## v1.9.0 (2026-07-08)
+
+### 策略调度架构重构 v2
+
+- **scheduler/v2 全新架构**: 事件总线（EventBus）+ 任务队列（JobQueue）+ Pipeline 管道，替代旧版单一 scheduler.go
+  - `eventbus.go`: 发布/订阅事件驱动，解耦采集 → 风控 → 信号 → 交易链路
+  - `jobqueue.go`: 优先级队列 + 并发控制 + 重试退避
+  - `pipelines.go`: 可组合管道（采集管线 / 信号管线 / 交易管线），支持超时和上下文传递
+  - `worker.go`: Worker Pool 模式，动态扩缩容
+  - `logger.go`: 结构化日志，按 pipeline/run_id 追踪
+- **新模型**: `notification_log`（飞书/企微通知日志）、`run_execution_log`（策略运行执行记录，含阶段耗时和错误详情）
+- **调度测试**: `scheduler_test.go` 覆盖事件总线、任务队列、Pipeline 组合场景
+
+### 实盘交易系统
+
+- **LiveTrading 前后端完整链路** (`live_trading_handler.go` + `live_trading_service.go`):
+  - 策略运行管理：创建/启动/暂停/恢复/停止 `strategy_run`
+  - 每日运行任务 `daily_run_task`：盘前决策 → 盘中监控 → 盘后复盘
+  - 实时信号推送（SSE）：持仓变动、止损触发、买卖信号
+  - 账户/持仓查询：对接券商接口获取实时持仓和资金
+- **前端页面**: `LiveTradingPage.tsx`（实盘总览仪表盘）+ `LiveRunDetailPage.tsx`（单次运行详情页）
+  - 资金概览卡片（总资产/可用资金/持仓市值/当日盈亏）
+  - 信号实时列表 + 执行状态标记
+  - 运行日志时间线 + 阶段耗时分布
+  - 驳回信号列表及驳回理由（200 字符截断）
+
+### 盘前决策报告
+
+- **盘前决策引擎** (`pre_market_service.go` + `pre_market_handler.go`):
+  - 自动生成每日盘前决策报告：资金概览 + 信号统计 + 风险提示 + AI 摘要
+  - 多种执行模式：自动执行 / 人工审核 / 仅通知
+  - AI 模型评估信号质量，给出置信度和驳回建议
+- **飞书卡片通知** (`notification_service.go`):
+  - 支持 interactive 卡片（资金/信号/驳回/模式/AI 摘要五段式）+ text 回落
+  - `SendNotification` 直接读取 `pre_market_task` 报告，日期准确
+  - 驳回理由截断从 60 字节改为 200 字符
+
+### 回测引擎重构
+
+- **回测核心引擎** (`backtest_engine.go`): 完整模拟日频交易循环，支持多策略并行回测
+  - `backtest_adapter.go`: 适配策略配置到回测参数
+  - `data_loader.go`: 批量加载日K/财务/指标数据，消除逐只 N+1
+  - `execution_engine.go`: 模拟订单执行（滑点/手续费/涨跌停限制）
+  - `position_sizing_engine.go`: 仓位管理（凯利公式/等权重/风险平价）
+- **回测测试矩阵**: `backtest_engine_test.go` + `backtest_engine_compare_test.go` + `backtest_engine_verify_test.go`（覆盖多策略对比、精度验证、边界场景）
+- **回测服务层** (`backtest_service.go` + `backtest_service_test.go`): 回测任务创建/执行/结果查询
+
+### 交易智能体编排
+
+- **Trading Agent Orchestrator** (`trading_agent_orchestrator.go` + `trading_agent_types.go`):
+  - 多智能体协作框架：信号引擎 → 评分引擎 → 风控过滤 → 交易执行
+  - `signal_engine.go`: K 线形态 + 技术指标 + 财务因子多维度信号融合
+  - `scoring_service.go`: AI 评分（基于历史胜率 + 市场环境适配）
+  - `decision_tree_service.go`: 决策树路由（市场风格 → 策略选择 → 仓位分配）
+  - `snapshot_engine.go`: 市场快照（板块/概念/资金流向多维度状态）
+- **股票池服务** (`stock_pool_service.go` + `stock_pool_test.go`): 从全市场筛选候选标的
+- **持仓服务** (`position_service.go`): 持仓计算、盈亏分析、调仓建议
+
+### 交易执行 & 券商对接
+
+- **交易执行服务** (`trade_exec_service.go`): 订单生成/发送/确认/撤单完整生命周期
+- **订单同步服务** (`order_sync_service.go`): 双向同步券商订单状态（成交/部分成交/撤单/废单）
+- **券商对接服务** (`broker_service.go`): 统一券商接口抽象（持仓/资金/订单/成交查询）
+- **市场工具** (`market_utils.go`): 交易日历/交易时间判断/涨跌停价格计算
+
+### 策略管理更新
+
+- **策略 CRUD 增强** (`strategy_handler.go`): 策略配置模板、参数校验、回测一键触发
+- **策略模型扩展**: `strategy.go` 新增 `run_mode` / `risk_profile` / `position_config` / `signal_filters` 等字段
+- **策略仓库** (`strategy_repo.go`): 复合查询（按模式/状态/标签筛选）
+- **前端策略页** (`StrategyPage.tsx`): 卡片式布局、模式切换、回测结果预览
+
+### 数据管理增强
+
+- **采集控制台重构** (`DataManagementPage.tsx`): 
+  - 采集进度实时轮询 + 状态徽标
+  - 任务执行日志格式化展示（阶段耗时/成功/跳过/错误统计）
+- **前端 API 扩展** (`api.ts`): 新增 liveTrading / preMarket / backtest / strategy / broker 5 大模块共 30+ 接口
+
+### 技术演进
+
+- **持仓管理重构** (`HoldingsPage.tsx` + `holding_handler.go`): 列表/卡片双视图、实时刷新、盈亏排序
+- **前端基础架构**: `ConfirmModal` 通用确认弹窗组件、CSS 变量体系（`--color-*`）、lucide-react 图标统一
+- **数据模型新增**: `live_trading` / `notification` / `pre_market_decision` / `pre_market_task` / `daily_run_task`
+- **迁移**: v050-v052 共 3 个迁移（strategy_run 扩展 + notification_log + run_execution_log）
+
 ## v1.8.3 (2026-07-02)
 
 ### Tushare 日K + 技术指标采集
