@@ -1750,12 +1750,13 @@ Register(Migration{
 		},
 	})
 
-	// v76: drop deprecated auto_pre_market_cron column
+	// v76: drop deprecated auto_pre_market_cron column (safe, won't block on missing)
 	Register(Migration{
 		Version:     76,
 		Description: "MySQL: drop deprecated auto_pre_market_cron from strategy_runs",
 		Up: func() error {
-			return MySQL.Exec("ALTER TABLE strategy_runs DROP COLUMN auto_pre_market_cron").Error
+			safeExecMysql("ALTER TABLE strategy_runs DROP COLUMN IF EXISTS auto_pre_market_cron")
+			return nil
 		},
 	})
 
