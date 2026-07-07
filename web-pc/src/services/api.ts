@@ -266,7 +266,7 @@ export const runBacktest = (id: number, startDate: string, endDate: string, stoc
 export const fetchBacktestHistory = (strategyId?: number) => api.get("/strategies/backtest-history", { params: strategyId ? { strategyId } : {} });
 export const fetchBacktestResult = (id: number) => api.get(`/strategies/backtest-history/${id}`);
 
-export const startBacktest = (id: number, startDate: string, endDate: string, stockCodes?: string[], stockPool?: string) => api.post(`/strategies/${id}/backtest/start`, { startDate, endDate, stockCodes, stockPool });
+export const startBacktest = (id: number, startDate: string, endDate: string, stockCodes?: string[], stockPool?: string, engine?: string) => api.post(`/strategies/${id}/backtest/start`, { startDate, endDate, stockCodes, stockPool, engine });
 export const getBacktestStatus = (id: number, taskId: number) => api.get(`/strategies/${id}/backtest/status/${taskId}`);
 export const cancelBacktest = (id: number, taskId: number) => api.post(`/strategies/${id}/backtest/cancel/${taskId}`);
 export const fetchBacktestTasks = (id: number) => api.get(`/strategies/${id}/backtest/tasks`);
@@ -277,18 +277,80 @@ export const fetchStockAnalysis = (strategyId: number, taskId: number) => api.ge
 export const deleteBacktestResult = (id: number) => api.delete(`/strategies/backtest-history/${id}`);
 export const fetchStockPool = () => api.get('/strategies/stock-pool');
 
+// ── Live Trading (实盘交易) ──
+// Multi-account
+export const fetchLiveAccounts = () => api.get('/live/accounts');
+export const createLiveAccount = (data: { name: string; broker?: string; accountType?: string; accountNumber?: string; initialCapital?: number }) =>
+  api.post('/live/accounts', data);
+export const updateLiveAccount = (id: number, data: Record<string, any>) => api.put(`/live/accounts/${id}`, data);
+export const deleteLiveAccount = (id: number) => api.delete(`/live/accounts/${id}`);
+export const fetchLiveAccount = () => api.get('/live/account');
+// Broker integration
+export const syncFromBroker = (accountId: number) => api.post(`/live/accounts/${accountId}/sync`);
+export const getBrokerStatus = (accountId: number) => api.get(`/live/accounts/${accountId}/broker-status`);
+export const getBrokerOrders = (accountId: number) => api.get(`/live/accounts/${accountId}/broker-orders`);
+export const placeBrokerOrder = (accountId: number, data: { stockCode: string; orderType: string; price: number; quantity: number; useMarketPrice: boolean }) => api.post(`/live/accounts/${accountId}/broker-order`, data);
+export const cancelBrokerOrder = (accountId: number, data: { orderId: string; stockCode: string }) => api.post(`/live/accounts/${accountId}/broker-cancel`, data);
+
+
+// Strategy runs
+export const createLiveRun = (data: { strategyId: number; accountId?: number; name?: string; initialCapital?: number; pctOfAccount?: number; stockPool?: string; startDate?: string; notifyEnabled?: boolean; notifyConfigs?: { channel: string; name: string; webhookUrl: string }[] }) =>
+  api.post('/live/runs', data);
+export const fetchLiveRuns = (strategyId?: number) => {
+  const params = strategyId ? '?strategy_id=' + strategyId : '';
+  return api.get('/live/runs' + params);
+};
+export const fetchLiveRun = (id: number) => api.get(`/live/runs/${id}`);
+export const updateLiveRunStatus = (id: number, status: string) => api.put(`/live/runs/${id}/status`, { status });
+export const updateLiveRunConfig = (id: number, config: { autoDailyCron?: string; autoPreMarketCron?: string; notifyEnabled?: boolean; notifyChannels?: string; executionMode?: string }) => api.put(`/live/runs/${id}/config`, config);
+
+// Daily execution
+// Daily execution (async — returns task ID immediately)
+export const runLiveDaily = (tradeDate: string, mode?: string) => api.post('/live/daily-run', { tradeDate, mode: mode || 'after_close' }, { timeout: 10000 });
+export const fetchDailyRunTask = (id: number) => api.get(`/live/daily-run/tasks/${id}`);
+export const fetchLatestDailyRunTask = (tradeDate?: string) => api.get(`/live/daily-run/tasks/latest`, { params: tradeDate ? { tradeDate } : {} });
+
+// Signal execution
+export const executeLiveSignal = (signalId: number, body?: { action?: string; actualPrice?: number; actualQty?: number }) => api.post(`/live/signals/${signalId}/execute`, body || {});
+
+// Pre-market
+export const runPreMarket = (tradeDate: string, skipAi?: boolean, runId?: number) => api.post('/live/pre-market', { tradeDate, skipAi, runId }, { timeout: 10000 });
+export const fetchPreMarketTask = (id: number) => api.get(`/live/pre-market/tasks/${id}`);
+export const fetchLatestPreMarketTask = (tradeDate?: string) => api.get('/live/pre-market/tasks/latest', { params: tradeDate ? { tradeDate } : {} });
+export const fetchPreMarketDecisions = (tradeDate?: string) => api.get('/live/pre-market/decisions', { params: tradeDate ? { tradeDate } : {} });
+
+// Notification configs
+export const fetchNotificationConfigs = () => api.get('/live/notification-configs');
+export const createNotificationConfig = (data: { channel: string; name: string; config: Record<string, any> }) =>
+  api.post('/live/notification-configs', data);
+export const updateNotificationConfig = (id: number, data: Record<string, any>) =>
+  api.put(`/live/notification-configs/${id}`, data);
+export const deleteNotificationConfig = (id: number) => api.delete(`/live/notification-configs/${id}`);
+
+/** 发送测试消息到指定通知渠道 */
+export const testNotification = (ncid: number) => api.post(`/live/notify-configs/${ncid}/test`);
+
+// Positions & trades
+export const fetchLivePositions = (runId: number) => api.get(`/live/runs/${runId}/positions`);
+export const fetchLiveTrades = (runId: number) => api.get(`/live/runs/${runId}/trades`);
+export const fetchLiveSnapshots = (runId: number) => api.get(`/live/runs/${runId}/snapshots`);
+export const sendLiveRunNotification = (runId: number) => api.post(`/live/runs/${runId}/notify`);
+export const updateLiveSignal = (id: number, data: { plannedPrice?: number; plannedQty?: number; reason?: string }) => api.put(`/live/signals/${id}`, data);
+export const clearLiveSignals = (runId: number, date: string) => api.delete(`/live/runs/${runId}/signals?date=${encodeURIComponent(date)}`);
+export const deleteLiveSignal = (id: number) => api.delete(`/live/signals/${id}`);
 
 // ── Holdings ──
-export const fetchHoldingsSummary = () => api.get("/holdings/summary");
-export const fetchHoldings = () => api.get("/holdings");
-export const createHolding = (stockCode: string, costPrice: number, quantity: number, buyDate?: string) =>
-  api.post("/holdings", { stockCode, costPrice, quantity, buyDate });
+export const fetchHoldingsSummary = (accountType?: string) => api.get("/holdings/summary", { params: accountType ? { accountType } : {} });
+export const fetchHoldings = (accountId?: number, accountType?: string) => api.get("/holdings", { params: { ...(accountId ? { accountId } : {}), ...(accountType ? { accountType } : {}) } });
+export const fetchAccountsOverview = (accountType?: string) => api.get("/holdings/accounts-overview", { params: accountType ? { accountType } : {} });
+export const createHolding = (stockCode: string, costPrice: number, quantity: number, buyDate?: string, accountId?: number) =>
+  api.post("/holdings", { stockCode, costPrice, quantity, buyDate, accountId });
 export const updateHolding = (id: number, costPrice: number, quantity: number, buyDate?: string) =>
   api.put(`/holdings/${id}`, { costPrice, quantity, buyDate });
 export const deleteHolding = (id: number) => api.delete(`/holdings/${id}`);
-export const fetchAccount = () => api.get("/holdings/account");
-export const updateAccount = (action: string, amount: number) =>
-  api.put("/holdings/account", { action, amount });
+export const fetchHoldingAccounts = () => api.get("/holdings/account");
+export const updateAccount = (action: string, amount: number, accountId?: number) =>
+  api.put("/holdings/account", { action, amount, accountId });
 export const fetchTradeRecords = () => api.get("/holdings/trades");
 
 // ── Risk APIs ──

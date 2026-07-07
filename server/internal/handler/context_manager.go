@@ -41,8 +41,6 @@ type StrategyOrchestration struct {
 	MarketCompositeMin   float64
 	MarketPositionBias   float64
 	EnableAIAgent        bool
-	EnableSectorRotation bool
-	IndustryFilter       string
 }
 
 // NewContextManager creates a context manager.
@@ -169,9 +167,6 @@ func (cm *ContextManager) GetContext(date string) (*MarketContext, error) {
 	}
 
 	// ── Sector leaders/laggards (stub for now — requires sector data) ──
-	if cm.strategy.EnableSectorRotation {
-		ctx.SectorLeaders, ctx.SectorLaggards = cm.getSectorRotation(date)
-	}
 
 	log.Printf("[context_manager] date=%s bias=%.2f risk=%s trade=%v composite=%.2f",
 		date, ctx.MarketBias, ctx.RiskLevel, ctx.TradeAllowed, ctx.CompositeScore)

@@ -475,7 +475,7 @@ func crossValidate(candidate MarketStyle, todayUpRatio, sectorDiffusion, s5 floa
 		}
 	case StyleWeakRange:
 		if todayUpRatio > 0.60 && sectorDiffusion > 0.7 {
-			log.Printf("[market_style] cross-validate: upgrading weak_range → choppy", todayUpRatio*100)
+			log.Printf("[market_style] cross-validate: upgrading weak_range → choppy: %.1f%%", todayUpRatio*100)
 			return StyleChoppy
 		}
 	case StyleChoppy:

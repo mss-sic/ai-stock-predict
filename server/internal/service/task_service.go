@@ -265,9 +265,9 @@ func (tm *TaskManager) executeTask(taskID uint, phase, name string) {
 		var err error
 		if len(prog.Errors) > 0 {
 			allErrs := append(prog.Errors, errMsgs...)
-			err = fmt.Errorf(strings.Join(allErrs, "; "))
+			err = fmt.Errorf("%s", strings.Join(allErrs, "; "))
 		} else if len(errMsgs) > 0 {
-			err = fmt.Errorf(strings.Join(errMsgs, "; "))
+			err = fmt.Errorf("%s", strings.Join(errMsgs, "; "))
 		}
 
 		finishTaskLog(&logEntry, totalNew, totalSkip, totalErr, err)

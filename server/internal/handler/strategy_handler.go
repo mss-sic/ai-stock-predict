@@ -14,37 +14,50 @@ import (
 
 	"github.com/ai-stock-predict/server/internal/db"
 	"github.com/ai-stock-predict/server/internal/model"
+	"github.com/ai-stock-predict/server/internal/repository"
 	"github.com/ai-stock-predict/server/internal/service"
 	"github.com/ai-stock-predict/server/pkg/response"
 	"github.com/gin-gonic/gin"
 )
 
 type StrategyHandler struct {
-	aiSvc *service.AIService
+	aiSvc          *service.AIService
+	strategyRepo   *repository.StrategyRepo
+	stockPoolSvc   *service.StockPoolService
+	promptSvc      *service.PromptBuilderService
+	backtestEngine *service.BacktestEngine
 }
 
-func NewStrategyHandler() *StrategyHandler { return &StrategyHandler{aiSvc: service.NewAIService()} }
+func NewStrategyHandler() *StrategyHandler {
+	return &StrategyHandler{
+		aiSvc:          service.NewAIService(),
+		strategyRepo:   repository.NewStrategyRepo(),
+		stockPoolSvc:   service.NewStockPoolService(),
+		promptSvc:      service.NewPromptBuilderService(),
+		backtestEngine: service.NewBacktestEngine(),
+	}
+}
 
 // ── Strategy CRUD ──
 
 func (h *StrategyHandler) List(c *gin.Context) {
 	uid := getUID(c)
-	var strategies []model.Strategy
-	db.MySQL.Where("user_id = ?", uid).Order("sort_order ASC, id ASC").Find(&strategies)
+	strategies, err := h.strategyRepo.ListByUser(uid)
+	if err != nil {
+		log.Printf("[strategy] list error: %v", err)
+		response.InternalError(c, "获取策略列表失败")
+		return
+	}
 
 	// If exclude_pk=true, filter out strategies already in active PK events
 	if c.Query("exclude_pk") == "true" {
-		var activeSids []uint
-		db.MySQL.Model(&model.PkEntry{}).
-			Joins("JOIN pk_events ON pk_events.id = pk_entries.event_id").
-			Where("pk_entries.user_id = ? AND pk_events.status IN (?)", uid, []string{"enrolling", "running"}).
-			Pluck("pk_entries.strategy_id", &activeSids)
+		activeSids, _ := h.strategyRepo.GetActivePkStrategyIDs(uid)
 		if len(activeSids) > 0 {
-			filtered := make([]model.Strategy, 0)
 			activeSet := make(map[uint]bool)
 			for _, sid := range activeSids {
 				activeSet[sid] = true
 			}
+			filtered := make([]model.Strategy, 0)
 			for _, s := range strategies {
 				if !activeSet[s.ID] {
 					filtered = append(filtered, s)
@@ -125,6 +138,18 @@ func (h *StrategyHandler) Update(c *gin.Context) {
 	if v, ok := raw["reducePositionPct"]; ok { if n, _ := toFloat64(v); n > 0 { updates["reduce_position_pct"] = n } }
 	if v, ok := raw["positionConcentrationLimit"]; ok { if n, _ := toFloat64(v); n > 0 { updates["position_concentration_limit"] = n } }
 	if v, ok := raw["maxDailyLoss"]; ok { if n, _ := toFloat64(v); n < 0 { updates["max_daily_loss"] = n } }
+	// Dynamic Position Sizing
+	if _, ok := raw["enableDynamicSizing"]; ok { updates["enable_dynamic_sizing"] = raw["enableDynamicSizing"] }
+	if v, ok := raw["maxTotalPosition"]; ok { if n, _ := toFloat64(v); n >= 0 { updates["max_total_position"] = n } }
+	if v, ok := raw["dailyBuyLimit"]; ok { if n, _ := toFloat64(v); n >= 0 { updates["daily_buy_limit"] = n } }
+	if v, ok := raw["maxSingleIndustry"]; ok { if n, _ := toFloat64(v); n >= 0 { updates["max_single_industry"] = n } }
+	if v, ok := raw["minIndustryCount"]; ok { if n, _ := toFloat64(v); n >= 0 { updates["min_industry_count"] = int(n) } }
+	// Scoring Config
+	if v, ok := raw["scoringConfig"]; ok {
+		if b, err := json.Marshal(v); err == nil {
+			updates["scoring_config"] = string(b)
+		}
+	}
 	// Trailing stop
 	if _, ok := raw["enableTrailingStop"]; ok { updates["enable_trailing_stop"] = raw["enableTrailingStop"] }
 	if _, ok := raw["trailingStopActivation"]; ok { updates["trailing_stop_activation"] = raw["trailingStopActivation"] }
@@ -149,15 +174,22 @@ func (h *StrategyHandler) Update(c *gin.Context) {
 	if _, ok := raw["defensiveThreshold"]; ok { updates["defensive_threshold"] = raw["defensiveThreshold"] }
 	if _, ok := raw["aggressiveThreshold"]; ok { updates["aggressive_threshold"] = raw["aggressiveThreshold"] }
 	if _, ok := raw["marketCompositeMin"]; ok { updates["market_composite_min"] = raw["marketCompositeMin"] }
-	db.MySQL.Model(&model.Strategy{}).Where("id = ? AND user_id = ?", id, uid).Updates(updates)
+	if err := h.strategyRepo.UpdateFields(id, uid, updates); err != nil {
+		log.Printf("[strategy] update error: %v", err)
+		response.InternalError(c, "更新失败")
+		return
+	}
 	response.SuccessMsg(c, "更新成功")
 }
 
 func (h *StrategyHandler) Delete(c *gin.Context) {
 	uid := getUID(c)
 	id, _ := strconv.Atoi(c.Param("id"))
-	db.MySQL.Where("id = ? AND user_id = ?", id, uid).Delete(&model.Strategy{})
-	db.MySQL.Where("strategy_id = ?", id).Delete(&model.StrategyCondition{})
+	if err := h.strategyRepo.Delete(id, uid); err != nil {
+		log.Printf("[strategy] delete error: %v", err)
+		response.InternalError(c, "删除失败")
+		return
+	}
 	response.SuccessMsg(c, "已删除")
 }
 
@@ -180,21 +212,23 @@ func (h *StrategyHandler) ListConditions(c *gin.Context) {
 	uid := getUID(c)
 	sid, _ := strconv.Atoi(c.Param("id"))
 	// Verify ownership
-	var s model.Strategy
-	if db.MySQL.Where("id = ? AND user_id = ?", sid, uid).First(&s).Error != nil {
+	if _, err := h.strategyRepo.GetByID(sid, uid); err != nil {
 		response.NotFound(c, "策略不存在")
 		return
 	}
-	var conds []model.StrategyCondition
-	db.MySQL.Where("strategy_id = ?", sid).Order("cond_type, logic_group, sort_order").Find(&conds)
+	conds, err := h.strategyRepo.ListConditions(uint(sid))
+	if err != nil {
+		log.Printf("[strategy] list conditions error: %v", err)
+		response.InternalError(c, "获取条件失败")
+		return
+	}
 	response.Success(c, conds)
 }
 
 func (h *StrategyHandler) SaveConditions(c *gin.Context) {
 	uid := getUID(c)
 	sid, _ := strconv.Atoi(c.Param("id"))
-	var s model.Strategy
-	if db.MySQL.Where("id = ? AND user_id = ?", sid, uid).First(&s).Error != nil {
+	if _, err := h.strategyRepo.GetByID(sid, uid); err != nil {
 		response.NotFound(c, "策略不存在")
 		return
 	}
@@ -205,15 +239,18 @@ func (h *StrategyHandler) SaveConditions(c *gin.Context) {
 		response.BadRequest(c, "参数错误")
 		return
 	}
-	// Replace all conditions
-	db.MySQL.Where("strategy_id = ?", sid).Delete(&model.StrategyCondition{})
+	// Normalize conditions
 	for i := range body.Conditions {
 		body.Conditions[i].ID = 0
 		body.Conditions[i].StrategyID = uint(sid)
 		if body.Conditions[i].LogicGroup == 0 {
 			body.Conditions[i].LogicGroup = 1
 		}
-		db.MySQL.Create(&body.Conditions[i])
+	}
+	if err := h.strategyRepo.SaveConditions(uint(sid), body.Conditions); err != nil {
+		log.Printf("[strategy] save conditions error: %v", err)
+		response.InternalError(c, "保存条件失败")
+		return
 	}
 	response.SuccessMsg(c, "条件保存成功")
 }
@@ -728,14 +765,13 @@ func (h *StrategyHandler) OptimizePrompt(c *gin.Context) {
 func (h *StrategyHandler) GetOrchestration(c *gin.Context) {
 	uid := getUID(c)
 	id, _ := strconv.Atoi(c.Param("id"))
-	var s model.Strategy
-	if err := db.MySQL.Where("id = ? AND user_id = ?", id, uid).First(&s).Error; err != nil { response.NotFound(c, "策略不存在"); return }
+	s, err := h.strategyRepo.GetByID(id, uid)
+	if err != nil { response.NotFound(c, "策略不存在"); return }
 	response.Success(c, map[string]interface{}{
 		"orchestrationMode": s.OrchestrationMode, "enableMarketContext": s.EnableMarketContext,
 		"marketCompositeMin": s.MarketCompositeMin, "marketPositionBias": s.MarketPositionBias,
-		"enableAIAgent": s.EnableAIAgent, "aiAgentMode": s.AIAgentMode,
+		"enableAIAgent": s.EnableAIAgent,
 		"aiAgentReviewScope": s.AIAgentReviewScope, "aiAgentMaxDailyTrades": s.AIAgentMaxDailyTrades,
-		"industryFilter": s.IndustryFilter, "enableSectorRotation": s.EnableSectorRotation,
 		"policyMode": s.PolicyMode,
 		"defensiveThreshold": s.DefensiveThreshold,
 		"policyAggressive": s.PolicyAggressive, "policyDefensive": s.PolicyDefensive, "policyCash": s.PolicyCash,
@@ -753,18 +789,19 @@ func (h *StrategyHandler) SaveOrchestration(c *gin.Context) {
 	if v, ok := body["marketCompositeMin"]; ok { updates["market_composite_min"] = v }
 	if v, ok := body["marketPositionBias"]; ok { updates["market_position_bias"] = v }
 	if v, ok := body["enableAIAgent"]; ok { updates["enable_ai_agent"] = v }
-	if v, ok := body["aiAgentMode"]; ok { updates["ai_agent_mode"] = v }
 	if v, ok := body["aiAgentReviewScope"]; ok { updates["ai_agent_review_scope"] = v }
 	if v, ok := body["aiAgentMaxDailyTrades"]; ok { updates["ai_agent_max_daily_trades"] = v }
-	if v, ok := body["industryFilter"]; ok { updates["industry_filter"] = v }
-	if v, ok := body["enableSectorRotation"]; ok { updates["enable_sector_rotation"] = v }
 	if v, ok := body["policyMode"]; ok { updates["policy_mode"] = v }
 	if v, ok := body["aggressiveThreshold"]; ok { updates["aggressive_threshold"] = v }
 	if v, ok := body["defensiveThreshold"]; ok { updates["defensive_threshold"] = v }
 	if v, ok := body["policyAggressive"]; ok { if b, err := json.Marshal(v); err == nil { updates["policy_aggressive"] = string(b) } }
 	if v, ok := body["policyDefensive"]; ok { if b, err := json.Marshal(v); err == nil { updates["policy_defensive"] = string(b) } }
 	if v, ok := body["policyCash"]; ok { if b, err := json.Marshal(v); err == nil { updates["policy_cash"] = string(b) } }
-	db.MySQL.Model(&model.Strategy{}).Where("id = ? AND user_id = ?", id, uid).Updates(updates)
+	if err := h.strategyRepo.UpdateFields(id, uid, updates); err != nil {
+		log.Printf("[strategy] save orchestration error: %v", err)
+		response.InternalError(c, "保存编排配置失败")
+		return
+	}
 	response.SuccessMsg(c, "编排配置已保存")
 }
 
@@ -794,8 +831,8 @@ func (h *StrategyHandler) ListAIDecisions(c *gin.Context) {
 func (h *StrategyHandler) AIReview(c *gin.Context) {
 	uid := getUID(c)
 	id, _ := strconv.Atoi(c.Param("id"))
-	var s model.Strategy
-	if err := db.MySQL.Where("id = ? AND user_id = ?", id, uid).First(&s).Error; err != nil { response.NotFound(c, "策略不存在"); return }
+	s, err := h.strategyRepo.GetByID(id, uid)
+	if err != nil { response.NotFound(c, "策略不存在"); return }
 	if !s.EnableAIAgent { response.BadRequest(c, "该策略未启用AI代理"); return }
 	response.SuccessMsg(c, "AI审查请求已提交（异步）")
 }
@@ -891,6 +928,94 @@ func resolveStockPoolLabel(poolKey, poolParamsJSON string) string {
 	return label
 }
 
+// backtestPreloadData holds all preloaded data needed by both legacy and V2 backtest engines.
+type backtestPreloadData struct {
+	universe   []struct{ Code, Name string }
+	kcache     *KlineCache
+	icache     *IndicatorCache
+	allDates   []string
+	dateIdx    map[string]int
+	conds      []model.StrategyCondition
+}
+
+// preloadBacktestData loads universe, K-line cache, and indicator cache for backtest.
+// Shared between legacy and V2 engines.
+func (h *StrategyHandler) preloadBacktestData(
+	strategyID uint, startDate, endDate string, stockCodes []string,
+) (*backtestPreloadData, error) {
+	// Load conditions
+	var conds []model.StrategyCondition
+	db.MySQL.Where("strategy_id = ?", strategyID).Find(&conds)
+
+	// Determine stock universe
+	type stockRow struct {
+		Code string
+		Name string
+	}
+	var universeRows []stockRow
+	if len(stockCodes) > 0 {
+		if err := db.PG.Table("stocks_basic").
+			Select("code, COALESCE(name,'') as name").
+			Where("code IN ?", stockCodes).
+			Where("is_st IS NULL OR is_st = false").
+			Scan(&universeRows).Error; err != nil {
+			return nil, fmt.Errorf("universe query failed: %w", err)
+		}
+	} else {
+		if err := db.PG.Table("stocks_daily_k k").
+			Select("k.code, COALESCE(s.name, k.code) as name").
+			Joins("LEFT JOIN stocks_basic s ON s.code = k.code").
+			Where("k.trade_date >= ? AND k.trade_date <= ?", startDate, endDate).
+			Where("s.is_st IS NULL OR s.is_st = false").
+			Group("k.code, s.name").
+			Order("code ASC").Limit(3000).
+			Scan(&universeRows).Error; err != nil {
+			return nil, fmt.Errorf("universe query failed: %w", err)
+		}
+		log.Printf("[backtest] universe query (all): %d stocks found for %s~%s", len(universeRows), startDate, endDate)
+	}
+	if len(universeRows) == 0 {
+		return nil, fmt.Errorf("所选时间段无可用股票数据")
+	}
+
+	// Convert to struct for both engines
+	universe := make([]struct{ Code, Name string }, len(universeRows))
+	universeCodes := make([]string, len(universeRows))
+	for i, r := range universeRows {
+		universe[i].Code = r.Code
+		universe[i].Name = r.Name
+		universeCodes[i] = r.Code
+	}
+
+	// Preload K-line (extend for indicator lookback)
+	extStart, _ := time.Parse("2006-01-02", startDate)
+	extEnd, _ := time.Parse("2006-01-02", endDate)
+	preloadFromStart := extStart.AddDate(0, 0, -100)
+	preloadFromEnd := extEnd.AddDate(0, 0, -80)
+	preloadStart := preloadFromEnd.Format("2006-01-02")
+	if preloadFromStart.Before(preloadFromEnd) {
+		preloadStart = preloadFromStart.Format("2006-01-02")
+	}
+	kcache := preloadKline(universeCodes, preloadStart, endDate)
+	allDates := kcache.dates
+	dateIdx := kcache.dateIdx
+
+	// Preload indicators
+	icache := preloadIndicators(conds, universeCodes, preloadStart, endDate, kcache)
+
+	log.Printf("[backtest] preload: %d codes, %d dates, %d conditions",
+		len(universeCodes), len(allDates), len(conds))
+
+	return &backtestPreloadData{
+		universe: universe,
+		kcache:   kcache,
+		icache:   icache,
+		allDates: allDates,
+		dateIdx:  dateIdx,
+		conds:    conds,
+	}, nil
+}
+
 func (h *StrategyHandler) StartBacktest(c *gin.Context) {
 	uid := getUID(c)
 	sid, _ := strconv.Atoi(c.Param("id"))
@@ -899,6 +1024,7 @@ func (h *StrategyHandler) StartBacktest(c *gin.Context) {
 		EndDate    string   `json:"endDate"`
 		StockCodes []string `json:"stockCodes"`
 		StockPool  string   `json:"stockPool"`
+		Engine     string   `json:"engine"` // "legacy" (default) or "v2"
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		response.BadRequest(c, "参数错误")
@@ -958,7 +1084,23 @@ func (h *StrategyHandler) StartBacktest(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	getRunningMap(uint(sid))[task.ID] = cancel
 
-	go h.runBacktestAsync(ctx, &task, &s, body.StartDate, body.EndDate, resolvedCodes)
+	// Route to V2 engine if requested
+	if body.Engine == "v2" {
+		preload, err := h.preloadBacktestData(uint(sid), body.StartDate, body.EndDate, resolvedCodes)
+		if err != nil {
+			db.MySQL.Model(&task).Updates(map[string]interface{}{
+				"status":    "failed",
+				"error_msg": err.Error(),
+			})
+			response.InternalError(c, err.Error())
+			return
+		}
+		go h.runBacktestAsyncV2(&task, &s, body.StartDate, body.EndDate, resolvedCodes,
+			preload.kcache, preload.icache, preload.allDates, preload.dateIdx,
+			preload.universe, preload.conds)
+	} else {
+		go h.runBacktestAsync(ctx, &task, &s, body.StartDate, body.EndDate, resolvedCodes)
+	}
 
 	response.Created(c, map[string]interface{}{
 		"taskId":    task.ID,
@@ -1608,6 +1750,9 @@ func checkOp(val float64, op string, threshold float64) bool {
 
 // getPrevClose returns the close price one trading day before the given date.
 func getPrevClose(kc *KlineCache, code, date string) float64 {
+	if kc == nil {
+		return 0
+	}
 	idx, ok := kc.dateIdx[date]
 	if !ok || idx == 0 {
 		return 0
@@ -1621,6 +1766,9 @@ func getPrevClose(kc *KlineCache, code, date string) float64 {
 
 // getCloseNDaysAgo returns the close price N trading days before the given date.
 func getCloseNDaysAgo(kc *KlineCache, code, date string, n int) float64 {
+	if kc == nil {
+		return 0
+	}
 	idx, ok := kc.dateIdx[date]
 	if !ok || idx < n {
 		return 0
@@ -1670,6 +1818,11 @@ func (ic *IndicatorCache) get(indicator, code, date string) (float64, bool) {
 	}
 	v, ok := m[code+"|"+date]
 	return v, ok
+}
+
+// Get is the public version of get, for use by external packages (e.g., BacktestEngine).
+func (ic *IndicatorCache) Get(indicator, code, date string) (float64, bool) {
+	return ic.get(indicator, code, date)
 }
 
 // batchScan runs a query and populates the cache for a given indicator.
@@ -2797,6 +2950,117 @@ func (mse *MarketStyleEngine) DetectStyle(date string) MarketStyle {
 // GetStyleParams returns the trading parameters for the detected style.
 func (mse *MarketStyleEngine) GetStyleParams(date string) StyleParams {
     return defaultStyleParams(mse.DetectStyle(date))
+}
+
+
+// ── V2 Backtest Engine (new architecture) ──
+
+// runBacktestAsyncV2 runs a backtest using the new BacktestEngine.
+// Runs alongside the legacy runBacktestAsync for verification.
+func (h *StrategyHandler) runBacktestAsyncV2(
+	task *model.BacktestTask,
+	s *model.Strategy,
+	startDate, endDate string,
+	stockCodes []string,
+	kcache *KlineCache,
+	icache *IndicatorCache,
+	allDates []string,
+	dateIdx map[string]int,
+	universe []struct{ Code, Name string },
+	conds []model.StrategyCondition,
+) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[backtest_v2] PANIC in task %d: %v", task.ID, r)
+			db.MySQL.Model(task).Updates(map[string]interface{}{
+				"status":    "failed",
+				"phase":     "回测异常(V2)",
+				"error_msg": fmt.Sprintf("panic: %v", r),
+			})
+		}
+	}()
+
+	// Mark as running
+	db.MySQL.Model(task).Updates(map[string]interface{}{
+		"status":     "running",
+		"phase":      "V2引擎初始化...",
+		"started_at": time.Now(),
+	})
+
+	// Build config
+	cfg := service.BuildEngineConfig(s)
+
+	// Build conditions
+	buyConds := service.ConvertToConditionDefs(conds, "buy")
+	addConds := service.ConvertToConditionDefs(conds, "add")
+	sellConds := service.ConvertToConditionDefs(conds, "sell")
+	reduceConds := service.ConvertToConditionDefs(conds, "reduce")
+
+	// Build universe
+	universeList := make([]service.StockInfo, len(universe))
+	for i, u := range universe {
+		universeList[i] = service.StockInfo{Code: u.Code, Name: u.Name}
+	}
+
+	// Build data adapter
+	adapter := service.NewKlineCacheAdapter(kcache, icache, allDates, dateIdx)
+
+	// Build persister
+	persister := service.NewDBPersister(task.ID, task.StrategyID, task.UserID)
+
+	// Run engine
+	result, err := h.backtestEngine.Run(cfg, universeList, buyConds, addConds, sellConds, reduceConds, adapter, persister)
+	if err != nil {
+		log.Printf("[backtest_v2] engine error for task %d: %v", task.ID, err)
+		db.MySQL.Model(task).Updates(map[string]interface{}{
+			"status":    "failed",
+			"phase":     "V2引擎错误",
+			"error_msg": err.Error(),
+		})
+		return
+	}
+
+	// Save result
+	poolParamsBytes, _ := json.Marshal(stockCodes)
+	bt := model.BacktestResult{
+		TaskID:          task.ID,
+		UserID:          task.UserID,
+		StrategyID:      task.StrategyID,
+		StockPool:       "codes",
+		StockPoolParams: string(poolParamsBytes),
+		StartDate:       parseDate(startDate),
+		EndDate:         parseDate(endDate),
+		InitialCapital:  cfg.InitialCapital,
+		FinalEquity:     result.FinalEquity,
+		TotalReturn:     result.TotalReturnPct,
+		SharpeRatio:     result.SharpeRatio,
+		MaxDrawdown:     result.MaxDrawdownPct,
+		WinRate:         result.WinRate,
+		TradeCount:      result.TradeCount,
+		Trades:          model.JSONMap{"data": result.Trades},
+		EquityCurve:     model.JSONMap{"data": result.EquityCurve},
+	}
+
+	if err := db.MySQL.Create(&bt).Error; err != nil {
+		log.Printf("[backtest_v2] failed to save result: %v", err)
+		db.MySQL.Model(task).Updates(map[string]interface{}{
+			"status":    "failed",
+			"phase":     "保存结果失败",
+			"error_msg": fmt.Sprintf("保存结果失败: %v", err),
+		})
+		return
+	}
+
+	db.MySQL.Model(task).Updates(map[string]interface{}{
+		"status":       "completed",
+		"phase":        "V2回测完成",
+		"final_equity": result.FinalEquity,
+		"total_return": result.TotalReturnPct,
+		"progress_pct": 100.0,
+	})
+
+	log.Printf("[backtest_v2] completed: task=%d return=%.1f%% sharpe=%.2f trades=%d",
+		task.ID, result.TotalReturnPct, result.SharpeRatio, result.TradeCount)
 }
 // ── The async backtest runner (runs in goroutine) ──
 
@@ -4160,6 +4424,7 @@ func (h *StrategyHandler) RunBacktest(c *gin.Context) {
 		EndDate    string   `json:"endDate"`
 		StockCodes []string `json:"stockCodes"`
 		StockPool  string   `json:"stockPool"`
+		Engine     string   `json:"engine"` // "legacy" (default) or "v2"
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		response.BadRequest(c, "参数错误")
@@ -4228,7 +4493,19 @@ func (h *StrategyHandler) RunBacktest(c *gin.Context) {
 	defer cancel()
 	getRunningMap(uint(sid))[task.ID] = cancel
 
-	h.runBacktestAsync(ctx, &task, &s, body.StartDate, body.EndDate, resolvedCodes)
+	// Route to V2 engine if requested
+	if body.Engine == "v2" {
+		preload, preloadErr := h.preloadBacktestData(uint(sid), body.StartDate, body.EndDate, resolvedCodes)
+		if preloadErr != nil {
+			sendSSE("error", map[string]string{"message": preloadErr.Error()})
+			return
+		}
+		h.runBacktestAsyncV2(&task, &s, body.StartDate, body.EndDate, resolvedCodes,
+			preload.kcache, preload.icache, preload.allDates, preload.dateIdx,
+			preload.universe, preload.conds)
+	} else {
+		h.runBacktestAsync(ctx, &task, &s, body.StartDate, body.EndDate, resolvedCodes)
+	}
 
 	// Reload task for final status
 	db.MySQL.First(&task, task.ID)

@@ -298,7 +298,7 @@ func (s *AIService) ChatCompletionWithModule(userID uint, prompt string, history
 			"enable_search": true,
 		},
 		Module:  module,
-		Timeout: 60 * time.Second,
+		Timeout: 180 * time.Second,
 	})
 	if err != nil {
 		return "", err

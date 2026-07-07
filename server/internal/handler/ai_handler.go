@@ -474,7 +474,7 @@ __STOCK_DATA__
 
 	var result map[string]interface{}
 	if err := json.Unmarshal([]byte(reply), &result); err != nil {
-		return fmt.Errorf("AI返回格式异常: %%w", err)
+		return fmt.Errorf("AI返回格式异常: %w", err)
 	}
 
 	score := model.AIStockScore{
@@ -503,16 +503,16 @@ __STOCK_DATA__
 // BatchScoreStocks runs AI scoring for multiple stocks asynchronously
 func (h *AIHandler) BatchScoreStocks(codes []string, uid uint) {
 	go func() {
-		log.Printf("[AI批量评分] 开始分析 %%d 只股票", len(codes))
+		log.Printf("[AI批量评分] 开始分析 %d 只股票", len(codes))
 		for i, code := range codes {
-			log.Printf("[AI批量评分] %%d/%%d: %%s", i+1, len(codes), code)
+			log.Printf("[AI批量评分] %d/%d: %s", i+1, len(codes), code)
 			if err := h.ScoreStock(code, uid); err != nil {
-				log.Printf("[AI批量评分] %%s 失败: %%v", code, err)
+				log.Printf("[AI批量评分] %s 失败: %v", code, err)
 			}
 			// Rate limit: sleep between calls
 			time.Sleep(2 * time.Second)
 		}
-		log.Printf("[AI批量评分] 完成，共 %%d 只股票", len(codes))
+		log.Printf("[AI批量评分] 完成，共 %d 只股票", len(codes))
 	}()
 }
 

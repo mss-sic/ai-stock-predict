@@ -34,6 +34,34 @@ func (j *JSONMap) Scan(value interface{}) error {
 }
 
 // Strategy represents a user's trading strategy
+// ScoringDimension defines a single scoring dimension.
+type ScoringDimension struct {
+	Name      string  `json:"name"`       // 维度名称，如 "趋势强度"
+	Indicator string  `json:"indicator"`  // 指标标识: ma_trend, momentum_N, volume_rank, rsi_14, alpha_score
+	Weight    float64 `json:"weight"`     // 权重 0-1
+	Direction string  `json:"direction"`  // asc=越小越好, desc=越大越好
+	Params    JSONMap `gorm:"type:json" json:"params"` // 指标参数，如 {"N":5}
+}
+
+// ScoringConfig defines the candidate scoring rules.
+type ScoringConfig struct {
+	Dimensions []ScoringDimension `json:"dimensions"` // 评分维度列表
+	MinScore   float64            `json:"minScore"`   // 最低入选评分 0-1
+}
+
+// DefaultScoringConfig returns the default scoring configuration.
+func DefaultScoringConfig() ScoringConfig {
+	return ScoringConfig{
+		Dimensions: []ScoringDimension{
+			{Name: "趋势强度", Indicator: "ma_trend", Weight: 0.40, Direction: "desc", Params: JSONMap{"short": 5, "long": 20}},
+			{Name: "动量", Indicator: "momentum_N", Weight: 0.30, Direction: "desc", Params: JSONMap{"N": 5}},
+			{Name: "量能排名", Indicator: "volume_rank", Weight: 0.20, Direction: "desc", Params: nil},
+			{Name: "波动率", Indicator: "atr_pct", Weight: 0.10, Direction: "asc", Params: JSONMap{"N": 14}},
+		},
+		MinScore: 0.3,
+	}
+}
+
 type Strategy struct {
 	ID           uint      `gorm:"primaryKey;autoIncrement" json:"id"`
 	UserID       uint      `gorm:"index" json:"userId"`
@@ -56,6 +84,16 @@ type Strategy struct {
 	// Risk limits
 	PositionConcentrationLimit float64 `gorm:"default:0.25" json:"positionConcentrationLimit"` // 单票最大仓位占比 (0-1)
 	MaxDailyLoss               float64 `gorm:"default:-0.05" json:"maxDailyLoss"`               // 单日最大亏损比例 (负数)
+
+	// ── Dynamic Position Sizing (动态仓位管理) ──
+	EnableDynamicSizing  bool    `gorm:"default:true" json:"enableDynamicSizing"`    // 开启动态仓位管理（跟随市场）
+	MaxTotalPosition     float64 `gorm:"default:0" json:"maxTotalPosition"`           // 总仓位上限%, 0=自动
+	DailyBuyLimit        float64 `gorm:"default:0" json:"dailyBuyLimit"`              // 单日买入上限%, 0=自动
+	MaxSingleIndustry    float64 `gorm:"default:30" json:"maxSingleIndustry"`         // 单行业最大仓位%
+	MinIndustryCount     int     `gorm:"default:3" json:"minIndustryCount"`           // 最少行业数
+
+	// ── Candidate Scoring (候选评分) ──
+	ScoringConfig ScoringConfig `gorm:"type:json;serializer:json" json:"scoringConfig"` // 评分权重配置
 
 	// ── Trailing Stop (移动止盈) ──
 	EnableTrailingStop     bool    `gorm:"default:false" json:"enableTrailingStop"`
@@ -95,13 +133,10 @@ type Strategy struct {
 
 	// AI Agent
 	EnableAIAgent          bool   `gorm:"default:false" json:"enableAIAgent"`
-	AIAgentMode            string `gorm:"size:20;default:advisory" json:"aiAgentMode"`              // advisory / auto
 	AIAgentReviewScope     string `gorm:"size:20;default:all" json:"aiAgentReviewScope"`           // all / buy_only / sell_only
 	AIAgentMaxDailyTrades  int    `gorm:"default:5" json:"aiAgentMaxDailyTrades"`                  // AI 单日最大成交笔数
 
 	// Industry
-	IndustryFilter        string `gorm:"size:500" json:"industryFilter"`              // 逗号分隔行业白名单，空=全部
-	EnableSectorRotation  bool   `gorm:"default:false" json:"enableSectorRotation"`   // 板块轮动
 
 	// ── Policy Manager v3 ──
 	PolicyMode           string  `gorm:"size:20;default:rule" json:"policyMode"`           // rule / ai_driven / manual

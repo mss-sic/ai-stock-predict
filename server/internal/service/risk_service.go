@@ -146,7 +146,7 @@ func ScanUserHoldings() (int, error) {
 			SELECT sb.industry, AVG(i.pe) as avg_pe
 			FROM stocks_daily_indicator i
 			JOIN stocks_basic sb ON sb.code = i.code
-			WHERE i.code = %s AND i.pe > 0 AND i.pe < 500
+			WHERE i.code = %%s AND i.pe > 0 AND i.pe < 500
 				AND i.trade_date = (SELECT MAX(trade_date) FROM stocks_daily_indicator WHERE code = i.code)
 			GROUP BY sb.industry
 		)

@@ -1,13 +1,13 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Button, Input, InputNumber, Modal, Table, Select, Popconfirm, Tooltip, DatePicker, Message, Tag } from '@arco-design/web-react';
-import { Target, Plus, Trash2, GripVertical, Play, Brain, BarChart4, Shield, Settings, Sparkles, Beaker, Gauge, Factory, Layers, SlidersHorizontal, Search, CheckCircle, AlertTriangle, ScrollText, TrendingUp, TrendingDown, Grid3X3, DollarSign, ChevronDown, ChevronRight, Activity } from 'lucide-react';
+import { Target, Plus, Trash2, GripVertical, Play, Brain, BarChart4, Shield, Settings, Sparkles, Beaker, Gauge, Layers, SlidersHorizontal, Search, CheckCircle, AlertTriangle, ScrollText, TrendingUp, TrendingDown, Grid3X3, DollarSign, ChevronRight, Activity, Info } from 'lucide-react';
 import {
   fetchStrategies, createStrategy, updateStrategy, deleteStrategy, reorderStrategies,
   fetchStrategyConditions, saveStrategyConditions, aiGenerateStrategy, optimizePrompt,
   fetchIndicators, runBacktest, fetchBacktestHistory, testIndicator,
   startBacktest, getBacktestStatus, cancelBacktest, fetchBacktestTasks, fetchBacktestTaskLogs, fetchBacktestResult,
-  fetchOrchestration, saveOrchestration, fetchConditionTemplates, createConditionTemplate, fetchAIDecisions,
+  fetchOrchestration, saveOrchestration, fetchConditionTemplates, createConditionTemplate, fetchAIDecisions, fetchLiveRuns,
 } from '../services/api';
 import TemplateSelector, { STRATEGY_TEMPLATES } from './TemplateSelector';
 import IndicatorPicker from './IndicatorPicker';
@@ -45,16 +45,20 @@ const COND_COLORS: Record<CondType, string> = { buy: 'var(--stock-up)', add: 'va
 
 export default function StrategyPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [strategies, setStrategies] = useState<any[]>([]);
   const [activeId, setActiveId] = useState<number | null>(null);
   const [activeStrategy, setActiveStrategy] = useState<any>(null);
   const [conditions, setConditions] = useState<any[]>([]);
   const [indicators, setIndicators] = useState<any[]>([]);
-  const [tab, setTab] = useState<'conditions' | 'backtest' | 'positionMgmt' | 'riskControl'>('conditions');
+  const [tab, setTab] = useState<'conditions' | 'backtest' | 'positionMgmt' | 'riskControl' | 'live'>('conditions');
   const [condTab, setCondTab] = useState<CondType>('buy');
   const [showAdd, setShowAdd] = useState(false);
   const [newName, setNewName] = useState('');
   const [showAIModal, setShowAIModal] = useState(false);
+  const [showAIConfirm, setShowAIConfirm] = useState(false);
+  const [liveRuns, setLiveRuns] = useState<any[]>([]);
+  const [liveRunsLoading, setLiveRunsLoading] = useState(false);
   const [aiStyle, setAiStyle] = useState('moderate');
   const [aiName, setAiName] = useState('');
   const [aiDesc, setAiDesc] = useState('');
@@ -83,18 +87,14 @@ export default function StrategyPage() {
   const [testModalVisible, setTestModalVisible] = useState(false);
   const [orchTab, setOrchTab] = useState(false);
   const [riskPreset, setRiskPreset] = useState<string>('balanced');
-  const [showAdvanced, setShowAdvanced] = useState(false);
   const [orchConfig, setOrchConfig] = useState<any>({
     orchestrationMode: 'hybrid',
     enableMarketContext: true,
     marketCompositeMin: -3.0,
     marketPositionBias: 1.0,
     enableAIAgent: false,
-    aiAgentMode: 'advisory',
     aiAgentReviewScope: 'all',
     aiAgentMaxDailyTrades: 5,
-    industryFilter: '',
-    enableSectorRotation: false,
     policyMode: 'rule',
     aggressiveThreshold: 1.5,
     defensiveThreshold: 0.0,
@@ -126,6 +126,14 @@ export default function StrategyPage() {
       const list = r.data || [];
       setStrategies(list);
       if (list.length > 0 && !activeId) {
+        const urlStrategyId = searchParams.get('strategy');
+        if (urlStrategyId) {
+          const target = list.find((s: any) => s.id === Number(urlStrategyId));
+          if (target) {
+            setActiveId(target.id);
+            return;
+          }
+        }
         setActiveId(list[0].id);
       }
     } catch (err) { console.error('[StrategyPage] load failed:', err); }
@@ -139,6 +147,15 @@ export default function StrategyPage() {
   }, []);
 
   useEffect(() => { loadStrategies(); loadIndicators(); }, []);
+  // Sync active strategy to URL
+  useEffect(() => {
+    if (activeId) {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('strategy') !== String(activeId)) {
+        navigate(`?strategy=${activeId}`, { replace: true });
+      }
+    }
+  }, [activeId]);
 
   // Load active strategy details
   useEffect(() => {
@@ -751,72 +768,63 @@ export default function StrategyPage() {
             </div>
 
             {/* Settings Bar */}
-            {/* Settings Bar Row 1: Risk Mgmt */}
-            <div style={{ display: 'flex', gap: 16, marginBottom: 10, padding: '10px 14px', background: 'var(--color-fill-2)', borderRadius: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--color-text-3)' }}>
-                <Shield size={12} />止盈:
-              </div>
-              <InputNumber value={activeStrategy.stopProfit || 0} onChange={v => handleUpdateStrategy('stopProfit', v || 0)} min={0} max={100} suffix="%" style={{ width: 90 }} size="small" />
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--color-text-3)' }}>
-                <Shield size={12} />止损:
-              </div>
-              <InputNumber value={activeStrategy.stopLoss || 0} onChange={v => handleUpdateStrategy('stopLoss', v || 0)} max={0} suffix="%" style={{ width: 90 }} size="small" />
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--color-text-3)' }}>
-                最大持股:
-              </div>
-              <InputNumber value={activeStrategy.maxHoldings || 20} onChange={v => handleUpdateStrategy('maxHoldings', v || 20)} min={1} max={100} style={{ width: 80 }} size="small" />
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--color-text-3)' }}>
-                初始资金:
-              </div>
-              <InputNumber value={activeStrategy.initialCapital || 100000} onChange={v => handleUpdateStrategy('initialCapital', v || 100000)} min={10000} step={10000} style={{ width: 120 }} size="small" />
+            {/* Settings Bar Row 1: Quick Config */}
+            <div style={{ display: 'flex', gap: 10, marginBottom: 10, padding: '10px 14px', background: 'var(--color-fill-2)', borderRadius: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+              <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-2)', marginRight: 4 }}>⚡ 快捷</span>
+
+              <Tooltip content={<div style={{maxWidth:220}}><b>固定止盈</b><br/>涨幅达到此%自动卖出<br/><span style={{color:'var(--color-text-3)',fontSize:10}}>仅在移动止盈关闭时生效，执行后生成stop信号</span></div>}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 11, color: 'var(--color-text-3)', cursor: 'help' }}>
+                  止盈<Info size={10} />
+                </div>
+              </Tooltip>
+              <InputNumber value={activeStrategy.stopProfit || 0} onChange={v => handleUpdateStrategy('stopProfit', v || 0)} min={0} max={100} suffix="%" style={{ width: 72 }} size="small" />
+
+              <Tooltip content={<div style={{maxWidth:220}}><b>固定止损</b><br/>跌幅达到此%自动卖出<br/><span style={{color:'var(--color-text-3)',fontSize:10}}>始终生效，执行后生成stop信号</span></div>}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 11, color: 'var(--color-text-3)', cursor: 'help' }}>
+                  止损<Info size={10} />
+                </div>
+              </Tooltip>
+              <InputNumber value={activeStrategy.stopLoss || 0} onChange={v => handleUpdateStrategy('stopLoss', v || 0)} max={0} suffix="%" style={{ width: 72 }} size="small" />
+
+              <Tooltip content={<div style={{maxWidth:220}}><b>最大持股数</b><br/>同时持有的股票数量上限<br/><span style={{color:'var(--color-text-3)',fontSize:10}}>信号生成时限制买入数量</span></div>}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 11, color: 'var(--color-text-3)', cursor: 'help' }}>
+                  持股<Info size={10} />
+                </div>
+              </Tooltip>
+              <InputNumber value={activeStrategy.maxHoldings || 20} onChange={v => handleUpdateStrategy('maxHoldings', v || 20)} min={1} max={100} style={{ width: 62 }} size="small" />
+
+              <Tooltip content={<div style={{maxWidth:220}}><b>初始资金</b><br/>策略起始资金，用于计算收益率<br/><span style={{color:'var(--color-text-3)',fontSize:10}}>回测和实盘独立的资金基准</span></div>}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 11, color: 'var(--color-text-3)', cursor: 'help' }}>
+                  资金<Info size={10} />
+                </div>
+              </Tooltip>
+              <InputNumber value={activeStrategy.initialCapital || 100000} onChange={v => handleUpdateStrategy('initialCapital', v || 100000)} min={10000} step={10000} style={{ width: 95 }} size="small" />
             </div>
 
-            {/* Settings Bar Row 2: Position Sizing + Investment */}
-            <div style={{ display: 'flex', gap: 16, marginBottom: 16, padding: '10px 14px', background: 'var(--color-fill-2)', borderRadius: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--color-text-3)' }}>
-                买入仓位:
-              </div>
-              <InputNumber value={activeStrategy.buyPositionPct || 15} onChange={v => handleUpdateStrategy('buyPositionPct', v || 15)} min={1} max={100} suffix="%" style={{ width: 85 }} size="small" />
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--color-text-3)' }}>
-                加仓:
-              </div>
-              <InputNumber value={activeStrategy.addPositionPct || 10} onChange={v => handleUpdateStrategy('addPositionPct', v || 10)} min={1} max={100} suffix="%" style={{ width: 85 }} size="small" />
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--color-text-3)' }}>
-                减仓:
-              </div>
-              <InputNumber value={activeStrategy.reducePositionPct || 50} onChange={v => handleUpdateStrategy('reducePositionPct', v || 50)} min={1} max={100} suffix="%" style={{ width: 85 }} size="small" />
+            {/* Settings Bar Row 2: Position Sizing */}
+            <div style={{ display: 'flex', gap: 10, marginBottom: 16, padding: '10px 14px', background: 'var(--color-fill-2)', borderRadius: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+              <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-2)', marginRight: 4 }}>📐 仓位</span>
 
-              <div style={{ width: 1, height: 20, background: 'var(--color-border-1)' }} />
+              <Tooltip content={<div style={{maxWidth:220}}><b>买入仓位</b><br/>每只新股初始买入占资金的%<br/><span style={{color:'var(--color-text-3)',fontSize:10}}>信号生成时决定单票买入金额=资金×此%</span></div>}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 11, color: 'var(--color-text-3)', cursor: 'help' }}>
+                  买入<Info size={10} />
+                </div>
+              </Tooltip>
+              <InputNumber value={activeStrategy.buyPositionPct || 15} onChange={v => handleUpdateStrategy('buyPositionPct', v || 15)} min={1} max={100} suffix="%" style={{ width: 72 }} size="small" />
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--color-text-3)' }}>
-                投资方式:
-              </div>
-              <Select
-                value={activeStrategy.investmentType || 'lump'}
-                onChange={v => handleUpdateStrategy('investmentType', v)}
-                style={{ width: 90 }}
-                size="small"
-                options={[
-                  { label: '一次性', value: 'lump' },
-                  { label: '定投', value: 'regular' },
-                ]}
-              />
-              {activeStrategy.investmentType === 'regular' && (
-                <>
-                  <InputNumber value={activeStrategy.regularAmount || 0} onChange={v => handleUpdateStrategy('regularAmount', v || 0)} min={0} step={5000} style={{ width: 100 }} size="small" placeholder="定投金额" />
-                  <Select
-                    value={activeStrategy.regularInterval || 'monthly'}
-                    onChange={v => handleUpdateStrategy('regularInterval', v)}
-                    style={{ width: 80 }}
-                    size="small"
-                    options={[
-                      { label: '每月', value: 'monthly' },
-                      { label: '每周', value: 'weekly' },
-                      { label: '每日', value: 'daily' },
-                    ]}
-                  />
-                </>
-              )}
+              <Tooltip content={<div style={{maxWidth:220}}><b>加仓比例</b><br/>对已持仓股票单次加仓占资金的%<br/><span style={{color:'var(--color-text-3)',fontSize:10}}>满足加仓条件时触发</span></div>}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 11, color: 'var(--color-text-3)', cursor: 'help' }}>
+                  加仓<Info size={10} />
+                </div>
+              </Tooltip>
+              <InputNumber value={activeStrategy.addPositionPct || 10} onChange={v => handleUpdateStrategy('addPositionPct', v || 10)} min={1} max={100} suffix="%" style={{ width: 72 }} size="small" />
+
+              <Tooltip content={<div style={{maxWidth:220}}><b>减仓比例</b><br/>对已持仓股票单次减仓占该股持仓的%<br/><span style={{color:'var(--color-text-3)',fontSize:10}}>满足减仓条件时触发，减到0则清仓</span></div>}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 11, color: 'var(--color-text-3)', cursor: 'help' }}>
+                  减仓<Info size={10} />
+                </div>
+              </Tooltip>
+              <InputNumber value={activeStrategy.reducePositionPct || 50} onChange={v => handleUpdateStrategy('reducePositionPct', v || 50)} min={1} max={100} suffix="%" style={{ width: 72 }} size="small" />
             </div>
 
             {/* Tab: Conditions / Backtest */}
@@ -831,7 +839,16 @@ export default function StrategyPage() {
                 <TrendingUp size={13} style={{ marginRight: 4 }} />持仓管理
               </button>
               <button className={tab === 'riskControl' ? 'active' : ''} onClick={() => setTab('riskControl')}>
-                <Shield size={13} style={{ marginRight: 4 }} />智能风控
+                <Shield size={13} style={{ marginRight: 4 }} />仓位与风控
+              </button>
+              <button className={tab === 'live' ? 'active' : ''} onClick={() => {
+                setTab('live');
+                setLiveRunsLoading(true);
+                fetchLiveRuns(activeId || undefined).then(({ data: r }: any) => {
+                  setLiveRuns(r.data || []);
+                }).catch(() => {}).finally(() => setLiveRunsLoading(false));
+              }}>
+                <TrendingUp size={13} style={{ marginRight: 4 }} />实盘
               </button>
             </div>
 
@@ -1416,14 +1433,16 @@ export default function StrategyPage() {
             ) : tab === "riskControl" ? (
 
               <>
-                {/* ══ 智能风控 ══ */}
+                {/* ══ 仓位与风控 ══ */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginBottom: 16 }}>
                   
                   {/* ── 风控强度预设 ── */}
                   <div style={{ padding: '14px 18px', background: 'var(--color-bg-1)', borderRadius: 10, border: '1px solid var(--color-border-1)' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
                       <Shield size={16} style={{ color: '#165DFF' }} />
-                      <span style={{ fontSize: 14, fontWeight: 600 }}>风控强度</span>
+                      <Tooltip content="预设仓位模式：根据市场综合评分自动切换进攻/防御/空仓模式，影响总仓位上限和单票仓位">
+                      <span style={{ fontSize: 14, fontWeight: 600, cursor: 'help' }}>风控强度 <Info size={12} style={{ verticalAlign: -2 }} /></span>
+                    </Tooltip>
                     </div>
 
                     {/* Preset selector */}
@@ -1511,7 +1530,9 @@ export default function StrategyPage() {
                   <div style={{ padding: '14px 18px', background: 'var(--color-bg-1)', borderRadius: 10, border: '1px solid var(--color-border-1)' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
                       <DollarSign size={16} style={{ color: '#00B42A' }} />
-                      <span style={{ fontSize: 14, fontWeight: 600 }}>仓位 & 风控上限</span>
+                      <Tooltip content="手动设定仓位边界：单票最大仓位限制单只股票买入金额上限，单日亏损熔断在亏损超过阈值时停止新开仓">
+                      <span style={{ fontSize: 14, fontWeight: 600, cursor: 'help' }}>仓位 & 风控上限 <Info size={12} style={{ verticalAlign: -2 }} /></span>
+                    </Tooltip>
                     </div>
                     <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -1525,7 +1546,6 @@ export default function StrategyPage() {
                     </div>
                   </div>
 
-                  {/* ── 高级参数 (折叠) ── */}
                   {/* Market review link */}
                   <a href="/market-style" style={{
                     display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px',
@@ -1539,50 +1559,6 @@ export default function StrategyPage() {
                     <span style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--color-text-4)' }}>市场风格识别 · 结构性分析 · T-1 复盘</span>
                   </a>
 
-                  <div style={{ padding: '14px 18px', background: 'var(--color-bg-1)', borderRadius: 10, border: '1px solid var(--color-border-1)' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }} onClick={() => setShowAdvanced(!showAdvanced)}>
-                      {showAdvanced ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                      <Settings size={14} style={{ color: 'var(--color-text-3)' }} />
-                      <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-3)' }}>高级参数</span>
-                      <span style={{ fontSize: 10, color: 'var(--color-text-4)' }}>阈值微调 · 编排引擎 · 各模式参数</span>
-                    </div>
-                    
-                    {showAdvanced && (
-                      <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 12 }}>
-                        {/* Threshold fine-tuning */}
-                        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                            <span style={{ fontSize: 11, color: 'var(--color-text-3)' }}>进攻阈值</span>
-                            <InputNumber value={orchConfig.aggressiveThreshold ?? 1.5} onChange={v => { setRiskPreset('custom'); setOrchConfig((prev: any) => ({ ...prev, aggressiveThreshold: v ?? 1.5 })); }} min={0} max={5} step={0.5} style={{ width: 65 }} size="small" />
-                          </div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                            <span style={{ fontSize: 11, color: 'var(--color-text-3)' }}>防御阈值</span>
-                            <InputNumber value={orchConfig.defensiveThreshold ?? 0} onChange={v => { setRiskPreset('custom'); setOrchConfig((prev: any) => ({ ...prev, defensiveThreshold: v ?? 0 })); }} min={-5} max={5} step={0.5} style={{ width: 65 }} size="small" />
-                          </div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                            <span style={{ fontSize: 11, color: 'var(--color-text-3)' }}>熔断阈值</span>
-                            <InputNumber value={orchConfig.marketCompositeMin ?? -2} onChange={v => { setRiskPreset('custom'); setOrchConfig((prev: any) => ({ ...prev, marketCompositeMin: v ?? -2 })); }} min={-5} max={5} step={0.5} style={{ width: 65 }} size="small" />
-                          </div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                            <span style={{ fontSize: 11, color: 'var(--color-text-3)' }}>仓位乘数</span>
-                            <InputNumber value={orchConfig.marketPositionBias ?? 1} onChange={v => { setRiskPreset('custom'); setOrchConfig((prev: any) => ({ ...prev, marketPositionBias: v ?? 1 })); }} min={0.5} max={1.5} step={0.1} style={{ width: 65 }} size="small" />
-                          </div>
-                        </div>
-
-                        {/* Orchestration mode */}
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <span style={{ fontSize: 11, color: 'var(--color-text-3)', minWidth: 56 }}>编排引擎</span>
-                          <Select value={orchConfig.orchestrationMode || 'hybrid'} onChange={v => setOrchConfig((prev: any) => ({ ...prev, orchestrationMode: v }))} style={{ width: 160 }} size="small"
-                            options={[
-                              { label: '混合模式 (推荐)', value: 'hybrid' },
-                              { label: '纯评分', value: 'scoring' },
-                              { label: '纯决策树', value: 'decision_tree' },
-                            ]} />
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
 
 
                   {/* AI Agent */}
@@ -1595,63 +1571,71 @@ export default function StrategyPage() {
                         {orchConfig.enableAIAgent ? '已启用' : '未启用'}
                       </Tag>
                     </div>
+                    <div style={{ fontSize: 11, color: 'var(--color-text-4)', lineHeight: 1.6, marginBottom: 10 }}>
+                      策略生成买入/卖出候选后，调用 AI 大模型进行二次审查：AI 可批准、驳回候选信号，或根据置信度调整评分。
+                      同时内置硬规则保护（熔断拦截、ST股过滤、单日上限），AI 不可覆盖。
+                    </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                       <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>启用</span>
                       <input type="checkbox" checked={orchConfig.enableAIAgent || false}
-                        onChange={e => setOrchConfig((prev: any) => ({ ...prev, enableAIAgent: e.target.checked }))}
+                        onChange={e => {
+                          if (e.target.checked) {
+                            setShowAIConfirm(true);
+                          } else {
+                            setOrchConfig((prev: any) => ({ ...prev, enableAIAgent: false }));
+                          }
+                        }}
                         style={{ accentColor: '#165DFF' }} />
                     </div>
                     {orchConfig.enableAIAgent && (
-                      <div style={{ marginTop: 10, display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+                      <div style={{ marginTop: 12, display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>模式</span>
-                          <Select value={orchConfig.aiAgentMode || 'advisory'} onChange={v => setOrchConfig((prev: any) => ({ ...prev, aiAgentMode: v }))}
-                            style={{ width: 120 }} size="small"
-                            options={[
-                              { label: '仅审查 (advisory)', value: 'advisory' },
-                              { label: '自动执行 (auto)', value: 'auto' },
-                            ]} />
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>审查范围</span>
+                          <span style={{ fontSize: 12, color: 'var(--color-text-3)', cursor: 'help' }} title="all=审查所有买卖信号 | buy_only=仅审查买入 | sell_only=仅审查卖出">审查范围</span>
                           <Select value={orchConfig.aiAgentReviewScope || 'all'} onChange={v => setOrchConfig((prev: any) => ({ ...prev, aiAgentReviewScope: v }))}
                             style={{ width: 110 }} size="small"
                             options={[
-                              { label: '全部', value: 'all' },
+                              { label: '买卖都审', value: 'all' },
                               { label: '仅买入', value: 'buy_only' },
                               { label: '仅卖出', value: 'sell_only' },
                             ]} />
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>日最大交易</span>
+                          <span style={{ fontSize: 12, color: 'var(--color-text-3)', cursor: 'help' }} title="AI 每天最多批准的交易笔数，超出部分自动驳回">日最大交易</span>
                           <InputNumber value={orchConfig.aiAgentMaxDailyTrades || 5} onChange={v => setOrchConfig((prev: any) => ({ ...prev, aiAgentMaxDailyTrades: v ?? 5 }))}
                             min={1} max={20} style={{ width: 70 }} size="small" />
                         </div>
                       </div>
                     )}
+                    {orchConfig.enableAIAgent && (
+                      <div style={{ marginTop: 10, padding: '8px 10px', background: '#FF7D0008', borderRadius: 6, border: '1px solid #FF7D0015' }}>
+                        <span style={{ fontSize: 10, color: '#FF7D00' }}>
+                          ⚡ 当前仅<b>回测</b>中生效（backtest_v2 旧版引擎）。实盘交易的 AI 决策在「信号决策」页面独立触发。
+                        </span>
+                      </div>
+                    )}
                   </div>
 
 
-                  {/* Industry */}
-                  <div style={{ padding: '14px 18px', background: 'var(--color-bg-1)', borderRadius: 10, border: '1px solid var(--color-border-1)' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                      <Factory size={16} style={{ color: '#00B42A' }} />
-                      <span style={{ fontSize: 14, fontWeight: 600 }}>行业上下文</span>
+
+
+                  {/* AI Agent Confirmation Modal */}
+                  <Modal
+                    title="确认开启 AI 代理监督"
+                    visible={showAIConfirm}
+                    onOk={() => { setOrchConfig((prev: any) => ({ ...prev, enableAIAgent: true })); setShowAIConfirm(false); }}
+                    onCancel={() => setShowAIConfirm(false)}
+                    okText="确认开启"
+                    cancelText="取消"
+                  >
+                    <div style={{ fontSize: 12, lineHeight: 1.8 }}>
+                      <p style={{ color: '#FF7D00', fontWeight: 600, marginBottom: 8 }}>⚠ 开启后将产生额外 Token 消耗</p>
+                      <p>• 每个交易日回测都会调用 AI 审查候选信号</p>
+                      <p>• 回测周期越长，Token 消耗越大（估算：每交易日 ~2K-4K tokens）</p>
+                      <p>• AI 可能否决部分交易机会，影响回测收益率</p>
+                      <p>• AI 也可能放行质量一般的候选（存在误判风险）</p>
+                      <p style={{ marginTop: 8 }}>建议：先在短周期回测中验证效果，再应用到长周期。</p>
                     </div>
-                    <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>行业过滤</span>
-                        <Input value={orchConfig.industryFilter || ''} onChange={v => setOrchConfig((prev: any) => ({ ...prev, industryFilter: v }))}
-                          style={{ width: 240 }} size="small" placeholder="逗号分隔，空=全部行业" />
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>板块轮动</span>
-                        <input type="checkbox" checked={orchConfig.enableSectorRotation || false}
-                          onChange={e => setOrchConfig((prev: any) => ({ ...prev, enableSectorRotation: e.target.checked }))}
-                          style={{ accentColor: '#165DFF' }} />
-                      </div>
-                    </div>
-                  </div>
+                  </Modal>
 
                   {/* Save Button */}
                   <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
@@ -1670,6 +1654,63 @@ export default function StrategyPage() {
                       }}>
                       保存编排配置
                     </Button>
+                  </div>
+                </div>
+              </>
+            ) : tab === "live" ? (
+              <>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span style={{ fontSize: 14, fontWeight: 600 }}>实盘运行</span>
+                    <Button size="small" type="primary" icon={<Plus size={12} />}
+                      onClick={() => window.open('/live?new=1&strategyId=' + activeId, '_blank')}>
+                      新建实盘运行
+                    </Button>
+                  </div>
+                  {liveRunsLoading ? (
+                    <div style={{ textAlign: 'center', padding: 20, color: 'var(--color-text-4)' }}>加载中...</div>
+                  ) : liveRuns.length === 0 ? (
+                    <div style={{ textAlign: 'center', padding: 30, color: 'var(--color-text-4)', background: 'var(--color-bg-1)', borderRadius: 10, border: '1px solid var(--color-border-2)' }}>
+                      <TrendingUp size={36} style={{ marginBottom: 10, opacity: 0.3 }} />
+                      <p style={{ fontSize: 13, marginBottom: 8 }}>暂无实盘运行</p>
+                      <p style={{ fontSize: 11, color: 'var(--color-text-4)' }}>点击上方按钮为此策略创建实盘运行</p>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {liveRuns.map((run: any) => (
+                        <div key={run.id}
+                          style={{
+                            display: 'flex', alignItems: 'center', padding: '12px 16px',
+                            background: 'var(--color-bg-1)', borderRadius: 8,
+                            border: '1px solid var(--color-border-2)',
+                            cursor: 'pointer',
+                          }}
+                          onClick={() => window.open('/live/' + run.id, '_blank')}
+                        >
+                          <div style={{ flex: 1 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                              <span style={{ fontSize: 13, fontWeight: 600 }}>
+                                实盘 #{run.id}
+                              </span>
+                              <Tag size="small" color={run.status === 'active' ? 'green' : run.status === 'paused' ? 'orange' : 'gray'}>
+                                {run.status === 'active' ? '运行中' : run.status === 'paused' ? '已暂停' : run.status || '未知'}
+                              </Tag>
+                            </div>
+                            <div style={{ fontSize: 11, color: 'var(--color-text-4)' }}>
+                              创建: {run.createdAt ? new Date(run.createdAt).toLocaleDateString('zh-CN') : '-'}
+                              {run.currentEquity > 0 && ` · 权益: ¥${run.currentEquity.toLocaleString()}`}
+                              {run.lastRunDate && ` · 上次运行: ${run.lastRunDate}`}
+                            </div>
+                          </div>
+                          <ChevronRight size={14} style={{ color: 'var(--color-text-4)' }} />
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div style={{ marginTop: 8, padding: '10px 14px', background: '#165DFF08', borderRadius: 8, border: '1px solid #165DFF15' }}>
+                    <span style={{ fontSize: 11, color: 'var(--color-text-3)' }}>
+                      💡 实盘交易独立于回测，使用真实/模拟资金账户执行策略信号。详情请在实盘页面查看。
+                    </span>
                   </div>
                 </div>
               </>

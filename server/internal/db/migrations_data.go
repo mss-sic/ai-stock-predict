@@ -1375,4 +1375,298 @@ Register(Migration{
 		},
 	})
 
+	// v053: Live trading tables
+	Register(Migration{
+		Version:     53,
+		Description: "MySQL: live trading tables (fund_allocations, live_positions, live_trades, daily_portfolio_snapshots)",
+		Up: func() error {
+			gormAutoMigrate(MySQL,
+				&model.StrategyFundAllocation{},
+				&model.LivePosition{},
+				&model.LiveTrade{},
+				&model.DailyPortfolioSnapshot{},
+			)
+			return nil
+		},
+	})
+
+
+	// v054: Multi-account support — alter trading_accounts
+	Register(Migration{
+		Version:     54,
+		Description: "MySQL: gorm auto-migrate trading_accounts for new columns + drop unique user_id",
+		Up: func() error {
+			gormAutoMigrate(MySQL, &model.TradingAccount{})
+			// GORM's auto-migrate keeps the old unique index; we need to replace it with a normal index
+			MySQL.Exec(`ALTER TABLE trading_accounts DROP INDEX IF EXISTS idx_trading_accounts_user_id`)
+			MySQL.Exec(`CREATE INDEX IF NOT EXISTS idx_trading_accounts_user_id ON trading_accounts(user_id)`)
+			return nil
+		},
+	})
+
+	// v055: Pre-market decision records
+	Register(Migration{
+		Version:     55,
+		Description: "MySQL: create pre_market_decisions table",
+		Up: func() error {
+			gormAutoMigrate(MySQL, &model.PreMarketDecision{})
+			return nil
+		},
+	})
+
+	// v056: Notification configs and logs
+	Register(Migration{
+		Version:     56,
+		Description: "MySQL: create notification_configs and notifications tables",
+		Up: func() error {
+			gormAutoMigrate(MySQL, &model.NotificationConfig{}, &model.Notification{})
+			return nil
+		},
+	})
+
+	// v057: Add account_id to holdings + backfill historical data
+	Register(Migration{
+		Version:     57,
+		Description: "MySQL: add account_id to holdings, create default real account, backfill history",
+		Up: func() error {
+			MySQL.Exec(`ALTER TABLE holdings ADD COLUMN IF NOT EXISTS account_id INT UNSIGNED DEFAULT 0`)
+			MySQL.Exec(`CREATE INDEX IF NOT EXISTS idx_holdings_account_id ON holdings(account_id)`)
+
+			// Create default "真实账户" for users who have holdings but no trading account
+			rows, _ := MySQL.Raw(`SELECT DISTINCT user_id FROM holdings WHERE account_id = 0`).Rows()
+			if rows != nil {
+				var userIDs []uint
+				for rows.Next() {
+					var uid uint
+					rows.Scan(&uid)
+					userIDs = append(userIDs, uid)
+				}
+				rows.Close()
+
+				for _, uid := range userIDs {
+					// Check if user already has any trading account
+					var count int64
+					MySQL.Raw(`SELECT COUNT(*) FROM trading_accounts WHERE user_id = ? AND status = 'active'`, uid).Scan(&count)
+					if count == 0 {
+						// Create default real account
+						var totalCost float64
+						MySQL.Raw(`SELECT COALESCE(SUM(total_cost), 0) FROM holdings WHERE user_id = ?`, uid).Scan(&totalCost)
+						initialCapital := totalCost + 100000.0 // cost + some buffer
+						MySQL.Exec(`INSERT INTO trading_accounts (user_id, name, broker, account_type, account_number, initial_capital, available_cash, total_deposit, status, created_at, updated_at)
+							VALUES (?, '历史真实账户', '默认券商', 'real', '', ?, ?, ?, 'active', NOW(), NOW())`,
+							uid, initialCapital, initialCapital - totalCost, initialCapital)
+					}
+
+					// Get the user's default account
+					var accountID uint
+					MySQL.Raw(`SELECT id FROM trading_accounts WHERE user_id = ? AND status = 'active' ORDER BY id ASC LIMIT 1`, uid).Scan(&accountID)
+
+					// Backfill historical holdings
+					if accountID > 0 {
+						MySQL.Exec(`UPDATE holdings SET account_id = ? WHERE user_id = ? AND account_id = 0`, accountID, uid)
+					}
+				}
+			}
+			return nil
+		},
+	})
+
+	// v058: Add last_run_log to strategy_runs
+	Register(Migration{
+		Version:     58,
+		Description: "MySQL: add last_run_log TEXT column to strategy_runs",
+		Up: func() error {
+			gormAutoMigrate(MySQL, &model.StrategyRun{})
+			return nil
+		},
+	})
+
+	// v059: PreMarketTask for async decision pipeline
+	Register(Migration{
+		Version:     59,
+		Description: "MySQL: pre_market_tasks table for async decision pipeline",
+		Up: func() error {
+			gormAutoMigrate(MySQL, &model.PreMarketTask{})
+			return nil
+		},
+	})
+
+	// v061: Add mx_moni fields to trading_accounts
+	Register(Migration{
+		Version:     61,
+		Description: "MySQL: add mx_moni broker fields to trading_accounts",
+		Up: func() error {
+			MySQL.Exec("ALTER TABLE trading_accounts ADD COLUMN mx_api_key VARCHAR(200) DEFAULT '' AFTER status")
+			MySQL.Exec("ALTER TABLE trading_accounts ADD COLUMN mx_account_id VARCHAR(50) DEFAULT '' AFTER mx_api_key")
+			MySQL.Exec("ALTER TABLE trading_accounts ADD COLUMN broker_mode VARCHAR(20) DEFAULT 'manual' AFTER mx_account_id")
+			return nil
+		},
+	})
+
+	// v063: Add dynamic position sizing fields to strategies
+	Register(Migration{
+		Version:     63,
+		Description: "MySQL: add position sizing config fields to strategies",
+		Up: func() error {
+			MySQL.Exec("ALTER TABLE strategies ADD COLUMN enable_dynamic_sizing TINYINT(1) DEFAULT 1 AFTER max_daily_loss")
+			MySQL.Exec("ALTER TABLE strategies ADD COLUMN max_total_position DOUBLE DEFAULT 0 AFTER enable_dynamic_sizing")
+			MySQL.Exec("ALTER TABLE strategies ADD COLUMN daily_buy_limit DOUBLE DEFAULT 0 AFTER max_total_position")
+			MySQL.Exec("ALTER TABLE strategies ADD COLUMN max_single_industry DOUBLE DEFAULT 30 AFTER daily_buy_limit")
+			MySQL.Exec("ALTER TABLE strategies ADD COLUMN min_industry_count INT DEFAULT 3 AFTER max_single_industry")
+			MySQL.Exec("ALTER TABLE strategies ADD COLUMN enable_sector_rotation TINYINT(1) DEFAULT 1 AFTER min_industry_count")
+			MySQL.Exec("ALTER TABLE strategies ADD COLUMN enable_theme_overweight TINYINT(1) DEFAULT 1 AFTER enable_sector_rotation")
+			return nil
+		},
+	})
+
+	// v064: Add scoring_config to strategies
+	Register(Migration{
+		Version:     64,
+		Description: "MySQL: add scoring_config JSON to strategies",
+		Up: func() error {
+			MySQL.Exec("ALTER TABLE strategies ADD COLUMN scoring_config JSON AFTER enable_theme_overweight")
+			return nil
+		},
+	})
+
+	// v068: Remove dead ai_agent_mode column from strategies
+	Register(Migration{
+		Version:     68,
+		Description: "MySQL: remove ai_agent_mode from strategies",
+		Up: func() error {
+			MySQL.Exec("ALTER TABLE strategies DROP COLUMN IF EXISTS ai_agent_mode")
+			return nil
+		},
+	})
+
+	// v069: Add execution_mode to strategy_runs (force via ALTER TABLE)
+	Register(Migration{
+		Version:     69,
+		Description: "MySQL: add execution_mode to strategy_runs via ALTER TABLE",
+		Up: func() error {
+			MySQL.Exec("ALTER TABLE strategy_runs ADD COLUMN execution_mode VARCHAR(20) DEFAULT 'manual' AFTER auto_pre_market_cron")
+			return nil
+		},
+	})
+
+	// v068: Add execution_mode to strategy_runs
+	Register(Migration{
+		Version:     68,
+		Description: "MySQL: add execution_mode to strategy_runs",
+		Up: func() error {
+			gormAutoMigrate(MySQL, &model.StrategyRun{})
+			return nil
+		},
+	})
+
+	// v067: Add run_id to pre_market_tasks
+	Register(Migration{
+		Version:     67,
+		Description: "MySQL: add run_id to pre_market_tasks",
+		Up: func() error {
+			MySQL.Exec("ALTER TABLE pre_market_tasks ADD COLUMN run_id INT UNSIGNED DEFAULT 0 AFTER user_id")
+			return nil
+		},
+	})
+
+	// v066: Add skip_ai to pre_market_tasks
+	Register(Migration{
+		Version:     66,
+		Description: "MySQL: add skip_ai to pre_market_tasks",
+		Up: func() error {
+			MySQL.Exec("ALTER TABLE pre_market_tasks ADD COLUMN skip_ai TINYINT(1) DEFAULT 0 AFTER result_json")
+			return nil
+		},
+	})
+
+	// v062: Add broker-aligned financial fields to trading_accounts
+
+	// v068: Remove dead ai_agent_mode column from strategies
+	Register(Migration{
+		Version:     68,
+		Description: "MySQL: remove ai_agent_mode from strategies",
+		Up: func() error {
+			MySQL.Exec("ALTER TABLE strategies DROP COLUMN IF EXISTS ai_agent_mode")
+			return nil
+		},
+	})
+
+	// v069: Add execution_mode to strategy_runs (force via ALTER TABLE)
+	Register(Migration{
+		Version:     69,
+		Description: "MySQL: add execution_mode to strategy_runs via ALTER TABLE",
+		Up: func() error {
+			MySQL.Exec("ALTER TABLE strategy_runs ADD COLUMN execution_mode VARCHAR(20) DEFAULT 'manual' AFTER auto_pre_market_cron")
+			return nil
+		},
+	})
+
+	// v068: Add execution_mode to strategy_runs
+	Register(Migration{
+		Version:     68,
+		Description: "MySQL: add execution_mode to strategy_runs",
+		Up: func() error {
+			gormAutoMigrate(MySQL, &model.StrategyRun{})
+			return nil
+		},
+	})
+
+	// v067: Add run_id to pre_market_tasks
+	Register(Migration{
+		Version:     67,
+		Description: "MySQL: add run_id to pre_market_tasks",
+		Up: func() error {
+			MySQL.Exec("ALTER TABLE pre_market_tasks ADD COLUMN run_id INT UNSIGNED DEFAULT 0 AFTER user_id")
+			return nil
+		},
+	})
+
+	// v066: Add skip_ai to pre_market_tasks
+	Register(Migration{
+		Version:     66,
+		Description: "MySQL: add skip_ai to pre_market_tasks",
+		Up: func() error {
+			MySQL.Exec("ALTER TABLE pre_market_tasks ADD COLUMN skip_ai TINYINT(1) DEFAULT 0 AFTER result_json")
+			return nil
+		},
+	})
+
+	// v062: Add broker-aligned financial fields to trading_accounts
+	Register(Migration{
+		Version:     62,
+		Description: "MySQL: add total_assets, total_market_value, total_profit, nav to trading_accounts",
+		Up: func() error {
+			MySQL.Exec("ALTER TABLE trading_accounts ADD COLUMN total_assets NUMERIC(16,2) DEFAULT 0 AFTER frozen_cash")
+			MySQL.Exec("ALTER TABLE trading_accounts ADD COLUMN total_market_value NUMERIC(16,2) DEFAULT 0 AFTER total_assets")
+			MySQL.Exec("ALTER TABLE trading_accounts ADD COLUMN total_profit NUMERIC(16,2) DEFAULT 0 AFTER total_market_value")
+			MySQL.Exec("ALTER TABLE trading_accounts ADD COLUMN nav NUMERIC(10,4) DEFAULT 1 AFTER total_profit")
+			return nil
+		},
+	})
+
+	// v065: Add daily_run_tasks for async execution tracking
+	Register(Migration{
+		Version:     65,
+		Description: "MySQL: daily_run_tasks table for async daily-run tracking",
+		Up: func() error {
+			gormAutoMigrate(MySQL, &model.DailyRunTask{})
+			return nil
+		},
+	})
+
+	// v060: Add run_id to backtest_signals for multi-run isolation
+	Register(Migration{
+		Version:     60,
+		Description: "MySQL: add run_id to backtest_signals",
+		Up: func() error {
+			// MySQL 5.7 compatible: check if column exists before adding
+			var count int64
+			MySQL.Raw("SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = 'stock_predict' AND TABLE_NAME = 'backtest_signals' AND COLUMN_NAME = 'run_id'").Scan(&count)
+			if count == 0 {
+				MySQL.Exec("ALTER TABLE backtest_signals ADD COLUMN run_id INT UNSIGNED NOT NULL DEFAULT 0 AFTER task_id")
+			}
+			MySQL.Exec("CREATE INDEX idx_sig_run ON backtest_signals(run_id)")
+			return nil
+		},
+	})
 }

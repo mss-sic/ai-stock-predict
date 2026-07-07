@@ -35,6 +35,8 @@ import IndustryComparePage from "./pages/IndustryComparePage";
 import FearGreedPage from "./pages/FearGreedPage";
 import CapitalFlowPage from "./pages/CapitalFlowPage";
 import AnnouncementsPage from "./pages/AnnouncementsPage";
+import LiveTradingPage from './pages/LiveTradingPage';
+import LiveRunDetailPage from './pages/LiveRunDetailPage';
 
 import PkEntryDetailPage from './pages/PkEntryDetailPage';
 
@@ -104,6 +106,8 @@ const router = createBrowserRouter([
           { path: 'strategy', element: <StrategyPage /> },
           { path: 'holdings', element: <HoldingsPage /> },
           { path: 'risk', element: <RiskPage /> },
+          { path: 'live', element: <LiveTradingPage /> },
+          { path: 'live/:id', element: <LiveRunDetailPage /> },
           { path: 'sentiment', element: <SentimentDashboard /> },
           { path: "limit-stats", element: <LimitStatsPage /> },
           { path: "fear-greed", element: <FearGreedPage /> },

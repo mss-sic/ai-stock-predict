@@ -218,6 +218,7 @@ func main() {
 		api.PUT("/holdings/:id", holdingH.Update)
 		api.DELETE("/holdings/:id", holdingH.Delete)
 		api.GET("/holdings/account", holdingH.Account)
+		api.GET("/holdings/accounts-overview", holdingH.AccountsOverview)
 		api.PUT("/holdings/account", holdingH.UpdateAccount)
 		api.GET("/holdings/trades", holdingH.TradeRecords)
 
@@ -277,6 +278,22 @@ func main() {
 		api.GET("/strategies/:id/ai-decisions", strategyH.ListAIDecisions)
 		api.POST("/strategies/:id/ai-review", strategyH.AIReview)
 		api.GET("/strategies/stock-pool", strategyH.StockPool)
+
+		// Live Trading (实盘交易)
+		liveH := handler.NewLiveTradingHandler()
+		handler.RegisterLiveTradingRoutes(api.Group("/live"), liveH)
+
+		// Pre-Market Finalization (盘前决策) + Notifications
+		preMarketH := handler.NewPreMarketHandler(service.NewAIService())
+		preMarketGroup := api.Group("/live")
+		preMarketGroup.POST("/pre-market", preMarketH.FinalizePreMarket)
+		preMarketGroup.GET("/pre-market/tasks/latest", preMarketH.GetLatestTask)
+		preMarketGroup.GET("/pre-market/tasks/:id", preMarketH.GetTaskStatus)
+		preMarketGroup.GET("/pre-market/decisions", preMarketH.GetPreMarketDecisions)
+		preMarketGroup.GET("/notification-configs", preMarketH.ListNotificationConfigs)
+		preMarketGroup.POST("/notification-configs", preMarketH.CreateNotificationConfig)
+		preMarketGroup.PUT("/notification-configs/:id", preMarketH.UpdateNotificationConfig)
+		preMarketGroup.DELETE("/notification-configs/:id", preMarketH.DeleteNotificationConfig)
 
 		// Collector
 		collectorH := handler.NewCollectorHandler(sched)

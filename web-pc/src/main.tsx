@@ -4,20 +4,45 @@ import { RouterProvider } from 'react-router-dom';
 import { AuthProvider } from './services/AuthContext';
 import { ThemeProvider } from './services/ThemeContext';
 import router from './router';
-// Suppress React 19 deprecation warning from @arco-design/web-react (third-party library)
-// "Accessing element.ref was removed in React 19. ref is now a regular prop."
-const _origConsoleError = console.error.bind(console);
-console.error = (...args: any[]) => {
-  const msg = typeof args[0] === 'string' ? args[0] : '';
-  if (msg.includes('element.ref was removed') || msg.includes('Accessing element.ref')) return;
-  _origConsoleError(...args);
+
+// ── React 19 + Arco Design compatibility polyfill ──
+// Arco Design internally uses ReactDOM.render / unmountComponentAtNode
+// (removed in React 19) for imperative APIs like Modal.confirm, Message.xxx.
+// This polyfill restores them via createRoot.
+import * as _ReactDOM from 'react-dom';
+
+const _rootMap = new WeakMap<Element, ReactDOM.Root>();
+
+const _render = (element: React.ReactNode, container: Element, callback?: () => void) => {
+  let root = _rootMap.get(container);
+  if (!root) {
+    root = ReactDOM.createRoot(container);
+    _rootMap.set(container, root);
+  }
+  root.render(element as any);
+  callback?.();
 };
 
+const _unmountComponentAtNode = (container: Element) => {
+  const root = _rootMap.get(container);
+  if (root) {
+    root.unmount();
+    _rootMap.delete(container);
+  }
+  return true;
+};
+
+// Patch — use Object.assign to avoid rolldown [ASSIGN_TO_IMPORT] error
+Object.assign(_ReactDOM, { render: _render, unmountComponentAtNode: _unmountComponentAtNode });
+
+// ── App Bootstrap ──
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <ThemeProvider><AuthProvider>
-      <RouterProvider router={router} />
-    </AuthProvider></ThemeProvider>
-  </React.StrictMode>
+    <ThemeProvider>
+      <AuthProvider>
+        <RouterProvider router={router} />
+      </AuthProvider>
+    </ThemeProvider>
+  </React.StrictMode>,
 );
