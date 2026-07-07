@@ -1759,4 +1759,38 @@ Register(Migration{
 		},
 	})
 
+	// v77: backtest_signals + holdings + strategies 字段补全
+	Register(Migration{
+		Version:     77,
+		Description: "MySQL: add missing columns to backtest_signals, holdings, strategies",
+		Up: func() error {
+			_ = MySQL.Exec("ALTER TABLE backtest_signals ADD COLUMN suggested_premium DECIMAL(5,2) DEFAULT 0").Error
+			_ = MySQL.Exec("ALTER TABLE backtest_signals ADD COLUMN order_price DECIMAL(12,4) DEFAULT 0").Error
+			_ = MySQL.Exec("ALTER TABLE backtest_signals ADD COLUMN order_price_limit DECIMAL(12,4) DEFAULT 0").Error
+			_ = MySQL.Exec("ALTER TABLE backtest_signals ADD COLUMN suggested_qty BIGINT DEFAULT 0").Error
+			_ = MySQL.Exec("ALTER TABLE backtest_signals ADD COLUMN original_qty BIGINT DEFAULT 0").Error
+			_ = MySQL.Exec("ALTER TABLE backtest_signals ADD COLUMN open_price DECIMAL(12,4) DEFAULT 0").Error
+			_ = MySQL.Exec("ALTER TABLE backtest_signals ADD COLUMN open_deviation DECIMAL(6,2) DEFAULT 0").Error
+			_ = MySQL.Exec("ALTER TABLE backtest_signals ADD COLUMN decision_rule VARCHAR(50) DEFAULT NULL").Error
+			_ = MySQL.Exec("ALTER TABLE holdings ADD COLUMN account_id BIGINT UNSIGNED DEFAULT 0").Error
+			_ = MySQL.Exec("ALTER TABLE holdings ADD COLUMN buy_date VARCHAR(10) DEFAULT NULL").Error
+			_ = MySQL.Exec("ALTER TABLE holdings ADD COLUMN total_cost DECIMAL(16,2) DEFAULT 0").Error
+			return MySQL.Exec("ALTER TABLE holdings ADD INDEX idx_holdings_account_id (account_id)").Error
+		},
+	})
+
+	// v78: 6 个数据采集表业务唯一约束
+	Register(Migration{
+		Version:     78,
+		Description: "PG: add business unique constraints to 6 collector tables",
+		Up: func() error {
+			safeExec(`ALTER TABLE ai_agent_decisions ADD CONSTRAINT IF NOT EXISTS ai_agent_decisions_business_key UNIQUE (strategy_id, trade_date)`)
+			safeExec(`ALTER TABLE ai_analyses ADD CONSTRAINT IF NOT EXISTS ai_analyses_business_key UNIQUE (code, pick_date)`)
+			safeExec(`ALTER TABLE ai_stock_scores ADD CONSTRAINT IF NOT EXISTS ai_stock_scores_business_key UNIQUE (code)`)
+			safeExec(`ALTER TABLE block_trade ADD CONSTRAINT IF NOT EXISTS block_trade_business_key UNIQUE (code, trade_date, deal_price, deal_volume, buyer_name, seller_name)`)
+			safeExec(`ALTER TABLE macro_news ADD CONSTRAINT IF NOT EXISTS macro_news_business_key UNIQUE (title, news_time, category)`)
+			safeExec(`ALTER TABLE sentiment_weights ADD CONSTRAINT IF NOT EXISTS sentiment_weights_business_key UNIQUE (name)`)
+			return nil
+		},
+	})
 }
