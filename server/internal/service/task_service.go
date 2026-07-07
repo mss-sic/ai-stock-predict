@@ -521,6 +521,20 @@ func RepairTask(id uint, from, to string, all bool) error {
 			}
 			log.Printf("[market_style] repair missing: %d dates", len(dates))
 		}
+
+		// Create TaskLog and mark as running so frontend can track progress
+		now := time.Now()
+		logEntry := model.TaskLog{
+			TaskID:    task.ID,
+			TaskName:  task.Name,
+			Phase:     task.Phase,
+			Status:    "running",
+			StartedAt: now,
+		}
+		db.MySQL.Create(&logEntry)
+		db.MySQL.Model(&model.ScheduledTask{}).Where("id = ?", task.ID).
+			Updates(map[string]interface{}{"last_run": now, "last_status": "running"})
+
 		svc := NewMarketStyleService()
 		success, fail := 0, 0
 		for i, date := range dates {
@@ -533,10 +547,13 @@ func RepairTask(id uint, from, to string, all bool) error {
 			}
 		}
 		log.Printf("[market_style] repair done: %d dates, %d ok, %d fail", len(dates), success, fail)
+
+		var repairErr error
 		if fail > 0 {
-			return fmt.Errorf("市场风格修复: %d/%d 成功, %d 失败", success, len(dates), fail)
+			repairErr = fmt.Errorf("市场风格修复: %d/%d 成功, %d 失败", success, len(dates), fail)
 		}
-		return nil
+		finishTaskLog(&logEntry, success, 0, fail, repairErr)
+		return repairErr
 	}
 	args := []string{"--repair"}
 	if all {
