@@ -97,18 +97,14 @@ const LONG_RUNNING_PHASES: Record<string, number> = {
 
 // 支持历史数据修复的 Phase（数据源可查询任意历史日期）
 const HISTORY_CAPABLE_PHASES = new Set([
-  'kline',           // K线（可查询任意日期区间）
-  'dragon_tiger',    // 龙虎榜（可按日期查询）
-  'reports',         // 研报（可按日期范围查询）
-  'market_daily_agg', // 市场日聚合（--last N / --all）
-  'market_sentiment', // 市场情绪（--last N / date）
-  'market_style',    // 市场风格（修复历史 = 重算缺失日期）
-  'fund_flow',       // 资金流向（--last N / --all）
-  'dividend',        // 分红送转（--last N / --all）
-  'margin',          // 融资融券（--last N / --all）
-  'backfill_financial', 'backfill_shareholder',
-  'limit_stats',     // 涨跌停统计（支持 --repair --from/--to/--all）
-  'northbound',      // 北向资金（重新拉取最新数据）
+  'kline',              // K线（可查询任意日期区间）
+  'reports',            // 研报（可按日期范围查询）
+  'market_daily_agg',   // 市场日聚合（支持日期范围/全部历史）
+  'market_sentiment',   // 市场情绪（支持日期范围/全部历史）
+  'market_style',       // 市场风格（支持全部历史/日期范围重算）
+  'limit_stats',        // 涨跌停统计（支持 --repair --from/--to/--all）
+  'backfill_financial', // 财报全量回填（无日期概念，始终全量）
+  'backfill_shareholder',// 股东全量回填（无日期概念，始终全量）
 ]);
 
 const RANGE_PRESETS = [
