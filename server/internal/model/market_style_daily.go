@@ -24,8 +24,17 @@ type MarketStyleDaily struct {
 	TopSectors       string    `gorm:"type:jsonb" json:"topSectors"`
 	TopConcepts      string    `gorm:"type:jsonb" json:"topConcepts"`
 	AnalysisSummary  string    `gorm:"type:text" json:"analysisSummary"`
-	LeadIndustry      string    `gorm:"size:100" json:"leadIndustry"`
-	CreatedAt        time.Time `json:"createdAt"`
+	LeadIndustry        string    `gorm:"size:100" json:"leadIndustry"`
+	SectorDispersion    float64   `gorm:"type:numeric(7,4);default:0" json:"sectorDispersion"`
+	ScoreChange         float64   `gorm:"type:numeric(7,2);default:0" json:"scoreChange"`
+	BreakRate           float64   `gorm:"type:numeric(5,4);default:0" json:"breakRate"`
+	Concentration       float64   `gorm:"type:numeric(5,4);default:0" json:"concentration"`
+	RotationSpeed       float64   `gorm:"type:numeric(5,4);default:0" json:"rotationSpeed"`
+	MarketRegime        string    `gorm:"size:20" json:"marketRegime"`
+	ThematicLeadership  string    `gorm:"size:20" json:"thematicLeadership"`
+	LeadConcept         string    `gorm:"size:100" json:"leadConcept"`
+	GrowthDefenseFlow   float64   `json:"growthDefenseFlow"`
+	CreatedAt           time.Time `json:"createdAt"`
 }
 
 func (MarketStyleDaily) TableName() string { return "market_style_daily" }

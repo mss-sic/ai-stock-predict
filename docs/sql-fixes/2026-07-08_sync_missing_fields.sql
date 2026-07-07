@@ -33,3 +33,12 @@ ALTER TABLE `strategies` ADD COLUMN `expected_hold_days` bigint DEFAULT 5 COMMEN
 ALTER TABLE `strategies` ADD COLUMN `risk_profile` varchar(30) DEFAULT NULL COMMENT '风险偏好:aggressive/balanced/conservative';
 ALTER TABLE `strategies` ADD COLUMN `strategy_style` varchar(30) DEFAULT NULL COMMENT '策略风格:momentum/swing/trend/value/dip/grid';
 ALTER TABLE `strategies` ADD COLUMN `strategy_thesis` varchar(500) DEFAULT NULL COMMENT '用户自述策略理念';
+
+-- --------------------------------------------------
+-- [market_style_daily] 4 个缺失字段 (v79)
+-- 来源: model/market_style_daily.go + market_style_service.go
+-- --------------------------------------------------
+ALTER TABLE market_style_daily ADD COLUMN IF NOT EXISTS market_regime VARCHAR(20);
+ALTER TABLE market_style_daily ADD COLUMN IF NOT EXISTS thematic_leadership VARCHAR(20);
+ALTER TABLE market_style_daily ADD COLUMN IF NOT EXISTS lead_concept VARCHAR(100);
+ALTER TABLE market_style_daily ADD COLUMN IF NOT EXISTS growth_defense_flow DOUBLE PRECISION;

@@ -1793,4 +1793,17 @@ Register(Migration{
 			return nil
 		},
 	})
+
+	// v79: market_style_daily 字段补全（风格曲线查询所需）
+	Register(Migration{
+		Version:     79,
+		Description: "PG: add market_regime, thematic_leadership, lead_concept, growth_defense_flow to market_style_daily",
+		Up: func() error {
+			safeExec(`ALTER TABLE market_style_daily ADD COLUMN IF NOT EXISTS market_regime VARCHAR(20)`)
+			safeExec(`ALTER TABLE market_style_daily ADD COLUMN IF NOT EXISTS thematic_leadership VARCHAR(20)`)
+			safeExec(`ALTER TABLE market_style_daily ADD COLUMN IF NOT EXISTS lead_concept VARCHAR(100)`)
+			safeExec(`ALTER TABLE market_style_daily ADD COLUMN IF NOT EXISTS growth_defense_flow DOUBLE PRECISION`)
+			return nil
+		},
+	})
 }
