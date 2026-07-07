@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/ai-stock-predict/server/internal/collector"
+	"github.com/ai-stock-predict/server/internal/db"
 	"github.com/ai-stock-predict/server/internal/model"
 	"github.com/ai-stock-predict/server/internal/repository"
 	"github.com/ai-stock-predict/server/internal/service"
@@ -505,7 +506,14 @@ func (h *StockHandler) GetDailyDragonTigerList(c *gin.Context) {
 	response.Success(c, data)
 }
 func (h *StockHandler) GetDailyDragonTigerEnriched(c *gin.Context) {
-	tradeDate := c.DefaultQuery("date", time.Now().Format("2006-01-02"))
+	tradeDate := c.DefaultQuery("date", "")
+	if tradeDate == "" {
+		// Auto-detect latest available trading date from database
+		db.PG.Raw("SELECT trade_date::text FROM dragon_tiger_list ORDER BY trade_date DESC LIMIT 1").Scan(&tradeDate)
+		if tradeDate == "" {
+			tradeDate = time.Now().Format("2006-01-02")
+		}
+	}
 	data, err := h.svc.GetDailyDragonTigerEnriched(tradeDate)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"data": []interface{}{}})

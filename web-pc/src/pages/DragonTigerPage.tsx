@@ -25,7 +25,7 @@ type SortKey = 'netBuyAmt' | 'changePct' | 'cnt5d' | 'cnt20d' | 'consecutiveDays
 
 export default function DragonTigerPage() {
   const navigate = useNavigate();
-  const [date, setDate] = useState('2026-06-29');
+  const [date, setDate] = useState('');
   const [list, setList] = useState<DTEnriched[]>([]);
   const [loading, setLoading] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -38,7 +38,12 @@ export default function DragonTigerPage() {
     setLoading(true);
     try {
       const r: any = await fetchDailyDragonTigerEnriched(d);
-      setList(r.data?.data || []);
+      const data = r.data?.data || [];
+      setList(data);
+      // If auto-detected (no date passed), update date picker to match loaded data
+      if (!d && data.length > 0 && data[0].tradeDate) {
+        setDate(data[0].tradeDate);
+      }
     } catch { setList([]); }
     finally { setLoading(false); }
   };
