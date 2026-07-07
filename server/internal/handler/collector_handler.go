@@ -17,18 +17,16 @@ import (
 	"github.com/ai-stock-predict/server/internal/collector"
 	"github.com/ai-stock-predict/server/internal/db"
 	"github.com/ai-stock-predict/server/internal/model"
-	"github.com/ai-stock-predict/server/internal/scheduler"
 	"github.com/ai-stock-predict/server/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/ai-stock-predict/server/pkg/response"
 )
 
 type CollectorHandler struct {
-	sched *scheduler.Scheduler
 }
 
-func NewCollectorHandler(sched *scheduler.Scheduler) *CollectorHandler {
-	return &CollectorHandler{sched: sched}
+func NewCollectorHandler() *CollectorHandler {
+	return &CollectorHandler{}
 }
 
 func (h *CollectorHandler) Trigger(c *gin.Context) {
@@ -50,13 +48,12 @@ func (h *CollectorHandler) Trigger(c *gin.Context) {
 		}
 	}
 
-	// Only trigger scheduler if there are non-market_style phases;
-	// empty slice triggers ALL phases in RunManualCollection.
+	// Run collection directly (v2 scheduler handles cron-based execution)
 	if len(schedPhases) > 0 {
-		log.Printf("[collector] triggering scheduler with phases=%v", schedPhases)
-		h.sched.Trigger(schedPhases)
+		log.Printf("[collector] running collection phases=%v", schedPhases)
+		collector.RunManualCollection(schedPhases)
 	} else {
-		log.Printf("[collector] no non-market_style phases, skipping scheduler")
+		log.Printf("[collector] no non-market_style phases, skipping")
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -148,7 +145,6 @@ func runMarketStyleCollection() {
 
 func (h *CollectorHandler) Status(c *gin.Context) {
 	prog := collector.GetProgress()
-	prog.LastRun = h.sched.Status()["lastRun"]
 	response.Success(c, prog)
 }
 

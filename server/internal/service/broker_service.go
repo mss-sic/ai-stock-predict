@@ -377,8 +377,9 @@ func (b *MxMoniBroker) GetBalance(account *model.TradingAccount) (*BrokerBalance
 // ── Place Order ──
 
 func (b *MxMoniBroker) PlaceOrder(account *model.TradingAccount, req *BrokerOrderRequest) (*BrokerOrderResult, error) {
-	if req.Quantity%100 != 0 {
-		return nil, fmt.Errorf("委托数量必须是100的整数倍，当前%d", req.Quantity)
+	lot := BoardLotSize(req.StockCode)
+	if req.Quantity%lot != 0 {
+		return nil, fmt.Errorf("委托数量必须是%d的整数倍，当前%d", lot, req.Quantity)
 	}
 
 	// Format price to correct decimal places
@@ -504,7 +505,7 @@ func (s *BrokerService) getExecutionBroker(account *model.TradingAccount) (Broke
 		}
 		return b, nil
 	case "lobster":
-		return nil, fmt.Errorf("龙虾代理模式尚未实现")
+		return NewLobsterBroker(), nil
 	default:
 		return nil, fmt.Errorf("账户为手动执行模式")
 	}
@@ -623,4 +624,39 @@ func isAllDigitsStr(s string) bool {
 		}
 	}
 	return true
+}
+
+// ── LobsterBroker (龙虾自动交易) ──
+// Lobster 是一家本地券商代理，通过本地客户端操作实际账户。
+// 信号状态设置为 pending_auto，由龙虾检查该状态后本地执行并回调。
+// 该 broker 实现了 Broker 接口的骨架，实际集成待龙虾 SDK 接入后完成。
+
+type LobsterBroker struct {
+	client *http.Client
+}
+
+func NewLobsterBroker() *LobsterBroker {
+	return &LobsterBroker{
+		client: &http.Client{Timeout: 30 * time.Second},
+	}
+}
+
+func (b *LobsterBroker) SyncPositions(account *model.TradingAccount) (*BrokerPortfolio, error) {
+	return nil, fmt.Errorf("龙虾代理: 暂未实现")
+}
+
+func (b *LobsterBroker) GetBalance(account *model.TradingAccount) (*BrokerBalance, error) {
+	return nil, fmt.Errorf("龙虾代理: 暂未实现")
+}
+
+func (b *LobsterBroker) PlaceOrder(account *model.TradingAccount, req *BrokerOrderRequest) (*BrokerOrderResult, error) {
+	return nil, fmt.Errorf("龙虾代理: 请通过本地客户端下单，信号已设为 pending_auto")
+}
+
+func (b *LobsterBroker) CancelOrder(account *model.TradingAccount, orderID string, stockCode string) error {
+	return fmt.Errorf("龙虾代理: 暂未实现")
+}
+
+func (b *LobsterBroker) QueryOrders(account *model.TradingAccount) ([]BrokerOrder, error) {
+	return nil, fmt.Errorf("龙虾代理: 暂未实现")
 }

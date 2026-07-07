@@ -9,6 +9,7 @@ type StrategyRun struct {
 	UserID         uint       `gorm:"index" json:"userId"`
 	StrategyID     uint       `gorm:"index" json:"strategyId"`
 	Name           string     `gorm:"size:100" json:"name"`               // run label, e.g. "实盘-2026Q2"
+	AccountID      uint       `gorm:"index;default:0" json:"accountId"`     // linked trading account
 	Status         string     `gorm:"size:20;default:active" json:"status"` // active | paused | stopped | archived
 	StockPool      string     `gorm:"size:500" json:"stockPool"`           // stock pool identifier
 	StartDate      string     `gorm:"type:varchar(10)" json:"startDate"`
@@ -24,8 +25,9 @@ type StrategyRun struct {
 	LastRunLog     string     `gorm:"type:text" json:"lastRunLog"`          // JSON array of last execution log lines
 	LastError      string     `gorm:"size:500" json:"lastError"`
 	AutoDailyCron      string `gorm:"size:50" json:"autoDailyCron"`          // cron for daily signal gen
-	AutoPreMarketCron  string `gorm:"size:50" json:"autoPreMarketCron"`      // cron for pre-market decision
-	ExecutionMode     string `gorm:"size:20;default:manual" json:"executionMode"` // manual / auto
+	AutoTradeExecCron  string `gorm:"size:50" json:"autoTradeExecCron"`      // cron for trade execution (formerly pre-market)
+	ExecutionMode     string `gorm:"size:20;default:manual" json:"executionMode"` // manual / auto / mx / lobster
+	AiReviewEnabled   bool   `gorm:"default:false" json:"aiReviewEnabled"`     // enable AI review before trade execution
 	NotifyEnabled      bool   `gorm:"default:false" json:"notifyEnabled"`    // enable notifications
 	NotifyChannels     string `gorm:"size:500;default:[]" json:"notifyChannels"` // JSON array of channel IDs
 	CreatedAt      time.Time  `json:"createdAt"`

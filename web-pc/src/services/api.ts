@@ -302,22 +302,25 @@ export const fetchLiveRuns = (strategyId?: number) => {
 };
 export const fetchLiveRun = (id: number) => api.get(`/live/runs/${id}`);
 export const updateLiveRunStatus = (id: number, status: string) => api.put(`/live/runs/${id}/status`, { status });
-export const updateLiveRunConfig = (id: number, config: { autoDailyCron?: string; autoPreMarketCron?: string; notifyEnabled?: boolean; notifyChannels?: string; executionMode?: string }) => api.put(`/live/runs/${id}/config`, config);
+export const updateLiveRunConfig = (id: number, config: { autoDailyCron?: string; autoTradeExecCron?: string; aiReviewEnabled?: boolean; notifyEnabled?: boolean; notifyChannels?: string; executionMode?: string }) => api.put(`/live/runs/${id}/config`, config);
 
 // Daily execution
 // Daily execution (async — returns task ID immediately)
-export const runLiveDaily = (tradeDate: string, mode?: string) => api.post('/live/daily-run', { tradeDate, mode: mode || 'after_close' }, { timeout: 10000 });
+export const runLiveDaily = (tradeDate: string, mode?: string, runId?: number) => api.post('/live/daily-run', { tradeDate, mode: mode || 'after_close', runId }, { timeout: 10000 });
 export const fetchDailyRunTask = (id: number) => api.get(`/live/daily-run/tasks/${id}`);
-export const fetchLatestDailyRunTask = (tradeDate?: string) => api.get(`/live/daily-run/tasks/latest`, { params: tradeDate ? { tradeDate } : {} });
+export const fetchLatestDailyRunTask = (tradeDate?: string, runId?: number) => api.get(`/live/daily-run/tasks/latest`, { params: { ...(tradeDate ? { tradeDate } : {}), ...(runId ? { runId } : {}) } });
 
 // Signal execution
 export const executeLiveSignal = (signalId: number, body?: { action?: string; actualPrice?: number; actualQty?: number }) => api.post(`/live/signals/${signalId}/execute`, body || {});
 
 // Pre-market
-export const runPreMarket = (tradeDate: string, skipAi?: boolean, runId?: number) => api.post('/live/pre-market', { tradeDate, skipAi, runId }, { timeout: 10000 });
-export const fetchPreMarketTask = (id: number) => api.get(`/live/pre-market/tasks/${id}`);
-export const fetchLatestPreMarketTask = (tradeDate?: string) => api.get('/live/pre-market/tasks/latest', { params: tradeDate ? { tradeDate } : {} });
-export const fetchPreMarketDecisions = (tradeDate?: string) => api.get('/live/pre-market/decisions', { params: tradeDate ? { tradeDate } : {} });
+export const runTradeExec = (tradeDate: string, skipAi?: boolean, runId?: number, force?: boolean) => api.post(`/live/runs/${runId}/trade-exec`, { tradeDate, skipAi, force }, { timeout: 120000 });
+export const fetchTradeExecTask = (id: number) => api.get(`/live/trade-exec/tasks/${id}`);
+export const fetchLatestTradeExecTask = (tradeDate?: string, runId?: number) => api.get('/live/trade-exec/tasks/latest', { params: { ...(tradeDate ? { tradeDate } : {}), ...(runId ? { runId } : {}) } });
+export const fetchTradeExecDecisions = (tradeDate?: string) => api.get('/live/trade-exec/decisions', { params: tradeDate ? { tradeDate } : {} });
+
+// Execution logs
+export const fetchRunLogs = (id: number, date?: string) => api.get(`/live/runs/${id}/logs`, { params: date ? { date } : {} });
 
 // Notification configs
 export const fetchNotificationConfigs = () => api.get('/live/notification-configs');
@@ -357,6 +360,24 @@ export const fetchTradeRecords = () => api.get("/holdings/trades");
 export const fetchRiskAlerts = () => api.get('/risks');
 export const ignoreRiskAlert = (id: number) => api.put(`/risks/${id}/ignore`);
 export const triggerRiskScan = () => api.post('/admin/risks/scan');
+
+
+// ── Scheduler v2 (统一调度中心) ──
+export const fetchSchedulerDefinitions = (kind?: string) => api.get('/admin/scheduler/v2/definitions', { params: kind ? { kind } : {} });
+export const fetchSchedulerTasks = (definitionId?: string, ownerKind?: string, ownerId?: number) => {
+  const params: any = {};
+  if (definitionId !== undefined) params.definitionId = definitionId;
+  if (ownerKind !== undefined) params.ownerKind = ownerKind;
+  if (ownerId !== undefined) params.ownerId = ownerId;
+  return api.get('/admin/scheduler/v2/tasks', { params });
+};
+export const triggerSchedulerTask = (id: number) => api.post(`/admin/scheduler/v2/tasks/${id}/trigger`);
+export const fetchSchedulerHealth = () => api.get('/admin/scheduler/v2/health');
+export const fetchSchedulerHistory = (definitionId?: string, limit?: number) => api.get('/admin/scheduler/v2/history', { params: { definitionId, limit } });
+export const fetchSchedulerQueues = () => api.get('/admin/scheduler/v2/queues');
+export const fetchSchedulerAlerts = () => api.get('/admin/scheduler/v2/alerts');
+export const clearSchedulerAlerts = () => api.delete('/admin/scheduler/v2/alerts');
+export const fetchSchedulerReadiness = () => api.get('/admin/scheduler/v2/readiness');
 
 // ── Scheduled Tasks ──
 export const fetchScheduledTasks = () => api.get('/admin/scheduled-tasks');

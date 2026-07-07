@@ -11,6 +11,7 @@ import (
 	"github.com/ai-stock-predict/server/internal/db"
 	"github.com/ai-stock-predict/server/internal/model"
 	"github.com/ai-stock-predict/server/pkg/response"
+	schedv2 "github.com/ai-stock-predict/server/internal/scheduler/v2"
 	"github.com/ai-stock-predict/server/internal/service"
 	"github.com/gin-gonic/gin"
 )
@@ -143,15 +144,17 @@ func (h *LiveTradingHandler) CreateRun(c *gin.Context) {
 		WebhookURL string `json:"webhookUrl"` // webhook URL
 	}
 	var body struct {
-		StrategyID     uint                 `json:"strategyId"`
-		AccountID      uint                 `json:"accountId"`
-		Name           string               `json:"name"`
-		InitialCapital float64              `json:"initialCapital"`
-		PctOfAccount   float64              `json:"pctOfAccount"`
-		StockPool      string               `json:"stockPool"`
-		StartDate      string               `json:"startDate"`
-		NotifyEnabled  bool                 `json:"notifyEnabled"`
-		NotifyConfigs  []NotifyConfigInput  `json:"notifyConfigs"`
+		StrategyID        uint                 `json:"strategyId"`
+		AccountID         uint                 `json:"accountId"`
+		Name              string               `json:"name"`
+		InitialCapital    float64              `json:"initialCapital"`
+		PctOfAccount      float64              `json:"pctOfAccount"`
+		StockPool         string               `json:"stockPool"`
+		StartDate         string               `json:"startDate"`
+		AutoDailyCron     string               `json:"autoDailyCron"`
+		AutoTradeExecCron string               `json:"autoTradeExecCron"`
+		NotifyEnabled     bool                 `json:"notifyEnabled"`
+		NotifyConfigs     []NotifyConfigInput  `json:"notifyConfigs"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		response.BadRequest(c, "参数错误")
@@ -186,14 +189,17 @@ func (h *LiveTradingHandler) CreateRun(c *gin.Context) {
 
 	// Create strategy run
 	run := model.StrategyRun{
-		UserID:         uid,
-		StrategyID:     body.StrategyID,
-		Name:           body.Name,
-		Status:         "active",
-		StockPool:      body.StockPool,
-		StartDate:      body.StartDate,
-		InitialCapital: body.InitialCapital,
-		CurrentEquity:  body.InitialCapital,
+		UserID:            uid,
+		StrategyID:        body.StrategyID,
+		AccountID:         account.ID,
+		Name:              body.Name,
+		Status:            "active",
+		StockPool:         body.StockPool,
+		StartDate:         body.StartDate,
+		InitialCapital:    body.InitialCapital,
+		CurrentEquity:     body.InitialCapital,
+		AutoDailyCron:     body.AutoDailyCron,
+		AutoTradeExecCron: body.AutoTradeExecCron,
 	}
 	if err := db.MySQL.Create(&run).Error; err != nil {
 		response.InternalError(c, "创建运行实例失败")
@@ -242,6 +248,11 @@ func (h *LiveTradingHandler) CreateRun(c *gin.Context) {
 		})
 	}
 
+	// Register v2 scheduler tasks for this strategy run
+	if sched := schedv2.GetGlobal(); sched != nil {
+		sched.RegisterStrategyRunTasks(run.ID, uid)
+	}
+
 	response.Created(c, map[string]interface{}{
 		"runId":        run.ID,
 		"allocationId": alloc.ID,
@@ -270,6 +281,16 @@ func (h *LiveTradingHandler) GetRun(c *gin.Context) {
 	if err := db.MySQL.Where("id = ? AND user_id = ?", rid, uid).First(&run).Error; err != nil {
 		response.NotFound(c, "运行实例不存在")
 		return
+	}
+
+	// Linked trading account
+	var linkedAccount model.TradingAccount
+	if run.AccountID > 0 {
+		db.MySQL.Where("id = ?", run.AccountID).First(&linkedAccount)
+	}
+	if linkedAccount.ID == 0 {
+		db.MySQL.Where("user_id = ? AND status = ?", uid, "active").
+			Order("id ASC").First(&linkedAccount)
 	}
 
 	var alloc model.StrategyFundAllocation
@@ -308,6 +329,7 @@ func (h *LiveTradingHandler) GetRun(c *gin.Context) {
 	response.Success(c, map[string]interface{}{
 		"run":           run,
 		"strategy":      strategy,
+		"account":       linkedAccount,
 		"allocation":    alloc,
 		"positions":     positions,
 		"trades":        trades,
@@ -324,7 +346,9 @@ func (h *LiveTradingHandler) UpdateRunConfig(c *gin.Context) {
 	rid, _ := strconv.Atoi(c.Param("id"))
 	var body struct {
 		AutoDailyCron     *string `json:"autoDailyCron"`
-		AutoPreMarketCron *string `json:"autoPreMarketCron"`
+		AutoTradeExecCron *string `json:"autoTradeExecCron"`
+		AiReviewEnabled   *bool   `json:"aiReviewEnabled"`
+		ExecutionMode     *string `json:"executionMode"`
 		NotifyEnabled     *bool   `json:"notifyEnabled"`
 		NotifyChannels    *string `json:"notifyChannels"`
 	}
@@ -335,9 +359,23 @@ func (h *LiveTradingHandler) UpdateRunConfig(c *gin.Context) {
 
 	updates := map[string]interface{}{}
 	if body.AutoDailyCron != nil     { updates["auto_daily_cron"] = *body.AutoDailyCron }
-	if body.AutoPreMarketCron != nil { updates["auto_pre_market_cron"] = *body.AutoPreMarketCron }
+	if body.AutoTradeExecCron != nil { updates["auto_trade_exec_cron"] = *body.AutoTradeExecCron }
+	if body.AiReviewEnabled != nil   { updates["ai_review_enabled"] = *body.AiReviewEnabled }
+	if body.ExecutionMode != nil     { updates["execution_mode"] = *body.ExecutionMode }
 	if body.NotifyEnabled != nil     { updates["notify_enabled"] = *body.NotifyEnabled }
 	if body.NotifyChannels != nil    { updates["notify_channels"] = *body.NotifyChannels }
+
+	// Validate execution mode: if switching to auto/mx, verify at least one account supports it
+	if body.ExecutionMode != nil && *body.ExecutionMode != "manual" {
+		var count int64
+		db.MySQL.Model(&model.TradingAccount{}).
+			Where("user_id = ? AND status = ? AND mx_api_key != ''", uid, "active").
+			Count(&count)
+		if count == 0 {
+			response.Error(c, 400, 400, "切换为自动交易需要先在账户设置中配置妙想API Key")
+			return
+		}
+	}
 
 	if len(updates) == 0 {
 		response.BadRequest(c, "无更新内容")
@@ -349,7 +387,123 @@ func (h *LiveTradingHandler) UpdateRunConfig(c *gin.Context) {
 		response.InternalError(c, "更新配置失败")
 		return
 	}
+
+	// Sync cron changes to v2 scheduler TaskInstances
+	if body.AutoTradeExecCron != nil || body.AutoDailyCron != nil {
+		sched := schedv2.GetGlobal()
+		if sched != nil {
+			daily := ""
+			preMkt := ""
+			if body.AutoDailyCron != nil { daily = *body.AutoDailyCron }
+			if body.AutoTradeExecCron != nil { preMkt = *body.AutoTradeExecCron }
+			sched.SyncRunCron(uint(rid), daily, preMkt)
+		}
+	}
+
 	response.Success(c, map[string]string{"status": "ok"})
+}
+
+// ExecuteTrade manually triggers trade execution for a run.
+func (h *LiveTradingHandler) ExecuteTrade(c *gin.Context) {
+	uid := getUID(c)
+	rid, err := strconv.Atoi(c.Param("id"))
+	if err != nil || rid <= 0 {
+		response.BadRequest(c, "无效的实盘运行ID")
+		return
+	}
+
+	var body struct {
+		TradeDate string `json:"tradeDate"`
+		SkipAI    *bool  `json:"skipAi"`
+		Force     bool   `json:"force"`
+	}
+	_ = c.ShouldBindJSON(&body)
+
+	var run model.StrategyRun
+	if err := db.MySQL.Where("id = ? AND user_id = ?", rid, uid).First(&run).Error; err != nil {
+		response.Error(c, 404, 404, "实盘运行不存在")
+		return
+	}
+
+	tradeDate := time.Now().Format("2006-01-02")
+	if body.TradeDate != "" {
+		tradeDate = body.TradeDate
+	} else if dateQ := c.Query("date"); dateQ != "" {
+		tradeDate = dateQ
+	}
+
+	// Honor skipAi — temporarily override run's AiReviewEnabled
+	if body.SkipAI != nil && *body.SkipAI {
+		run.AiReviewEnabled = false
+	}
+
+	svc := service.NewTradeExecService(service.NewAIService())
+	result, err := svc.ExecuteForRun(tradeDate, uint(rid), body.Force)
+	if err != nil {
+		response.InternalError(c, "交易执行失败: "+err.Error())
+		return
+	}
+
+	response.Success(c, result)
+}
+
+// ExecuteSingleSignal manually executes a single signal (user override).
+func (h *LiveTradingHandler) ExecuteSingleSignal(c *gin.Context) {
+	uid := getUID(c)
+	sid, _ := strconv.Atoi(c.Param("signalId"))
+	rid, _ := strconv.Atoi(c.Param("id"))
+
+	var body struct {
+		Price    *float64 `json:"price"`
+		Quantity *int     `json:"quantity"`
+		Action   *string  `json:"action"` // "execute" / "skip" / "manual"
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		response.BadRequest(c, "参数错误")
+		return
+	}
+
+	var sig model.BacktestSignal
+	if err := db.MySQL.Where("id = ? AND run_id = ? AND user_id = ?", sid, rid, uid).First(&sig).Error; err != nil {
+		response.Error(c, 404, 404, "信号不存在")
+		return
+	}
+
+	if body.Action != nil && *body.Action == "skip" {
+		sig.Status = "skipped"
+		sig.SkipReason = "用户手动跳过"
+		db.MySQL.Save(&sig)
+		response.Success(c, map[string]string{"status": "skipped"})
+		return
+	}
+
+	if body.Action != nil && *body.Action == "manual" {
+		sig.Status = "pending_manual"
+		sig.SkipReason = "用户标记为手动下单"
+		if body.Price != nil { sig.OrderPrice = *body.Price }
+		if body.Quantity != nil { sig.SuggestedQty = *body.Quantity }
+		db.MySQL.Save(&sig)
+		response.Success(c, map[string]string{"status": "pending_manual"})
+		return
+	}
+
+	// Execute: find account and dispatch
+	var account model.TradingAccount
+	db.MySQL.Where("user_id = ? AND status = ?", uid, "active").Order("id ASC").First(&account)
+
+	_ = service.NewTradeExecService(service.NewAIService())
+	// Direct execution (manual dispatch regardless of broker mode)
+	sig.Status = "pending_manual"
+	sig.SkipReason = "用户手动触发，请在前端确认下单"
+	if body.Price != nil { sig.OrderPrice = *body.Price }
+	if body.Quantity != nil { sig.SuggestedQty = *body.Quantity }
+	db.MySQL.Save(&sig)
+	_ = account // may use for context later
+
+	response.Success(c, map[string]interface{}{
+		"status": "pending_manual",
+		"signal": sig,
+	})
 }
 
 // UpdateRunStatus pauses/resumes/stops a strategy run.
@@ -369,6 +523,17 @@ func (h *LiveTradingHandler) UpdateRunStatus(c *gin.Context) {
 		response.InternalError(c, "更新状态失败")
 		return
 	}
+
+	// Sync scheduler tasks
+	if sched := schedv2.GetGlobal(); sched != nil {
+		switch body.Status {
+		case "active":
+			sched.RegisterStrategyRunTasks(uint(rid), uid)
+		case "paused", "stopped":
+			sched.DisableStrategyRunTasks(uint(rid))
+		}
+	}
+
 	response.Success(c, map[string]string{"status": body.Status})
 }
 
@@ -380,9 +545,13 @@ func (h *LiveTradingHandler) RunDaily(c *gin.Context) {
 	uid := getUID(c)
 	var body struct {
 		TradeDate string `json:"tradeDate"`
-		Mode      string `json:"mode"` // "after_close", "pre_market", "intraday"
+		Mode      string `json:"mode"`   // "after_close", "pre_market", "intraday"
+		RunID     uint   `json:"runId"`  // required: scope to a specific run
 	}
-	_ = c.ShouldBindJSON(&body) // allow empty body
+	if err := c.ShouldBindJSON(&body); err != nil || body.RunID == 0 {
+		response.BadRequest(c, "runId is required")
+		return
+	}
 	if body.Mode == "" {
 		body.Mode = "after_close"
 	}
@@ -391,10 +560,12 @@ func (h *LiveTradingHandler) RunDaily(c *gin.Context) {
 		tradeDate = time.Now().Format("2006-01-02")
 	}
 
-	// Check for existing running task
+	// Check for existing running task (scoped to same runId if provided)
 	var existing model.DailyRunTask
-	if err := db.MySQL.Where("trade_date = ? AND status IN ?",
-		tradeDate, []string{"pending", "running"}).First(&existing).Error; err == nil {
+	checkQuery := db.MySQL.Where("trade_date = ? AND status IN ?",
+		tradeDate, []string{"pending", "running"})
+	checkQuery = checkQuery.Where("run_id = ?", body.RunID)
+	if err := checkQuery.First(&existing).Error; err == nil {
 		response.Success(c, map[string]interface{}{
 			"taskId":  existing.ID,
 			"status":  existing.Status,
@@ -409,6 +580,7 @@ func (h *LiveTradingHandler) RunDaily(c *gin.Context) {
 		TradeDate: tradeDate,
 		Mode:      body.Mode,
 		Status:    "pending",
+		RunID:     body.RunID,
 	}
 	if err := db.MySQL.Create(&task).Error; err != nil {
 		response.InternalError(c, "创建任务失败")
@@ -473,8 +645,11 @@ func (h *LiveTradingHandler) GetLatestDailyRunTask(c *gin.Context) {
 	}
 
 	var task model.DailyRunTask
-	if err := db.MySQL.Where("trade_date = ?", tradeDate).
-		Order("id DESC").First(&task).Error; err != nil {
+	query := db.MySQL.Where("trade_date = ?", tradeDate)
+	if runID := c.Query("runId"); runID != "" {
+		query = query.Where("run_id = ?", runID)
+	}
+	if err := query.Order("id DESC").First(&task).Error; err != nil {
 		response.NotFound(c, "无任务记录")
 		return
 	}
@@ -1004,6 +1179,10 @@ func RegisterLiveTradingRoutes(r *gin.RouterGroup, h *LiveTradingHandler) {
 	r.GET("/daily-run/tasks/:id", h.GetDailyRunTask)
 	r.GET("/daily-run/tasks/latest", h.GetLatestDailyRunTask)
 
+	// Trade execution (new pipeline)
+	r.POST("/runs/:id/trade-exec", h.ExecuteTrade)
+	r.POST("/runs/:id/signals/:signalId/execute", h.ExecuteSingleSignal)
+
 	// Signal execution
 	r.PUT("/signals/:id", h.UpdateSignal)
 	r.DELETE("/signals/:id", h.DeleteSignal)
@@ -1022,6 +1201,65 @@ func RegisterLiveTradingRoutes(r *gin.RouterGroup, h *LiveTradingHandler) {
 	r.GET("/accounts/:id/broker-orders", h.GetBrokerOrders)
 	r.POST("/accounts/:id/broker-order", h.PlaceBrokerOrder)
 	r.POST("/accounts/:id/broker-cancel", h.CancelBrokerOrder)
+
+	// Order sync
+	r.POST("/order-sync", h.SyncOrders)
+
+	// Execution logs
+	r.GET("/runs/:id/logs", h.GetRunLogs)
+}
+
+// GetRunLogs returns execution logs for a run, grouped by log_type.
+// Query params: ?date=YYYY-MM-DD (defaults to latest available)
+func (h *LiveTradingHandler) GetRunLogs(c *gin.Context) {
+	rid, _ := strconv.Atoi(c.Param("id"))
+	if rid <= 0 {
+		response.BadRequest(c, "无效的ID")
+		return
+	}
+	date := c.Query("date")
+	logSvc := service.NewExecutionLogService()
+
+	if date == "" {
+		dates, _ := logSvc.GetAvailableDates(uint(rid))
+		if len(dates) > 0 {
+			date = dates[0]
+		}
+	}
+
+	if date == "" {
+		response.Success(c, map[string]interface{}{"strategy": []string{}, "trade_exec": []string{}})
+		return
+	}
+
+	logs, err := logSvc.LoadRunLogsJSON(uint(rid), date)
+	if err != nil {
+		response.InternalError(c, "加载日志失败")
+		return
+	}
+
+	strategyTime := logSvc.LastExecutionTime(uint(rid), date, "strategy")
+	tradeExecTime := logSvc.LastExecutionTime(uint(rid), date, "trade_exec")
+
+	dates, _ := logSvc.GetAvailableDates(uint(rid))
+	response.Success(c, map[string]interface{}{
+		"logs":            logs,
+		"date":            date,
+		"availableDates":  dates,
+		"strategyTime":    strategyTime,
+		"tradeExecTime":   tradeExecTime,
+	})
+}
+
+// SyncOrders manually triggers order status synchronization from brokers.
+func (h *LiveTradingHandler) SyncOrders(c *gin.Context) {
+	svc := service.NewOrderSyncService()
+	result, err := svc.SyncAllPendingOrders()
+	if err != nil {
+		response.InternalError(c, "订单同步失败: "+err.Error())
+		return
+	}
+	response.Success(c, result)
 }
 
 // ── Feishu Card Builder ──

@@ -326,8 +326,9 @@ func (e *SignalEngine) GenerateSignals(
 					seenIndustries[ind] = true
 					// Allocate this candidate
 					allocAmt := singlePosLimit
-					qty := int(allocAmt/c.price/100) * 100
-					if qty < 100 && allocAmt >= c.price*100 { qty = 100 }
+					lot := BoardLotSize(c.code)
+					qty := int(allocAmt/c.price/float64(lot)) * lot
+					if qty < lot && allocAmt >= c.price*float64(lot) { qty = lot }
 					if qty <= 0 { continue }
 					amount := c.price * float64(qty)
 					if totalAllocated+amount > maxBuyCash { continue }
@@ -357,8 +358,9 @@ func (e *SignalEngine) GenerateSignals(
 				}
 				ind := codeToIndustry[c.code]
 				allocAmt := singlePosLimit
-				qty := int(allocAmt/c.price/100) * 100
-				if qty < 100 && allocAmt >= c.price*100 { qty = 100 }
+				lot := BoardLotSize(c.code)
+				qty := int(allocAmt/c.price/float64(lot)) * lot
+				if qty < lot && allocAmt >= c.price*float64(lot) { qty = lot }
 				if qty <= 0 { continue }
 				amount := c.price * float64(qty)
 				if totalAllocated+amount > maxBuyCash { continue }

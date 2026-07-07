@@ -1,6 +1,10 @@
 package db
 
-import "log"
+import (
+	"log"
+
+	"github.com/ai-stock-predict/server/internal/model"
+)
 
 // AutoMigrate runs all pending versioned migrations in order.
 // Safe for production: each migration is idempotent (IF NOT EXISTS / IF EXISTS),
@@ -20,7 +24,7 @@ func AutoMigrate() {
 // EnsureManualTables is kept for backward compatibility.
 // New manual tables should be added as versioned migrations in migrations_data.go.
 func EnsureManualTables() {
-	// All manual tables are now handled by versioned migrations.
-	// This function is a no-op; kept for compatibility with existing callers.
-	log.Println("[migrate] EnsureManualTables: all tables managed by versioned migrations")
+	// Lightweight tables auto-migrated via GORM (for dedup/audit logging)
+	MySQL.AutoMigrate(&model.NotificationLog{})
+	log.Println("[migrate] EnsureManualTables: done")
 }

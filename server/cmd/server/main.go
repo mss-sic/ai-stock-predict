@@ -3,13 +3,14 @@ package main
 import (
 	"log"
 	"os"
+	"time"
 	"os/signal"
 	"syscall"
 
 	"github.com/ai-stock-predict/server/internal/config"
 	"github.com/ai-stock-predict/server/internal/db"
 	"github.com/ai-stock-predict/server/internal/handler"
-	"github.com/ai-stock-predict/server/internal/scheduler"
+	schedv2 "github.com/ai-stock-predict/server/internal/scheduler/v2"
 	"github.com/ai-stock-predict/server/internal/service"
 	"github.com/gin-gonic/gin"
 )
@@ -27,13 +28,20 @@ func main() {
 	// Clean orphaned backtest tasks from previous server run
 	db.MySQL.Exec("UPDATE backtest_tasks SET status='cancelled', phase='服务器重启, 任务已中断', completed_at=NOW() WHERE status IN ('running','pending')")
 
-	sched := scheduler.New(cfg.CronExpr)
-	sched.Start()
-	defer sched.Stop()
+	// Old scheduler deprecated — all scheduling migrated to v2 UnifiedScheduler
 
-	// Initialize task manager with default scheduled tasks
-	service.InitTaskManager()
-	service.InitializeDefaultTasks()
+	// ── v2 Unified Scheduler (兼容模式，与旧调度器共存) ──
+	schedV2 := schedv2.New(schedv2.Config{
+		Mode:         "standalone",
+		Workers:       4,
+		InstanceID:   "stock-server",
+		EvalInterval: 10 * time.Second,
+	})
+	schedv2.RegisterSystemPipelines(schedV2)
+	schedV2.Start()
+	schedv2.SetGlobal(schedV2)
+	schedV2.RestoreLiveTradingTasks()
+	defer schedV2.Stop()
 
 	r := gin.Default()
 	r.MaxMultipartMemory = 100 << 20 // 100MB for large file imports
@@ -129,6 +137,8 @@ func main() {
 			admin.POST("/risks/scan", handler.NewRiskHandler().Scan)
 
 		// Scheduled Tasks
+		schedV2Handler := schedv2.NewHandler(schedV2)
+		schedV2Handler.RegisterRoutes(admin.Group("/scheduler/v2"))
 		taskH := handler.NewTaskHandler()
 			admin.GET("/scheduled-tasks", taskH.ListTasks)
 			admin.POST("/scheduled-tasks", taskH.CreateTask)
@@ -286,17 +296,17 @@ func main() {
 		// Pre-Market Finalization (盘前决策) + Notifications
 		preMarketH := handler.NewPreMarketHandler(service.NewAIService())
 		preMarketGroup := api.Group("/live")
-		preMarketGroup.POST("/pre-market", preMarketH.FinalizePreMarket)
-		preMarketGroup.GET("/pre-market/tasks/latest", preMarketH.GetLatestTask)
-		preMarketGroup.GET("/pre-market/tasks/:id", preMarketH.GetTaskStatus)
-		preMarketGroup.GET("/pre-market/decisions", preMarketH.GetPreMarketDecisions)
+		preMarketGroup.POST("/trade-exec", preMarketH.FinalizePreMarket)
+		preMarketGroup.GET("/trade-exec/tasks/latest", preMarketH.GetLatestTask)
+		preMarketGroup.GET("/trade-exec/tasks/:id", preMarketH.GetTaskStatus)
+		preMarketGroup.GET("/trade-exec/decisions", preMarketH.GetPreMarketDecisions)
 		preMarketGroup.GET("/notification-configs", preMarketH.ListNotificationConfigs)
 		preMarketGroup.POST("/notification-configs", preMarketH.CreateNotificationConfig)
 		preMarketGroup.PUT("/notification-configs/:id", preMarketH.UpdateNotificationConfig)
 		preMarketGroup.DELETE("/notification-configs/:id", preMarketH.DeleteNotificationConfig)
 
 		// Collector
-		collectorH := handler.NewCollectorHandler(sched)
+		collectorH := handler.NewCollectorHandler()
 		api.GET("/collector/stream", collectorH.Stream)
 		api.GET("/collector/history", collectorH.History)
 		api.DELETE("/collector/history/clear", collectorH.ClearHistory)
@@ -356,7 +366,6 @@ func main() {
 		signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 		<-quit
 		log.Println("Shutting down...")
-		sched.Stop()
 		os.Exit(0)
 	}()
 

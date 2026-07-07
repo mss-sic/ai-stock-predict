@@ -112,7 +112,13 @@ type Strategy struct {
 	EnableGrid         bool    `gorm:"default:false" json:"enableGrid"`
 	GridTriggerSqueeze float64 `gorm:"default:8" json:"gridTriggerSqueeze"` // 震荡阈值(boll_squeeze)
 	GridLevels         int     `gorm:"default:3" json:"gridLevels"`         // 网格层数
-	GridLotPct         float64 `gorm:"default:5" json:"gridLotPct"`         // 每格仓位%
+		GridLotPct         float64 `gorm:"default:5" json:"gridLotPct"`         // 每格仓位%
+
+	// ── Strategy Profile (user-selected, used by AI decision pipeline) ──
+	StrategyStyle    string `gorm:"size:30" json:"strategyStyle"`       // momentum_chaser / swing_trader / trend_follower / value_hunter / dip_buyer / grid_trader
+	ExpectedHoldDays int    `gorm:"default:5" json:"expectedHoldDays"`  // 策略目标持仓天数
+	RiskProfile      string `gorm:"size:30" json:"riskProfile"`         // aggressive / balanced / conservative
+	StrategyThesis   string `gorm:"size:500" json:"strategyThesis"`     // 用户自述策略理念，AI 决策时参考
 
 	// Investment plan
 	InitialCapital  float64 `gorm:"default:100000" json:"initialCapital"` // 初始资金

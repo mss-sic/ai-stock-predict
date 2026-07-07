@@ -60,7 +60,7 @@ func (s *PreMarketService) RunAsync(task *model.PreMarketTask) {
 		logsMu.Unlock()
 	}
 
-	addLog("═══ 盘前决策开始 ═══")
+	addLog("═══ 交易执行开始 ═══")
 	addLog("交易日: %s", tradeDate)
 
 	// 1. Load pending signals (scoped by runId if provided)
@@ -85,7 +85,7 @@ func (s *PreMarketService) RunAsync(task *model.PreMarketTask) {
 	db.MySQL.Save(task)
 
 	if total == 0 {
-		addLog("═══ 盘前决策: 无待验证信号 ═══")
+		addLog("═══ 交易执行: 无待验证信号 ═══")
 		// Still run position patrol
 		patrolResult := s.runPositionPatrol(tradeDate)
 		patrolJSON, _ := json.Marshal(patrolResult)
@@ -306,7 +306,7 @@ func (s *PreMarketService) RunAsync(task *model.PreMarketTask) {
 	report := s.buildDecisionReport(tradeDate, signals, decisions, patrolResult, false)
 	notified := 0
 	if len(decisions) > 0 {
-		notified = s.sendPreMarketNotifications(tradeDate, report)
+		notified = s.sendPreMarketNotifications(tradeDate, report, signals, decisions)
 	}
 	addLog("📤 通知已发送: %d条", notified)
 
@@ -518,6 +518,124 @@ type PreMarketResult struct {
 }
 
 // FinalizePreMarket runs the pre-market pipeline for all pending signals with today's exec date.
+
+// PositionPatrol runs the position patrol and returns alerts (public wrapper for scheduler).
+func (s *PreMarketService) PositionPatrol(tradeDate string) []map[string]interface{} {
+	return s.runPositionPatrol(tradeDate)
+}
+
+// FinalizePreMarketForRun runs the pre-market pipeline only for signals belonging to a specific run.
+// This is the per-run entry point called by the v2 scheduler.
+func (s *PreMarketService) FinalizePreMarketForRun(tradeDate string, runID uint) (*PreMarketResult, error) {
+	if runID == 0 {
+		// Fallback: process all pending signals
+		return s.FinalizePreMarket(tradeDate)
+	}
+	result := &PreMarketResult{TradeDate: tradeDate}
+
+	// 1. Load pending signals for this run only
+	var signals []model.BacktestSignal
+	db.MySQL.Where("exec_date = ? AND status = ? AND run_id = ?", tradeDate, "pending", runID).
+		Order("id ASC").Find(&signals)
+
+	total := len(signals)
+	if total > s.maxSignalsPerDay {
+		log.Printf("[pre_market] WARNING: %d signals exceeds daily cap %d for run %d, truncating", total, s.maxSignalsPerDay, runID)
+		signals = signals[:s.maxSignalsPerDay]
+	}
+	result.TotalSignals = len(signals)
+	log.Printf("[pre_market] FinalizePreMarketForRun run=%d date=%s: %d signals", runID, tradeDate, len(signals))
+
+	addLog := func(format string, args ...interface{}) {
+		msg := fmt.Sprintf(format, args...)
+		result.Logs = append(result.Logs, msg)
+		log.Printf("[pre_market] %s", msg)
+	}
+
+	if len(signals) == 0 {
+		addLog("═══ 交易执行 run=%d: 无待验证信号 ═══", runID)
+		return result, nil
+	}
+
+	addLog("═══ 交易执行开始 run=%d ═══", runID)
+	addLog("交易日: %s | 待验证信号: %d个", tradeDate, total)
+
+	// 2. For each signal, run TA validation
+	type sigResult struct {
+		idx      int
+		decision *model.PreMarketDecision
+		err      error
+	}
+	results := make(chan sigResult, len(signals))
+
+	for i := range signals {
+		go func(idx int, sig *model.BacktestSignal) {
+			addLog("── 信号#%d: %s(%s) %s ¥%.0f ──", sig.ID, sig.StockName, sig.StockCode, sig.ActionType, sig.PlannedAmount)
+			decision, err := s.validateSignal(sig, tradeDate)
+			if err != nil {
+				log.Printf("[pre_market] signal %d (%s) TA validation failed: %v", sig.ID, sig.StockCode, err)
+				decision = s.fallbackDecision(sig, tradeDate, err.Error())
+			}
+			results <- sigResult{idx: idx, decision: decision, err: err}
+		}(i, &signals[i])
+	}
+
+	orderedDecisions := make([]*model.PreMarketDecision, len(signals))
+	for range signals {
+		r := <-results
+		orderedDecisions[r.idx] = r.decision
+		if r.err != nil {
+			result.Errors++
+		}
+	}
+
+	for i, decision := range orderedDecisions {
+		sig := &signals[i]
+		result.Decisions = append(result.Decisions, *decision)
+
+		switch decision.Status {
+		case "confirmed":
+			result.Confirmed++
+			addLog("  ✅ 确认 — 置信度%.0f%% | %s", decision.Confidence, truncateStr(decision.Reason, 100))
+		case "rejected":
+			result.Rejected++
+			addLog("  ❌ 驳回 — 置信度%.0f%% | %s", decision.Confidence, truncateStr(decision.Reason, 100))
+		case "modified":
+			result.Modified++
+			addLog("  🔄 修正 — 置信度%.0f%% | %s", decision.Confidence, truncateStr(decision.Reason, 100))
+		default:
+			addLog("  ⚠ 未知状态: %s", decision.Status)
+		}
+
+		if decision.Status == "rejected" {
+			sig.Status = "skipped"
+			sig.SkipReason = decision.Reason
+		}
+		sig.SuggestedPremium = decision.SuggestedPremium
+		sig.OrderPrice = decision.OrderPrice
+		sig.OrderPriceLimit = decision.OrderPriceLimit
+		sig.SuggestedQty = decision.SuggestedQty
+		sig.OpenPrice = decision.OpenPrice
+		sig.OpenDeviation = decision.OpenDeviation
+		sig.DecisionRule = decision.DecisionRule
+		db.MySQL.Save(sig)
+	}
+
+	// 3. Send notifications
+	if len(result.Decisions) > 0 {
+		reportBody := s.buildDecisionReport(tradeDate, signals, result.Decisions, nil, false)
+		notified := s.sendPreMarketNotifications(tradeDate, reportBody, signals, result.Decisions)
+		result.NotificationsSent = notified
+	}
+
+	addLog("═══ 交易执行完成 run=%d: 确认%d 驳回%d 修正%d 错误%d ═══",
+		runID, result.Confirmed, result.Rejected, result.Modified, result.Errors)
+	log.Printf("[pre_market] FinalizePreMarketForRun run=%d date=%s complete: %d confirmed, %d rejected",
+		runID, tradeDate, result.Confirmed, result.Rejected)
+
+	return result, nil
+}
+
 func (s *PreMarketService) FinalizePreMarket(tradeDate string) (*PreMarketResult, error) {
 	result := &PreMarketResult{TradeDate: tradeDate}
 
@@ -541,11 +659,11 @@ func (s *PreMarketService) FinalizePreMarket(tradeDate string) (*PreMarketResult
 	}
 
 	if len(signals) == 0 {
-		addLog("═══ 盘前决策: 无待验证信号 ═══")
+		addLog("═══ 交易执行: 无待验证信号 ═══")
 		return result, nil
 	}
 
-	addLog("═══ 盘前决策开始 ═══")
+	addLog("═══ 交易执行开始 ═══")
 	addLog("交易日: %s | 待验证信号: %d个", tradeDate, total)
 
 	// 2. For each signal, run TA validation + decision matrix in parallel
@@ -614,11 +732,11 @@ func (s *PreMarketService) FinalizePreMarket(tradeDate string) (*PreMarketResult
 	// 3. Send notifications for confirmed/modified signals
 	if len(result.Decisions) > 0 {
 		reportBody := s.buildDecisionReport(tradeDate, signals, result.Decisions, nil, false)
-		notified := s.sendPreMarketNotifications(tradeDate, reportBody)
+		notified := s.sendPreMarketNotifications(tradeDate, reportBody, signals, result.Decisions)
 		result.NotificationsSent = notified
 	}
 
-	addLog("═══ 盘前决策完成: 确认%d 驳回%d 修正%d 错误%d ═══",
+	addLog("═══ 交易执行完成: 确认%d 驳回%d 修正%d 错误%d ═══",
 		result.Confirmed, result.Rejected, result.Modified, result.Errors)
 
 	log.Printf("[pre_market] FinalizePreMarket %s complete: %d confirmed, %d rejected, %d errors",
@@ -676,7 +794,7 @@ func (s *PreMarketService) RunAsyncNoAI(task *model.PreMarketTask) {
 		task.CurrentStage = "done"
 		resultData := map[string]interface{}{
 			"confirmed": 0, "rejected": 0, "total": 0,
-			"notifyMarkdown": fmt.Sprintf("# 盘前决策报告\n\n> %s  ·  信号 `0` 条  ·  AI 分析 `0` 条\n\n---\n\n## \U0001f4cb 交易执行指令\n\n> \u26a0\ufe0f 当日无确认执行的信号\n\n## \U0001f4e1 信号与决策概览\n\n> \u26a0\ufe0f 当日未生成信号\n\n## \U0001f916 AI 详细分析\n\n> \U0001f6ab **未启用 AI 决策引擎**\n> 信号基于策略条件直接生成，未经多智能体辩论分析。可在策略设置中开启 **AI 代理**。\n\n## \U0001f50d 持仓巡检\n\n> \u2705 当前持仓无需操作\n\n---\n\n> \u26a0\ufe0f **免责声明**：本报告由 AI 多智能体系统自动生成，仅供参考，不构成投资建议。市场有风险，投资需谨慎。", tradeDate),
+			"notifyMarkdown": fmt.Sprintf("# 交易执行报告\n\n> %s  ·  信号 `0` 条  ·  AI 分析 `0` 条\n\n---\n\n## \U0001f4cb 交易执行指令\n\n> \u26a0\ufe0f 当日无确认执行的信号\n\n## \U0001f4e1 信号与决策概览\n\n> \u26a0\ufe0f 当日未生成信号\n\n## \U0001f916 AI 详细分析\n\n> \U0001f6ab **未启用 AI 决策引擎**\n> 信号基于策略条件直接生成，未经多智能体辩论分析。可在策略设置中开启 **AI 代理**。\n\n## \U0001f50d 持仓巡检\n\n> \u2705 当前持仓无需操作\n\n---\n\n> \u26a0\ufe0f **免责声明**：本报告由 AI 多智能体系统自动生成，仅供参考，不构成投资建议。市场有风险，投资需谨慎。", tradeDate),
 		}
 		resultJSON, _ := json.Marshal(resultData)
 		task.ResultJSON = string(resultJSON)
@@ -926,8 +1044,37 @@ func (s *PreMarketService) buildDecisionReport(
 
 // validateSignal runs the full TradingAgents pipeline on a single signal.
 // validateSignalWithProgress runs TA pipeline with per-phase progress updates.
+
+// confidenceThresholds returns adaptive confirm/modify thresholds based on strategy style.
+// Aggressive strategies accept lower confidence (prioritize capturing opportunities).
+// Conservative strategies require higher confidence (prioritize capital preservation).
+func confidenceThresholds(style string) (confirm, modify float64) {
+	switch style {
+	case "momentum_chaser", "dip_buyer":
+		return 40, 20 // aggressive: accept lower conviction
+	case "swing_trader", "grid_trader":
+		return 50, 30 // moderate-aggressive
+	case "trend_follower":
+		return 55, 30 // moderate
+	case "value_hunter":
+		return 65, 40 // conservative: need high conviction
+	default:
+		return 60, 30 // balanced default
+	}
+}
+
+// loadStrategyForSignal loads the Strategy model for a given signal.
+func loadStrategyForSignal(sig *model.BacktestSignal) *model.Strategy {
+	var strategy model.Strategy
+	if err := db.MySQL.First(&strategy, sig.StrategyID).Error; err != nil {
+		return nil
+	}
+	return &strategy
+}
+
 func (s *PreMarketService) validateSignalWithProgress(sig *model.BacktestSignal, tradeDate string, progressCB func(string, string)) (*model.PreMarketDecision, error) {
-	ctx, err := s.buildTAContext(sig, tradeDate)
+	strategy := loadStrategyForSignal(sig)
+	ctx, err := s.buildTAContext(sig, tradeDate, strategy)
 	if err != nil {
 		return nil, fmt.Errorf("build TA context: %w", err)
 	}
@@ -940,8 +1087,6 @@ func (s *PreMarketService) validateSignalWithProgress(sig *model.BacktestSignal,
 
 	result, err := s.taOrch.Run(TAOrchestratorConfig{
 		UserID:           uid,
-		MaxDebateRounds:  1,
-		MaxRiskRounds:    1,
 		ProgressCallback: progressCB,
 	}, ctx)
 	if err != nil {
@@ -981,7 +1126,9 @@ func (s *PreMarketService) validateSignalWithProgress(sig *model.BacktestSignal,
 		if decision.Reason == "" { decision.Reason = fmt.Sprintf("TA: %s", truncateStr(result.FinalDecision.Reasoning, 200)) }
 		decision.Reason = fmt.Sprintf("[AI\u5efa\u8bae: %s \u7f6e\u4fe1\u5ea6%.0f%%] %s | [\u4fe1\u53f7: %s] \u88ab\u9a73\u56de",
 			fd.Action, fd.Confidence, decision.Reason, sig.ActionType)
-	} else if fd.Confidence >= 60 {
+	} else {
+		confirmTh, modifyTh := confidenceThresholds(strategy.StrategyStyle)
+		if fd.Confidence >= confirmTh {
 		decision.Status = "confirmed"
 		decision.FinalAction = fd.Action
 		decision.FinalPrice = fd.Price
@@ -991,7 +1138,7 @@ func (s *PreMarketService) validateSignalWithProgress(sig *model.BacktestSignal,
 			decision.FinalAmount = sig.PlannedAmount
 		}
 		decision.FinalQty = sig.PlannedQty
-	} else if fd.Confidence >= 30 {
+	} else if fd.Confidence >= modifyTh {
 		decision.Status = "modified"
 		decision.FinalAction = sig.ActionType
 		decision.FinalPrice = sig.PlannedPrice
@@ -1004,9 +1151,10 @@ func (s *PreMarketService) validateSignalWithProgress(sig *model.BacktestSignal,
 		decision.FinalAmount = sig.PlannedAmount
 		decision.FinalQty = sig.PlannedQty
 	}
+	}
 
 	decision.TAReasoning = fd.Reasoning
-	if debateBytes, err := json.Marshal(result.DebateHistory); err == nil {
+	if debateBytes, err := json.Marshal(result.AnalystReports); err == nil {
 		decision.TADebateJSON = string(debateBytes)
 	}
 
@@ -1046,7 +1194,7 @@ func (s *PreMarketService) validateSignalWithProgress(sig *model.BacktestSignal,
 		log.Printf("[pre_market] hold → %s for %s(%s), new signal #%d", newAction, sig.StockCode, sig.StockName, newSignal.ID)
 	}
 
-if err := s.upsertDecision(decision); err != nil {
+	if err := s.upsertDecision(decision); err != nil {
 		log.Printf("[pre_market] failed to store decision for signal %d: %v", sig.ID, err)
 	}
 
@@ -1055,7 +1203,8 @@ if err := s.upsertDecision(decision); err != nil {
 
 func (s *PreMarketService) validateSignal(sig *model.BacktestSignal, tradeDate string) (*model.PreMarketDecision, error) {
 	// Build TradingAgents context from signal + stored data
-	ctx, err := s.buildTAContext(sig, tradeDate)
+	strategy := loadStrategyForSignal(sig)
+	ctx, err := s.buildTAContext(sig, tradeDate, strategy)
 	if err != nil {
 		return nil, fmt.Errorf("build TA context: %w", err)
 	}
@@ -1070,8 +1219,6 @@ func (s *PreMarketService) validateSignal(sig *model.BacktestSignal, tradeDate s
 	// Run TA pipeline
 	result, err := s.taOrch.Run(TAOrchestratorConfig{
 		UserID:          uid,
-		MaxDebateRounds: 1,
-		MaxRiskRounds:   1,
 	}, ctx)
 	if err != nil {
 		return nil, fmt.Errorf("TA pipeline: %w", err)
@@ -1111,12 +1258,14 @@ func (s *PreMarketService) validateSignal(sig *model.BacktestSignal, tradeDate s
 		if decision.Reason == "" { decision.Reason = fmt.Sprintf("TA: %s", truncateStr(result.FinalDecision.Reasoning, 200)) }
 		decision.Reason = fmt.Sprintf("[AI\u5efa\u8bae: %s \u7f6e\u4fe1\u5ea6%.0f%%] %s | [\u4fe1\u53f7: %s] \u88ab\u9a73\u56de",
 			fd.Action, fd.Confidence, decision.Reason, sig.ActionType)
-	} else if fd.Confidence >= 60 {
+	} else {
+		confirmTh, modifyTh := confidenceThresholds(strategy.StrategyStyle)
+		if fd.Confidence >= confirmTh {
 		decision.Status = "confirmed"
 		decision.FinalAction = fd.Action
 		decision.FinalPrice = fd.Price
 		decision.FinalAmount = fd.Amount
-	} else if fd.Confidence >= 30 {
+	} else if fd.Confidence >= modifyTh {
 		decision.Status = "modified"
 		decision.FinalAction = sig.ActionType
 		decision.FinalPrice = sig.PlannedPrice
@@ -1126,10 +1275,11 @@ func (s *PreMarketService) validateSignal(sig *model.BacktestSignal, tradeDate s
 		decision.Status = "rejected"
 		decision.FinalAction = sig.ActionType
 	}
+	}
 
 	// Store TA reasoning (debate JSON omitted for brevity, stored in TAReasoning)
 	decision.TAReasoning = fd.Reasoning
-	if debateBytes, err := json.Marshal(result.DebateHistory); err == nil {
+	if debateBytes, err := json.Marshal(result.AnalystReports); err == nil {
 		decision.TADebateJSON = string(debateBytes)
 	}
 
@@ -1146,7 +1296,7 @@ func (s *PreMarketService) validateSignal(sig *model.BacktestSignal, tradeDate s
 		decision.Reason = string(runes[:900])
 	}
 
-if err := s.upsertDecision(decision); err != nil {
+	if err := s.upsertDecision(decision); err != nil {
 		log.Printf("[pre_market] failed to store decision for signal %d: %v", sig.ID, err)
 	}
 
@@ -1212,7 +1362,7 @@ func (s *PreMarketService) fallbackDecision(sig *model.BacktestSignal, tradeDate
 }
 
 // buildTAContext constructs TradingAgentContext from signal + stored data.
-func (s *PreMarketService) buildTAContext(sig *model.BacktestSignal, tradeDate string) (TradingAgentContext, error) {
+func (s *PreMarketService) buildTAContext(sig *model.BacktestSignal, tradeDate string, strategy *model.Strategy) (TradingAgentContext, error) {
 	ctx := TradingAgentContext{
 		StockCode:    sig.StockCode,
 		StockName:    sig.StockName,
@@ -1307,31 +1457,190 @@ func (s *PreMarketService) buildTAContext(sig *model.BacktestSignal, tradeDate s
 		// Cash/equity will be set from allocation elsewhere; skip for hold signal context
 	}
 
+
+	// ── Strategy Profile for AI decision context ──
+	if strategy != nil {
+		ctx.Strategy = StrategyProfile{
+			Name:           strategy.Name,
+			Style:          strategy.StrategyStyle,
+			HoldDays:       strategy.ExpectedHoldDays,
+			RiskProfile:    strategy.RiskProfile,
+			Thesis:         strategy.StrategyThesis,
+			StopLoss:       strategy.StopLoss,
+			StopProfit:     strategy.StopProfit,
+			PositionSizing: strategy.PositionSizing,
+			BuyPositionPct: strategy.BuyPositionPct,
+			MaxHoldings:    strategy.MaxHoldings,
+		}
+		if ctx.Strategy.HoldDays <= 0 {
+			ctx.Strategy.HoldDays = 5
+		}
+		if ctx.Strategy.RiskProfile == "" {
+			ctx.Strategy.RiskProfile = "balanced"
+		}
+	}
+
 	return ctx, nil
 }
-
-// sendPreMarketNotifications sends the markdown report via configured channels.
-func (s *PreMarketService) sendPreMarketNotifications(tradeDate string, body string) int {
+func (s *PreMarketService) sendPreMarketNotifications(tradeDate, reportMarkdown string, signals []model.BacktestSignal, decisions []model.PreMarketDecision) int {
 	sent := 0
-	if body == "" {
+	if len(decisions) == 0 {
 		return sent
 	}
 
-	// Get all active users with notification configs
-	var userIDs []uint
-	db.MySQL.Model(&model.NotificationConfig{}).Where("enabled = true").
-		Distinct("user_id").Pluck("user_id", &userIDs)
+	// Group decisions by run_id → signals
+	type runGroup struct {
+		RunID     uint
+		RunName   string
+		UserID    uint
+		Signals   []model.BacktestSignal
+		Decisions []model.PreMarketDecision
+	}
+	groups := make(map[uint]*runGroup)
 
-	title := fmt.Sprintf("盘前决策报告 · %s", tradeDate)
-	for _, uid := range userIDs {
-		if err := s.notifier.SendToUser(uid, title, body); err != nil {
-			log.Printf("[pre_market] notification failed for user %d: %v", uid, err)
+	for i, dec := range decisions {
+		rid := dec.RunID
+		if g, ok := groups[rid]; ok {
+			g.Decisions = append(g.Decisions, dec)
+			if i < len(signals) {
+				g.Signals = append(g.Signals, signals[i])
+			}
+		} else {
+			g := &runGroup{RunID: rid, UserID: dec.UserID}
+			g.Decisions = append(g.Decisions, dec)
+			if i < len(signals) {
+				g.Signals = append(g.Signals, signals[i])
+			}
+			groups[rid] = g
+		}
+	}
+
+	// Look up run names
+	for rid, g := range groups {
+		var run model.StrategyRun
+		if err := db.MySQL.Where("id = ?", rid).First(&run).Error; err == nil {
+			g.RunName = run.Name
+		}
+		if g.RunName == "" {
+			g.RunName = fmt.Sprintf("实盘运行 #%d", rid)
+		}
+	}
+
+	for _, g := range groups {
+		// Dedup per-run: check if notification already sent for this run+date
+		var alreadySent int64
+		db.MySQL.Model(&model.NotificationLog{}).
+			Where("event_type = ? AND event_date = ? AND run_id = ?", "trade_exec_report", tradeDate, g.RunID).
+			Count(&alreadySent)
+		if alreadySent > 0 {
+			log.Printf("[pre_market] notification already sent for run %d (%s) on %s, skipping", g.RunID, g.RunName, tradeDate)
 			continue
 		}
+
+		// Count results
+		confirmed, rejected, modified := 0, 0, 0
+		for _, d := range g.Decisions {
+			switch d.Status {
+			case "confirmed": confirmed++
+			case "rejected": rejected++
+			case "modified": modified++
+			}
+		}
+
+		// Build Feishu card
+		card := s.buildFeishuCard(g.RunName, tradeDate, confirmed, rejected, modified, reportMarkdown)
+		textBody := fmt.Sprintf("**%s** 交易执行 · %s\n确认 %d 笔 | 驳回 %d 笔 | 修正 %d 笔", g.RunName, tradeDate, confirmed, rejected, modified)
+
+		envelope := map[string]string{"card": card, "text": textBody}
+		envJSON, _ := json.Marshal(envelope)
+		title := fmt.Sprintf("%s · %s 交易执行报告", g.RunName, tradeDate)
+
+		if err := s.notifier.SendToUser(g.UserID, title, string(envJSON)); err != nil {
+			log.Printf("[pre_market] notification failed for run %d user %d: %v", g.RunID, g.UserID, err)
+			continue
+		}
+
+		db.MySQL.Create(&model.NotificationLog{
+			UserID:    g.UserID,
+			RunID:     g.RunID,
+			EventType: "trade_exec_report",
+			EventDate: tradeDate,
+			Title:     title,
+			SentAt:    time.Now(),
+		})
 		sent++
 	}
 
 	return sent
+}
+
+// buildFeishuCard builds a structured Feishu interactive card (schema 2.0) for pre-market decisions.
+func (s *PreMarketService) buildFeishuCard(runName, date string, confirmed, rejected, modified int, markdown string) string {
+	// Limit markdown detail to avoid card size limits
+	detail := markdown
+	if len(detail) > 6000 {
+		detail = detail[:6000] + "\n...\n*(内容过长已截断，完整内容请在系统中查看)*"
+	}
+
+	// Summary line
+	summary := "> 当日无确认执行信号"
+	if confirmed > 0 {
+		summary = fmt.Sprintf("> **%d 笔确认执行**，建议开盘前挂单。", confirmed)
+	}
+	if rejected > 0 {
+		summary += fmt.Sprintf(" %d 笔被 AI 驳回。", rejected)
+	}
+
+	el := []map[string]interface{}{
+		// Stats
+		{
+			"tag": "column_set", "flex_mode": "stretch", "horizontal_spacing": "8px", "margin": "0px 0px 12px 0px",
+			"columns": []map[string]interface{}{
+				{"tag": "column", "width": "weighted", "weight": 1,
+					"elements": []map[string]interface{}{
+						{"tag": "markdown", "content": fmt.Sprintf("<font color='#00B42A'>✅ 确认</font> **%d** 笔", confirmed), "text_align": "center"},
+					}},
+				{"tag": "column", "width": "weighted", "weight": 1,
+					"elements": []map[string]interface{}{
+						{"tag": "markdown", "content": fmt.Sprintf("<font color='#F53F3F'>❌ 驳回</font> **%d** 笔", rejected), "text_align": "center"},
+					}},
+				{"tag": "column", "width": "weighted", "weight": 1,
+					"elements": []map[string]interface{}{
+						{"tag": "markdown", "content": fmt.Sprintf("<font color='#FF7D00'>🔄 修正</font> **%d** 笔", modified), "text_align": "center"},
+					}},
+			},
+		},
+		// Separator
+		{"tag": "hr", "margin": "8px 0px"},
+		// Detail content
+		{"tag": "markdown", "content": detail},
+		// Divider
+		{"tag": "hr", "margin": "12px 0px 4px 0px"},
+		// Footer
+		{"tag": "markdown", "content": summary, "margin": "4px 0px 0px 0px"},
+		{"tag": "note", "elements": []map[string]interface{}{
+			{"tag": "plain_text", "content": "⚠️ 本报告由 AI 多智能体系统自动生成，仅供参考，不构成投资建议。"},
+		}},
+	}
+
+	card := map[string]interface{}{
+		"schema": "2.0",
+		"config": map[string]interface{}{"update_multi": true},
+		"header": map[string]interface{}{
+			"template": "blue",
+			"padding":  "16px 16px 14px 16px",
+			"icon":     map[string]string{"tag": "standard_icon", "token": "chart-line"},
+			"title":    map[string]string{"tag": "plain_text", "content": "智策投研"},
+			"subtitle": map[string]string{"tag": "plain_text", "content": runName},
+		},
+		"body": map[string]interface{}{
+			"direction": "vertical",
+			"padding":   "12px 16px 8px 16px",
+			"elements":  el,
+		},
+	}
+	b, _ := json.Marshal(card)
+	return string(b)
 }
 func truncateStr(s string, maxLen int) string {
 	runes := []rune(s)

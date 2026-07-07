@@ -44,7 +44,7 @@ type DailyRunResult struct {
 // RunDaily evaluates yesterday's data to generate signals for today.
 // Uses tradeDate as evaluation date; if empty, defaults to yesterday.
 // exec_date = next trading day from eval_date (today when called after close, tomorrow when called intraday).
-func (s *LiveTradingService) RunDaily(tradeDate string, mode string) (*DailyRunResult, error) {
+func (s *LiveTradingService) RunDaily(tradeDate string, mode string, runID uint) (*DailyRunResult, error) {
 	// Default tradeDate based on mode
 	if tradeDate == "" {
 		if mode == "after_close" {
@@ -64,9 +64,15 @@ func (s *LiveTradingService) RunDaily(tradeDate string, mode string) (*DailyRunR
 	}
 	addSystemLog("═══ 执行模式: %s | 交易日: %s ═══", mode, tradeDate)
 
-	// 1. Find all active strategy runs
+	// 1. Find strategy runs — scoped by runID (mandatory)
 	var runs []model.StrategyRun
-	if err := db.MySQL.Where("status = ?", "active").Find(&runs).Error; err != nil {
+	query := db.MySQL.Where("status = ?", "active")
+	if runID > 0 {
+		query = query.Where("id = ?", runID)
+	} else {
+		return nil, fmt.Errorf("runID is required")
+	}
+	if err := query.Find(&runs).Error; err != nil {
 		return nil, fmt.Errorf("query active runs: %w", err)
 	}
 	result.StrategiesRan = len(runs)
@@ -120,8 +126,8 @@ func (s *LiveTradingService) RunDailyWithTask(task *model.DailyRunTask) {
 		msg := fmt.Sprintf(format, args...)
 		allLogs = append(allLogs, msg)
 		log.Printf("[live-async] %s", msg)
-		// Persist logs every 5 entries
-		if len(allLogs)%5 == 0 {
+		// Persist logs every entry for real-time frontend updates
+		if len(allLogs)%2 == 0 {
 			logsJSON, _ := json.Marshal(allLogs)
 			db.MySQL.Model(task).Updates(map[string]interface{}{
 				"logs": string(logsJSON),
@@ -134,9 +140,21 @@ func (s *LiveTradingService) RunDailyWithTask(task *model.DailyRunTask) {
 
 	addLog("═══ 执行模式: %s | 交易日: %s ═══", mode, tradeDate)
 
-	// Find all active strategy runs
+	// Find strategy runs — always scoped by task.RunID (mandatory)
 	var runs []model.StrategyRun
-	if err := db.MySQL.Where("status = ?", "active").Find(&runs).Error; err != nil {
+	query := db.MySQL.Where("status = ?", "active")
+	if task.RunID > 0 {
+		query = query.Where("id = ?", task.RunID)
+		addLog("目标运行: ID=%d", task.RunID)
+	} else {
+		task.Status = "failed"
+		task.Error = "runID is required but not provided"
+		logsJSON, _ := json.Marshal(allLogs)
+		task.Logs = string(logsJSON)
+		db.MySQL.Save(task)
+		return
+	}
+	if err := query.Find(&runs).Error; err != nil {
 		task.Status = "failed"
 		task.Error = fmt.Sprintf("查询运行失败: %v", err)
 		logsJSON, _ := json.Marshal(allLogs)
@@ -151,7 +169,7 @@ func (s *LiveTradingService) RunDailyWithTask(task *model.DailyRunTask) {
 		if scanned > 0 { task.ScannedStocks = scanned }
 		if candidates > 0 { task.CandidateCount = candidates }
 		if signals > 0 { task.SignalCount = signals }
-		if scanned%500 == 0 || candidates > 0 || signals > 0 {
+		{ // always save on progress update
 			logsJSON, _ := json.Marshal(allLogs)
 			db.MySQL.Model(task).Updates(map[string]interface{}{
 				"scanned_stocks":  task.ScannedStocks,
@@ -185,7 +203,7 @@ func (s *LiveTradingService) runStrategyDaily(run *model.StrategyRun, tradeDate 
 	// Load strategy config
 	var strategy model.Strategy
 	if err := db.MySQL.First(&strategy, run.StrategyID).Error; err != nil {
-		return 0, nil, fmt.Errorf("load strategy %d: %w", run.StrategyID, err)
+		return 0, nil, fmt.Errorf("策略模板(ID=%d)不存在或已删除，请检查实盘运行 %d 的策略配置", run.StrategyID, run.ID)
 	}
 
 	// Load fund allocation
@@ -216,13 +234,20 @@ func (s *LiveTradingService) runStrategyDaily(run *model.StrategyRun, tradeDate 
 		log.Printf("[live] run %d snapshot failed: %v", run.ID, err)
 	}
 
-	// Update run's last run date + persist logs as JSON
-	logsJSON, _ := json.Marshal(result.Logs)
+	// Update run's last run date + equity
 	db.MySQL.Model(run).Updates(map[string]interface{}{
 		"last_run_date": tradeDate,
 		"current_equity": s.calcTotalEquity(&alloc, &positions),
-		"last_run_log": string(logsJSON),
 	})
+
+	// Persist logs to run_execution_logs table (per-day, per-type)
+	if len(result.Logs) > 0 {
+		logSvc := NewExecutionLogService()
+		logSvc.SaveRunLogs(run.ID, tradeDate, "strategy", result.Logs)
+		// Also keep backward-compat last_run_log
+		logsJSON, _ := json.Marshal(result.Logs)
+		db.MySQL.Model(run).Update("last_run_log", string(logsJSON))
+	}
 
 	return int(result.SignalsGenerated), result.Logs, nil
 }
@@ -695,6 +720,27 @@ func parseStockPool(pool string) []string {
 
 // ── Step 4: Portfolio Snapshot ──
 
+
+// TakeAllDailySnapshots takes snapshot for all active strategy runs (scheduler wrapper).
+func (s *LiveTradingService) TakeAllDailySnapshots(tradeDate string) {
+	var runs []model.StrategyRun
+	if err := db.MySQL.Where("status = ?", "active").Find(&runs).Error; err != nil {
+		log.Printf("[live] TakeAllDailySnapshots: query runs error: %v", err)
+		return
+	}
+	for _, run := range runs {
+		var alloc model.StrategyFundAllocation
+		if err := db.MySQL.Where("strategy_run_id = ? AND status = ?", run.ID, "active").First(&alloc).Error; err != nil {
+			continue
+		}
+		var positions []model.LivePosition
+		db.MySQL.Where("strategy_run_id = ? AND quantity > 0", run.ID).Find(&positions)
+		if err := s.snapshotPortfolio(&run, &alloc, &positions, tradeDate); err != nil {
+			log.Printf("[live] run %d snapshot failed: %v", run.ID, err)
+		}
+	}
+}
+
 func (s *LiveTradingService) snapshotPortfolio(
 	run *model.StrategyRun, alloc *model.StrategyFundAllocation,
 	positions *[]model.LivePosition, tradeDate string,
@@ -895,18 +941,23 @@ func (s *LiveTradingService) syncHoldingToAccount(run *model.StrategyRun, stockC
 func (s *LiveTradingService) upsertSignal(sig *model.BacktestSignal) bool {
 	var existing model.BacktestSignal
 	err := db.MySQL.Where("strategy_id = ? AND run_id = ? AND stock_code = ? AND exec_date = ? AND action_type = ? AND status IN ?",
-		sig.StrategyID, sig.RunID, sig.StockCode, sig.ExecDate, sig.ActionType, []string{"pending", "confirmed"}).
+		sig.StrategyID, sig.RunID, sig.StockCode, sig.ExecDate, sig.ActionType,
+		[]string{"pending", "confirmed", "pending_order", "pending_manual", "pending_auto", "partial_filled"}).
 		First(&existing).Error
 	if err == nil {
-		// Update existing pending signal with fresh data
-		db.MySQL.Model(&existing).Updates(map[string]interface{}{
+		// Update existing signal — only reset status if currently pending/confirmed
+		updates := map[string]interface{}{
 			"planned_price":  sig.PlannedPrice,
 			"planned_qty":    sig.PlannedQty,
 			"planned_amount": sig.PlannedAmount,
 			"reason":         sig.Reason,
 			"signal_date":    sig.SignalDate,
-			"status":         "pending", // reset to pending
-		})
+		}
+		if existing.Status == "pending" || existing.Status == "confirmed" {
+			updates["status"] = "pending"
+		}
+		// Keep pending_order/pending_manual/partial_filled status unchanged
+		db.MySQL.Model(&existing).Updates(updates)
 		return false
 	}
 	db.MySQL.Create(sig)
@@ -918,7 +969,8 @@ func (s *LiveTradingService) signalExists(strategyID, runID uint, stockCode, exe
 	var count int64
 	db.MySQL.Model(&model.BacktestSignal{}).
 		Where("strategy_id = ? AND run_id = ? AND stock_code = ? AND exec_date = ? AND action_type = ? AND status IN ?",
-			strategyID, runID, stockCode, execDate, actionType, []string{"pending", "confirmed", "skipped", "rejected"}).
+			strategyID, runID, stockCode, execDate, actionType,
+			[]string{"pending", "confirmed", "pending_order", "pending_manual", "pending_auto", "partial_filled", "skipped", "rejected"}).
 		Count(&count)
 	return count > 0
 }

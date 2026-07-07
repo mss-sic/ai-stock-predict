@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Upload, Button, Table, Tag, Progress, Modal, Tooltip, Switch, Popconfirm, Message } from '@arco-design/web-react';
+import { Upload, Button, Table, Tag, Progress, Modal, Tooltip, Switch, Popconfirm, Message, Statistic, Badge, Descriptions } from '@arco-design/web-react';
 import {
   Database, Upload as UploadIcon, RefreshCw, FileSpreadsheet, FileJson,
   CheckCircle, XCircle, Clock, Play, Terminal, Square, History, Activity, X,
@@ -10,6 +10,9 @@ import {
   uploadExcel, uploadKline, uploadPrediction, uploadProfile, triggerCollection, fetchCollectorProgress,
   fetchImportHistory, fetchCollectorHistory, clearCollectorHistory, fetchDataStats, fetchDataDetail,
   fetchScheduledTasks, runTaskNow, initDefaultTasks, fetchTaskLogs, resetTaskStatus, toggleTask,
+  fetchSchedulerDefinitions, fetchSchedulerTasks, fetchSchedulerHealth,
+  fetchSchedulerHistory, fetchSchedulerQueues, fetchSchedulerAlerts, clearSchedulerAlerts,
+  triggerSchedulerTask,
 } from '../services/api';
 
 const PHASE_LABELS: Record<string, string> = {
@@ -193,6 +196,14 @@ export default function DataManagementPage() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailSearch, setDetailSearch] = useState('');
   const [scheduledTasks, setScheduledTasks] = useState<any[]>([]);
+  // ── v2 Scheduler state ──
+  const [schedDefinitions, setSchedDefinitions] = useState<any[]>([]);
+  const [schedInstances, setSchedInstances] = useState<any[]>([]);
+  const [schedHealth, setSchedHealth] = useState<any>(null);
+  const [schedHistory, setSchedHistory] = useState<any[]>([]);
+  const [schedQueues, setSchedQueues] = useState<any>(null);
+  const [schedAlerts, setSchedAlerts] = useState<any[]>([]);
+  const [schedViewTab, setSchedViewTab] = useState<'tasks' | 'health'>('tasks');
   const [taskLogs, setTaskLogs] = useState<any[]>([]);
   const [taskLogsLoading, setTaskLogsLoading] = useState(false);
   const [logModalVisible, setLogModalVisible] = useState(false);
@@ -275,6 +286,42 @@ export default function DataManagementPage() {
   const loadProgress = async () => { try { const res: any = await fetchCollectorProgress(); setProgress(res.data?.data); } catch {} };
   const loadDataStats = async () => { setStatsLoading(true); try { const res: any = await fetchDataStats(); setDataStats(res.data?.data || []); } catch { setDataStats([]); } finally { setStatsLoading(false); } };
   const loadTasks = async () => { setTasksLoading(true); try { const res: any = await fetchScheduledTasks(); setScheduledTasks(Array.isArray(res.data?.data) ? res.data.data : []); } catch {} finally { setTasksLoading(false); } };
+  const loadSchedData = async () => {
+    setTasksLoading(true);
+    try {
+      const [defsRes, tasksRes, healthRes] = await Promise.all([
+        fetchSchedulerDefinitions(),
+        fetchSchedulerTasks(),
+        fetchSchedulerHealth(),
+      ]);
+      setSchedDefinitions(Array.isArray(defsRes.data) ? defsRes.data : defsRes.data?.data || []);
+      setSchedInstances(Array.isArray(tasksRes.data) ? tasksRes.data : tasksRes.data?.data || []);
+      setSchedHealth(healthRes.data || healthRes.data?.data || null);
+    } catch (e: any) {
+      console.error('[scheduler] load failed:', e?.response?.status, e?.message);
+      showToast('error', '调度数据加载失败: ' + (e?.message || '请检查后端是否已重启'));
+    }
+    finally { setTasksLoading(false); }
+    // Load history and alerts separately (less critical)
+    try {
+      const [histRes, queueRes, alertRes] = await Promise.all([
+        fetchSchedulerHistory(undefined, 20),
+        fetchSchedulerQueues(),
+        fetchSchedulerAlerts(),
+      ]);
+      setSchedHistory(Array.isArray(histRes.data) ? histRes.data : histRes.data?.data || []);
+      setSchedQueues(queueRes.data || queueRes.data?.data || null);
+      setSchedAlerts(Array.isArray(alertRes.data) ? alertRes.data : alertRes.data?.data || []);
+    } catch {}
+  };
+  const handleSchedTrigger = async (instanceId: number) => {
+    try { await triggerSchedulerTask(instanceId); showToast('success', '任务已触发'); setTimeout(loadSchedData, 2000); }
+    catch { showToast('error', '触发失败'); }
+  };
+  const handleClearAlerts = async () => {
+    try { await clearSchedulerAlerts(); setSchedAlerts([]); showToast('success', '告警已清除'); }
+    catch {}
+  };
   const loadDetail = async (type: string) => { if (selectedStat === type) { setSelectedStat(null); setDetailData([]); return; } setSelectedStat(type); setDetailLoading(true); setDetailSearch(''); try { const res: any = await fetchDataDetail(type); setDetailData(res.data?.data || []); } catch { setDetailData([]); } finally { setDetailLoading(false); } };
 
   const loadTaskLogs = async (taskId?: number) => { setTaskLogsLoading(true); setSelectedTaskId(taskId || null); try { const res: any = await fetchTaskLogs(taskId || undefined, 30); setTaskLogs(Array.isArray(res.data?.data) ? res.data.data : []); } catch { setTaskLogs([]); } finally { setTaskLogsLoading(false); } };
@@ -510,7 +557,7 @@ export default function DataManagementPage() {
   useEffect(() => {
     if (tab === 'history') { loadHistory(); loadColHistory(); }
     if (tab === 'overview') { loadDataStats(); loadProgress(); }
-    if (tab === 'tasks') { loadTasks(); }
+    if (tab === 'tasks') { loadTasks(); loadSchedData(); }
     if (tab === 'import') { loadHistory(); }
     if (tab === 'collect') { loadTasks(); loadProgress(); loadColHistory(); }
     return () => { clearInterval(pollRef.current); eventSourceRef.current?.close(); };
@@ -708,115 +755,258 @@ export default function DataManagementPage() {
         </div>
       )}
 
-      {/* ═══ TASKS TAB ═══ */}
+      {/* ═══ TASKS TAB (v2 统一调度中心) ═══ */}
       {tab === 'tasks' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <div className="card">
-            <div className="card-header">
-              <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Timer size={16} color="var(--color-primary)" /><span style={{ fontSize: 15, fontWeight: 600 }}>定时任务</span><span className="muted" style={{ marginLeft: 8 }}>{scheduledTasks.filter((t: any) => t.enabled).length}/{scheduledTasks.length} 已启用</span></span>
-              <div style={{ display: 'flex', gap: 6 }}><Button size="small" icon={<RefreshCw size={12} />} loading={tasksLoading} onClick={loadTasks}>刷新</Button><Button size="small" icon={<Sparkles size={12} />} onClick={handleInitDefaults}>初始化默认任务</Button></div>
+
+          {/* Sub-tab bar */}
+          <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid var(--color-border-2)' }}>
+            {[
+              { key: 'tasks', label: '调度任务', icon: <Timer size={14} /> },
+              { key: 'health', label: '调度监控', icon: <Activity size={14} /> },
+            ].map(t => (
+              <button key={t.key} onClick={() => setSchedViewTab(t.key as any)}
+                style={{ padding: '10px 20px', border: 'none', cursor: 'pointer', fontSize: 13,
+                  background: 'transparent',
+                  color: schedViewTab === t.key ? 'var(--color-primary)' : 'var(--color-text-2)',
+                  fontWeight: schedViewTab === t.key ? 600 : 400,
+                  borderBottom: schedViewTab === t.key ? '2px solid var(--color-primary)' : '2px solid transparent',
+                  display: 'flex', alignItems: 'center', gap: 6, transition: 'all 0.15s' }}>
+                {t.icon}{t.label}
+              </button>
+            ))}
+            <div style={{ flex: 1 }} />
+            <Button size="small" icon={<RefreshCw size={12} />} loading={tasksLoading} onClick={loadSchedData}
+              style={{ alignSelf: 'center', marginRight: 8 }}>刷新</Button>
+          </div>
+
+          {/* ── Sub-tab: 调度任务 ── */}
+          {schedViewTab === 'tasks' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              {/* Health summary bar */}
+              {schedHealth && (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+                  <div className="card" style={{ padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <Badge status={schedHealth.status === 'healthy' ? 'success' : schedHealth.status === 'degraded' ? 'warning' : 'danger'} />
+                    <div><div style={{ fontSize: 11, color: 'var(--color-text-3)' }}>调度状态</div>
+                    <div style={{ fontSize: 14, fontWeight: 600 }}>{schedHealth.status === 'healthy' ? '健康' : schedHealth.status === 'degraded' ? '降级' : '异常'}</div></div>
+                  </div>
+                  <div className="card" style={{ padding: '12px 16px' }}>
+                    <div style={{ fontSize: 11, color: 'var(--color-text-3)' }}>工作线程</div>
+                    <div style={{ fontSize: 14, fontWeight: 600 }}>{schedHealth.workers?.busy || 0}/{schedHealth.workers?.total || 0} 忙碌</div>
+                  </div>
+                  <div className="card" style={{ padding: '12px 16px' }}>
+                    <div style={{ fontSize: 11, color: 'var(--color-text-3)' }}>运行时间</div>
+                    <div style={{ fontSize: 14, fontWeight: 600 }}>{schedHealth.uptime ? (schedHealth.uptime / 3600000000000).toFixed(1) + 'h' : '-'}</div>
+                  </div>
+                  <div className="card" style={{ padding: '12px 16px' }}>
+                    <div style={{ fontSize: 11, color: 'var(--color-text-3)' }}>活跃告警</div>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: schedAlerts.length > 0 ? '#f53f3f' : 'var(--color-text-1)' }}>{schedAlerts.length} 条</div>
+                  </div>
+                </div>
+              )}
+
+              {/* System Pipeline Tasks */}
+              <div className="card">
+                <div className="card-header">
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <Timer size={16} color="var(--color-primary)" />
+                    <span style={{ fontSize: 15, fontWeight: 600 }}>系统调度任务</span>
+                    <span className="muted" style={{ marginLeft: 8 }}>{schedInstances.length} 个实例</span>
+                  </span>
+                </div>
+                <div className="card-body" style={{ padding: 0 }}>
+                  {schedInstances.length === 0 ? (
+                    <div style={{ padding: 40, textAlign: 'center', color: 'var(--color-text-3)', fontSize: 13 }}>
+                      {tasksLoading ? '加载中...' : '暂无调度任务实例'}
+                    </div>
+                  ) : (
+                    <Table data={schedInstances} rowKey="id" size="small"
+                      columns={[
+                        { title: '任务名称', dataIndex: 'definitionId', width: 200, ellipsis: true,
+                          render: (v: string, record: any) => {
+                            const def = schedDefinitions.find((d: any) => d.id === v);
+                            const label = record.label || def?.label || v;
+                            return <span style={{ fontWeight: 500 }}>{label}</span>;
+                          }
+                        },
+                        { title: '类型', dataIndex: 'definitionId', width: 80,
+                          render: (v: string) => {
+                            const def = schedDefinitions.find((d: any) => d.id === v);
+                            const kindMap: any = { pipeline: '采集', strategy: '策略', account: '账户', portfolio: '组合', custom: '自定义' };
+                            const kind = def?.kind || '';
+                            const colors: any = { pipeline: 'blue', strategy: 'purple', account: 'orange', portfolio: 'green', custom: 'gray' };
+                            return <Tag color={colors[kind] || 'gray'}>{kindMap[kind] || kind}</Tag>;
+                          }
+                        },
+                        { title: '计划(Cron)', width: 170, render: (_: any, record: any) => {
+                          const def = schedDefinitions.find((d: any) => d.id === record.definitionId);
+                          // 优先显示实例级 cron（per-run 覆盖），其次定义级 cron，再次事件/手动
+                          const cron = record.trigger?.cron || def?.trigger?.cron || '';
+                          const isEvent = (record.trigger?.events?.length > 0) || (def?.trigger?.events?.length > 0);
+                          return <span style={{ fontSize: 11, fontFamily: 'monospace', color: 'var(--color-text-2)' }}>
+                            {cron || (isEvent ? '事件驱动' : '手动')}
+                          </span>;
+                        }},
+                        { title: '状态', dataIndex: 'lastStatus', width: 75,
+                          render: (v: string) => {
+                            if (v === 'success') return <Tag color="green">成功</Tag>;
+                            if (v === 'failed') return <Tag color="red">失败</Tag>;
+                            if (v === 'running') return <Tag color="blue">运行中</Tag>;
+                            return <span style={{ color: 'var(--color-text-3)', fontSize: 12 }}>待执行</span>;
+                          }
+                        },
+                        { title: '上次运行', dataIndex: 'lastRunAt', width: 125,
+                          render: (v: string) => <span style={{ fontSize: 12, color: 'var(--color-text-2)' }}>{v ? new Date(v).toLocaleString('zh-CN') : '-'}</span>
+                        },
+                        { title: '下次运行', dataIndex: 'nextRunAt', width: 125,
+                          render: (v: string) => <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>{v ? new Date(v).toLocaleString('zh-CN') : '-'}</span>
+                        },
+                        { title: '操作', width: 80, render: (_: any, record: any) => (
+                          <Button size="mini" type="outline" icon={<Play size={10} />}
+                            onClick={() => handleSchedTrigger(record.id)}>触发</Button>
+                        )},
+                      ]} pagination={{ pageSize: 30, sizeCanChange: true }} border={false} stripe />
+                  )}
+                </div>
+              </div>
+
+              {/* Legacy Scheduled Tasks (deprecated, read-only) */}
+              <div className="card" style={{ opacity: 0.7 }}>
+                <div className="card-header">
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <Timer size={16} color="var(--color-text-3)" />
+                    <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text-3)' }}>旧版定时任务 (已弃用)</span>
+                    <Tag color="gray" size="small">仅查看</Tag>
+                  </span>
+                </div>
+                <div className="card-body" style={{ padding: 0 }}>
+                  <Table data={scheduledTasks} rowKey="id" size="small"
+                    columns={[
+                      { title: '任务名称', dataIndex: 'name', width: 130, ellipsis: true },
+                      { title: '类型', dataIndex: 'phase', width: 100, render: (v: string) => <span style={{ fontSize: 11, fontFamily: 'monospace', color: 'var(--color-text-3)' }}>{v}</span> },
+                      { title: '上次状态', dataIndex: 'lastStatus', width: 70,
+                        render: (v: string) => v === 'success' ? <Tag color="green">成功</Tag> : v === 'failed' ? <Tag color="red">失败</Tag> : <span style={{ color: 'var(--color-text-3)', fontSize: 12 }}>-</span>
+                      },
+                      { title: '上次运行', dataIndex: 'lastRun', width: 125,
+                        render: (v: string) => <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>{v ? new Date(v).toLocaleString('zh-CN') : '-'}</span>
+                      },
+                    ]} pagination={{ pageSize: 10 }} border={false} stripe />
+                </div>
+              </div>
             </div>
-            <div className="card-body" style={{ padding: 0 }}>
-              {scheduledTasks.length === 0 ? <div style={{ padding: 40, textAlign: 'center', color: 'var(--color-text-3)', fontSize: 13 }}>暂无定时任务，点击「初始化默认任务」创建</div> : (
-                <Table data={scheduledTasks} rowKey="id" size="small"
-                  columns={[
-                    { title: '启用', dataIndex: 'enabled', width: 55, render: (v: boolean, record: any) => (
-                    <Popconfirm
-                      title={v ? '确定停用该任务？' : '确定启用该任务？'}
-                      content={v ? '运行中的采集不受影响，但下次将不再自动执行。' : '任务将恢复定时调度。'}
-                      onOk={async () => {
-                        try { await toggleTask(record.id); await loadTasks(); Message.success(v ? '已停用' : '已启用'); }
-                        catch { Message.error('操作失败'); }
-                      }}
-                    >
-                      <Switch size="small" checked={v} />
-                    </Popconfirm>
-                  ) },
-                    { title: '任务名称', dataIndex: 'name', width: 130, ellipsis: true },
-                    { title: '类型', dataIndex: 'phase', width: 100, render: (v: string) => <span style={{ fontSize: 12, fontFamily: 'monospace', color: 'var(--color-text-2)' }}>{v}</span> },
-                    { title: 'Cron', dataIndex: 'cronExpr', width: 140, render: (v: string) => <span style={{ fontSize: 12, fontFamily: 'monospace' }}>{v}</span> },
-                    { title: '上次状态', dataIndex: 'lastStatus', width: 75, render: (v: string, record: any) => {
-                      if (v === 'success') return <Tag color="green">成功</Tag>;
-                      if (v === 'failed') return <Tag color="red">失败</Tag>;
-                      if (v === 'running') {
-                        const stuckMinutes = LONG_RUNNING_PHASES[record.phase] || 10; const isStuck = record.lastRun && (Date.now() - new Date(record.lastRun).getTime()) > stuckMinutes * 60 * 1000;
-                        return isStuck
-                          ? <Tag color="red" style={{ cursor: 'pointer' }} title="任务可能卡住，点击重置">超时</Tag>
-                          : <Tag color="blue">运行中</Tag>;
-                      }
-                      return <span style={{ color: 'var(--color-text-3)', fontSize: 12 }}>-</span>;
-                    } },
-                    { title: '上次运行', dataIndex: 'lastRun', width: 125, render: (v: string) => <span style={{ fontSize: 12, color: 'var(--color-text-2)' }}>{v ? new Date(v).toLocaleString('zh-CN') : '-'}</span> },
-                    { title: '下次运行', dataIndex: 'nextRun', width: 125, render: (v: string) => <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>{v ? new Date(v).toLocaleString('zh-CN') : '-'}</span> },
-                    { title: '操作', width: 160, render: (_: any, record: any) => {
-                      const stuckMinutes2 = LONG_RUNNING_PHASES[record.phase] || 10; const isStuck = record.lastStatus === 'running' && record.lastRun && (Date.now() - new Date(record.lastRun).getTime()) > stuckMinutes2 * 60 * 1000;
-                      return (
-                        <div style={{ display: 'flex', gap: 4 }}>
-                          <Button size="mini" type="outline" icon={<Play size={10} />} onClick={() => handleRunTask(record.id)}>执行</Button>
-                          {isStuck ? (
-                            <Button size="mini" type="text" status="danger" icon={<X size={10} />} onClick={() => handleResetTask(record.id)}>重置</Button>
-                          ) : record.lastStatus === 'running' ? (
-                            <Button size="mini" type="primary" icon={<Activity size={10} />} onClick={() => { setSelectedCollectPhase(record.phase); setTab('collect'); setTimeout(() => connectStream(), 300); }}>查看</Button>
-                          ) : (
-                            <Button size="mini" type="text" icon={<Activity size={10} />} onClick={() => openTaskLogs(record.id, record.name)}>日志</Button>
-                          )}
-                        </div>
-                      );
-                    }},
-                  ]} pagination={false} border={false} stripe />
+          )}
+
+          {/* ── Sub-tab: 调度监控 ── */}
+          {schedViewTab === 'health' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              {/* Health Details */}
+              {schedHealth && (
+                <div className="card">
+                  <div className="card-header">
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <Activity size={16} color="var(--color-primary)" />
+                      <span style={{ fontSize: 15, fontWeight: 600 }}>健康状态</span>
+                      <Badge status={schedHealth.status === 'healthy' ? 'success' : 'warning'} text={schedHealth.status === 'healthy' ? '健康' : '降级'} />
+                    </span>
+                  </div>
+                  <div className="card-body">
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                      <div><span className="muted">运行时间</span><div style={{ fontWeight: 600 }}>{schedHealth.uptime ? (schedHealth.uptime / 1000000000 / 3600).toFixed(1) + ' 小时' : '-'}</div></div>
+                      <div><span className="muted">Worker 利用率</span><div style={{ fontWeight: 600 }}>{schedHealth.workers?.avgBusyPct?.toFixed(1) || 0}%</div></div>
+                      <div><span className="muted">忙碌/空闲 Worker</span><div style={{ fontWeight: 600 }}>{schedHealth.workers?.busy || 0} / {schedHealth.workers?.idle || 0}</div></div>
+                      <div><span className="muted">总 Worker</span><div style={{ fontWeight: 600 }}>{schedHealth.workers?.total || 0}</div></div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Queue Status */}
+              {schedQueues && (
+                <div className="card">
+                  <div className="card-header">
+                    <span style={{ fontSize: 15, fontWeight: 600 }}>队列状态</span>
+                  </div>
+                  <div className="card-body" style={{ padding: 0 }}>
+                    <Table data={Object.entries(schedQueues).map(([kind, q]: [string, any]) => ({ kind, ...q }))} rowKey="kind" size="small"
+                      columns={[
+                        { title: '类型', dataIndex: 'kind', width: 100, render: (v: string) => <Tag>{v}</Tag> },
+                        { title: '待处理', dataIndex: 'depth', width: 70 },
+                        { title: '最老等待', dataIndex: 'oldest', width: 100,
+                          render: (v: number) => v ? (v / 1000000000).toFixed(1) + 's' : '-'
+                        },
+                        { title: '平均等待', dataIndex: 'avgWait', width: 100,
+                          render: (v: number) => v ? (v / 1000000).toFixed(0) + 'ms' : '-'
+                        },
+                      ]} pagination={false} border={false} stripe />
+                  </div>
+                </div>
+              )}
+
+              {/* Execution History */}
+              <div className="card">
+                <div className="card-header">
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <Activity size={16} color="var(--color-primary)" />
+                    <span style={{ fontSize: 15, fontWeight: 600 }}>最近执行记录</span>
+                  </span>
+                </div>
+                <div className="card-body" style={{ padding: 0 }}>
+                  {schedHistory.length === 0 ? (
+                    <div style={{ padding: 40, textAlign: 'center', color: 'var(--color-text-3)', fontSize: 13 }}>暂无执行记录</div>
+                  ) : (
+                    <Table data={schedHistory} rowKey="id" size="small"
+                      columns={[
+                        { title: '任务', dataIndex: 'definitionId', width: 200, ellipsis: true,
+                          render: (v: string, record: any) => {
+                            const def = schedDefinitions.find((d: any) => d.id === v);
+                            const label = record.label || def?.label || v;
+                            return <span>{label}</span>;
+                          }
+                        },
+                        { title: '状态', dataIndex: 'status', width: 65,
+                          render: (v: string) => v === 'success' ? <Tag color="green">成功</Tag> : v === 'failed' ? <Tag color="red">失败</Tag> : <Tag>{v}</Tag>
+                        },
+                        { title: '耗时', dataIndex: 'duration', width: 75,
+                          render: (v: number) => <span style={{ fontSize: 12, color: v > 300000000000 ? '#f53f3f' : 'var(--color-text-2)' }}>{v ? (v / 1000000000).toFixed(1) + 's' : '-'}</span>
+                        },
+                        { title: '开始时间', dataIndex: 'startedAt', width: 135,
+                          render: (v: string) => <span style={{ fontSize: 11, color: 'var(--color-text-3)' }}>{v ? new Date(v).toLocaleString('zh-CN') : '-'}</span>
+                        },
+                        { title: '错误', dataIndex: 'errorMsg', ellipsis: true,
+                          render: (v: string) => v ? <span style={{ fontSize: 11, color: '#f53f3f' }}>{v}</span> : <span style={{ color: 'var(--color-text-3)', fontSize: 11 }}>-</span>
+                        },
+                      ]} pagination={{ pageSize: 10 }} border={false} stripe />
+                  )}
+                </div>
+              </div>
+
+              {/* Alerts */}
+              {schedAlerts.length > 0 && (
+                <div className="card">
+                  <div className="card-header">
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <Activity size={16} color="#f53f3f" />
+                      <span style={{ fontSize: 15, fontWeight: 600, color: '#f53f3f' }}>活跃告警</span>
+                    </span>
+                    <Button size="small" type="text" onClick={handleClearAlerts}>清除</Button>
+                  </div>
+                  <div className="card-body" style={{ padding: 0 }}>
+                    <Table data={schedAlerts} rowKey="message" size="small"
+                      columns={[
+                        { title: '级别', dataIndex: 'level', width: 60,
+                          render: (v: string) => <Tag color={v === 'critical' ? 'red' : 'orange'}>{v}</Tag>
+                        },
+                        { title: '消息', dataIndex: 'message', ellipsis: true },
+                        { title: '时间', dataIndex: 'since', width: 135,
+                          render: (v: string) => <span style={{ fontSize: 11, color: 'var(--color-text-3)' }}>{v ? new Date(v).toLocaleString('zh-CN') : '-'}</span>
+                        },
+                      ]} pagination={false} border={false} stripe />
+                  </div>
+                </div>
               )}
             </div>
-          </div>
-          {/* Range Selection Modal */}
-          <Modal title={<span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Timer size={16} color="var(--color-primary)" />执行范围 — {runModalTask?.name || ''}</span>} visible={runModalVisible} onCancel={() => setRunModalVisible(false)} footer={
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-              <Button onClick={() => setRunModalVisible(false)}>取消</Button>
-              <Button type="primary" onClick={confirmRunTask}>开始执行</Button>
-            </div>
-          } style={{ width: 520 }} unmountOnExit>
-            <div style={{ padding: '8px 0 16px' }}>
-              <div style={{ marginBottom: 12, fontSize: 13, color: 'var(--color-text-2)' }}>
-                {runModalTask?.phase && !HISTORY_CAPABLE_PHASES.has(runModalTask.phase) ? '此数据源仅支持获取最新数据，不支持历史回溯' : '选择采集范围（默认仅最新交易日）'}
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
-                {RANGE_PRESETS.map((p, i) => {
-                  const isHistoryPhase = runModalTask?.phase && HISTORY_CAPABLE_PHASES.has(runModalTask.phase);
-                  const disabled = !isHistoryPhase && i > 0; // Only "最新" for real-time-only phases
-                  return (
-                  <div key={i} onClick={() => { if (!disabled) setSelectedRange(i); }} style={{
-                    padding: '12px 10px',
-                    borderRadius: 8,
-                    border: selectedRange === i ? '2px solid #165DFF' : '1px solid var(--color-border-2)',
-                    background: selectedRange === i ? 'rgba(22,93,255,0.06)' : disabled ? 'var(--color-fill-1)' : 'var(--color-bg-1)',
-                    cursor: disabled ? 'not-allowed' : 'pointer',
-                    textAlign: 'center',
-                    transition: 'all 0.15s',
-                    opacity: disabled ? 0.5 : 1,
-                  }}>
-                    <div style={{ fontWeight: 600, fontSize: 14, color: selectedRange === i ? '#165DFF' : disabled ? 'var(--color-text-3)' : 'var(--color-text-1)', marginBottom: 2 }}>{p.label}</div>
-                    <div style={{ fontSize: 11, color: disabled ? 'var(--color-text-3)' : 'var(--color-text-3)' }}>{disabled ? '仅支持最新数据' : p.desc}</div>
-                  </div>
-                  );
-                })}
-              </div>
-            </div>
-          </Modal>
-
-          <Modal title={<span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Activity size={16} color="var(--color-primary)" />运行日志 — {logModalTaskName}</span>} visible={logModalVisible} onCancel={() => { setLogModalVisible(false); setTaskLogs([]); }} footer={null} style={{ width: 800 }} unmountOnExit>
-            <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><span className="muted">最近 30 条记录</span><Button size="small" type="text" icon={<RefreshCw size={12} />} loading={taskLogsLoading} onClick={() => selectedTaskId && openTaskLogs(selectedTaskId, logModalTaskName)}>刷新</Button></div>
-            {taskLogs.length === 0 && !taskLogsLoading ? <div style={{ padding: 40, textAlign: 'center', color: 'var(--color-text-3)', fontSize: 13 }}>暂无运行日志</div> : (
-              <Table data={taskLogs} rowKey="id" size="small"
-                columns={[
-                  { title: '状态', dataIndex: 'status', width: 70, render: (v: string) => v === 'success' ? <Tag color="green">成功</Tag> : v === 'failed' ? <Tag color="red">失败</Tag> : <Tag color="blue">运行中</Tag> },
-                  { title: '新增', dataIndex: 'totalNew', width: 55, render: (v: number) => <span style={{ fontWeight: 600, color: '#165dff' }}>{v}</span> },
-                  { title: '存量', dataIndex: 'totalSkip', width: 55, render: (v: number) => <span style={{ color: 'var(--color-text-3)' }}>{v}</span> },
-                  { title: '错误', dataIndex: 'totalErr', width: 50, render: (v: number) => v > 0 ? <span style={{ color: '#f53f3f', fontWeight: 600 }}>{v}</span> : <span style={{ color: 'var(--color-text-3)' }}>0</span> },
-                  { title: '耗时', dataIndex: 'durationMs', width: 65, render: (v: number) => <span style={{ fontSize: 12, color: 'var(--color-text-2)' }}>{v < 1000 ? v + 'ms' : (v / 1000).toFixed(1) + 's'}</span> },
-                  { title: '时间', dataIndex: 'startedAt', width: 135, render: (v: string) => <span style={{ fontSize: 11, color: 'var(--color-text-3)' }}>{v ? new Date(v).toLocaleString('zh-CN') : '-'}</span> },
-                  { title: '详情', dataIndex: 'errorMsg', ellipsis: true, render: (v: string) => v ? <span style={{ fontSize: 11, color: '#f53f3f' }}>{v}</span> : <span style={{ color: 'var(--color-text-3)', fontSize: 11 }}>-</span> },
-                ]} pagination={{ pageSize: 15, sizeCanChange: true }} border={false} stripe />
-            )}
-          </Modal>
+          )}
         </div>
       )}
 

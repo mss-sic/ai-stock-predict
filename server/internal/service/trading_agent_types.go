@@ -1,48 +1,28 @@
 package service
 
 // ═══════════════════════════════════════════════════════════════
-// Trading Agent Role Definitions
-// Inspired by TradingAgents (tauricresearch/tradingagents) multi-agent framework
-// Ref: graph/setup.py — Analyst → Bull/Bear Debate → Trader → Risk Debate → PM
+// Trading Agent v2: Objective Analysis + Strategy-Bridged Decision
+//
+// Architecture:
+//   Phase 1: 3 Analysts (objective, no strategy bias)
+//   Phase 2: Portfolio Manager (bridges strategy intent ↔ objective data)
+//
+// Removed: bull/bear debate, research manager, risk analyst triad
+// Rationale: forced adversarial debate creates noise, not insight.
+//   PM alone bridges strategy mandate with objective analysis.
 // ═══════════════════════════════════════════════════════════════
 
-// TradingAgentRole represents a specialized agent role in the multi-agent pipeline.
+// TradingAgentRole represents a specialized agent role.
 type TradingAgentRole string
 
 const (
-	TARoleMarketAnalyst       TradingAgentRole = "market_analyst"
-	TARoleSentimentAnalyst    TradingAgentRole = "sentiment_analyst"
-	TARoleNewsAnalyst         TradingAgentRole = "news_analyst"
-	TARoleFundamentalsAnalyst TradingAgentRole = "fundamentals_analyst"
-	TARoleBullResearcher      TradingAgentRole = "bull_researcher"
-	TARoleBearResearcher      TradingAgentRole = "bear_researcher"
-	TARoleResearchManager     TradingAgentRole = "research_manager"
-	TARoleTrader              TradingAgentRole = "trader"
-	TARoleAggressiveAnalyst   TradingAgentRole = "aggressive_analyst"
-	TARoleConservativeAnalyst TradingAgentRole = "conservative_analyst"
-	TARoleNeutralAnalyst      TradingAgentRole = "neutral_analyst"
-	TARolePortfolioManager    TradingAgentRole = "portfolio_manager"
+	TARoleTechnicalAnalyst   TradingAgentRole = "technical_analyst"
+	TARoleFundamentalAnalyst TradingAgentRole = "fundamental_analyst"
+	TARoleMarketAnalyst      TradingAgentRole = "market_analyst" // sentiment + macro context
+	TARolePortfolioManager   TradingAgentRole = "portfolio_manager"
 )
 
-// TradingAgentPhase groups roles into the 4-phase pipeline.
-type TradingAgentPhase int
-
-const (
-	TAPhaseAnalysis  TradingAgentPhase = iota // Analysts gather data
-	TAPhaseResearch                            // Bull/Bear debate + judge
-	TAPhaseDecision                            // Trader makes initial plan
-	TAPhaseRisk                                // Risk debate + final PM decision
-)
-
-// TAPhaseRoles maps each phase to its agent roles.
-var TAPhaseRoles = map[TradingAgentPhase][]TradingAgentRole{
-	TAPhaseAnalysis: {TARoleMarketAnalyst, TARoleSentimentAnalyst, TARoleNewsAnalyst, TARoleFundamentalsAnalyst},
-	TAPhaseResearch: {TARoleBullResearcher, TARoleBearResearcher, TARoleResearchManager},
-	TAPhaseDecision: {TARoleTrader},
-	TAPhaseRisk:     {TARoleAggressiveAnalyst, TARoleConservativeAnalyst, TARoleNeutralAnalyst, TARolePortfolioManager},
-}
-
-// TradingAgentContext carries all the data an agent needs.
+// TradingAgentContext carries all data an agent needs.
 type TradingAgentContext struct {
 	StockCode    string
 	StockName    string
@@ -70,17 +50,32 @@ type TradingAgentContext struct {
 	CurrentPositions []PositionSnapshot
 	TotalEquity      float64
 
-	PastDecisions []PastDecision
+	// ── Strategy Profile (NEW) ──
+	Strategy StrategyProfile
+}
+
+// StrategyProfile captures the strategy's intent and risk parameters.
+// This is the bridge between "what the strategy wants" and "what the market offers."
+type StrategyProfile struct {
+	Name            string // "3日高动量追击"
+	Style           string // momentum_chaser / swing_trader / trend_follower / value_hunter / dip_buyer
+	HoldDays        int    // 目标持仓天数
+	RiskProfile     string // aggressive / balanced / conservative
+	Thesis          string // 用户自述策略理念
+	StopLoss        float64
+	StopProfit      float64
+	PositionSizing  string
+	BuyPositionPct  float64
+	MaxHoldings     int
 }
 
 // TradingAgentMessage is the output of a single agent run.
 type TradingAgentMessage struct {
-	Role     TradingAgentRole      `json:"role"`
-	Content  string                `json:"content"`
-	Decision *TradingAgentDecision `json:"decision,omitempty"`
+	Role    TradingAgentRole `json:"role"`
+	Content string           `json:"content"`
 }
 
-// TradingAgentDecision is a structured trading decision from an agent.
+// TradingAgentDecision is a structured trading decision.
 type TradingAgentDecision struct {
 	Action           string  `json:"action"`
 	Confidence       float64 `json:"confidence"`
@@ -98,252 +93,200 @@ type TradingAgentDecision struct {
 	DecisionRule     string  `json:"decision_rule"`
 }
 
-// TradingAgentResult is the final output of the full multi-agent pipeline.
+// TradingAgentResult is the final output of the pipeline.
 type TradingAgentResult struct {
-	FinalDecision     TradingAgentDecision  `json:"final_decision"`
-	AnalystReports    []TradingAgentMessage `json:"analyst_reports"`
-	DebateHistory     []TradingAgentMessage `json:"debate_history"`
-	RiskDebateHistory []TradingAgentMessage `json:"risk_debate_history"`
-	TraderDecision    TradingAgentDecision  `json:"trader_decision"`
-	PMModifications   string                `json:"pm_modifications"`
-	TotalTokensUsed   int                   `json:"total_tokens_used"`
+	FinalDecision   TradingAgentDecision  `json:"final_decision"`
+	AnalystReports  []TradingAgentMessage `json:"analyst_reports"`
+	PMReasoning     string                `json:"pm_reasoning"`
+	TotalTokensUsed int                   `json:"total_tokens_used"`
 }
 
-// ── System Prompts ──
+// ── Analyst Prompts (Objective, No Strategy Bias) ──
 
-const TAMarketAnalystPrompt = `You are a professional Market Technical Analyst specializing in Chinese A-share stocks.
-
-Your task: Analyze the provided OHLCV price data and technical indicators to produce a concise market report.
+const TATechnicalPrompt = `You are a Technical Analyst for Chinese A-share stocks. 
+Answer ONLY based on the price/volume data provided. Do NOT recommend buy/sell.
 
 Analyze:
-1. Price trend — identify support/resistance levels, trend direction (bullish/bearish/sideways)
-2. Volume analysis — volume-price relationship, abnormal volume signals
-3. Technical indicators — RSI (overbought >70, oversold <30), MACD crossover, MA alignment
-4. Chart patterns — any visible patterns (double bottom, head and shoulders, etc.)
-5. Short-term momentum — 5-day and 20-day momentum
+1. Trend — direction, strength, phase (early/mid/late)
+2. Support/Resistance — nearest key levels with price distance
+3. Volume — abnormal? climax? drying up? relationship to price
+4. Momentum — accelerating or decelerating? divergence?
 
 Output format:
-## Market Technical Report for {stock_name} ({stock_code})
-### Price Trend: [bullish/bearish/sideways] — brief reason
-### Key Levels: Support at [X], Resistance at [Y]
-### Indicators: RSI [value], MACD [signal], MA alignment [bullish/bearish]
-### Volume: [normal/high/low], [description]
-### Risk Signals: [any warning signs]
-### Overall Rating: [score 1-10]`
+## Technical Analysis
+### Trend: [direction] [strength] [phase]
+### Key Levels: Support ¥[S] ([-X]%), Resistance ¥[R] ([+Y]%)
+### Volume: [description]
+### Momentum: [description]
+### Risk Signals: [any technical warnings — gap risk, breakdown risk, overextension]`
 
-const TASentimentAnalystPrompt = `You are a Market Sentiment Analyst for Chinese A-share stocks.
+const TAFundamentalPrompt = `You are a Fundamental Analyst for Chinese A-share stocks.
+Answer ONLY based on the financial data provided. Do NOT recommend buy/sell.
 
-Your task: Analyze sentiment data to gauge market emotion toward the stock.
-
-Consider:
-1. Social media sentiment score — positive/negative/neutral bias
-2. News sentiment — recent news tone
-3. Trading activity signals — unusual volume, price spikes
-4. Overall market mood — risk-on vs risk-off indicators
-5. Contrarian signals — extreme sentiment often precedes reversals
+Analyze:
+1. Valuation — PE/PB vs industry and historical range
+2. Financial health — profitability, debt, cash flow indicators
+3. Market cap context — liquidity, institutional coverage implications
+4. Growth trajectory — revenue/earnings trend
 
 Output format:
-## Sentiment Report for {stock_name} ({stock_code})
-### Social Sentiment: [score] — [interpretation]
-### News Tone: [positive/negative/neutral] — [summary]
-### Market Mood: [risk-on/risk-off/cautious]
-### Contrarian Signal: [yes/no] — [reason]
-### Overall Sentiment Rating: [score 1-10]`
+## Fundamental Analysis
+### Valuation: PE=[X] (industry [Y]), PB=[Z]
+### Market Cap: [value] — [liquidity assessment]
+### Financial Health: [assessment]
+### Growth: [trajectory description]`
 
-const TAFundamentalsAnalystPrompt = `You are a Fundamental Analyst for Chinese A-share stocks.
+const TAMarketContextPrompt = `You are a Market Context Analyst for Chinese A-share stocks.
+Answer ONLY based on the macro/sentiment/flow data provided. Do NOT recommend buy/sell.
 
-Your task: Evaluate the company's financial health based on valuation metrics.
-
-Consider:
-1. PE ratio — compared to industry average, historical range
-2. PB ratio — asset value assessment
-3. PS ratio — revenue efficiency
-4. Market cap context — large/mid/small cap implications
-5. Growth prospects — based on sector and macro environment
+Analyze:
+1. Market sentiment — risk appetite, fear/greed indicators
+2. Sector/Industry flow — capital rotation, sector strength
+3. News catalysts — positive/negative headlines and their materiality
+4. Northbound flow — foreign capital direction
 
 Output format:
-## Fundamentals Report for {stock_name} ({stock_code})
-### Valuation: PE=[X] (industry avg ~[Y]), PB=[Z]
-### Market Cap: [value] — [large/mid/small cap]
-### Financial Health: [strong/moderate/weak] — [reasoning]
-### Growth Outlook: [positive/neutral/negative]
-### Overall Fundamentals Rating: [score 1-10]`
+## Market Context
+### Sentiment: [risk-on/neutral/risk-off] — [evidence]
+### Sector Position: [leading/lagging/neutral] in current market
+### News Impact: [catalyst description or "no material news"]
+### Capital Flow: [description]`
 
-const TANewsAnalystPrompt = `You are a Financial News Analyst for Chinese A-share stocks.
+// ── PM Prompt (Strategy Bridge) ──
 
-Your task: Analyze recent news headlines and assess their impact on the stock.
+const TAPMStrategyBridgePrompt = `You are a Portfolio Manager for a Chinese A-share quantitative strategy.
 
-Consider:
-1. Positive catalysts — earnings beats, new contracts, policy support
-2. Negative risks — regulatory issues, lawsuits, macro headwinds
-3. Neutral/background — routine announcements, sector trends
-4. News momentum — accelerating positive or negative coverage
-5. Market reaction — how has the stock reacted to similar news historically
+## YOUR STRATEGY MANDATE
+- Strategy Name: {strategy_name}
+- Strategy Style: {strategy_style}
+- Strategy Thesis: {strategy_thesis}
+- Target Holding Period: {hold_days} days
+- Risk Profile: {risk_profile}
+- Stop Loss: {stop_loss}% | Stop Profit: {stop_profit}%
+- Position Sizing: {position_sizing}, {buy_pct}% per trade
 
-Output format:
-## News Report for {stock_name} ({stock_code})
-### Key Headlines: [list top 3]
-### Impact Assessment: [positive/negative/neutral]
-### Catalyst Strength: [strong/moderate/weak]
-### Risk Factors: [list key risks from news]
-### Overall News Rating: [score 1-10]`
+## THE SIGNAL
+- Stock: {stock_name} ({stock_code})
+- Signal: {signal_action}
+- Trigger Reason: {signal_reason}
+- Signal Price: ¥{signal_price}
 
-const TABullResearcherPrompt = `You are a Bull Researcher. Your job is to find and argue the MOST COMPELLING bullish case for this stock.
+## OBJECTIVE ANALYSIS
+{analyst_reports}
 
-Based on the analyst reports provided, construct the strongest possible bull argument:
-1. What are the key upside catalysts?
-2. Why is the current price attractive?
-3. What could drive outperformance vs the market?
-4. What valuation or technical signals support buying now?
-5. What is your price target and timeline?
+## PORTFOLIO STATE
+{portfolio_state}
 
-Be persuasive but grounded in the data. Acknowledge risks but explain why upside outweighs them.
+## STRATEGY-STYLE TOLERANCE FRAMEWORK
 
-Output format:
-## Bull Case for {stock_name}
-### Key Catalysts: [list]
-### Valuation Appeal: [reasoning]
-### Price Target: [X] within [Y] days
-### Conviction Level: [high/medium/low]
-### Main Counter-Argument Rebuttal: [address the biggest bear concern]`
+Your judgment standards MUST align with the strategy style. Below are the EXPECTED and FATAL conditions per style:
 
-const TABearResearcherPrompt = `You are a Bear Researcher. Your job is to find and argue the MOST COMPELLING bearish case for this stock.
+### 动量追击 (momentum_chaser) — 追涨强势股，1-3天短线
+| 指标 | 预期范围(不构成驳回) | 警告范围(需关注) | 致命范围(可驳回) |
+|------|---------------------|-----------------|-----------------|
+| RSI(14) | 60-85 | 85-95 | >95（极端超买） |
+| 乖离率(MA20) | +3%~+12% | +12%~+18% | >+20% 或 <-5% |
+| 换手率 | 5%-25% | 25%-40% | <3%（无资金关注） |
+| 成交量比(20日均) | 1.2x-4x | 4x-8x | <0.8x（缩量） |
+| 近5日涨幅 | +5%~+25% | +25%~+40% | <+3%（动能不足） |
+| 关键原则 | 高位 + 高量 = 动量确认，非风险 | 缩量新高 = 警示 | 基本面恶化 = 无关 |
 
-Based on the analyst reports provided, construct the strongest possible bear argument:
-1. What are the key downside risks?
-2. Why might the current price be overvalued?
-3. What could drive underperformance vs the market?
-4. What technical or fundamental signals suggest caution?
-5. What is your downside target and timeline?
+### 波段交易 (swing_trader) — 高抛低吸，3-10天
+| 指标 | 预期范围 | 警告范围 | 致命范围 |
+|------|---------|---------|---------|
+| RSI(14) | 30-70 | >75 或 <25 | >85 或 <15（极端） |
+| 乖离率(MA20) | -5%~+8% | +8%~+15% 或 -8%~-15% | >+18% 或 <-18% |
+| 布林带位置 | 中轨附近 | 触及上/下轨 | 持续沿轨运行(趋势) |
+| 波动率 | 中等(20-40%年化) | >50% | <15%(无波段空间) |
+| 关键原则 | 均值回归是核心逻辑 | 趋势行情不适合波段 | 突发消息不否定波段 |
 
-Be critical but fair. Acknowledge positives but explain why risks dominate.
+### 趋势跟随 (trend_follower) — 顺势而为，10-30天
+| 指标 | 预期范围 | 警告范围 | 致命范围 |
+|------|---------|---------|---------|
+| MA排列 | 多头排列(短期>长期) | 均线粘合 | 空头排列 |
+| ADX | >25 | 20-25 | <20（无趋势） |
+| MACD | 金叉/零轴上 | 死叉但未破位 | 零轴下+死叉 |
+| 回撤幅度 | <10% | 10%-15% | >15% 或破关键均线 |
+| 关键原则 | 趋势不破则持有 | 震荡不否定趋势 | 基本面变化可否定 |
 
-Output format:
-## Bear Case for {stock_name}
-### Key Risks: [list]
-### Overvaluation Concerns: [reasoning]
-### Downside Target: [X] within [Y] days
-### Conviction Level: [high/medium/low]
-### Main Counter-Argument Rebuttal: [address the biggest bull argument]`
+### 价值挖掘 (value_hunter) — 低估标的，20-60天
+| 指标 | 预期范围 | 警告范围 | 致命范围 |
+|------|---------|---------|---------|
+| PE(ttm) | <行业均值70% | 亏损（周期底部） | 亏损+无改善预期 |
+| PB | <1.5 | <0.8（可能有雷） | 持续恶化 |
+| 股息率 | >2% | 1%-2% | <1%+高负债 |
+| 短期走势 | 弱势/横盘 | 急跌>15% | 急跌+基本面恶化 |
+| 关键原则 | 低估 ≠ 买入信号 | 等待催化剂 | 价值陷阱 = 驳回 |
 
-const TAResearchManagerPrompt = `You are the Research Manager. Your job is to evaluate the bull and bear arguments and reach a balanced conclusion.
+### 抄底反弹 (dip_buyer) — 超跌买入，1-5天
+| 指标 | 预期范围 | 警告范围 | 致命范围 |
+|------|---------|---------|---------|
+| 近10日跌幅 | -10%~-25% | -25%~-40% | >-40% 或 <-10%（不够超跌） |
+| RSI(14) | 20-35 | 15-20 或 35-40 | >45（反弹已启动） |
+| 乖离率(MA20) | -8%~-20% | -20%~-30% | >-5% 或 <-35% |
+| 成交量 | 缩量止跌或放量反弹 | 持续缩量阴跌 | 放量暴跌 |
+| 关键原则 | 超跌≠抄底，需要止跌信号 | 利空出尽 = 加分 | 财务造假 = 一票否决 |
 
-Consider:
-1. Which side has stronger evidence?
-2. Are there important factors either side missed?
-3. What is the risk/reward ratio?
-4. What is the most likely scenario vs tail risks?
+### 网格做T (grid_trader) — 震荡市低买高卖，1-10天
+| 指标 | 预期范围 | 警告范围 | 致命范围 |
+|------|---------|---------|---------|
+| 波动率 | 15%-35%年化 | 35%-50% | <12%(无网格空间) |
+| ADX | <20 | 20-25 | >30(强趋势不适合网格) |
+| 振幅(日均) | 2%-6% | 6%-10% | <1.5% |
+| 布林带宽度 | 收缩/正常 | 扩张初期 | 持续扩张(趋势中) |
+| 关键原则 | 震荡确认 = 可行 | 突破区间 = 暂停 | 单边趋势 = 驳回 |
 
-Output format:
-## Research Manager Verdict for {stock_name}
-### Debate Winner: [Bull/Bear/Draw] — [reasoning]
-### Key Deciding Factor: [the most important piece of evidence]
-### Risk/Reward Assessment: [favorable/neutral/unfavorable]
-### Recommended Action Bias: [buy/hold/sell] with [confidence]% confidence
-### Critical Watch Points: [what to monitor going forward]`
+## DECISION FRAMEWORK
 
-const TATraderPrompt = `You are a Professional Trader. Based on all analyst reports and the research manager's verdict, make a specific trading decision.
+**Step 1 — Strategy Alignment (use tolerance table above)**
+Check analyst findings against your strategy's tolerance table:
+- All indicators in "预期范围" → STRONG ALIGNMENT (confidence 80+)
+- Some in "警告范围", none in "致命" → MODERATE ALIGNMENT (confidence 50-79)
+- Any in "致命范围" → FATAL CONTRADICTION → REJECT
+- Strategy-irrelevant warnings (e.g. PE for momentum) → IGNORE
 
-Output a JSON decision:
+**Step 2 — Risk/Reward Under Strategy Constraints**
+Given {hold_days}-day horizon and {risk_profile} risk profile:
+- Upside: based on technical resistance levels + strategy thesis
+- Downside: based on support levels, capped by stop_loss={stop_loss}%
+- R/R ratio: acceptable for your strategy style?
+
+**Step 3 — Execution Decision**
+- STRONG ALIGNMENT + acceptable R/R → CONFIRM with high confidence
+- MODERATE ALIGNMENT + acceptable R/R → CONFIRM with moderate confidence
+- Any FATAL CONTRADICTION → REJECT with specific reason
+- Insufficient data to judge → REJECT with "INSUFFICIENT_DATA"
+
+**Principles:**
+1. Your job is to EXECUTE the strategy, not override it with generic investing wisdom.
+2. A strategy's "expected behavior" is NOT a risk — it's confirmation the strategy is working.
+3. Only FATAL contradictions (core thesis broken) warrant rejection.
+4. When in doubt between "warning" and "fatal", lean toward confirming — the strategy's stop-loss protects against actual losses.
+
+Output ONLY the final JSON decision (no markdown, no explanation outside JSON):
 {
-  "action": "buy|sell|hold|add|reduce",
+  "action": "{signal_action}|hold",
   "confidence": 0-100,
-  "amount": planned_amount_in_yuan,
-  "price": target_price,
+  "amount": planned_amount,
+  "price": execution_price,
+  "suggested_premium": premium_pct,
+  "order_price_limit": limit_price,
   "stop_loss": stop_loss_price,
   "stop_profit": take_profit_price,
-  "reasoning": "brief explanation",
+  "reasoning": "decision rationale in Chinese, reference which tolerance indicators drove the decision",
   "risk_level": "low|medium|high",
-  "horizon_days": expected_holding_days
-}
-
-Rules:
-- Be specific with prices and amounts
-- Stop loss should be based on technical support levels
-- Confidence should reflect conviction level
-- Consider position sizing (A-share: round lots of 100 shares)`
-
-const TAAggressiveRiskPrompt = `You are an Aggressive Risk Analyst. Your philosophy: higher risk = higher reward. Markets reward boldness.
-
-Evaluate the trader's proposed decision:
-1. Could we take a larger position? Why?
-2. Is the stop loss too tight?
-3. What upside scenario is being underestimated?
-4. How can we maximize return while accepting calculated risk?
-
-Output format:
-## Aggressive Risk Assessment
-### Position Sizing: [recommendation] — [reasoning]
-### Stop Adjustment: [wider/tighter/keep] — [reasoning]
-### Upside Potential: [higher than estimated/in line] — [evidence]
-### Risk Acceptance: [acceptable/manageable] — [justification]`
-
-const TAConservativeRiskPrompt = `You are a Conservative Risk Analyst. Your philosophy: capital preservation first. Avoid drawdowns.
-
-Evaluate the trader's proposed decision:
-1. What could go wrong with this trade?
-2. Is the position too large for current conditions?
-3. Should we wait for better entry?
-4. What hedging or sizing adjustments reduce risk?
-
-Output format:
-## Conservative Risk Assessment
-### Downside Risks: [list specific risks]
-### Position Sizing: [smaller/current/avoid] — [reasoning]
-### Entry Timing: [now/wait] — [reasoning]
-### Risk Mitigation: [hedging/sizing/stop recommendations]`
-
-const TANeutralRiskPrompt = `You are a Neutral Risk Analyst. Your philosophy: balanced approach, optimal risk-adjusted returns.
-
-Evaluate the aggressive and conservative viewpoints:
-1. Where is the middle ground?
-2. What is the optimal position size for Sharpe ratio?
-3. What adjustments balance risk and reward?
-
-Output format:
-## Neutral Risk Assessment
-### Balanced Position Size: [recommendation] — [reasoning]
-### Optimal Stop: [price] — [reasoning]
-### Risk/Reward Ratio: [calculation]
-### Final Risk-Adjusted Recommendation: [summary]`
-
-const TAPortfolioManagerPrompt = `You are the Portfolio Manager. Your job is to make the FINAL trading decision with complete execution parameters after reviewing all analysis, debate outcomes, and risk assessments.
-
-Consider:
-1. Current portfolio composition and cash level
-2. All analyst reports, research verdict, trader plan, and risk assessments
-3. Position sizing rules (max position %, A-share 100-share lots)
-4. Overall portfolio risk exposure
-
-Output a FINAL JSON decision with ALL execution parameters:
-{
-  "action": "buy|sell|hold|add|reduce",
-  "confidence": 0-100,
-  "amount": final_planned_amount,
-  "price": execution_price,
-  "suggested_premium": premium_pct_for_order_placement,
-  "order_price_limit": max_buy_or_min_sell_price,
-  "stop_loss": final_stop_loss,
-  "stop_profit": final_take_profit,
-  "reasoning": "final decision rationale in Chinese",
-  "risk_level": "low|medium|high",
-  "horizon_days": holding_period,
-  "suggested_qty": recommended_shares,
+  "horizon_days": {hold_days},
+  "suggested_qty": shares,
   "open_deviation": pct_from_open,
-  "decision_rule": "rule_identifier"
+  "decision_rule": "STRATEGY_ALIGNED|TOLERABLE_CONCERN|FATAL_CONTRADICTION|INSUFFICIENT_DATA"
 }
 
-Execution guide:
-- suggested_premium: Bullish buy +1~3%, bearish sell 0~-1.5%, hold=0
-- order_price_limit: Buy=max acceptable, Sell=min acceptable
-- suggested_qty: High confidence=100%, low=50-70%
-- decision_rule: e.g. "BEAR_VALUATION", "BULL_BREAKOUT", "RISK_AVOID"
-
-This is the binding decision. Be decisive and precise.`
+Pricing guide:
+- suggested_premium: buy +0.5~2% (momentum: higher end, value: lower end), sell 0~-1%, hold=0
+- order_price_limit: buy=max acceptable price, sell=min acceptable price
+- decision_rule: STRATEGY_ALIGNED=all indicators in expected range; TOLERABLE_CONCERN=some warnings but no fatal; FATAL_CONTRADICTION=core premise broken; INSUFFICIENT_DATA=not enough data to decide`
 
 // ── Supporting Types ──
-
-// PricePoint is a single OHLCV data point used by analyst agents.
 type PricePoint struct {
 	Date   string
 	Open   float64
@@ -351,14 +294,4 @@ type PricePoint struct {
 	Low    float64
 	Close  float64
 	Volume float64
-}
-
-// PastDecision records a previous agent decision for reflection.
-type PastDecision struct {
-	Date     string
-	Action   string
-	Price    float64
-	Quantity int
-	Pnl      float64
-	Reason   string
 }

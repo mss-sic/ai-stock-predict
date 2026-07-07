@@ -1531,7 +1531,7 @@ Register(Migration{
 
 	// v068: Remove dead ai_agent_mode column from strategies
 	Register(Migration{
-		Version:     68,
+		Version:     71,
 		Description: "MySQL: remove ai_agent_mode from strategies",
 		Up: func() error {
 			MySQL.Exec("ALTER TABLE strategies DROP COLUMN IF EXISTS ai_agent_mode")
@@ -1551,7 +1551,7 @@ Register(Migration{
 
 	// v068: Add execution_mode to strategy_runs
 	Register(Migration{
-		Version:     68,
+		Version:     71,
 		Description: "MySQL: add execution_mode to strategy_runs",
 		Up: func() error {
 			gormAutoMigrate(MySQL, &model.StrategyRun{})
@@ -1583,7 +1583,7 @@ Register(Migration{
 
 	// v068: Remove dead ai_agent_mode column from strategies
 	Register(Migration{
-		Version:     68,
+		Version:     71,
 		Description: "MySQL: remove ai_agent_mode from strategies",
 		Up: func() error {
 			MySQL.Exec("ALTER TABLE strategies DROP COLUMN IF EXISTS ai_agent_mode")
@@ -1603,7 +1603,7 @@ Register(Migration{
 
 	// v068: Add execution_mode to strategy_runs
 	Register(Migration{
-		Version:     68,
+		Version:     71,
 		Description: "MySQL: add execution_mode to strategy_runs",
 		Up: func() error {
 			gormAutoMigrate(MySQL, &model.StrategyRun{})
@@ -1669,4 +1669,94 @@ Register(Migration{
 			return nil
 		},
 	})
+	// v70: rename pre_market → trade_exec + ai_review + account_id + charset
+	Register(Migration{
+		Version:     71,
+		Description: "MySQL v71: trade_exec rename + ai_review + account_id + charset",
+		Up: func() error {
+			// Rename column (ignore error if already renamed)
+			MySQL.Exec("ALTER TABLE strategy_runs CHANGE COLUMN auto_pre_market_cron auto_trade_exec_cron VARCHAR(50)")
+			// Add ai_review_enabled if not exists
+			var count int64
+			MySQL.Raw("SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = 'stock_predict' AND TABLE_NAME = 'strategy_runs' AND COLUMN_NAME = 'ai_review_enabled'").Scan(&count)
+			if count == 0 {
+				MySQL.Exec("ALTER TABLE strategy_runs ADD COLUMN ai_review_enabled TINYINT(1) DEFAULT 0 AFTER execution_mode")
+			}
+			// Add account_id if not exists
+			MySQL.Raw("SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = 'stock_predict' AND TABLE_NAME = 'strategy_runs' AND COLUMN_NAME = 'account_id'").Scan(&count)
+			if count == 0 {
+				MySQL.Exec("ALTER TABLE strategy_runs ADD COLUMN account_id INT UNSIGNED DEFAULT 0 AFTER name")
+			}
+			// Fix charset for key tables
+			MySQL.Exec("ALTER TABLE strategy_runs CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci")
+			MySQL.Exec("ALTER TABLE trading_accounts CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci")
+			MySQL.Exec("ALTER TABLE strategies CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci")
+			MySQL.Exec("ALTER TABLE backtest_signals CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci")
+			// Backfill account_id from fund allocations
+			MySQL.Exec("UPDATE strategy_runs sr JOIN strategy_fund_allocations sfa ON sfa.strategy_run_id = sr.id AND sfa.status = 'active' SET sr.account_id = sfa.trading_account_id WHERE sr.account_id = 0")
+			return nil
+		},
+	})
+
+	// v72: backfill account_id (fix column name from v71)
+	Register(Migration{
+		Version:     72,
+		Description: "MySQL: backfill account_id from fund allocations",
+		Up: func() error {
+			MySQL.Exec("UPDATE strategy_runs sr JOIN strategy_fund_allocations sfa ON sfa.strategy_run_id = sr.id AND sfa.status = 'active' SET sr.account_id = sfa.account_id WHERE sr.account_id = 0")
+			return nil
+		},
+	})
+
+	// v73: extend status column for live trading statuses (pending_order, pending_manual, order_failed)
+	Register(Migration{
+		Version:     73,
+		Description: "MySQL: extend backtest_signals.status to VARCHAR(30)",
+		Up: func() error {
+			return MySQL.Exec("ALTER TABLE backtest_signals MODIFY COLUMN status VARCHAR(30) NOT NULL DEFAULT 'pending'").Error
+		},
+	})
+
+	// v74: add broker_order_id column for order status tracking
+	Register(Migration{
+		Version:     74,
+		Description: "MySQL: add broker_order_id to backtest_signals",
+		Up: func() error {
+			return MySQL.Exec("ALTER TABLE backtest_signals ADD COLUMN broker_order_id VARCHAR(30) DEFAULT '' AFTER skip_reason").Error
+		},
+	})
+
+	// v75: create run_execution_logs for per-day log storage
+	Register(Migration{
+		Version:     75,
+		Description: "MySQL: create run_execution_logs table",
+		Up: func() error {
+			return MySQL.Exec(`
+				CREATE TABLE IF NOT EXISTS run_execution_logs (
+					id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+					run_id INT UNSIGNED NOT NULL,
+					trade_date VARCHAR(10) NOT NULL,
+					log_type VARCHAR(20) NOT NULL DEFAULT 'strategy',
+					level VARCHAR(10) DEFAULT 'info',
+					stock_code VARCHAR(10) DEFAULT '',
+					stock_name VARCHAR(50) DEFAULT '',
+					message VARCHAR(2000),
+					detail TEXT,
+					created_at DATETIME(3) DEFAULT CURRENT_TIMESTAMP(3),
+					INDEX idx_run_date (run_id, trade_date),
+					INDEX idx_run_type (run_id, log_type, trade_date)
+				) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+			`).Error
+		},
+	})
+
+	// v76: drop deprecated auto_pre_market_cron column
+	Register(Migration{
+		Version:     76,
+		Description: "MySQL: drop deprecated auto_pre_market_cron from strategy_runs",
+		Up: func() error {
+			return MySQL.Exec("ALTER TABLE strategy_runs DROP COLUMN auto_pre_market_cron").Error
+		},
+	})
+
 }

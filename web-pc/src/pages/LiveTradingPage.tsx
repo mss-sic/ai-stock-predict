@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, Button, Table, Tag, Modal, InputNumber, Select, Input, Message, Grid, Switch, TimePicker, Divider } from '@arco-design/web-react';
-import { Play, Plus, Pause, Square, Wallet, TrendingUp, BarChart3, Target, RefreshCw, Building2, Trash2, Bell, Settings, Edit, Coins, DollarSign } from 'lucide-react';
+import { Play, Plus, Pause, Square, Wallet, TrendingUp, BarChart3, Target, RefreshCw, Building2, Trash2, Bell, Settings, Edit, Coins, DollarSign, Cpu } from 'lucide-react';
 import {
   fetchLiveRuns, createLiveRun, updateLiveRunStatus, updateLiveRunConfig,
   fetchLiveAccounts, createLiveAccount, updateLiveAccount, deleteLiveAccount, fetchLiveAccount, syncFromBroker,
@@ -15,7 +15,7 @@ interface StrategyRun {
   initialCapital: number; currentEquity: number;
   totalReturn: number; maxDrawdown: number;
   winRate: number; tradeCount: number; lastRunDate: string;
-  autoDailyCron?: string; autoPreMarketCron?: string;
+  autoDailyCron?: string; autoTradeExecCron?: string;
   notifyEnabled?: boolean; notifyChannels?: string;
 }
 
@@ -48,7 +48,7 @@ export default function LiveTradingPage() {
   const [acctEditOpen, setAcctEditOpen] = useState(false);
   const [editingAcct, setEditingAcct] = useState<any>(null);
   const [configOpen, setConfigOpen] = useState(false);
-  const [configRun, setConfigRun] = useState<{ id: number; autoDailyCron: string; autoPreMarketCron: string; notifyEnabled: boolean; notifyChannels: string }>({ id: 0, autoDailyCron: '', autoPreMarketCron: '', notifyEnabled: false, notifyChannels: '[]' });
+  const [configRun, setConfigRun] = useState<{ id: number; autoDailyCron: string; autoTradeExecCron: string; aiReviewEnabled: boolean; notifyEnabled: boolean; notifyChannels: string }>({ id: 0, autoDailyCron: '', autoTradeExecCron: '', aiReviewEnabled: false, notifyEnabled: false, notifyChannels: '[]' });
   const [removedNotifyIds, setRemovedNotifyIds] = useState<number[]>([]);
   const [configNotifyChannels, setConfigNotifyChannels] = useState<{ id?: number; channel: string; name: string; webhookUrl: string }[]>([]);
   const [configNewNotify, setConfigNewNotify] = useState({ channel: 'dingtalk_bot', webhookUrl: '' });
@@ -122,7 +122,8 @@ export default function LiveTradingPage() {
       // 2. Update run config
       await updateLiveRunConfig(configRun.id, {
         autoDailyCron: configRun.autoDailyCron,
-        autoPreMarketCron: configRun.autoPreMarketCron,
+        autoTradeExecCron: configRun.autoTradeExecCron,
+        aiReviewEnabled: configRun.aiReviewEnabled,
         notifyEnabled: configRun.notifyEnabled && finalChannelIds.length > 0,
         notifyChannels: configRun.notifyEnabled ? notifyChannels : '[]',
       });
@@ -309,7 +310,7 @@ export default function LiveTradingPage() {
                 {r.status === 'stopped' && <Button size="mini" type="outline" icon={<Play size={12} />} onClick={() => handleStatus(r.id, 'active')}>启动</Button>}
                 {r.status !== 'stopped' && <Button size="mini" status="danger" icon={<Square size={12} />} onClick={() => handleStatus(r.id, 'stopped')}>停止</Button>}
                 <Button size="mini" type="text" icon={<Settings size={12} />} onClick={async () => {
-                  setConfigRun({ id: r.id, autoDailyCron: r.autoDailyCron || '18:00', autoPreMarketCron: r.autoPreMarketCron || '09:00', notifyEnabled: r.notifyEnabled || false, notifyChannels: r.notifyChannels || '[]' });
+                  setConfigRun({ id: r.id, autoDailyCron: r.autoDailyCron || '18:00', autoTradeExecCron: r.autoTradeExecCron || '09:00', aiReviewEnabled: r.aiReviewEnabled || false, notifyEnabled: r.notifyEnabled || false, notifyChannels: r.notifyChannels || '[]' });
                   // Load existing notification configs
                   try {
                     const { data: ncs } = await fetchNotificationConfigs();
@@ -467,21 +468,31 @@ export default function LiveTradingPage() {
                 <div style={{ fontSize: 10, color: 'var(--color-text-4)', marginTop: 2 }}>留空=手动执行</div>
               </div>
               <div>
-                <div style={{ marginBottom: 3, fontSize: 12, color: 'var(--color-text-3)' }}>盘前决策</div>
+                <div style={{ marginBottom: 3, fontSize: 12, color: 'var(--color-text-3)' }}>交易执行</div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <TimePicker
-                    value={configRun.autoPreMarketCron || undefined}
+                    value={configRun.autoTradeExecCron || undefined}
                     format="HH:mm"
                     placeholder="选择时间"
                     style={{ width: 140 }}
-                    onChange={(s) => setConfigRun(p => ({ ...p, autoPreMarketCron: s }))}
+                    onChange={(s) => setConfigRun(p => ({ ...p, autoTradeExecCron: s }))}
                     allowClear
                   />
-                  {configRun.autoPreMarketCron && <span style={{ fontSize: 11, color: 'var(--color-text-4)' }}>每日 {configRun.autoPreMarketCron} 执行</span>}
+                  {configRun.autoTradeExecCron && <span style={{ fontSize: 11, color: 'var(--color-text-4)' }}>每日 {configRun.autoTradeExecCron} 执行</span>}
                 </div>
                 <div style={{ fontSize: 10, color: 'var(--color-text-4)', marginTop: 2 }}>留空=手动执行</div>
               </div>
             </div>
+          </div>
+          <div style={{ background: 'var(--color-fill-1)', borderRadius: 8, padding: '10px 12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Cpu size={14} style={{ color: 'var(--color-text-3)' }} />
+                <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-1)' }}>AI 审查</span>
+              </div>
+              <Switch checked={configRun.aiReviewEnabled} onChange={v => setConfigRun(p => ({ ...p, aiReviewEnabled: v }))} />
+            </div>
+            <div style={{ fontSize: 10, color: 'var(--color-text-4)' }}>开启后交易执行前由 AI 多智能体严格审查信号，可能否决高风险交易</div>
           </div>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>

@@ -1,5 +1,10 @@
 package service
 
+// DEPRECATED: TaskManager cron scheduling is disabled.
+// All scheduling is now handled by scheduler/v2 UnifiedScheduler.
+// The ScheduledTask model and TaskHandler API remain for backward compatibility.
+// Manual triggers via RunTaskNow still work by calling collector directly.
+
 import (
 	"fmt"
 	"log"
@@ -61,7 +66,10 @@ type TaskManager struct {
 var taskManager *TaskManager
 var taskExtraArgs sync.Map // taskID → []string
 
-func InitTaskManager() *TaskManager {
+// InitTaskManager is deprecated. Returns nil; v2 scheduler handles all scheduling.
+func InitTaskManager() *TaskManager { return nil }
+
+func initTaskManagerX() *TaskManager {
 	tm := &TaskManager{
 		cron: cron.New(cron.WithSeconds()),
 		jobs: make(map[uint]cron.EntryID),
@@ -94,7 +102,11 @@ func InitTaskManager() *TaskManager {
 
 func GetTaskManager() *TaskManager { return taskManager }
 
+// ScheduleTask is deprecated. Cron scheduling handled by v2 UnifiedScheduler.
 func (tm *TaskManager) ScheduleTask(task *model.ScheduledTask) {
+	if tm == nil {
+		return
+	}
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
 
@@ -120,7 +132,7 @@ func (tm *TaskManager) ScheduleTask(task *model.ScheduledTask) {
 	name := task.Name
 
 	entryID, err := tm.cron.AddFunc(expr, func() {
-		tm.executeTask(taskID, phase, name)
+		executeTaskStandalone(taskID, phase, name)
 	})
 	if err != nil {
 		log.Printf("[TaskManager] failed to schedule %s: %v", name, err)
@@ -142,7 +154,7 @@ func (tm *TaskManager) ScheduleTask(task *model.ScheduledTask) {
 	log.Printf("[TaskManager] scheduled: %s (%s) next=%s", name, expr, nextRun.Format("01-02 15:04"))
 }
 
-func (tm *TaskManager) executeTask(taskID uint, phase, name string) {
+func executeTaskStandalone(taskID uint, phase, name string) {
 	// Panic recovery — also finalize TaskLog
 	defer func() {
 		if r := recover(); r != nil {
@@ -282,15 +294,7 @@ func (tm *TaskManager) executeTask(taskID uint, phase, name string) {
 			"last_run":    logEntry.StartedAt,
 			"last_status": logEntry.Status,
 		})
-	// Update next run
-	tm.mu.Lock()
-	eid, eok := tm.jobs[taskID]
-	tm.mu.Unlock()
-	if eok {
-		entry := tm.cron.Entry(eid)
-		db.MySQL.Model(&model.ScheduledTask{}).Where("id = ?", taskID).
-			Update("next_run", entry.Next)
-	}
+	// Next run update: cron scheduling managed by v2 UnifiedScheduler
 
 }
 
@@ -334,7 +338,7 @@ func InitializeDefaultTasks() (int, error) {
 			}
 			if updated {
 				db.MySQL.Save(&existing)
-				GetTaskManager().ScheduleTask(&existing)
+				if tm := GetTaskManager(); tm != nil { tm.ScheduleTask(&existing) }
 			}
 			continue
 		}
@@ -349,7 +353,7 @@ func InitializeDefaultTasks() (int, error) {
 			continue
 		}
 		created++
-		GetTaskManager().ScheduleTask(&task)
+		if tm := GetTaskManager(); tm != nil { tm.ScheduleTask(&task) }
 	}
 	// Cleanup: disable tasks that are no longer in DefaultTasks
 	defaultNames := make(map[string]bool)
@@ -389,7 +393,7 @@ func CreateTask(name, phase, cronExpr string, enabled bool) (*model.ScheduledTas
 		return nil, err
 	}
 	if enabled {
-		GetTaskManager().ScheduleTask(&task)
+		if tm := GetTaskManager(); tm != nil { tm.ScheduleTask(&task) }
 	}
 	return &task, nil
 }
@@ -412,21 +416,19 @@ func UpdateTask(id uint, name, phase, cronExpr string, enabled bool) (*model.Sch
 	if err := db.MySQL.Save(&task).Error; err != nil {
 		return nil, err
 	}
-	GetTaskManager().ScheduleTask(&task)
+	if tm := GetTaskManager(); tm != nil { tm.ScheduleTask(&task) }
 	return &task, nil
 }
 
 func DeleteTask(id uint) error {
-	var entryID cron.EntryID
 	tm := GetTaskManager()
-	tm.mu.Lock()
-	if eid, ok := tm.jobs[id]; ok {
-		entryID = eid
-		delete(tm.jobs, id)
-	}
-	tm.mu.Unlock()
-	if entryID != 0 {
-		tm.cron.Remove(entryID)
+	if tm != nil {
+		tm.mu.Lock()
+		if eid, ok := tm.jobs[id]; ok {
+			tm.cron.Remove(eid)
+			delete(tm.jobs, id)
+		}
+		tm.mu.Unlock()
 	}
 	return db.MySQL.Delete(&model.ScheduledTask{}, id).Error
 }
@@ -447,7 +449,7 @@ func RunTaskNow(id uint, args []string) error {
 	if len(args) > 0 {
 		taskExtraArgs.Store(id, args)
 	}
-	go GetTaskManager().executeTask(task.ID, task.Phase, task.Name)
+	go executeTaskStandalone(task.ID, task.Phase, task.Name)
 	return nil
 }
 
@@ -528,6 +530,6 @@ func ToggleTask(id uint) (*model.ScheduledTask, error) {
 	}
 	// Re-schedule: if disabled, ScheduleTask will remove from cron;
 	// if enabled, it will add to cron. Running tasks won't be interrupted.
-	GetTaskManager().ScheduleTask(&task)
+	if tm := GetTaskManager(); tm != nil { tm.ScheduleTask(&task) }
 	return &task, nil
 }

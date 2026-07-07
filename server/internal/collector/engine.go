@@ -323,6 +323,7 @@ func RunManualCollection(phases []string, extraArgs ...string) {
 	progress.Results = nil
 	progress.Errors = nil
 	progress.Started = time.Now()
+	progress.LastRun = progress.Started
 	progress.Finished = nil
 	progress.PhaseCurrent = 0
 	progress.PhaseTotal = 0

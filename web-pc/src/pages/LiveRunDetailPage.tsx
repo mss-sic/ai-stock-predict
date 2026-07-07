@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Card, Table, Tag, Button, Spin, Message, Tabs, Select, Divider, Alert, Progress, Modal, Drawer, Dropdown, Menu, TimePicker, Input, Switch, Popconfirm } from '@arco-design/web-react';
+import { Card, Table, Tag, Button, Spin, Message, Tabs, Select, Divider, Alert, Progress, Modal, Drawer, Dropdown, Menu, TimePicker, Input, Switch, Popconfirm , } from '@arco-design/web-react';
 import ReactECharts from 'echarts-for-react';
-import { ArrowLeft, TrendingUp, Wallet, Zap, Settings, Activity, Calendar, RefreshCw, Loader, XCircle, Bell, FileText } from 'lucide-react';
-import { fetchLiveRun, fetchLiveSnapshots, runLiveDaily, fetchDailyRunTask, fetchLatestDailyRunTask, runPreMarket, executeLiveSignal, fetchPreMarketTask, fetchLatestPreMarketTask, updateLiveRunConfig, fetchNotificationConfigs, createNotificationConfig, deleteNotificationConfig, testNotification, sendLiveRunNotification, updateLiveSignal, deleteLiveSignal, clearLiveSignals } from '../services/api';
+import { ArrowLeft, TrendingUp, Wallet, Zap, Settings, Activity, Calendar, RefreshCw, Loader, XCircle, Bell, FileText, Building2, Cpu } from 'lucide-react';
+import { fetchLiveRun, fetchLiveSnapshots, runLiveDaily, fetchDailyRunTask, fetchLatestDailyRunTask, runTradeExec, executeLiveSignal, fetchTradeExecTask, fetchLatestTradeExecTask, updateLiveRunConfig, fetchNotificationConfigs, createNotificationConfig, deleteNotificationConfig, testNotification, sendLiveRunNotification, updateLiveSignal, deleteLiveSignal, clearLiveSignals, fetchRunLogs } from '../services/api';
 
-interface Run { id: number; strategyId: number; name: string; status: string; startDate: string; initialCapital: number; currentEquity: number; totalReturn: number; maxDrawdown: number; winRate: number; tradeCount: number; lastRunDate: string; autoDailyCron?: string; autoPreMarketCron?: string; notifyEnabled?: boolean; notifyChannels?: string; executionMode?: string; }
+interface Run { id: number; strategyId: number; name: string; status: string; startDate: string; initialCapital: number; currentEquity: number; totalReturn: number; maxDrawdown: number; winRate: number; tradeCount: number; lastRunDate: string; autoDailyCron?: string; autoTradeExecCron?: string; notifyEnabled?: boolean; notifyChannels?: string; executionMode?: string; aiReviewEnabled?: boolean; }
 interface Strategy { id: number; name: string; description: string; stopProfit: number; stopLoss: number; maxHoldings: number; buyPositionPct: number; addPositionPct: number; positionSizing: string; positionConcentrationLimit: number; maxDailyLoss: number; initialCapital: number; enableAIAgent?: boolean; }
 interface Allocation { id: number; allocatedCapital: number; currentCash: number; pctOfAccount: number; status: string; }
 interface Position { id: number; stockCode: string; stockName: string; quantity: number; avgCost: number; currentPrice: number; unrealizedPnl: number; unrealizedPnlPct: number; realizedPnl: number; holdDays: number; }
@@ -14,6 +14,15 @@ interface Snapshot { id: number; snapshotDate: string; cash: number; positionVal
 interface Signal { id: number; signalDate: string; execDate: string; stockCode: string; stockName: string; actionType: string; plannedPrice: number; plannedQty: number; plannedAmount: number; status: string; reason: string; suggestedPremium: number; orderPrice: number; orderPriceLimit: number; suggestedQty: number; originalQty: number; openPrice: number; openDeviation: number; decisionRule: string; }
 interface Condition { id: number; condType: string; indicator: string; operator: string; value: string; period: string; }
 interface Decision { id: number; signalId: number; tradeDate: string; stockCode: string; stockName: string; status: string; finalAction: string; finalPrice: number; finalAmount: number; confidence: number; source: string; reason: string; suggestedPremium: number; orderPrice: number; orderPriceLimit: number; suggestedQty: number; openPrice: number; openDeviation: number; decisionRule: string; taReasoning?: string; taDebateJson?: string; }
+
+
+const getMarketTag = (code: string): string => {
+  if (!code) return '';
+  if (code.startsWith('688') || code.startsWith('689')) return '科创';
+  if (code.startsWith('300') || code.startsWith('301')) return '创业';
+  if (code.startsWith('4') || code.startsWith('8')) return '北交';
+  return '';
+};
 
 const pnlColor = (v: number) => v >= 0 ? '#00B42A' : '#F53F3F';
 const pnlSign = (v: number) => v >= 0 ? '+' : '';
@@ -61,6 +70,7 @@ export default function LiveRunDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [run, setRun] = useState<Run | null>(null);
+  const [linkedAccount, setLinkedAccount] = useState<any>(null);
   const [strategy, setStrategy] = useState<Strategy | null>(null);
   const [allocation, setAllocation] = useState<Allocation | null>(null);
   const [positions, setPositions] = useState<Position[]>([]);
@@ -79,17 +89,23 @@ export default function LiveRunDetailPage() {
   const [clearModalOpen, setClearModalOpen] = useState(false);
   const [clearPendingCount, setClearPendingCount] = useState(0);
   const [runningDaily, setRunningDaily] = useState(false);
-  const [runningPreMarket, setRunningPreMarket] = useState(false);
+  const [runningTradeExec, setRunningTradeExec] = useState(false);
+  const [runDailyMode, setRunDailyMode] = useState<string | null>(null); // pending confirm
   const [debateViewer, setDebateViewer] = useState<{ open: boolean; title: string; content: any[] }>({ open: false, title: '', content: [] });
   const [dailyLogs, setDailyLogs] = useState<string[]>([]);
+  const [tradeLogs, setTradeLogs] = useState<string[]>([]);
+  const [logsCollapsed, setLogsCollapsed] = useState(false);
+  const [strategyExecTime, setStrategyExecTime] = useState('');
+  const [tradeExecTime, setTradeExecTime] = useState('');
     const [signalDate, setSignalDate] = useState<string>('');
     const [activeTab, setActiveTab] = useState('positions');
   // Config tab state
   const [configSaving, setConfigSaving] = useState(false);
   const [configAutoDaily, setConfigAutoDaily] = useState('');
-  const [configAutoPreMarket, setConfigAutoPreMarket] = useState('');
+  const [configAutoTradeExec, setConfigAutoTradeExec] = useState('');
   const [configNotifyEnabled, setConfigNotifyEnabled] = useState(false);
   const [configExecutionMode, setConfigExecutionMode] = useState('manual');
+  const [configAiReviewEnabled, setConfigAiReviewEnabled] = useState(false);
   const [removedNotifyIds, setRemovedNotifyIds] = useState<number[]>([]);
   const [configChannels, setConfigChannels] = useState<{ id?: number; channel: string; name: string; webhookUrl: string; keyword?: string; secret?: string }[]>([]);
   const [configNewChannel, setConfigNewChannel] = useState({ channel: 'dingtalk_bot', webhookUrl: '', keyword: '', secret: '' });
@@ -136,9 +152,12 @@ export default function LiveRunDetailPage() {
       setSignals(d.signals || []);
       setConditions(d.conditions || []);
       setDecisions(d.decisions || []);
+      setLinkedAccount(d.account || null);
       if (!dailyLogs.length) setDailyLogs(d.persistedLogs || []);
       const dates = [...new Set((d.signals || []).map((s: Signal) => s.execDate))].sort().reverse();
-      if (dates.length && !signalDate) setSignalDate(dates[0] as string);
+      if (dates.length && !signalDate) { setSignalDate(dates[0] as string); }
+      // Load execution logs for the latest date
+      loadLogs(dates[0] as string);
       try { const { data: s } = await fetchLiveSnapshots(Number(id)); setSnapshots(s.data || []); } catch {}
     } catch (e) { console.error(e); }
     setLoading(false);
@@ -154,14 +173,14 @@ export default function LiveRunDetailPage() {
 
     const pollTask = async () => {
       try {
-        const { data: r } = await fetchLatestPreMarketTask(undefined as any);
+        const { data: r } = await fetchLatestTradeExecTask(undefined as any, id ? Number(id) : undefined);
         if (!active) return;
         const pd = r?.data || {};
         failCount = 0;
 
         if (pd.status === 'running' || pd.status === 'pending') {
           setTaskRunning(true);
-          setRunningPreMarket(true);
+          setRunningTradeExec(true);
           setTaskId(pd.id);
           setTaskProgress(pd.progress || 0);
           setTaskStage(pd.currentStage || '');
@@ -180,7 +199,7 @@ export default function LiveRunDetailPage() {
 
         if (pd.status === 'completed') {
           setTaskRunning(false);
-          setRunningPreMarket(false);
+          setRunningTradeExec(false);
           setTaskResult(pd.result || {});
           load();
           return;
@@ -188,7 +207,7 @@ export default function LiveRunDetailPage() {
 
         if (pd.status === 'failed') {
           setTaskRunning(false);
-          setRunningPreMarket(false);
+          setRunningTradeExec(false);
           Message.warning('上次任务执行失败: ' + (pd.error || '未知'));
           return;
         }
@@ -200,7 +219,7 @@ export default function LiveRunDetailPage() {
         }
       } catch (e) {
         failCount++;
-        console.error('[PreMarket] poll error:', e);
+        console.error('[TradeExec] poll error:', e);
         if (failCount >= 5 && pollTimer) {
           clearInterval(pollTimer);
           pollTimer = null;
@@ -225,7 +244,7 @@ export default function LiveRunDetailPage() {
 
     const pollDailyTask = async () => {
       try {
-        const { data: r } = await fetchLatestDailyRunTask(undefined as any);
+        const { data: r } = await fetchLatestDailyRunTask(undefined as any, id ? Number(id) : undefined);
         if (!active) return;
         const pd = r?.data || {};
         failCount = 0;
@@ -276,9 +295,10 @@ export default function LiveRunDetailPage() {
   const loadConfig = useCallback(async () => {
     if (!run || configLoaded) return;
     setConfigAutoDaily(run.autoDailyCron || '18:00');
-    setConfigAutoPreMarket(run.autoPreMarketCron || '09:00');
+    setConfigAutoTradeExec(run.autoTradeExecCron || '09:00');
     setConfigNotifyEnabled(run.notifyEnabled || false);
     setConfigExecutionMode(run.executionMode || 'manual');
+    setConfigAiReviewEnabled(run.aiReviewEnabled || false);
     // Load notification configs
     try {
       const { data: ncs } = await fetchNotificationConfigs();
@@ -319,10 +339,11 @@ export default function LiveRunDetailPage() {
       const rid = run!.id;
       await updateLiveRunConfig(rid, {
         autoDailyCron: configAutoDaily,
-        autoPreMarketCron: configAutoPreMarket,
+        autoTradeExecCron: configAutoTradeExec,
         notifyEnabled: configNotifyEnabled && finalChannelIds.length > 0,
         notifyChannels: configNotifyEnabled ? notifyChannels : '[]',
         executionMode: configExecutionMode,
+        aiReviewEnabled: configAiReviewEnabled,
       });
       Message.success('配置已保存');
       setConfigLoaded(false); // force reload on next tab switch
@@ -350,9 +371,10 @@ export default function LiveRunDetailPage() {
   };
   const handleRunDaily = async (mode: string) => {
     setRunningDaily(true); setDailyLogs([]);
-    const label = mode === 'after_close' ? '策略执行' : mode === 'pre_market' ? '盘前刷新' : '盘中刷新';
+    if (!id) { Message.error('缺少运行ID'); setRunningDaily(false); return; }
+    const label = mode === 'after_close' ? '策略执行' : mode === 'trade_exec' ? '信号刷新' : '盘中刷新';
     try {
-      const { data: r } = await runLiveDaily('', mode);
+      const { data: r } = await runLiveDaily('', mode, Number(id));
       const d = r.data || {};
       const tid = d.taskId;
       if (!tid) {
@@ -372,6 +394,7 @@ export default function LiveRunDetailPage() {
             setRunningDaily(false);
             Message.success(`${label}: ${pd.signalCount || 0} 个信号`);
             load();
+            loadLogs(signalDate);
           } else if (pd.status === 'failed') {
             clearInterval(poll);
             setRunningDaily(false);
@@ -388,52 +411,64 @@ export default function LiveRunDetailPage() {
     } catch (e: any) { Message.error('执行失败: ' + (e?.message || '未知')); setRunningDaily(false); }
   };
 
-  const handlePreMarket = async () => {
-    setRunningPreMarket(true); setTaskRunning(true);
+  const refreshSignals = async () => {
+    if (!id) return;
+    try {
+      const { data: res } = await fetchLiveRun(Number(id));
+      const d = res.data || {};
+      if (d.signals) setSignals(d.signals || []);
+      if (d.run) setRun(d.run);
+      if (d.trades) setTrades(d.trades || []);
+      if (d.positions) setPositions(d.positions || []);
+      if (d.decisions) setDecisions(d.decisions || []);
+    } catch { /* silent background refresh */ }
+  };
+
+  const loadLogs = async (date: string) => {
+    if (!id) return;
+    try {
+      const { data: res } = await fetchRunLogs(Number(id), date);
+      const d = res.data || {};
+      const logs = d.logs || {};
+      setDailyLogs(logs.strategy || []);
+      setTradeLogs(logs.trade_exec || []);
+      setStrategyExecTime(d.strategyTime || '');
+      setTradeExecTime(d.tradeExecTime || '');
+    } catch { /* silent */ }
+  };
+
+  // Reload logs when signalDate changes
+  useEffect(() => {
+    if (signalDate && id) loadLogs(signalDate);
+  }, [signalDate, id]);
+
+  const handleTradeExec = async () => {
+    setRunningTradeExec(true); setTaskRunning(true);
     setTaskProgress(0); setTaskStage('init'); setTaskResult(null);
     try {
-      const skipAI = !(strategy?.enableAIAgent);
-      const { data: r } = await runPreMarket('', skipAI, id ? Number(id) : undefined);
+      const skipAI = !(run?.aiReviewEnabled);
+      const { data: r } = await runTradeExec(signalDate, skipAI, id ? Number(id) : undefined, true);
       const d = r.data || {};
-      const tid = d.taskId;
-      if (tid) {
-        setTaskId(tid);
-        Message.info('盘前决策任务已启动，正在异步执行...');
-        const poll = setInterval(async () => {
-          try {
-            const { data: pollR } = await fetchPreMarketTask(tid);
-            const pd = pollR.data || {};
-            setTaskProgress(pd.progress || 0);
-            setTaskStage(pd.currentStage || '');
-            setTaskCode(pd.currentCode || '');
-            setTaskCompleted(pd.completedSignals || 0);
-            setTaskTotal(pd.totalSignals || 0);
-            if (pd.logs && pd.logs.length > 0) setDailyLogs(pd.logs);
-            // Store stage details for live per-signal progress display
-            if (pd.stageDetails) setTaskResult((prev: any) => ({ ...prev, stageDetails: pd.stageDetails }));
-            if (pd.status === 'completed' || pd.status === 'failed') {
-              clearInterval(poll);
-              setTaskRunning(false);
-              setRunningPreMarket(false);
-              if (pd.status === 'completed') {
-                setTaskResult(pd.result || {});
-                Message.success(`盘前决策完成: ${pd.result?.total || 0} 条信号`);
-              } else {
-                Message.error('任务失败: ' + (pd.error || '未知错误'));
-              }
-              load();
-            }
-          } catch { /* poll error, ignore */ }
-        }, 1500);
+      // Sync response from TradeExecService.ExecuteForRun
+      setTaskResult(d);
+      setRunningTradeExec(false);
+      setTaskRunning(false);
+      if (d.totalSignals === 0) {
+        Message.info('没有待执行的信号');
+      } else if (d.executed > 0) {
+        Message.success(`交易执行完成: ${d.executed} 笔成交, ${d.confirmed} 已确认, ${d.rejected} 已驳回`);
+      } else if (d.failed > 0) {
+        Message.warning(`交易执行部分失败: ${d.confirmed} 已确认, ${d.rejected} 已驳回, ${d.failed} 失败`);
       } else {
-        Message.info(d.message || '任务已创建');
-        setRunningPreMarket(false);
-        setTaskRunning(false);
-        load();
+        Message.info(`交易执行完成: ${d.confirmed} 已确认, ${d.rejected} 已驳回`);
       }
+      if (d.logs && d.logs.length > 0) setTradeLogs(d.logs);
+      // Refresh signal statuses and reload log timestamps
+      refreshSignals();
+      loadLogs(signalDate);
     } catch (e: any) {
-      Message.error('任务创建失败: ' + (e?.message || '未知'));
-      setRunningPreMarket(false);
+      Message.error('交易执行失败: ' + (e?.response?.data?.message || e?.message || '网络错误'));
+      setRunningTradeExec(false);
       setTaskRunning(false);
     }
   };
@@ -534,11 +569,13 @@ export default function LiveRunDetailPage() {
   }, [signals]);
 
   const filteredSignals = useMemo(() => {
-    if (!signalDate) return signals;
-    return signals.filter(s => s.execDate === signalDate);
+    const dates = [...new Set(signals.map(s => s.execDate))].sort().reverse();
+    const activeDate = signalDate || dates[0] || '';
+    if (!activeDate) return [];
+    return signals.filter(s => s.execDate === activeDate);
   }, [signals, signalDate]);
 
-  const pendingCount = signals.filter(s => s.status === 'pending').length;
+  const pendingCount = filteredSignals.filter(s => s.status === 'pending').length;
 
   const signalSummary = useMemo(() => {
     const pending = filteredSignals.filter(s => s.status === 'pending');
@@ -601,6 +638,20 @@ export default function LiveRunDetailPage() {
               </div>
             ))}
           </div>
+          {linkedAccount && (
+            <div style={{ marginTop: 12, padding: '8px 12px', background: 'var(--color-fill-1)', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Building2 size={14} style={{ color: 'var(--color-text-3)' }} />
+                <span style={{ fontSize: 12, color: 'var(--color-text-2)' }}>{linkedAccount.name}</span>
+                <span style={{ fontSize: 11, color: 'var(--color-text-4)' }}>#{linkedAccount.id}</span>
+              </div>
+              <div style={{ display: 'flex', gap: 6 }}>
+                {(linkedAccount.brokerMode === 'mx_moni') && <Tag color="blue" style={{ fontSize: 10 }}>妙想自动</Tag>}
+                {(linkedAccount.brokerMode === 'lobster') && <Tag color="green" style={{ fontSize: 10 }}>龙虾自动</Tag>}
+                {(linkedAccount.brokerMode === 'manual' || !linkedAccount.brokerMode) && <Tag style={{ fontSize: 10 }}>手动</Tag>}
+              </div>
+            </div>
+          )}
         </Card>
       </div>
 
@@ -735,7 +786,7 @@ export default function LiveRunDetailPage() {
           </Tabs.TabPane>
 
           {/* 信号决策 */}
-          <Tabs.TabPane key="signals" title={`信号决策 (${pendingCount}/${signals.length})`}>
+          <Tabs.TabPane key="signals" title={`信号决策 (${pendingCount}/${filteredSignals.length})`}>
             {/* Toolbar */}
             <div style={{
               display: 'flex', justifyContent: 'space-between', alignItems: 'center',
@@ -755,9 +806,9 @@ export default function LiveRunDetailPage() {
               <div style={{ display: 'flex', gap: 6 }}>
                 <Dropdown
                   droplist={
-                    <Menu onClickMenuItem={(key) => handleRunDaily(key)}>
+                    <Menu onClickMenuItem={(key) => setRunDailyMode(key)}>
                       <Menu.Item key="after_close">📅 盘后执行 (生成T+1信号)</Menu.Item>
-                      <Menu.Item key="pre_market">🌅 盘前刷新 (刷新当日信号)</Menu.Item>
+                      <Menu.Item key="trade_exec">🌅 信号刷新 (刷新当日信号)</Menu.Item>
                       <Menu.Item key="intraday">📊 盘中刷新 (刷新未执行信号)</Menu.Item>
                     </Menu>
                   }
@@ -767,34 +818,87 @@ export default function LiveRunDetailPage() {
                     策略执行
                   </Button>
                 </Dropdown>
-                <Button size="small" type="primary" icon={<Zap size={12} />} loading={runningPreMarket} onClick={handlePreMarket}>
-                  {strategy?.enableAIAgent ? 'AI 盘前决策' : '生成信号报告'}
+                <Button size="small" type="primary" icon={<Zap size={12} />} loading={runningTradeExec} onClick={handleTradeExec}>
+                  交易执行
                 </Button>
               </div>
             </div>
 
-            {/* Strategy Execution Logs */}
-            {dailyLogs.length > 0 && (
-              <div style={{
-                marginBottom: 12, background: '#1a1a2e', borderRadius: 10, border: '1px solid rgba(22,93,255,0.2)',
-                overflow: 'hidden'
-              }}>
-                <div style={{
-                  padding: '8px 14px', background: 'rgba(22,93,255,0.1)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                  borderBottom: '1px solid rgba(22,93,255,0.1)'
-                }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <Activity size={12} style={{ color: '#165DFF' }} />
-                    <span style={{ fontSize: 11, fontWeight: 600, color: '#94a3b8' }}>策略执行日志</span>
-                    <Tag size="small" color="blue" style={{ fontSize: 9 }}>{dailyLogs.length} 行</Tag>
-                  </div>
+            {/* Dual Log Panels: Strategy | Trade — collapsible */}
+            {(dailyLogs.length > 0 || tradeLogs.length > 0) && (
+              <div style={{ marginBottom: 12 }}>
+                <div
+                  onClick={() => setLogsCollapsed(!logsCollapsed)}
+                  style={{
+                    cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px',
+                    background: 'var(--color-fill-1)', borderRadius: '8px 8px 0 0', border: '1px solid var(--color-border-2)',
+                    borderBottom: logsCollapsed ? '1px solid var(--color-border-2)' : 'none',
+                    userSelect: 'none',
+                  }}
+                >
+                  <span style={{ fontSize: 11, color: 'var(--color-text-3)', transition: 'transform 0.2s', transform: logsCollapsed ? 'rotate(-90deg)' : 'rotate(0)' }}>▼</span>
+                  <Activity size={12} style={{ color: '#165DFF' }} />
+                  <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-2)' }}>执行控制台</span>
+                  <Tag size="small" color="blue" style={{ fontSize: 9 }}>{dailyLogs.length}行</Tag>
+                  {strategyExecTime ? <span style={{ fontSize: 9, color: '#165DFF' }}>策略 {strategyExecTime}</span> : <span style={{ fontSize: 9, color: 'var(--color-text-4)' }}>策略 —</span>}
+                  <span style={{ width: 1, height: 12, background: 'var(--color-border-2)', margin: '0 6px' }} />
+                  <Zap size={12} style={{ color: '#722ED1' }} />
+                  <Tag size="small" color="purple" style={{ fontSize: 9 }}>{tradeLogs.length}行</Tag>
+                  {tradeExecTime ? <span style={{ fontSize: 9, color: '#722ED1' }}>交易 {tradeExecTime}</span> : <span style={{ fontSize: 9, color: 'var(--color-text-4)' }}>交易 —</span>}
+                  <div style={{ flex: 1 }} />
                   <Button size="mini" type="text" style={{ color: '#64748b', fontSize: 9, padding: '0 4px' }}
-                    onClick={() => setDailyLogs([])}>清除</Button>
+                    onClick={e => { e.stopPropagation(); setDailyLogs([]); setTradeLogs([]); }}>清空全部</Button>
                 </div>
-                <div style={{ padding: '8px 14px', maxHeight: 200, overflowY: 'auto', fontFamily: "'SF Mono', monospace" }}>
-                  {dailyLogs.map((line, i) => <LogLine key={i} line={line} />)}
+                {!logsCollapsed && (
+              <div style={{ display: 'flex', gap: 8 }}>
+                {/* Strategy Execution Logs */}
+                <div style={{
+                  flex: 1, background: '#1a1a2e', borderRadius: 10, border: '1px solid rgba(22,93,255,0.2)',
+                  overflow: 'hidden', minWidth: 0
+                }}>
+                  <div style={{
+                    padding: '8px 14px', background: 'rgba(22,93,255,0.1)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    borderBottom: '1px solid rgba(22,93,255,0.1)'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <Activity size={12} style={{ color: '#165DFF' }} />
+                      <span style={{ fontSize: 11, fontWeight: 600, color: '#94a3b8' }}>策略执行</span>
+                      <Tag size="small" color="blue" style={{ fontSize: 9 }}>{dailyLogs.length} 行</Tag>
+                      {strategyExecTime && <span style={{ fontSize: 9, color: '#165DFF', fontFamily: "'SF Mono', monospace" }}>{strategyExecTime}</span>}
+                    </div>
+                    <Button size="mini" type="text" style={{ color: '#64748b', fontSize: 9, padding: '0 4px' }}
+                      onClick={() => setDailyLogs([])}>清除</Button>
+                  </div>
+                  <div style={{ padding: '8px 14px', maxHeight: 200, overflowY: 'auto', fontFamily: "'SF Mono', monospace", fontSize: 10, minHeight: dailyLogs.length > 0 ? 60 : 0 }}>
+                    {dailyLogs.length === 0 ? <div style={{ color: '#555', fontSize: 10, textAlign: 'center', padding: '12px 0' }}>暂无日志</div> : dailyLogs.map((line, i) => <LogLine key={i} line={line} />)}
+                  </div>
                 </div>
+                {/* Trade Execution Logs */}
+                <div style={{
+                  flex: 1, background: '#1a1a2e', borderRadius: 10, border: '1px solid rgba(114,46,209,0.2)',
+                  overflow: 'hidden', minWidth: 0
+                }}>
+                  <div style={{
+                    padding: '8px 14px', background: 'rgba(114,46,209,0.1)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    borderBottom: '1px solid rgba(114,46,209,0.1)'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <Zap size={12} style={{ color: '#722ED1' }} />
+                      <span style={{ fontSize: 11, fontWeight: 600, color: '#94a3b8' }}>交易执行</span>
+                      <Tag size="small" color="purple" style={{ fontSize: 9 }}>{tradeLogs.length} 行</Tag>
+                      {tradeExecTime && <span style={{ fontSize: 9, color: '#722ED1', fontFamily: "'SF Mono', monospace" }}>{tradeExecTime}</span>}
+                    </div>
+                    <Button size="mini" type="text" style={{ color: '#64748b', fontSize: 9, padding: '0 4px' }}
+                      onClick={() => setTradeLogs([])}>清除</Button>
+                  </div>
+                  <div style={{ padding: '8px 14px', maxHeight: 200, overflowY: 'auto', fontFamily: "'SF Mono', monospace", fontSize: 10, minHeight: tradeLogs.length > 0 ? 60 : 0 }}>
+                    {tradeLogs.length === 0 ? <div style={{ color: '#555', fontSize: 10, textAlign: 'center', padding: '12px 0' }}>暂无日志</div> : tradeLogs.map((line, i) => <LogLine key={i} line={line} />)}
+                  </div>
+                </div>
+              </div>
+                )}
               </div>
             )}
 
@@ -807,7 +911,7 @@ export default function LiveRunDetailPage() {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <Loader size={16} style={{ color: '#165DFF' }} />
-                    <span style={{ fontSize: 13, fontWeight: 600, color: '#e0e0ff' }}>盘前决策执行中</span>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: '#e0e0ff' }}>交易执行执行中</span>
                     <Tag size="small" color="blue">{taskCompleted}/{taskTotal} 信号</Tag>
                   </div>
                   <Progress percent={taskProgress} status="active" style={{ width: 120, marginBottom: 0 }} />
@@ -869,7 +973,7 @@ export default function LiveRunDetailPage() {
             <div style={{ marginBottom: 16 }}>
               <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
                 <span style={{ width: 4, height: 14, borderRadius: 2, background: '#165DFF', display: 'inline-block' }} />
-                交易信号 · AI 盘前决策
+                交易信号 · AI 交易执行
                 <Tag size="small" color="arcoblue">{filteredSignals.length} 条</Tag>
                 {filteredSignals.some((s: Signal) => s.status === "pending") && <Button size="mini" type="text" status="danger" onClick={handleClearSignals} style={{ fontSize: 11, padding: "0 6px", height: 20 }}>清空待执行</Button>}
                 <Tag size="small" color="purple">{decisions.filter((d: Decision) => filteredSignals.some((s: Signal) => s.id === d.signalId)).length} 已验证</Tag>
@@ -957,7 +1061,16 @@ export default function LiveRunDetailPage() {
                   }}
                   columns={[
                     { title: '代码', dataIndex: 'stockCode', width: 70, render: (v: string) => <span style={{ fontWeight: 600, cursor: 'pointer', color: '#165DFF', fontSize: 11 }} onClick={() => navigate(`/stock/${v}`)}>{v}</span> },
-                    { title: '名称', dataIndex: 'stockName', width: 70 },
+                    { title: '名称', dataIndex: 'stockName', width: 65 },
+                    { title: '市场', width: 42, render: (_: any, r: Signal) => {
+                      const tag = getMarketTag(r.stockCode);
+                      if (!tag) return <span style={{ fontSize: 10, color: 'var(--color-text-3)' }}>—</span>;
+                      return <Tag size="small" color="purple" style={{ fontSize: 9, padding: '0 4px', lineHeight: '16px' }}>{tag}</Tag>;
+                    }},
+                    { title: '数量', dataIndex: 'plannedQty', width: 48, render: (v: number, r: Signal) => {
+                      const qty = r.suggestedQty || v || 0;
+                      return <span style={{ fontSize: 11, fontWeight: 500 }}>{qty > 0 ? qty.toLocaleString() : '—'}</span>;
+                    }},
                     { title: '操作', dataIndex: 'actionType', width: 45, render: (v: string) => {
     const colors: Record<string, string> = { buy: 'green', add: 'green', sell: 'red', reduce: 'red', stop: 'red', hold: 'arcoblue' };
     const labels: Record<string, string> = { buy: '买入', add: '加仓', sell: '卖出', reduce: '减仓', stop: '止损', hold: '持有' };
@@ -982,21 +1095,32 @@ export default function LiveRunDetailPage() {
                       if (!dec) return <span style={{ fontSize: 10, color: 'var(--color-text-3)' }}>—</span>;
                       return <span style={{ fontWeight: 600, fontSize: 10, color: dec.confidence >= 60 ? '#00B42A' : dec.confidence >= 30 ? '#F7BA1E' : '#F53F3F' }}>{dec.confidence.toFixed(0)}%</span>;
                     }},
-                    { title: '状态', dataIndex: 'status', width: 55, render: (v: string) => {
-                      if (v === 'pending') return <Tag size="small" color="orange">待执行</Tag>;
-                      if (v === 'executed') return <Tag size="small" color="green">已执行</Tag>;
-                      if (v === 'skipped') return <Tag size="small" color="gray">已跳过</Tag>;
-                      return <Tag size="small">{v}</Tag>;
+                    { title: '状态', dataIndex: 'status', width: 65, render: (v: string) => {
+                      const statusMap: Record<string, [string, string]> = {
+                        pending:        ['orange', '待执行'],
+                        confirmed:      ['blue', '已确认'],
+                        pending_order:  ['purple', '委托中'],
+                        pending_manual: ['gray', '待手动'],
+                        pending_auto:   ['gray', '待自动'],
+                        executed:       ['green', '已成交'],
+                        partial_filled: ['arcoblue', '部分成交'],
+                        order_failed:   ['red', '下单失败'],
+                        cancelled:      ['gray', '已撤单'],
+                        rejected:       ['red', '已驳回'],
+                        skipped:        ['gray', '已跳过'],
+                      };
+                      const [color, label] = statusMap[v] || ['gray', v];
+                      return <Tag size="small" color={color} style={{ fontSize: 10 }}>{label}</Tag>;
                     }},
                     { title: '原因', dataIndex: 'reason', width: 200, ellipsis: true, render: (v: string) => (
     <span style={{ fontSize: 10, maxWidth: 190, display: 'inline-block' }} title={(v || '').replace(/\| /g, String.fromCharCode(10))}>{v || '—'}</span>
   ) },
                     { title: '操作', width: 120, render: (_: any, r: Signal) => (
                       <div style={{ display: 'flex', gap: 4 }}>
-                        {(r.status === 'pending' || r.status === 'confirmed') && (
+                        {(r.status === 'pending' || r.status === 'confirmed' || r.status === 'pending_order') && (
                           <Button size="mini" type="primary" loading={executing === r.id} onClick={() => openExecuteModal(r)}>交易</Button>
                         )}
-                        {r.status === 'pending' && (
+                        {(r.status === 'pending' || r.status === 'pending_order') && (
                           <>
                             <Button size="mini" type="text" onClick={() => handleOpenEditSignal(r)}>编辑</Button>
                             <Popconfirm title="确定删除此信号？" onOk={() => handleDeleteSignal(r)}>
@@ -1365,10 +1489,10 @@ export default function LiveRunDetailPage() {
                     {configAutoDaily && <span style={{ fontSize: 11, color: 'var(--color-text-4)' }}>每日 {configAutoDaily}</span>}
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <span style={{ fontSize: 12, color: 'var(--color-text-2)', minWidth: 100 }}>盘前决策</span>
-                    <TimePicker value={configAutoPreMarket || undefined} format="HH:mm" placeholder="选择时间"
-                      style={{ width: 140 }} onChange={(s) => setConfigAutoPreMarket(s)} allowClear />
-                    {configAutoPreMarket && <span style={{ fontSize: 11, color: 'var(--color-text-4)' }}>每日 {configAutoPreMarket}</span>}
+                    <span style={{ fontSize: 12, color: 'var(--color-text-2)', minWidth: 100 }}>交易执行</span>
+                    <TimePicker value={configAutoTradeExec || undefined} format="HH:mm" placeholder="选择时间"
+                      style={{ width: 140 }} onChange={(s) => setConfigAutoTradeExec(s)} allowClear />
+                    {configAutoTradeExec && <span style={{ fontSize: 11, color: 'var(--color-text-4)' }}>每日 {configAutoTradeExec}</span>}
                   </div>
                 </div>
               </div>
@@ -1381,7 +1505,7 @@ export default function LiveRunDetailPage() {
                   <Zap size={14} style={{ marginRight: 6, verticalAlign: -2 }} />交易执行
                 </div>
                 <div style={{ fontSize: 11, color: 'var(--color-text-4)', marginBottom: 12 }}>
-                  选择盘前决策后的交易执行方式。自动下单需账户支持自动交易功能。
+                  选择交易执行后的交易执行方式。自动下单需账户支持自动交易功能。
                 </div>
                 <div style={{ display: 'flex', gap: 12 }}>
                   <div
@@ -1394,7 +1518,7 @@ export default function LiveRunDetailPage() {
                   >
                     <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>✋ 手动下单</div>
                     <div style={{ fontSize: 11, color: 'var(--color-text-4)', lineHeight: 1.5 }}>
-                      盘前决策后生成待执行信号，需手动在信号页逐一确认交易
+                      交易执行后生成待执行信号，需手动在信号页逐一确认交易
                     </div>
                   </div>
                   <div
@@ -1407,7 +1531,7 @@ export default function LiveRunDetailPage() {
                   >
                     <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>🤖 自动下单</div>
                     <div style={{ fontSize: 11, color: 'var(--color-text-4)', lineHeight: 1.5 }}>
-                      盘前决策后自动提交订单（需账户开启自动交易功能）
+                      交易执行后自动提交订单（需账户开启自动交易功能）
                     </div>
                   </div>
                 </div>
@@ -1419,6 +1543,20 @@ export default function LiveRunDetailPage() {
                     </span>
                   </div>
                 )}
+              </div>
+
+              <Divider style={{ margin: 0 }} />
+
+              {/* AI 审查 */}
+              <div style={{ background: 'var(--color-fill-1)', borderRadius: 8, padding: '10px 12px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <Cpu size={14} style={{ color: 'var(--color-text-3)' }} />
+                    <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-1)' }}>AI 审查</span>
+                  </div>
+                  <Switch checked={configAiReviewEnabled} onChange={setConfigAiReviewEnabled} />
+                </div>
+                <div style={{ fontSize: 10, color: 'var(--color-text-4)' }}>开启后交易执行前由 AI 多智能体严格审查信号，可能否决高风险交易</div>
               </div>
 
               <Divider style={{ margin: 0 }} />
@@ -1637,6 +1775,34 @@ export default function LiveRunDetailPage() {
       })}
     </div>
   </Drawer>
+
+      {/* Strategy execution confirm modal */}
+      <Modal
+        visible={runDailyMode !== null}
+        title="确认执行策略"
+        okText="确认执行"
+        cancelText="取消"
+        onOk={() => {
+          const mode = runDailyMode!;
+          setRunDailyMode(null);
+          handleRunDaily(mode);
+        }}
+        onCancel={() => setRunDailyMode(null)}
+        okButtonProps={{ status: 'warning' }}
+      >
+        <div style={{ lineHeight: 1.8, fontSize: 13, padding: '8px 0' }}>
+          <p style={{ color: 'var(--color-text-1)', marginBottom: 12 }}>
+            即将执行 <b style={{ color: '#F53F3F' }}>{runDailyMode === 'after_close' ? '盘后策略执行' : runDailyMode === 'trade_exec' ? '信号刷新' : '盘中刷新'}</b>
+          </p>
+          <div style={{ background: '#FF7D0008', borderRadius: 6, padding: '10px 12px', border: '1px solid #FF7D0015' }}>
+            <p style={{ color: '#FF7D00', fontSize: 12, margin: 0 }}>
+              ⚠️ <b>注意</b>：执行策略将刷新当前日期的<b>待执行信号</b>（重新扫描生成）。
+              已有委托中的信号（委托中/部分成交）<b>不会被清除或覆盖</b>，
+              同一股票已有委托时<b>不会重复生成信号</b>。
+            </p>
+          </div>
+        </div>
+      </Modal>
 
       {/* Clear signals confirm modal */}
       <Modal
