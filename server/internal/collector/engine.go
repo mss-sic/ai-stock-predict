@@ -998,7 +998,7 @@ func runMarketDailyAggPhase() PhaseResult {
 	t0 := time.Now()
 	var before int64
 	db.PG.Raw("SELECT COUNT(*) FROM market_daily_agg").Scan(&before)
-	errMDA := runPythonStreamWithArgs("precompute_aggs.py", getExtraArgsOrDefault("--last", "60")...)
+	errMDA := runPythonWithRepair("precompute_aggs.py", getExtraArgsOrDefault("--last", "60")...)
 	phaseRes := PhaseResult{Phase: "market_daily_agg", Skipped: int(before)}
 	var after int64
 	db.PG.Raw("SELECT COUNT(*) FROM market_daily_agg").Scan(&after)
@@ -1020,7 +1020,7 @@ func runMarketSentimentPhase() PhaseResult {
 	t0 := time.Now()
 	var before int64
 	db.PG.Raw("SELECT COUNT(*) FROM market_sentiment").Scan(&before)
-	err := runPythonStreamWithArgs("compute_sentiment.py", getExtraArgsOrDefault("--last", "60")...)
+	err := runPythonWithRepair("compute_sentiment.py", getExtraArgsOrDefault("--last", "60")...)
 	phaseRes := PhaseResult{Phase: "market_sentiment", Skipped: int(before)}
 	var after int64
 	db.PG.Raw("SELECT COUNT(*) FROM market_sentiment").Scan(&after)
@@ -1034,6 +1034,32 @@ func runMarketSentimentPhase() PhaseResult {
 		sseSend(SSELine{Type: "result", Phase: "market_sentiment", Result: &phaseRes, Level: "success", Message: fmt.Sprintf("市场情绪: %d 天 (%+d)", after, after-before)})
 	}
 	return phaseRes
+}
+
+// runPythonWithRepair detects repair mode (--repair --from X --to Y) and runs
+// the script once per trading date in range. Falls back to default args otherwise.
+func runPythonWithRepair(script string, defaultArgs ...string) error {
+	args := getExtraArgs()
+	if len(args) >= 5 && args[0] == "--repair" && args[1] == "--from" && args[3] == "--to" {
+		from := args[2]
+		to := args[4]
+		var dates []string
+		db.PG.Raw(`SELECT DISTINCT trade_date::text FROM stocks_daily_k
+			WHERE trade_date >= ? AND trade_date <= ?
+			ORDER BY trade_date`, from, to).Pluck("trade_date", &dates)
+		if len(dates) == 0 {
+			return fmt.Errorf("repair: no trading dates in %s ~ %s", from, to)
+		}
+		log.Printf("[collector] repair %s: %d dates (%s ~ %s)", script, len(dates), from, to)
+		for i, date := range dates {
+			log.Printf("[collector] repair %s [%d/%d] %s", script, i+1, len(dates), date)
+			if err := runPythonStreamWithArgs(script, date); err != nil {
+				return fmt.Errorf("repair %s date=%s: %w", script, date, err)
+			}
+		}
+		return nil
+	}
+	return runPythonStreamWithArgs(script, defaultArgs...)
 }
 
 func getExtraArgs() []string {
