@@ -1011,14 +1011,13 @@ func (s *UnifiedScheduler) SyncRunCron(runID uint, dailyCron, tradeExecCron stri
 // their per-run TaskInstances. Called on server startup to recover from restarts.
 func (s *UnifiedScheduler) RestoreLiveTradingTasks() {
 	type runInfo struct {
-		ID                uint
-		UserID            uint
-		AutoDailyCron     string
-		AutoPreMarketCron string
+		ID            uint
+		UserID        uint
+		AutoDailyCron string
 	}
 	var runs []runInfo
 	if err := db.MySQL.Table("strategy_runs").Where("status IN ?", []string{"active", "paused"}).
-		Select("id, user_id, auto_daily_cron, auto_pre_market_cron").Scan(&runs).Error; err != nil {
+		Select("id, user_id, auto_daily_cron").Scan(&runs).Error; err != nil {
 		log.Printf("[scheduler-v2] RestoreLiveTradingTasks: query failed: %v", err)
 		return
 	}
@@ -1030,7 +1029,7 @@ func (s *UnifiedScheduler) RestoreLiveTradingTasks() {
 	restored := 0
 	for _, run := range runs {
 		dailyCron := normalizeCron(run.AutoDailyCron)
-		tradeExecCron := normalizeCron(run.AutoPreMarketCron)
+		tradeExecCron := normalizeCron("")
 		if dailyCron == "" {
 			dailyCron = "0 10 16 * * 1-5" // default
 		}
@@ -1067,12 +1066,9 @@ func (s *UnifiedScheduler) RegisterStrategyRunTasks(runID uint, userID uint) {
 		AutoPreMarketCron string
 	}
 	if err := db.MySQL.Table("strategy_runs").Where("id = ?", runID).
-		Select("auto_daily_cron, auto_pre_market_cron").Scan(&run).Error; err == nil {
+		Select("auto_daily_cron").Scan(&run).Error; err == nil {
 		if run.AutoDailyCron != "" {
 			dailyCron = run.AutoDailyCron
-		}
-		if run.AutoPreMarketCron != "" {
-			tradeExecCron = run.AutoPreMarketCron
 		}
 	}
 
