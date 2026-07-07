@@ -479,24 +479,50 @@ func RepairTask(id uint, from, to string, all bool) error {
 	if err := db.MySQL.First(&task, id).Error; err != nil {
 		return err
 	}
-	// For market_style, run bulk compute: clean zero rows + fill missing dates
+	// For market_style, run bulk compute with support for --all / --from/--to
 	if task.Phase == "market_style" {
-		// Clean zero-filled rows first (from failed previous computations)
-		db.PG.Exec(`DELETE FROM market_style_daily WHERE up_ratio = 0 AND total_amount = 0`)
 		var dates []string
-		if err := db.PG.Raw(`
-			SELECT trade_date::text FROM market_sentiment
-			WHERE trade_date NOT IN (SELECT trade_date FROM market_style_daily)
-			ORDER BY trade_date
-		`).Pluck("trade_date", &dates).Error; err != nil {
-			return fmt.Errorf("查询缺失日期失败: %w", err)
+		if all {
+			// --all: recompute all dates from market_sentiment
+			if err := db.PG.Raw(`SELECT trade_date::text FROM market_sentiment ORDER BY trade_date`).
+				Pluck("trade_date", &dates).Error; err != nil {
+				return fmt.Errorf("查询全部日期失败: %w", err)
+			}
+			if len(dates) == 0 {
+				return fmt.Errorf("market_sentiment 无数据，请先采集市场情绪")
+			}
+			log.Printf("[market_style] repair --all: %d dates (%s ~ %s)", len(dates), dates[0], dates[len(dates)-1])
+		} else if from != "" && to != "" {
+			// Date range: recompute dates in range
+			if err := db.PG.Raw(`SELECT trade_date::text FROM market_sentiment
+				WHERE trade_date >= ? AND trade_date <= ? ORDER BY trade_date`, from, to).
+				Pluck("trade_date", &dates).Error; err != nil {
+				return fmt.Errorf("查询日期范围失败: %w", err)
+			}
+			if len(dates) == 0 {
+				return fmt.Errorf("%s ~ %s 范围内无 market_sentiment 数据", from, to)
+			}
+			log.Printf("[market_style] repair range: %d dates (%s ~ %s)", len(dates), dates[0], dates[len(dates)-1])
+		} else {
+			// Default: fill only missing dates
+			db.PG.Exec(`DELETE FROM market_style_daily WHERE up_ratio = 0 AND total_amount = 0`)
+			if err := db.PG.Raw(`SELECT trade_date::text FROM market_sentiment
+				WHERE trade_date NOT IN (SELECT trade_date FROM market_style_daily)
+				ORDER BY trade_date`).Pluck("trade_date", &dates).Error; err != nil {
+				return fmt.Errorf("查询缺失日期失败: %w", err)
+			}
+			if len(dates) == 0 {
+				return fmt.Errorf("没有缺失日期需要修复（market_style_daily 已是最新）")
+			}
+			log.Printf("[market_style] repair missing: %d dates", len(dates))
 		}
 		svc := NewMarketStyleService()
 		success, fail := 0, 0
-		for _, date := range dates {
+		for i, date := range dates {
+			log.Printf("[market_style] repair [%d/%d] %s", i+1, len(dates), date)
 			if err := svc.ComputeAndStore(date); err != nil {
 				fail++
-				log.Printf("[market_style] ❌ 修复失败 %s: %v | 最新数据日期检查...", date, err)
+				log.Printf("[market_style] ❌ 修复失败 %s: %v", date, err)
 			} else {
 				success++
 			}
@@ -504,9 +530,6 @@ func RepairTask(id uint, from, to string, all bool) error {
 		log.Printf("[market_style] repair done: %d dates, %d ok, %d fail", len(dates), success, fail)
 		if fail > 0 {
 			return fmt.Errorf("市场风格修复: %d/%d 成功, %d 失败", success, len(dates), fail)
-		}
-		if success == 0 && len(dates) == 0 {
-			return fmt.Errorf("没有缺失日期需要修复（market_style_daily 已是最新）")
 		}
 		return nil
 	}
