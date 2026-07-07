@@ -159,7 +159,7 @@ def main():
     cur.close()
     conn.close()
     elapsed = time.time() - t_start
-    print(f"[资金流] 完成 | 耗时:{elapsed/60:.0f}min | 新增:{total}条 跳过:{skip} API错误:{api_err} 空数据:{empty}", flush=True)
+    print(f"[资金流] ✅ 完成 | 日期范围: {range_info} | 耗时:{elapsed/60:.0f}min | 新增:{total}条 跳过:{skip} API错误:{api_err} 空数据:{empty}", flush=True)
     print(f"STAT:records_new={total},records_skip={skip},records_err={api_err},fund_flow_new={total}", flush=True)
 
 

@@ -83,7 +83,7 @@ def main():
         cur.close(); conn.close()
         return
 
-    print(f"📡 拉取北向数据 → 最新交易日 {trade_date} ...", flush=True)
+    print(f"[北向资金] 📡 开始采集 → 交易日: {trade_date}", flush=True)
     rows = fetch_minute_data()
 
     if not rows:
@@ -107,7 +107,7 @@ def main():
 
     cur.close()
     conn.close()
-    print("✅ 北向资金采集完成", flush=True)
+    print(f"[北向资金] ✅ 完成 | {len(db_rows)} 分钟点", flush=True)
 
 if __name__ == "__main__":
     main()

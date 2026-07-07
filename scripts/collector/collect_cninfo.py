@@ -135,7 +135,7 @@ def main():
 
     cur.close()
     conn.close()
-    print(f"[巨潮] 采集完成: 新增 {total} 条, 跳过 {skip} 只, 错误 {errors} 只")
+    print(f"[巨潮公告] ✅ 完成 | 日期: {today} | 新增 {total} 条, 跳过 {skip} 只, 错误 {errors} 只")
     print(f"STAT:records_new={total},records_skip={skip},records_err={errors},cninfo_new={total}", flush=True)
 
 

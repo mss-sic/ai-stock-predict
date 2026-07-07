@@ -83,7 +83,8 @@ def collect_unlock_for_code(code, forward_days=90):
     return all_rows
 
 def main():
-    print("[解禁] 开始采集...")
+    today = time.strftime("%Y-%m-%d")
+    print(f"[解禁] 开始采集 → 日期: {today}")
     conn = psycopg2.connect(PG_DSN)
     cur = conn.cursor()
 
@@ -126,7 +127,7 @@ def main():
 
     cur.close()
     conn.close()
-    print(f"[解禁] 采集完成: 新增 {total} 条, 跳过 {skip} 只, 错误 {errors} 只")
+    print(f"[解禁] ✅ 完成 | 日期: {today} | 新增 {total} 条, 跳过 {skip} 只, 错误 {errors} 只")
     print(f"STAT:records_new={total},records_skip={skip},records_err={errors},unlock_new={total}", flush=True)
 
 

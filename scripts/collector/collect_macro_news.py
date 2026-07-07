@@ -51,7 +51,8 @@ def fetch_global_news(page_size=50):
     return rows
 
 def main():
-    print("[宏观资讯] 开始采集...")
+    today = time.strftime("%Y-%m-%d")
+    print(f"[宏观资讯] 开始采集 → 日期: {today}")
     data = fetch_global_news()
     if not data:
         print("[宏观资讯] ⚠️ 无数据")
@@ -89,6 +90,7 @@ def main():
         print(f"  {cat}: {cnt} 条")
 
     inserted = inserted if 'inserted' in dir() else len(data) if 'data' in dir() else 0
+    print(f"[宏观资讯] ✅ 完成 | 日期: {today} | 新增 {inserted} 条", flush=True)
     print(f"STAT:records_new={inserted},records_skip=0,records_err=0,macro_news_count={inserted}", flush=True)
 
 if __name__ == "__main__":

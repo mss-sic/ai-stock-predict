@@ -286,7 +286,10 @@ def main():
         print("❌ 请先运行 precompute_aggs.py 生成 market_daily_agg", flush=True)
         return
 
-    print(f"股票: {len(stocks)} | 日期: {len(dates)}", flush=True)
+    if len(dates) == 1:
+        print(f"→ 计算日期: {dates[0]} | 股票: {len(stocks)}", flush=True)
+    else:
+        print(f"→ 日期范围: {dates[0]} ~ {dates[-1]} ({len(dates)}天) | 股票: {len(stocks)}", flush=True)
 
     raw = []
     ts = time.time()

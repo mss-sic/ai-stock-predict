@@ -18,6 +18,7 @@ import os, sys, time, json
 from datetime import date, timedelta
 import requests
 import psycopg2
+import time
 from psycopg2.extras import execute_values
 
 PG_DSN = os.environ.get("PG_DSN", "host=localhost dbname=stock_predict user=stock password=stock123")
@@ -137,7 +138,8 @@ def main():
     conn.close()
 
     elapsed = time.time() - start_ts
-    print(f"\n✅ 资金流采集完成: {total_new} 条新增 | {elapsed:.0f}s", flush=True)
+    today_str = time.strftime("%Y-%m-%d")
+    print(f"\n[个股资金流] ✅ 完成 | 日期: {today_str} | 新增 {total_new} 条 | {elapsed:.0f}s", flush=True)
     print(f"   PG: {cnt} records, {stocks} stocks, {dmin} ~ {dmax}", flush=True)
 
 if __name__ == "__main__":
