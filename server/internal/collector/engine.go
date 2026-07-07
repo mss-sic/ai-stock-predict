@@ -299,17 +299,17 @@ func runQuotePhase() PhaseResult {
 }
 
 // RunManualCollection runs specified phases. Phases must be non-empty.
-func RunManualCollection(phases []string, extraArgs ...string) {
+func RunManualCollection(phases []string, extraArgs ...string) error {
 	progress.mu.Lock()
 	if progress.Running {
+		currentPhase := progress.Phase
 		progress.mu.Unlock()
-		log.Println("[collector] already running, skip")
-		return
+		return fmt.Errorf("采集任务 [%s] 正在执行中，请等待完成", currentPhase)
 	}
 	if len(phases) == 0 {
 		progress.mu.Unlock()
 		log.Println("[collector] RunManualCollection called with empty phases, refusing to run all")
-		return
+		return fmt.Errorf("采集任务列表为空")
 	}
 	progress.Running = true
 	progress.LastOutput = time.Now()
@@ -481,6 +481,7 @@ func RunManualCollection(phases []string, extraArgs ...string) {
 	if shouldRun("limit_stats") {
 		appendResult(runLimitStatsPhase())
 	}
+	return nil
 }
 
 

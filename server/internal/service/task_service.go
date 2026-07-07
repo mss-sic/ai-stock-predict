@@ -266,9 +266,11 @@ func executeTaskStandalone(taskID uint, phase, name string) {
 		if v, ok := taskExtraArgs.LoadAndDelete(taskID); ok {
 			extraArgs = v.([]string)
 		}
-		collector.RunManualCollection(phases, extraArgs...)
-
-		// Collect results
+		if err := collector.RunManualCollection(phases, extraArgs...); err != nil {
+			log.Printf("[TaskManager] collector busy: %v", err)
+			finishTaskLog(&logEntry, 0, 0, 0, err)
+		} else {
+			// Collect results
 		prog := collector.GetProgress()
 		totalNew := 0
 		totalSkip := 0
@@ -295,6 +297,7 @@ func executeTaskStandalone(taskID uint, phase, name string) {
 		if err != nil {
 			db.MySQL.Model(&model.TaskLog{}).Where("id = ?", logEntry.ID).
 				Update("error_msg", err.Error())
+		}
 		}
 	}
 

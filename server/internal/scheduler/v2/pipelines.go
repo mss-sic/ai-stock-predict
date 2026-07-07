@@ -270,7 +270,10 @@ func SystemTaskDefs() []*TaskDefinition {
 func wrapCollectorPhase(phase, label string) func(ctx context.Context, logger *StructuredLogger) error {
 	return func(ctx context.Context, logger *StructuredLogger) error {
 		logger.Phase("running_collector", map[string]any{"phase": phase, "label": label})
-		collector.RunManualCollection([]string{phase})
+		if err := collector.RunManualCollection([]string{phase}); err != nil {
+			logger.Warn("collector_skip", map[string]any{"phase": phase, "reason": err.Error()})
+			return nil
+		}
 		logger.Phase("collector_done", map[string]any{"phase": phase})
 		return nil
 	}
@@ -296,8 +299,10 @@ func makeTaskHandlerWithEvent(phase, label, eventType, eventKey string) TaskHand
 			return nil
 		}
 
-		collector.RunManualCollection([]string{phase})
-
+		if err := collector.RunManualCollection([]string{phase}); err != nil {
+			logger.Warn("collector_busy", map[string]any{"phase": phase, "reason": err.Error()})
+			return nil
+		}
 		// Emit completion event if specified
 		if eventType != "" {
 			key := eventKey

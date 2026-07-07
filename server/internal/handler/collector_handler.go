@@ -51,7 +51,13 @@ func (h *CollectorHandler) Trigger(c *gin.Context) {
 	// Run collection directly (v2 scheduler handles cron-based execution)
 	if len(schedPhases) > 0 {
 		log.Printf("[collector] running collection phases=%v", schedPhases)
-		collector.RunManualCollection(schedPhases)
+		if err := collector.RunManualCollection(schedPhases); err != nil {
+			c.JSON(http.StatusConflict, gin.H{
+				"message": err.Error(),
+				"data":    collector.GetProgress(),
+			})
+			return
+		}
 	} else {
 		log.Printf("[collector] no non-market_style phases, skipping")
 	}

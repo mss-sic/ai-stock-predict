@@ -533,8 +533,10 @@ export default function DataManagementPage() {
           }
         } catch {}
       }, 3000);
-    } catch {
-      showToast('error', '触发采集失败');
+    } catch (e: any) {
+      const msg = e?.message || '触发采集失败';
+      showToast('error', msg);
+      addConsoleLine(`❌ ${msg}`, 'stderr');
       setCollecting(false);
     }
     setLoading(false);
