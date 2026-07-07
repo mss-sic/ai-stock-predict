@@ -77,6 +77,9 @@ func initTaskManagerX() *TaskManager {
 	}
 	taskManager = tm
 
+	// Ensure default tasks exist (create missing, update changed, disable stale)
+	InitializeDefaultTasks()
+
 	// Reset any tasks stuck in "running" state from previous crash
 	db.MySQL.Model(&model.ScheduledTask{}).Where("last_status = ?", "running").
 		Update("last_status", "unknown")
