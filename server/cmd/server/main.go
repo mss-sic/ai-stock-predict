@@ -37,6 +37,9 @@ func main() {
 		InstanceID:   "stock-server",
 		EvalInterval: 10 * time.Second,
 	})
+	// Legacy cron scheduler for scheduled_tasks (collector/data tasks)
+	service.InitTaskManager()
+
 	schedv2.RegisterSystemPipelines(schedV2)
 	schedV2.Start()
 	schedv2.SetGlobal(schedV2)
