@@ -66,8 +66,9 @@ type TaskManager struct {
 var taskManager *TaskManager
 var taskExtraArgs sync.Map // taskID → []string
 
-// InitTaskManager is deprecated. Returns nil; v2 scheduler handles all scheduling.
-func InitTaskManager() *TaskManager { return nil }
+// InitTaskManager boots the legacy cron scheduler for scheduled_tasks.
+// v2 UnifiedScheduler handles strategy_run tasks; legacy handles collector/data tasks.
+func InitTaskManager() *TaskManager { return initTaskManagerX() }
 
 func initTaskManagerX() *TaskManager {
 	tm := &TaskManager{
