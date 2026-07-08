@@ -547,7 +547,7 @@ export default function LiveRunDetailPage() {
       const resp = await syncSignalOrder(sig.id);
       const status = resp.data?.data?.status || resp.data?.status || 'ok';
       Message.success(`订单同步完成: ${status}`);
-      loadSignals();
+      load();
     } catch (e: any) {
       // Interceptor already shows toast, just log
       console.error('[syncOrder] failed:', e?.message || e);
