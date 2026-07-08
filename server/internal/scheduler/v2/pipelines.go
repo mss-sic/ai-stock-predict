@@ -194,6 +194,18 @@ func SystemTaskDefs() []*TaskDefinition {
 			Timeout: 5 * time.Minute, MaxConcurrent: 1,
 			Handler: makeLiveSnapshotHandler(),
 		},
+		{
+			ID: "live_position_refresh", Kind: KindStrategy, Label: "持仓市值刷新",
+			Trigger: TriggerSpec{Cron: "0 */5 9-15 * * 1-5", TradingDay: true},
+			Timeout: 5 * time.Minute, MaxConcurrent: 1,
+			Handler: makeLivePositionRefreshHandler(),
+		},
+		{
+			ID: "daily_t1_unlock", Kind: KindStrategy, Label: "T+1解锁(开盘前)",
+			Trigger: TriggerSpec{Cron: "0 25 9 * * 1-5", TradingDay: true},
+			Timeout: 1 * time.Minute, MaxConcurrent: 1,
+			Handler: makeDailyT1UnlockHandler(),
+		},
 		// ── 周度/月度 ──
 		{
 			ID: "industry", Kind: KindPipeline, Label: "行业分类采集",
@@ -525,4 +537,30 @@ func RegisterSystemPipelines(s *UnifiedScheduler) {
 
 	fmt.Printf("[scheduler-v2] system: %d pipelines + %d standalone tasks registered\n",
 		2, len(SystemTaskDefs()))
+}
+
+func makeLivePositionRefreshHandler() TaskHandler {
+	return func(ctx context.Context, inst *TaskInstance, logger *StructuredLogger) error {
+		logger.Phase("position_refresh_start", map[string]any{"label": "持仓市值刷新"})
+		svc := service.NewLiveTradingService()
+		if err := svc.RefreshLivePositions(); err != nil {
+			logger.Error("position_refresh_failed", err, nil)
+			return err
+		}
+		logger.Info("position_refresh_complete", nil)
+		return nil
+	}
+}
+
+func makeDailyT1UnlockHandler() TaskHandler {
+	return func(ctx context.Context, inst *TaskInstance, logger *StructuredLogger) error {
+		logger.Phase("t1_unlock_start", map[string]any{"label": "T+1解锁"})
+		svc := service.NewLiveTradingService()
+		if err := svc.ResetDailyBuyLock(); err != nil {
+			logger.Error("t1_unlock_failed", err, nil)
+			return err
+		}
+		logger.Info("t1_unlock_complete", nil)
+		return nil
+	}
 }

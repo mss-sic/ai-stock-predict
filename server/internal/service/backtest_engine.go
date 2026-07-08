@@ -463,7 +463,7 @@ func (e *BacktestEngine) executeSignal(
 		sig.PlannedQty, sig.PlannedAmount,
 		openPrice, dailyChg,
 		cash, existingQty, existingAvgCost,
-		len(positions), execCfg,
+		len(positions), 0, execCfg, // T+1 not applicable in backtest
 	)
 
 	if !result.Executed {

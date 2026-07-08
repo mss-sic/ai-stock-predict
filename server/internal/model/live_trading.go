@@ -36,6 +36,8 @@ type LivePosition struct {
 	StockCode  string  `gorm:"size:10;index" json:"stockCode"`
 	StockName  string  `gorm:"size:50" json:"stockName"`
 	Quantity   int     `json:"quantity"`            // 当前持仓股数
+	TodayBuyQty int    `gorm:"default:0" json:"todayBuyQty"`       // 今日买入股数（T+1锁定）
+	AvailSellQty int   `gorm:"default:0" json:"availSellQty"`      // 可卖数量 = quantity - todayBuyQty
 	AvgCost    float64 `gorm:"type:numeric(12,4)" json:"avgCost"`  // 加权平均成本
 	CurrentPrice float64 `gorm:"type:numeric(12,4)" json:"currentPrice"` // 最新市价
 

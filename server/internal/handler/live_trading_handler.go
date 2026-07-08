@@ -1207,6 +1207,7 @@ func RegisterLiveTradingRoutes(r *gin.RouterGroup, h *LiveTradingHandler) {
 
 	// Order sync
 	r.POST("/order-sync", h.SyncOrders)
+	r.POST("/reconcile", h.ReconcileFromBroker)
 	r.POST("/signals/:id/sync-order", h.SyncSignalOrder)
 
 	// Execution logs
@@ -1253,6 +1254,34 @@ func (h *LiveTradingHandler) GetRunLogs(c *gin.Context) {
 		"strategyTime":    strategyTime,
 		"tradeExecTime":   tradeExecTime,
 	})
+}
+
+// ReconcileFromBroker rebuilds positions/funds/trades from broker's actual state.
+// Use for data repair when local records are out of sync.
+func (h *LiveTradingHandler) ReconcileFromBroker(c *gin.Context) {
+	uid := getUID(c)
+	runID, _ := strconv.Atoi(c.DefaultQuery("runId", "0"))
+	accountID, _ := strconv.Atoi(c.DefaultQuery("accountId", "0"))
+
+	if runID == 0 || accountID == 0 {
+		// Try to resolve from run
+		var run model.StrategyRun
+		if err := db.MySQL.Where("id = ? AND user_id = ?", runID, uid).First(&run).Error; err == nil {
+			if accountID == 0 {
+				accountID = int(run.AccountID)
+			}
+		} else {
+			response.BadRequest(c, "请提供 runId 和 accountId")
+			return
+		}
+	}
+
+	svc := service.NewLiveTradingService()
+	if err := svc.ReconcileFromBroker(uint(accountID), uid, uint(runID)); err != nil {
+		response.InternalError(c, "数据修复失败: "+err.Error())
+		return
+	}
+	response.Success(c, map[string]string{"status": "ok"})
 }
 
 // SyncOrders manually triggers order status synchronization from brokers.

@@ -62,6 +62,7 @@ func (e *ExecutionEngine) Execute(
 	existingQty int,
 	existingAvgCost float64,
 	existingPositionsCount int,
+	existingTodayBuyQty int, // shares bought today (locked, can't sell)
 	cfg ExecutionConfig,
 ) *ExecutionResult {
 	r := &ExecutionResult{
@@ -93,10 +94,10 @@ func (e *ExecutionEngine) Execute(
 		return e.executeAdd(r, stockCode, execDate, plannedAmount, currentPrice, cash, existingQty, existingAvgCost, cfg)
 
 	case "sell", "stop":
-		return e.executeSell(r, stockCode, buyDate, execDate, currentPrice, dailyChangePct, cash, existingQty, existingAvgCost, cfg, sigActionType)
+		return e.executeSell(r, stockCode, buyDate, execDate, currentPrice, dailyChangePct, cash, existingQty, existingAvgCost, existingTodayBuyQty, cfg, sigActionType)
 
 	case "reduce":
-		return e.executeReduce(r, stockCode, buyDate, execDate, plannedQty, currentPrice, dailyChangePct, cash, existingQty, existingAvgCost, cfg)
+		return e.executeReduce(r, stockCode, buyDate, execDate, plannedQty, currentPrice, dailyChangePct, cash, existingQty, existingAvgCost, existingTodayBuyQty, cfg)
 
 	case "hold":
 		r.Executed = true
@@ -179,6 +180,7 @@ func (e *ExecutionEngine) executeSell(
 	price, dailyChangePct float64,
 	cash *float64,
 	existingQty int, existingAvgCost float64,
+	existingTodayBuyQty int,
 	cfg ExecutionConfig,
 	actionType string,
 ) *ExecutionResult {
@@ -187,9 +189,10 @@ func (e *ExecutionEngine) executeSell(
 		return r
 	}
 
-	// T+1 check: cannot sell on same day as buy
-	if buyDate == execDate {
-		r.SkipReason = "T+1限制：当日买入不可卖出"
+	// T+1 check: cannot sell shares bought today
+	sellableQty := existingQty - existingTodayBuyQty
+	if sellableQty <= 0 {
+		r.SkipReason = "T+1限制：当日买入不可卖出（可卖"+fmt.Sprintf("%d", sellableQty)+"股）"
 		return r
 	}
 
@@ -199,18 +202,18 @@ func (e *ExecutionEngine) executeSell(
 		return r
 	}
 
-	// Execute sell
+	// Execute sell — only sellable shares
 	pos := &Position{
-		Code: stockCode, BuyPrice: existingAvgCost, Quantity: existingQty, BuyDate: buyDate,
+		Code: stockCode, BuyPrice: existingAvgCost, Quantity: sellableQty, BuyDate: buyDate,
 	}
 	pnl, pnlPct := e.posSvc.Sell(cash, pos, price, cfg.CommissionRate, cfg.MinCommission, cfg.StampTaxRate)
 
 	r.Executed = true
-	r.ExecQty = existingQty
-	r.ExecAmount = price * float64(existingQty)
+	r.ExecQty = sellableQty
+	r.ExecAmount = price * float64(sellableQty)
 	r.Pnl = math.Round(pnl*100) / 100
 	r.PnlPct = math.Round(pnlPct*100) / 100
-	r.NewQuantity = 0
+	r.NewQuantity = existingTodayBuyQty
 	r.Reason = "卖出成交"
 	if actionType == "stop" {
 		r.Reason = "止损/止盈卖出"
@@ -225,6 +228,7 @@ func (e *ExecutionEngine) executeReduce(
 	price, dailyChangePct float64,
 	cash *float64,
 	existingQty int, existingAvgCost float64,
+	existingTodayBuyQty int,
 	cfg ExecutionConfig,
 ) *ExecutionResult {
 	if existingQty <= 0 {
@@ -232,9 +236,10 @@ func (e *ExecutionEngine) executeReduce(
 		return r
 	}
 
-	// T+1 check
-	if buyDate == execDate {
-		r.SkipReason = "T+1限制：当日买入不可减持"
+	// T+1 check: cannot reduce today-bought shares
+	sellableQty := existingQty - existingTodayBuyQty
+	if sellableQty <= 0 {
+		r.SkipReason = "T+1限制：当日买入不可减持（可卖"+fmt.Sprintf("%d", sellableQty)+"股）"
 		return r
 	}
 
@@ -245,8 +250,8 @@ func (e *ExecutionEngine) executeReduce(
 	}
 
 	reduceQty := plannedQty
-	if reduceQty <= 0 || reduceQty > existingQty {
-		reduceQty = existingQty
+	if reduceQty <= 0 || reduceQty > sellableQty {
+		reduceQty = sellableQty
 	}
 
 	// Execute reduce

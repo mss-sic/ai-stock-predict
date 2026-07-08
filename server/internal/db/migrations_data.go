@@ -1807,4 +1807,18 @@ Register(Migration{
 			return nil
 		},
 	})
+
+
+
+	// v80: live_positions T+1 field additions
+	Register(Migration{
+		Version:     80,
+		Description: "MySQL: add today_buy_qty, avail_sell_qty to live_positions for T+1 enforcement",
+		Up: func() error {
+			_ = MySQL.Exec("ALTER TABLE live_positions ADD COLUMN today_buy_qty INT DEFAULT 0").Error
+			_ = MySQL.Exec("ALTER TABLE live_positions ADD COLUMN avail_sell_qty INT DEFAULT 0").Error
+			return MySQL.Exec("UPDATE live_positions SET avail_sell_qty = quantity WHERE avail_sell_qty = 0").Error
+		},
+	})
+
 }

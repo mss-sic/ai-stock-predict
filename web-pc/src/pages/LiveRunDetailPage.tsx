@@ -803,7 +803,7 @@ export default function LiveRunDetailPage() {
                 { title: '代码', dataIndex: 'stockCode', width: 75, render: (v: string) => <span style={{ fontWeight: 600, cursor: 'pointer', color: '#165DFF' }} onClick={() => navigate(`/stock/${v}`)}>{v}</span> },
                 { title: '名称', dataIndex: 'stockName', width: 85 },
                 { title: '持仓', dataIndex: 'quantity', width: 55 },
-                { title: '成本', dataIndex: 'avgCost', width: 70, render: (v: number) => `¥${v.toFixed(2)}` },
+                { title: '成本', dataIndex: 'avgCost', width: 75, render: (v: number) => `¥${v.toFixed(3)}` },
                 { title: '现价', dataIndex: 'currentPrice', width: 70, render: (v: number) => `¥${v.toFixed(2)}` },
                 { title: '市值', width: 85, render: (_: any, r: Position) => `¥${(r.currentPrice * r.quantity).toLocaleString()}` },
                 { title: '浮动盈亏', width: 120, render: (_: any, r: Position) => (
@@ -1060,13 +1060,13 @@ export default function LiveRunDetailPage() {
                           <span><b style={{ color: 'var(--color-text-2)' }}>决策规则：</b>
                             <Tag size="small" color="arcoblue" style={{ marginLeft: 4 }}>{dec.decisionRule || '默认'}</Tag>
                           </span>
-                          <span><b style={{ color: 'var(--color-text-2)' }}>开盘价：</b>¥{(dec.openPrice || 0).toFixed(2)}</span>
+                          <span><b style={{ color: 'var(--color-text-2)' }}>开盘价：</b>¥{(dec.openPrice || 0).toFixed(3)}</span>
                           <span><b style={{ color: 'var(--color-text-2)' }}>偏离度：</b>
                             <span style={{ color: (dec.openDeviation || 0) >= 0 ? '#F53F3F' : '#00B42A', fontWeight: 600 }}>
                               {(dec.openDeviation || 0) >= 0 ? '+' : ''}{(dec.openDeviation || 0).toFixed(2)}%
                             </span>
                           </span>
-                          <span><b style={{ color: 'var(--color-text-2)' }}>建议挂单：</b>¥{(dec.orderPrice || 0).toFixed(2)}</span>
+                          <span><b style={{ color: 'var(--color-text-2)' }}>建议挂单：</b>¥{(dec.orderPrice || 0).toFixed(3)}</span>
                           <span><b style={{ color: 'var(--color-text-2)' }}>建议数量：</b>{dec.suggestedQty || '—'}</span>
                           <span><b style={{ color: 'var(--color-text-2)' }}>溢价：</b>
                             <span style={{ color: (dec.suggestedPremium || 0) > 0 ? '#F53F3F' : '#00B42A', fontWeight: 600 }}>
@@ -1108,7 +1108,7 @@ export default function LiveRunDetailPage() {
     const labels: Record<string, string> = { buy: '买入', add: '加仓', sell: '卖出', reduce: '减仓', stop: '止损', hold: '持有' };
     return <Tag size="small" color={colors[v] || 'gray'}>{labels[v] || v}</Tag>;
   } },
-                    { title: '价格', dataIndex: 'plannedPrice', width: 55, render: (v: number) => <span style={{ fontSize: 11 }}>¥{v.toFixed(2)}</span> },
+                    { title: '价格', dataIndex: 'plannedPrice', width: 65, render: (v: number) => <span style={{ fontSize: 11 }}>¥{v.toFixed(3)}</span> },
                     { title: '金额', dataIndex: 'plannedAmount', width: 65, render: (v: number) => `¥${v.toLocaleString()}` },
                     { title: 'AI决策', width: 70, render: (_: any, r: Signal) => {
                       const dec = decisions.find((d: Decision) => d.signalId === r.id);
@@ -1340,10 +1340,10 @@ export default function LiveRunDetailPage() {
                           border: '1px solid var(--color-border-1)', fontSize: 12
                         }}>
                           {dec.finalPrice > 0 && (
-                            <span>计划价 <b style={{ color: '#1a1a2e' }}>¥{dec.finalPrice.toFixed(2)}</b></span>
+                            <span>计划价 <b style={{ color: '#1a1a2e' }}>¥{dec.finalPrice.toFixed(3)}</b></span>
                           )}
                           {dec.orderPrice > 0 && dec.orderPrice !== dec.finalPrice && (
-                            <span>挂单价 <b style={{ color: '#165DFF' }}>¥{dec.orderPrice.toFixed(2)}</b></span>
+                            <span>挂单价 <b style={{ color: '#165DFF' }}>¥{dec.orderPrice.toFixed(3)}</b></span>
                           )}
                           {dec.suggestedPremium !== 0 && (
                             <span>溢价 <b style={{ color: dec.suggestedPremium > 0 ? '#F53F3F' : '#00B42A' }}>
@@ -1498,7 +1498,7 @@ export default function LiveRunDetailPage() {
                   { title: '代码', dataIndex: 'stockCode', width: 75 },
                   { title: '名称', dataIndex: 'stockName', width: 85 },
                   { title: '操作', dataIndex: 'actionType', width: 50, render: (v: string) => <Tag size="small" color={v === 'buy' || v === 'add' ? 'green' : 'red'}>{v}</Tag> },
-                  { title: '价格', dataIndex: 'price', width: 70, render: (v: number) => `¥${v.toFixed(2)}` },
+                  { title: '价格', dataIndex: 'price', width: 75, render: (v: number) => `¥${v.toFixed(3)}` },
                   { title: '数量', dataIndex: 'quantity', width: 50 },
                   { title: '金额', dataIndex: 'amount', width: 80, render: (v: number) => `¥${v.toLocaleString()}` },
                   { title: '盈亏', dataIndex: 'pnl', width: 80, render: (v: number) => v ? <span style={{ color: v >= 0 ? '#00B42A' : '#F53F3F', fontWeight: 600 }}>{pnlSign(v)}¥{Math.abs(v).toFixed(0)}</span> : '-' },
@@ -1746,7 +1746,7 @@ export default function LiveRunDetailPage() {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
               <div>
                 <div style={{ color: 'var(--color-text-3)', fontSize: 11, marginBottom: 4 }}>计划价格</div>
-                <div style={{ fontWeight: 600 }}>¥{executeModal.signal.plannedPrice?.toFixed(2) || '-'}</div>
+                <div style={{ fontWeight: 600 }}>¥{executeModal.signal.plannedPrice?.toFixed(3) || '-'}</div>
               </div>
               <div>
                 <div style={{ color: 'var(--color-text-3)', fontSize: 11, marginBottom: 4 }}>计划数量</div>
