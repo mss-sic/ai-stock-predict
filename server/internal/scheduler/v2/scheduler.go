@@ -1338,6 +1338,7 @@ func (s *UnifiedScheduler) RecordExecution(defID string, instID uint, bizTaskID 
 			DurationMs: durationMs,
 			StartedAt:  startedAt,
 			FinishedAt: &finishedAt,
+			Result:     `{"trace_id":"` + rec.TraceID + `"}`,
 		}
 		if err := db.MySQL.Create(&logEntry).Error; err != nil {
 			log.Printf("[scheduler-v2] failed to persist task log for %s: %v", defID, err)

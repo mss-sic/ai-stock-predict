@@ -398,6 +398,16 @@ export const initDefaultTasks = () => api.post('/admin/scheduled-tasks/init-defa
 export const bulkComputeMarketStyle = () => api.post('/market/bulk-compute');
 export const fetchTaskLogs = (taskId?: number, limit?: number) => api.get('/admin/task-logs', { params: { taskId, limit } });
 
+// ── Scheduler Execution History ──
+export const fetchSchedulerLogs = (params: {
+  page?: number; pageSize?: number; status?: string; phase?: string;
+  dateFrom?: string; dateTo?: string;
+}) => api.get('/admin/scheduler/logs', { params });
+
+export const fetchSchedulerLogDetail = (id: number) => api.get(`/admin/scheduler/logs/${id}`);
+
+export const fetchSchedulerStats = () => api.get('/admin/scheduler/stats');
+
 // ── Collector APIs ──
 export const triggerCollection = (phases?: string[]) => api.post('/collector/trigger', { phases });
 export const fetchCollectorProgress = () => api.get('/collector/status');

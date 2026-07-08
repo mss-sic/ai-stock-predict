@@ -162,6 +162,12 @@ func main() {
 			admin.POST("/scheduled-tasks/:id/toggle", taskH.ToggleTask)
 			admin.POST("/scheduled-tasks/init-defaults", taskH.InitDefaults)
 			admin.GET("/task-logs", taskH.ListLogs)
+
+		// Scheduler execution history
+		schedLogH := handler.NewSchedulerLogHandler()
+		admin.GET("/scheduler/logs", schedLogH.ListLogs)
+		admin.GET("/scheduler/logs/:id", schedLogH.GetLog)
+		admin.GET("/scheduler/stats", schedLogH.GetStats)
 		}
 
 		// Stocks
