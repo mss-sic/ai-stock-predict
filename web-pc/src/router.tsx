@@ -19,7 +19,6 @@ import StockListPage from './pages/StockListPage';
 import LimitStatsPage from "./pages/LimitStatsPage";
 import SentimentDashboard from './pages/SentimentDashboard';
 import DataManagementPage from './pages/DataManagementPage';
-import TaskLogPage from './pages/TaskLogPage';
 import SettingsPage from './pages/SettingsPage';
 import PersonalSettingsPage from "./pages/PersonalSettingsPage";
 import UserCostPage from "./pages/UserCostPage";
@@ -121,7 +120,6 @@ const router = createBrowserRouter([
           { path: "industries", element: <IndustryComparePage /> },
 
           { path: 'data', element: <DataManagementPage /> },
-          { path: 'task-logs', element: <TaskLogPage /> },
           { path: 'settings', element: <SettingsPage /> },
           { path: "profile", element: <PersonalSettingsPage /> },
           { path: "cost", element: <UserCostPage /> },

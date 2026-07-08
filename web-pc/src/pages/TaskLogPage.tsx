@@ -14,7 +14,7 @@ interface Stats {
   slowTasks24h: number; successRate: number;
 }
 
-const TaskLogPage = () => {
+const TaskLogPage = ({ embedded }: { embedded?: boolean }) => {
   const [logs, setLogs] = useState<TaskLog[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -82,7 +82,7 @@ const TaskLogPage = () => {
   };
 
   return (
-    <div style={{ padding: 20 }}>
+    <div style={{ padding: embedded ? 0 : 20 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <div>
           <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700 }}>任务执行历史</h2>

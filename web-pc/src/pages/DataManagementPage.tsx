@@ -4,7 +4,7 @@ import {
   Database, Upload as UploadIcon, RefreshCw, FileSpreadsheet, FileJson,
   CheckCircle, XCircle, Clock, Play, Terminal, Square, History, Activity, X,
   BarChart3, TrendingUp, Newspaper, FileText, PieChart, Users, Banknote,
-  Timer, Bot, Sparkles, TrendingDown, AlertTriangle, Gift, Zap, Globe, Shield, Layers
+  Timer, Bot, Sparkles, TrendingDown, AlertTriangle, Gift, Zap, Globe, Shield, Layers, ListOrdered
 } from 'lucide-react';
 import {
   uploadExcel, uploadKline, uploadPrediction, uploadProfile, triggerCollection, fetchCollectorProgress,
@@ -129,6 +129,9 @@ function Toast({ type, msg, onClose }: { type: 'success' | 'error' | 'info'; msg
     <div style={{ position: 'fixed', top: 20, right: 20, zIndex: 9999, padding: '10px 16px', borderRadius: 6, fontSize: 13, background: colors[type], border: `1px solid ${borders[type]}`, display: 'flex', alignItems: 'center', gap: 8, boxShadow: '0 2px 8px rgba(0,0,0,0.1)', maxWidth: 400 }}>
       {icons[type]}<span style={{ flex: 1, color: 'var(--color-text-1)' }}>{msg}</span>
       <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: 'var(--color-text-3)' }}><X size={12} /></button>
+      {tab === 'logs' && (
+        <TaskLogPage embedded />
+      )}
     </div>
   );
 }
@@ -169,7 +172,7 @@ function cronToText(expr: string): string {
 
 
 export default function DataManagementPage() {
-  const [tab, setTab] = useState<'overview' | 'tasks' | 'import' | 'collect' | 'history'>('overview');
+  const [tab, setTab] = useState<'overview' | 'tasks' | 'import' | 'collect' | 'history' | 'logs'>('overview');
   const [loading, setLoading] = useState(false);
   const [predLoading, setPredLoading] = useState(false);
   const [profileLoading, setProfileLoading] = useState(false);
@@ -658,6 +661,7 @@ export default function DataManagementPage() {
           { key: 'import', label: '文件导入', icon: <UploadIcon size={14} /> },
           { key: 'collect', label: '采集控制台', icon: <Terminal size={14} /> },
           { key: 'history', label: '采集记录', icon: <History size={14} /> },
+          { key: 'logs', label: '执行历史', icon: <ListOrdered size={14} /> },
         ].map(t => (
           <button key={t.key} onClick={() => setTab(t.key as any)} style={{ padding: '10px 20px', border: 'none', cursor: 'pointer', fontSize: 13, background: tab === t.key ? 'var(--color-info-bg)' : 'transparent', color: tab === t.key ? 'var(--color-primary)' : 'var(--color-text-2)', fontWeight: tab === t.key ? 500 : 400, display: 'flex', alignItems: 'center', gap: 6, borderRight: '1px solid var(--color-border-1)' }}>{t.icon}{t.label}</button>
         ))}
@@ -1299,6 +1303,9 @@ export default function DataManagementPage() {
             </div>
           </div>
         </div>
+      )}
+      {tab === 'logs' && (
+        <TaskLogPage embedded />
       )}
     </div>
   );
