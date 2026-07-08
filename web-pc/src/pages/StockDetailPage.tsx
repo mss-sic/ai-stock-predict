@@ -768,7 +768,7 @@ fetchPredictionResult(code).then((r: any) => {
     const high = Math.max(...safeKlines.slice(-20).map((k: any) => k.high)), low = Math.min(...safeKlines.slice(-20).map((k: any) => k.low));
     const vol = latest.volume ?? 0, amount = latest.amount ?? 0; const turnover = (latest.turnoverRate ?? 0) * 100;
     const amplitude = latest?.amplitude ?? 0;
-    return { price: latest?.close ?? 0, chg, chgPct, high, low, prevClose: prev?.close ?? 0, open: latest?.open ?? 0, vol, amount, amplitude, turnover };
+    return { price: latest?.close ?? 0, chg, chgPct, high, low, prevClose: prev?.close ?? 0, open: latest?.open ?? 0, vol, amount, amplitude, turnover, tradeDate: latest?.tradeDate ?? '' };
   }, [safeKlines]);
 
   const indicators = useMemo(() => {
@@ -1034,6 +1034,7 @@ const handleChatSend = async (text?: string) => {
                     <span className={`price-num ${upClass}`}>{priceStats.price.toFixed(2)}</span>
                     <span className={`price-chg ${upClass}`}>{sign}{priceStats.chg.toFixed(2)}</span>
                     <span className={`price-chg ${upClass}`}>{sign}{priceStats.chgPct.toFixed(2)}%</span>
+                    {priceStats.tradeDate && <span style={{ fontSize: 10, color: 'var(--color-text-4)', marginLeft: 8, verticalAlign: 'middle' }}>数据日: {priceStats.tradeDate}</span>}
                   </div>
                   <div style={{ display: 'flex', gap: 14, marginTop: 8, fontSize: 12, color: 'var(--color-text-3)', flexWrap: 'wrap' }}>
                     <span>今开 <b style={{ color: 'var(--color-text-1)', fontWeight: 500 }}>{priceStats.open.toFixed(2)}</b></span>
