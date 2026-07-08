@@ -458,6 +458,7 @@ func makeOrderSyncHandler() TaskHandler {
 			"partialFilled":  result.PartialFilled,
 			"cancelled":      result.Cancelled,
 			"failed":         result.Failed,
+			"skipped":        result.Skipped,
 		})
 		// Log detailed per-order results
 		for _, l := range result.Logs {

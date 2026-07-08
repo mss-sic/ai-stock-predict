@@ -3,7 +3,7 @@ package service
 import (
 	"fmt"
 	"log"
-	"strings"
+	"time"
 
 	"github.com/ai-stock-predict/server/internal/db"
 	"github.com/ai-stock-predict/server/internal/model"
@@ -14,12 +14,14 @@ import (
 // for actual order status, and updates signal state + positions accordingly.
 type OrderSyncService struct {
 	brokerSvc *BrokerService
+	liveSvc   *LiveTradingService
 }
 
 // NewOrderSyncService creates a new order sync service.
 func NewOrderSyncService() *OrderSyncService {
 	return &OrderSyncService{
 		brokerSvc: NewBrokerService(),
+		liveSvc:   NewLiveTradingService(),
 	}
 }
 
@@ -58,28 +60,34 @@ type SyncResult struct {
 	PartialFilled int      `json:"partialFilled"`
 	Cancelled     int      `json:"cancelled"`
 	Failed        int      `json:"failed"`
+	Skipped       int      `json:"skipped"`
 	Logs          []string `json:"logs"`
 }
 
-// SyncAllPendingOrders scans all pending_order / partial_filled signals across all runs
-// and syncs their status from the respective broker.
+// SyncAllPendingOrders scans pending_order / partial_filled signals for today & yesterday
+// with non-empty broker_order_id, queries broker for actual status, and completes filled orders.
 // Called by the scheduler every 30 minutes during trading hours.
 func (s *OrderSyncService) SyncAllPendingOrders() (*SyncResult, error) {
 	result := &SyncResult{}
 
-	// Find all signals that need syncing
+	today := time.Now().Format("2006-01-02")
+	yesterday := time.Now().AddDate(0, 0, -1).Format("2006-01-02")
+
+	// Find signals that need syncing: today/yesterday, pending_order/partial_filled, has broker_order_id
 	var signals []model.BacktestSignal
-	db.MySQL.Where("status IN ?", []string{"pending_order", "partial_filled"}).
+	db.MySQL.Where("exec_date IN ? AND status IN ? AND broker_order_id != ''",
+		[]string{today, yesterday},
+		[]string{"pending_order", "partial_filled"}).
 		Order("run_id ASC, id ASC").
 		Find(&signals)
 
 	result.TotalScanned = len(signals)
 	if len(signals) == 0 {
-		result.Logs = append(result.Logs, "无需同步的委托订单")
+		result.Logs = append(result.Logs, fmt.Sprintf("无需同步的委托订单 (日期: %s ~ %s)", yesterday, today))
 		return result, nil
 	}
 
-	result.Logs = append(result.Logs, fmt.Sprintf("扫描到 %d 条待同步委托", len(signals)))
+	result.Logs = append(result.Logs, fmt.Sprintf("扫描到 %d 条待同步委托 (日期: %s ~ %s)", len(signals), yesterday, today))
 
 	// Group by run to get account info efficiently
 	type runKey struct {
@@ -87,9 +95,8 @@ func (s *OrderSyncService) SyncAllPendingOrders() (*SyncResult, error) {
 		AccountID uint
 		UserID    uint
 	}
-	runAccounts := make(map[uint]*runKey) // runID → account info
+	runAccounts := make(map[uint]*runKey)
 
-	// Process each signal
 	for i := range signals {
 		sig := &signals[i]
 
@@ -99,6 +106,7 @@ func (s *OrderSyncService) SyncAllPendingOrders() (*SyncResult, error) {
 			var run model.StrategyRun
 			if err := db.MySQL.Where("id = ?", sig.RunID).First(&run).Error; err != nil {
 				result.Logs = append(result.Logs, fmt.Sprintf("⚠️ 信号%d: run %d 不存在, 跳过", sig.ID, sig.RunID))
+				result.Skipped++
 				continue
 			}
 			var account model.TradingAccount
@@ -114,20 +122,16 @@ func (s *OrderSyncService) SyncAllPendingOrders() (*SyncResult, error) {
 		}
 		if rk.AccountID == 0 {
 			result.Logs = append(result.Logs, fmt.Sprintf("⚠️ 信号%d: run %d 无关联账户, 跳过", sig.ID, sig.RunID))
+			result.Skipped++
 			continue
 		}
 
-		// Use dedicated broker_order_id field
 		orderID := sig.BrokerOrderID
-		if orderID == "" {
-			result.Logs = append(result.Logs, fmt.Sprintf("⚠️ 信号%d %s: 无 broker_order_id, 跳过", sig.ID, sig.StockCode))
-			continue
-		}
-
 		// Query broker for this order
 		orders, err := s.brokerSvc.GetBrokerOrders(rk.AccountID, rk.UserID)
 		if err != nil {
 			result.Logs = append(result.Logs, fmt.Sprintf("❌ 查询账户%d委托失败: %v", rk.AccountID, err))
+			result.Skipped++
 			continue
 		}
 
@@ -140,180 +144,87 @@ func (s *OrderSyncService) SyncAllPendingOrders() (*SyncResult, error) {
 			}
 		}
 		if matched == nil {
-			// Order not found in broker list — might have been cancelled externally
 			result.Logs = append(result.Logs, fmt.Sprintf("❓ %s %s orderID=%s 未在委托列表中找到",
 				sig.StockCode, sig.StockName, orderID))
+			result.Skipped++
 			continue
 		}
 
 		// Map broker status to our signal status
 		newStatus, ok := mxStatusMap[matched.Status]
 		if !ok {
-			result.Logs = append(result.Logs, fmt.Sprintf("⚠️ %s %s: 未知委托状态 %d",
-				sig.StockCode, sig.StockName, matched.Status))
+			result.Logs = append(result.Logs, fmt.Sprintf("❓ %s %s 未知委托状态%d: orderID=%s",
+				sig.StockCode, sig.StockName, matched.Status, orderID))
+			result.Skipped++
 			continue
 		}
 
 		oldStatus := sig.Status
-		if newStatus == oldStatus {
-			// Status unchanged — nothing to do (but still log for visibility)
-			continue
-		}
 
-		// Update signal
-		sig.Status = newStatus
-		sig.SkipReason = fmt.Sprintf("委托同步: %s orderID=%s", mxStatusLabel(matched.Status), orderID)
-
-		// If filled (executed or partial_filled), update execution details
-		if newStatus == "executed" || newStatus == "partial_filled" {
-			if matched.FilledQty > 0 {
-				sig.ExecQty = matched.FilledQty
+		// If order is fully filled (已成), complete the signal using the same logic as manual completion
+		if matched.Status == 4 && newStatus == "executed" {
+			execPrice := matched.Price
+			if execPrice <= 0 && sig.OrderPrice > 0 {
+				execPrice = sig.OrderPrice
 			}
-			if matched.Price > 0 {
-				sig.ExecPrice = matched.Price
+			filledQty := matched.FilledQty
+			if filledQty <= 0 {
+				filledQty = matched.Quantity
 			}
-			sig.ExecAmount = sig.ExecPrice * float64(sig.ExecQty)
-		}
+			if execPrice <= 0 || filledQty <= 0 {
+				result.Logs = append(result.Logs, fmt.Sprintf("⚠️ %s %s 成交但价格/数量无效: price=%.2f qty=%d orderID=%s",
+					sig.StockCode, sig.StockName, matched.Price, matched.FilledQty, orderID))
+				result.Skipped++
+				continue
+			}
 
-		db.MySQL.Save(sig)
+			log.Printf("[order_sync] ✅ %s %s 已成: price=%.2f qty=%d orderID=%s → completing via executeSignal",
+				sig.StockCode, sig.StockName, execPrice, filledQty, orderID)
 
-		// Classify the transition
-		switch newStatus {
-		case "executed":
+			// Call the same completion logic as manual "执行" button on the frontend
+			// This handles: position, trade record, fund update, holding sync, daily snapshot
+			if err := s.liveSvc.ExecuteSignalByIDWithPrice(sig.ID, sig.UserID, execPrice, filledQty); err != nil {
+				result.Logs = append(result.Logs, fmt.Sprintf("❌ %s %s 信号完成失败: %v orderID=%s",
+					sig.StockCode, sig.StockName, err, orderID))
+				result.Failed++
+				continue
+			}
+
 			result.Executed++
-			result.Logs = append(result.Logs, fmt.Sprintf("✅ %s %s 已成: %d股@%.2f orderID=%s",
-				sig.StockCode, sig.StockName, sig.ExecQty, sig.ExecPrice, orderID))
+			result.Logs = append(result.Logs, fmt.Sprintf("✅ %s %s 已成: %.2f×%d orderID=%s",
+				sig.StockCode, sig.StockName, execPrice, filledQty, orderID))
 
-			// Create LiveTrade record on execution
-			s.createTradeRecord(sig, rk.UserID, rk.RunID)
+		} else if newStatus != oldStatus {
+			// Status change but not fully filled — just update signal status
+			sig.Status = newStatus
+			db.MySQL.Save(sig)
 
-			// Update position on full execution
-			s.updatePositionOnExecution(sig, rk.RunID)
-
-		case "partial_filled":
-			result.PartialFilled++
-			result.Logs = append(result.Logs, fmt.Sprintf("📊 %s %s 部成: %d/%d股 orderID=%s",
-				sig.StockCode, sig.StockName, matched.FilledQty, matched.Quantity, orderID))
-
-		case "cancelled":
-			result.Cancelled++
-			result.Logs = append(result.Logs, fmt.Sprintf("🚫 %s %s 已撤: orderID=%s",
-				sig.StockCode, sig.StockName, orderID))
-
-		case "order_failed":
-			result.Failed++
-			result.Logs = append(result.Logs, fmt.Sprintf("❌ %s %s 废单: orderID=%s",
-				sig.StockCode, sig.StockName, orderID))
+			switch newStatus {
+			case "partial_filled":
+				result.PartialFilled++
+				result.Logs = append(result.Logs, fmt.Sprintf("📊 %s %s 部成: %d/%d orderID=%s",
+					sig.StockCode, sig.StockName, matched.FilledQty, matched.Quantity, orderID))
+			case "cancelled":
+				result.Cancelled++
+				result.Logs = append(result.Logs, fmt.Sprintf("🚫 %s %s 已撤: orderID=%s",
+					sig.StockCode, sig.StockName, orderID))
+			case "order_failed":
+				result.Failed++
+				result.Logs = append(result.Logs, fmt.Sprintf("❌ %s %s 废单: orderID=%s",
+					sig.StockCode, sig.StockName, orderID))
+			}
+			result.Updated++
 		}
 
-		result.Updated++
 		log.Printf("[order_sync] %s %s: %s → %s orderID=%s",
 			sig.StockCode, sig.StockName, oldStatus, newStatus, orderID)
 	}
 
-	result.Logs = append(result.Logs, fmt.Sprintf("同步完成: 扫描%d 更新%d 已成%d 部成%d 已撤%d 废单%d",
+	result.Logs = append(result.Logs, fmt.Sprintf("同步完成: 扫描%d 更新%d 已成%d 部成%d 已撤%d 废单%d 跳过%d",
 		result.TotalScanned, result.Updated, result.Executed,
-		result.PartialFilled, result.Cancelled, result.Failed))
+		result.PartialFilled, result.Cancelled, result.Failed, result.Skipped))
 
 	return result, nil
-}
-
-// updatePositionOnExecution updates or creates a LivePosition when an order is filled.
-func (s *OrderSyncService) updatePositionOnExecution(sig *model.BacktestSignal, runID uint) {
-	action := strings.ToLower(sig.ActionType)
-
-	if action == "buy" || action == "add" {
-		// Check if position already exists
-		var existing model.LivePosition
-		db.MySQL.Where("strategy_run_id = ? AND stock_code = ?", runID, sig.StockCode).First(&existing)
-
-		if existing.ID > 0 {
-			// Update existing position
-			totalQty := existing.Quantity + sig.ExecQty
-			newAvgCost := (existing.AvgCost*float64(existing.Quantity) + sig.ExecPrice*float64(sig.ExecQty)) / float64(totalQty)
-			db.MySQL.Model(&existing).Updates(map[string]interface{}{
-				"quantity":      totalQty,
-				"avg_cost":      newAvgCost,
-				"current_price": sig.ExecPrice,
-			})
-			log.Printf("[order_sync] position updated: %s %d→%d avg=%.2f", sig.StockCode, existing.Quantity, totalQty, newAvgCost)
-		} else {
-			// Create new position
-			pos := model.LivePosition{
-				StrategyRunID: runID,
-				StockCode:     sig.StockCode,
-				StockName:     sig.StockName,
-				Quantity:      sig.ExecQty,
-				AvgCost:       sig.ExecPrice,
-				CurrentPrice:  sig.ExecPrice,
-			}
-			db.MySQL.Create(&pos)
-			log.Printf("[order_sync] position created: %s qty=%d price=%.2f", sig.StockCode, sig.ExecQty, sig.ExecPrice)
-		}
-	} else if action == "sell" || action == "reduce" || action == "stop" {
-		// Reduce existing position
-		var existing model.LivePosition
-		db.MySQL.Where("strategy_run_id = ? AND stock_code = ?", runID, sig.StockCode).First(&existing)
-		if existing.ID > 0 {
-			newQty := existing.Quantity - sig.ExecQty
-			if newQty <= 0 {
-				db.MySQL.Delete(&existing)
-				log.Printf("[order_sync] position closed: %s", sig.StockCode)
-			} else {
-				db.MySQL.Model(&existing).Updates(map[string]interface{}{
-					"quantity":      newQty,
-					"current_price": sig.ExecPrice,
-				})
-				log.Printf("[order_sync] position reduced: %s %d→%d", sig.StockCode, existing.Quantity, newQty)
-			}
-		}
-	}
-}
-
-// extractOrderID extracts the order ID from a skip_reason string.
-
-// createTradeRecord creates a LiveTrade record when an order is filled.
-func (s *OrderSyncService) createTradeRecord(sig *model.BacktestSignal, userID uint, runID uint) {
-	// Avoid duplicate: check if a trade for this signal already exists
-	var count int64
-	sigID := sig.ID
-	db.MySQL.Model(&model.LiveTrade{}).
-		Where("strategy_run_id = ? AND signal_id = ? AND trade_date = ?", runID, sigID, sig.ExecDate).
-		Count(&count)
-	if count > 0 {
-		log.Printf("[order_sync] trade already exists for signal %d, skip", sig.ID)
-		return
-	}
-
-	// Resolve execution mode from run
-	var run model.StrategyRun
-	db.MySQL.Where("id = ?", runID).First(&run)
-	var account model.TradingAccount
-	if run.AccountID > 0 {
-		db.MySQL.Where("id = ?", run.AccountID).First(&account)
-	}
-	execMode := "mx_moni"
-	if account.BrokerMode != "" {
-		execMode = account.BrokerMode
-	}
-
-	trade := model.LiveTrade{
-		UserID:        userID,
-		StrategyRunID: runID,
-		SignalID:      &sigID,
-		StockCode:     sig.StockCode,
-		StockName:     sig.StockName,
-		ActionType:    sig.ActionType,
-		Quantity:      sig.ExecQty,
-		Price:         sig.ExecPrice,
-		Amount:        sig.ExecPrice * float64(sig.ExecQty),
-		Reason:        fmt.Sprintf("妙想成交 orderID=%s", sig.BrokerOrderID),
-		ExecutionMode: execMode,
-		TradeDate:     sig.ExecDate,
-	}
-	db.MySQL.Create(&trade)
-	log.Printf("[order_sync] trade created: signal=%d code=%s %s %d@%.2f amount=%.2f",
-		sig.ID, sig.StockCode, sig.ActionType, sig.ExecQty, sig.ExecPrice, sig.ExecPrice*float64(sig.ExecQty))
 }
 
 // SyncOrderForSignal syncs a single signal's order status (used for manual refresh).
@@ -325,7 +236,6 @@ func (s *OrderSyncService) SyncOrderForSignal(signalID uint) (string, error) {
 	if sig.Status != "pending_order" && sig.Status != "partial_filled" {
 		return sig.Status, nil
 	}
-	// Delegate to the full sync — it will pick up this signal
 	_, err := s.SyncAllPendingOrders()
 	return sig.Status, err
 }
