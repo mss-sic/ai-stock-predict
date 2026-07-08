@@ -431,16 +431,20 @@ func (b *MxMoniBroker) CancelOrder(account *model.TradingAccount, orderID string
 // ── Query Orders ──
 
 type mxOrdersData struct {
-	Orders []struct {
-		OrderID    string  `json:"orderId"`
-		StockCode  string  `json:"stockCode"`
-		StockName  string  `json:"stockName"`
-		OrderType  string  `json:"orderType"`
-		Price      float64 `json:"price"`
-		Quantity   int     `json:"quantity"`
-		FilledQty  int     `json:"filledQty"`
-		Status     int     `json:"status"`
-		CreateTime string  `json:"createTime"`
+	TotalNum int `json:"totalNum"`
+	Orders   []struct {
+		OrderID    string `json:"id"`
+		StockCode  string `json:"secCode"`
+		StockName  string `json:"secName"`
+		OrderType  int    `json:"type"`
+		Price      int    `json:"price"`
+		PriceDec   int    `json:"priceDec"`
+		TradePrice int    `json:"tradePrice"`
+		Quantity   int    `json:"count"`
+		FilledQty  int    `json:"tradeCount"`
+		Status     int    `json:"status"`
+		CreateTime int64  `json:"time"`
+		Drt        int    `json:"drt"` // 1=buy 2=sell
 	} `json:"orders"`
 }
 
@@ -460,16 +464,29 @@ func (b *MxMoniBroker) QueryOrders(account *model.TradingAccount) ([]BrokerOrder
 
 	var orders []BrokerOrder
 	for _, o := range raw.Orders {
+		price := float64(o.Price)
+		if o.PriceDec > 0 {
+			divisor := 1.0
+			for i := 0; i < o.PriceDec; i++ {
+				divisor *= 10
+			}
+			price = price / divisor
+		}
+		orderType := "buy"
+		if o.Drt == 2 {
+			orderType = "sell"
+		}
+		createTime := time.Unix(o.CreateTime, 0).Format("2006-01-02 15:04:05")
 		orders = append(orders, BrokerOrder{
 			OrderID:    o.OrderID,
 			StockCode:  o.StockCode,
 			StockName:  o.StockName,
-			OrderType:  o.OrderType,
-			Price:      o.Price,
+			OrderType:  orderType,
+			Price:      price,
 			Quantity:   o.Quantity,
 			FilledQty:  o.FilledQty,
 			Status:     o.Status,
-			CreateTime: o.CreateTime,
+			CreateTime: createTime,
 		})
 	}
 
