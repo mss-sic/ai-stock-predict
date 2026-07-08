@@ -313,7 +313,7 @@ export const fetchLatestDailyRunTask = (tradeDate?: string, runId?: number) => a
 // Signal execution
 export const executeLiveSignal = (signalId: number, body?: { action?: string; actualPrice?: number; actualQty?: number }) => api.post(`/live/signals/${signalId}/execute`, body || {});
 
-export const syncSignalOrder = (signalId: number) => api.post(`/signals/${signalId}/sync-order`);
+export const syncSignalOrder = (signalId: number) => api.post(`/live/signals/${signalId}/sync-order`);
 
 // Pre-market
 export const runTradeExec = (tradeDate: string, skipAi?: boolean, runId?: number, force?: boolean) => api.post(`/live/runs/${runId}/trade-exec`, { tradeDate, skipAi, force }, { timeout: 120000 });

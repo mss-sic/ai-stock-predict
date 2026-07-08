@@ -545,11 +545,12 @@ export default function LiveRunDetailPage() {
     setSyncing(sig.id);
     try {
       const resp = await syncSignalOrder(sig.id);
-      const data = resp.data;
-      Message.success(`订单同步完成: ${data?.status || 'ok'}`);
+      const status = resp.data?.data?.status || resp.data?.status || 'ok';
+      Message.success(`订单同步完成: ${status}`);
       loadSignals();
     } catch (e: any) {
-      Message.error('同步失败: ' + (e?.message || '未知'));
+      // Interceptor already shows toast, just log
+      console.error('[syncOrder] failed:', e?.message || e);
     } finally {
       setSyncing(null);
     }
