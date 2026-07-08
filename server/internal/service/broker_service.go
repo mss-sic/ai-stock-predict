@@ -81,6 +81,7 @@ type BrokerOrder struct {
 	StockName  string  `json:"stockName"`
 	OrderType  string  `json:"orderType"`
 	Price      float64 `json:"price"`
+	TradePrice float64 `json:"tradePrice"`
 	Quantity   int     `json:"quantity"`
 	FilledQty  int     `json:"filledQty"`
 	Status     int     `json:"status"`
@@ -472,6 +473,14 @@ func (b *MxMoniBroker) QueryOrders(account *model.TradingAccount) ([]BrokerOrder
 			}
 			price = price / divisor
 		}
+		tradePrice := float64(o.TradePrice)
+		if o.PriceDec > 0 {
+			divisor := 1.0
+			for i := 0; i < o.PriceDec; i++ {
+				divisor *= 10
+			}
+			tradePrice = tradePrice / divisor
+		}
 		orderType := "buy"
 		if o.Drt == 2 {
 			orderType = "sell"
@@ -483,6 +492,7 @@ func (b *MxMoniBroker) QueryOrders(account *model.TradingAccount) ([]BrokerOrder
 			StockName:  o.StockName,
 			OrderType:  orderType,
 			Price:      price,
+			TradePrice: tradePrice,
 			Quantity:   o.Quantity,
 			FilledQty:  o.FilledQty,
 			Status:     o.Status,

@@ -165,7 +165,10 @@ func (s *OrderSyncService) SyncAllPendingOrders(runID uint) (*SyncResult, error)
 
 		// If order is fully filled (已成), complete the signal using the same logic as manual completion
 		if matched.Status == 4 && newStatus == "executed" {
-			execPrice := matched.Price
+			execPrice := matched.TradePrice
+			if execPrice <= 0 {
+				execPrice = matched.Price
+			}
 			if execPrice <= 0 && sig.OrderPrice > 0 {
 				execPrice = sig.OrderPrice
 			}
@@ -287,7 +290,10 @@ func (s *OrderSyncService) SyncOrderForSignal(signalID uint) (string, error) {
 
 	// If filled, complete the signal
 	if matched.Status == 4 && newStatus == "executed" {
-		execPrice := matched.Price
+		execPrice := matched.TradePrice
+		if execPrice <= 0 {
+			execPrice = matched.Price
+		}
 		if execPrice <= 0 && sig.OrderPrice > 0 {
 			execPrice = sig.OrderPrice
 		}
