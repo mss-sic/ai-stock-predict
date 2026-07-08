@@ -704,14 +704,18 @@ export default function LiveRunDetailPage() {
 
       {/* Equity Curve */}
       {(() => {
-        const allSnapshots = snapshots.length > 0 ? snapshots : [{
-          snapshotDate: run.startDate || new Date().toISOString().slice(0,10),
+        // Always append current real-time state as the last data point
+        const today = new Date().toISOString().slice(0,10);
+        const currentPoint = {
+          snapshotDate: today,
           cash: allocation?.currentCash || 0,
           positionValue: posValue,
           totalEquity: totalEquity,
           cumulativeReturn: run.totalReturn || 0,
           maxDrawdownPct: run.maxDrawdown || 0,
-        }];
+        };
+        const filtered = snapshots.filter((s: any) => s.snapshotDate !== today);
+        const allSnapshots = [...filtered, currentPoint];
         const initialEquity = allSnapshots[0]?.totalEquity || (run.initialCapital || 0);
         const dates = allSnapshots.map((s: any) => s.snapshotDate);
         const equities = allSnapshots.map((s: any) => s.totalEquity);
