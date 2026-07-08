@@ -943,40 +943,50 @@ func (h *LiveTradingHandler) SendNotification(c *gin.Context) {
 	var reqBody struct { TradeDate string `json:"tradeDate"` }
 	c.ShouldBindJSON(&reqBody)
 	reqDate := reqBody.TradeDate
+	log.Printf("[live] SendNotification reqDate=%q", reqDate)
 
-	// Load completed pre-market task for the requested date
-	var task model.PreMarketTask
-	query := db.MySQL.Where("run_id = ? AND status = ?", run.ID, "completed")
-	if reqDate != "" {
-		query = query.Where("trade_date = ?", reqDate)
-	}
-	if err := query.Order("id DESC").First(&task).Error; err != nil || task.ResultJSON == "" {
-		errMsg := "未找到已完成的盘前决策报告"
-		if reqDate != "" {
-			errMsg += " (" + reqDate + ")"
-		}
-		response.Error(c, 404, 404, errMsg+"，请先执行盘前分析")
-		return
-	}
-
-	var result map[string]interface{}
-	if err := json.Unmarshal([]byte(task.ResultJSON), &result); err != nil {
-		response.InternalError(c, "解析报告失败")
-		return
-	}
-
-	displayDate := task.TradeDate
+	// Try to load completed pre-market task for the requested date
+	displayDate := reqDate
 	if displayDate == "" {
 		displayDate = time.Now().Format("2006-01-02")
 	}
 	title := fmt.Sprintf("%s · %s 决策报告", run.Name, displayDate)
 
-	// Read stored markdown report
+	var result map[string]interface{}
 	reportMarkdown := ""
-	if rpt, ok := result["notifyMarkdown"].(string); ok {
-		reportMarkdown = rpt
-	} else if rpt, ok := result["report"].(string); ok {
-		reportMarkdown = rpt
+
+	var task model.PreMarketTask
+	query := db.MySQL.Where("run_id = ? AND status = ?", run.ID, "completed")
+	if reqDate != "" {
+		query = query.Where("trade_date = ?", reqDate)
+	}
+	if err := query.Order("id DESC").First(&task).Error; err == nil && task.ResultJSON != "" {
+		// Use stored PreMarketTask data
+		json.Unmarshal([]byte(task.ResultJSON), &result)
+		displayDate = task.TradeDate
+		if displayDate == "" {
+			displayDate = time.Now().Format("2006-01-02")
+		}
+		title = fmt.Sprintf("%s · %s 决策报告", run.Name, displayDate)
+		if rpt, ok := result["notifyMarkdown"].(string); ok {
+			reportMarkdown = rpt
+		} else if rpt, ok := result["report"].(string); ok {
+			reportMarkdown = rpt
+		}
+		log.Printf("[live] SendNotification: using stored PreMarketTask id=%d tradeDate=%s", task.ID, task.TradeDate)
+	} else {
+		// Fallback: build report from live signals + decisions for the requested date
+		log.Printf("[live] SendNotification: no PreMarketTask for %s, building from live data", reqDate)
+		result = h.buildReportFromLiveData(run, reqDate)
+		if rpt, ok := result["notifyMarkdown"].(string); ok {
+			reportMarkdown = rpt
+		}
+		displayDate = reqDate
+		if displayDate == "" {
+			displayDate = time.Now().Format("2006-01-02")
+		}
+		title = fmt.Sprintf("%s · %s 决策报告", run.Name, displayDate)
+		result["tradeDate"] = displayDate
 	}
 
 	// Build Feishu card + text fallback from task data
@@ -1616,4 +1626,108 @@ func fcColoredBlock(bgStyle, content string) map[string]interface{} {
 			"elements": []map[string]interface{}{{"tag": "markdown", "content": content}},
 		}},
 	}
+}
+
+// buildReportFromLiveData builds a notification report from live signals and decisions
+// when no PreMarketTask exists for the requested date.
+func (h *LiveTradingHandler) buildReportFromLiveData(run model.StrategyRun, tradeDate string) map[string]interface{} {
+	result := make(map[string]interface{})
+
+	if tradeDate == "" {
+		tradeDate = time.Now().Format("2006-01-02")
+	}
+
+	// Load signals
+	var signals []model.BacktestSignal
+	db.MySQL.Where("exec_date = ? AND run_id = ? AND status IN ?", tradeDate, run.ID,
+		[]string{"pending", "confirmed", "executed"}).Order("id ASC").Find(&signals)
+
+	// Load decisions
+	var decisions []model.PreMarketDecision
+	db.MySQL.Where("trade_date = ? AND run_id = ?", tradeDate, run.ID).
+		Order("id ASC").Find(&decisions)
+
+	// Fallback: if no signals on exec_date, try signal_date
+	if len(signals) == 0 {
+		db.MySQL.Where("signal_date = ? AND run_id = ? AND status IN ?", tradeDate, run.ID,
+			[]string{"pending", "confirmed", "executed"}).Order("id ASC").Find(&signals)
+	}
+
+	buyCount, sellCount, holdCount := 0, 0, 0
+	for _, s := range signals {
+		switch s.ActionType {
+		case "buy", "add":
+			buyCount++
+		case "sell", "reduce", "stop":
+			sellCount++
+		default:
+			holdCount++
+		}
+	}
+
+	// Build markdown report
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("# 交易执行报告\n\n> %s · %s  ·  信号 `%d` 条\n\n---\n\n",
+		run.Name, tradeDate, len(signals)))
+
+	sb.WriteString(fmt.Sprintf("## 📋 交易执行指令\n\n> %s\n\n> 买入 %d · 卖出 %d · 持有 %d\n\n",
+		tradeDate, buyCount, sellCount, holdCount))
+
+	// Build decision-synced markdown
+	decMap := make(map[uint]model.PreMarketDecision)
+	for _, d := range decisions {
+		decMap[d.SignalID] = d
+	}
+
+	for i, sig := range signals {
+		dec, hasDec := decMap[sig.ID]
+		action := sig.ActionType
+		qty := sig.PlannedQty
+		price := sig.PlannedPrice
+		amount := sig.PlannedAmount
+		confidence := 0.0
+
+		if hasDec {
+			if dec.FinalAction != "" {
+				action = dec.FinalAction
+			}
+			if dec.SuggestedQty > 0 {
+				qty = dec.SuggestedQty
+			}
+			if dec.FinalPrice > 0 {
+				price = dec.FinalPrice
+			}
+			if dec.FinalAmount > 0 {
+				amount = dec.FinalAmount
+			}
+			confidence = dec.Confidence
+		}
+
+		actionEmoji := "📈"
+		if action == "sell" || action == "reduce" || action == "stop" {
+			actionEmoji = "📉"
+		}
+
+		sb.WriteString(fmt.Sprintf("**%d.** %s %s %s %s \\\n", i+1, actionEmoji, sig.StockName, sig.StockCode, action))
+		sb.WriteString(fmt.Sprintf("> 价格: ¥%.2f | 数量: %d 股 | 金额: ¥%.0f", price, qty, amount))
+		if confidence > 0 {
+			sb.WriteString(fmt.Sprintf(" | AI %.0f%%", confidence))
+		}
+		sb.WriteString("\n\n")
+	}
+
+	if len(signals) == 0 {
+		sb.WriteString("> ⚠️ 当日无确认执行的信号\n\n")
+	}
+
+	sb.WriteString("---\n\n> ⚠️ **免责声明**：本报告由 AI 多智能体系统自动生成，仅供参考，不构成投资建议。市场有风险，投资需谨慎。")
+
+	result["notifyMarkdown"] = sb.String()
+	result["buyCount"] = buyCount
+	result["sellCount"] = sellCount
+	result["holdCount"] = holdCount
+	result["totalSignals"] = len(signals)
+	result["tradeDate"] = tradeDate
+
+	return result
 }
