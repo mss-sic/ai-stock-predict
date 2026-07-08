@@ -1204,6 +1204,7 @@ func RegisterLiveTradingRoutes(r *gin.RouterGroup, h *LiveTradingHandler) {
 
 	// Order sync
 	r.POST("/order-sync", h.SyncOrders)
+	r.POST("/signals/:id/sync-order", h.SyncSignalOrder)
 
 	// Execution logs
 	r.GET("/runs/:id/logs", h.GetRunLogs)
@@ -1260,6 +1261,22 @@ func (h *LiveTradingHandler) SyncOrders(c *gin.Context) {
 		return
 	}
 	response.Success(c, result)
+}
+
+// SyncSignalOrder syncs a single signal's order status from the broker.
+func (h *LiveTradingHandler) SyncSignalOrder(c *gin.Context) {
+	sid, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "参数错误")
+		return
+	}
+	svc := service.NewOrderSyncService()
+	newStatus, err := svc.SyncOrderForSignal(uint(sid))
+	if err != nil {
+		response.InternalError(c, "订单同步失败: "+err.Error())
+		return
+	}
+	response.Success(c, map[string]string{"status": newStatus})
 }
 
 // ── Feishu Card Builder ──

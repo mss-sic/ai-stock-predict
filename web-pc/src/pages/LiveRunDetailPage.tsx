@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { Card, Table, Tag, Button, Spin, Message, Tabs, Select, Divider, Alert, Progress, Modal, Drawer, Dropdown, Menu, TimePicker, Input, Switch, Popconfirm , } from '@arco-design/web-react';
 import ReactECharts from 'echarts-for-react';
 import { ArrowLeft, TrendingUp, Wallet, Zap, Settings, Activity, Calendar, RefreshCw, Loader, XCircle, Bell, FileText, Building2, Cpu } from 'lucide-react';
-import { fetchLiveRun, fetchLiveSnapshots, runLiveDaily, fetchDailyRunTask, fetchLatestDailyRunTask, runTradeExec, executeLiveSignal, fetchTradeExecTask, fetchLatestTradeExecTask, updateLiveRunConfig, fetchNotificationConfigs, createNotificationConfig, deleteNotificationConfig, testNotification, sendLiveRunNotification, updateLiveSignal, deleteLiveSignal, clearLiveSignals, fetchRunLogs } from '../services/api';
+import { fetchLiveRun, fetchLiveSnapshots, runLiveDaily, fetchDailyRunTask, fetchLatestDailyRunTask, runTradeExec, executeLiveSignal, syncSignalOrder, fetchTradeExecTask, fetchLatestTradeExecTask, updateLiveRunConfig, fetchNotificationConfigs, createNotificationConfig, deleteNotificationConfig, testNotification, sendLiveRunNotification, updateLiveSignal, deleteLiveSignal, clearLiveSignals, fetchRunLogs } from '../services/api';
 
 interface Run { id: number; strategyId: number; name: string; status: string; startDate: string; initialCapital: number; currentEquity: number; totalReturn: number; maxDrawdown: number; winRate: number; tradeCount: number; lastRunDate: string; autoDailyCron?: string; autoTradeExecCron?: string; notifyEnabled?: boolean; notifyChannels?: string; executionMode?: string; aiReviewEnabled?: boolean; }
 interface Strategy { id: number; name: string; description: string; stopProfit: number; stopLoss: number; maxHoldings: number; buyPositionPct: number; addPositionPct: number; positionSizing: string; positionConcentrationLimit: number; maxDailyLoss: number; initialCapital: number; enableAIAgent?: boolean; }
@@ -11,7 +11,7 @@ interface Allocation { id: number; allocatedCapital: number; currentCash: number
 interface Position { id: number; stockCode: string; stockName: string; quantity: number; avgCost: number; currentPrice: number; unrealizedPnl: number; unrealizedPnlPct: number; realizedPnl: number; holdDays: number; }
 interface Trade { id: number; tradeDate: string; stockCode: string; stockName: string; actionType: string; price: number; quantity: number; amount: number; pnl: number; pnlPct: number; reason: string; }
 interface Snapshot { id: number; snapshotDate: string; cash: number; positionValue: number; totalEquity: number; dailyReturnPct: number; cumulativeReturn: number; maxDrawdownPct: number; }
-interface Signal { id: number; signalDate: string; execDate: string; stockCode: string; stockName: string; actionType: string; plannedPrice: number; plannedQty: number; plannedAmount: number; status: string; reason: string; suggestedPremium: number; orderPrice: number; orderPriceLimit: number; suggestedQty: number; originalQty: number; openPrice: number; openDeviation: number; decisionRule: string; }
+interface Signal { id: number; signalDate: string; execDate: string; stockCode: string; stockName: string; actionType: string; plannedPrice: number; plannedQty: number; plannedAmount: number; status: string; reason: string; brokerOrderId?: string; suggestedPremium: number; orderPrice: number; orderPriceLimit: number; suggestedQty: number; originalQty: number; openPrice: number; openDeviation: number; decisionRule: string; }
 interface Condition { id: number; condType: string; indicator: string; operator: string; value: string; period: string; }
 interface Decision { id: number; signalId: number; tradeDate: string; stockCode: string; stockName: string; status: string; finalAction: string; finalPrice: number; finalAmount: number; confidence: number; source: string; reason: string; suggestedPremium: number; orderPrice: number; orderPriceLimit: number; suggestedQty: number; openPrice: number; openDeviation: number; decisionRule: string; taReasoning?: string; taDebateJson?: string; }
 
@@ -81,6 +81,7 @@ export default function LiveRunDetailPage() {
   const [decisions, setDecisions] = useState<Decision[]>([]);
   const [loading, setLoading] = useState(true);
   const [executing, setExecuting] = useState<number | null>(null);
+  const [syncing, setSyncing] = useState<number | null>(null);
   const [executeModal, setExecuteModal] = useState<{ open: boolean; signal: Signal | null }>({ open: false, signal: null });
   const [execForm, setExecForm] = useState({ actualPrice: '', actualQty: '' });
   const [editSignalModal, setEditSignalModal] = useState<{ open: boolean; signal: Signal | null }>({ open: false, signal: null });
@@ -538,6 +539,20 @@ export default function LiveRunDetailPage() {
       load();
     } catch (e: any) { Message.error('更新失败: ' + (e?.message || '未知')); }
     setSavingSignal(false);
+  };
+
+  const handleSyncOrder = async (sig: Signal) => {
+    setSyncing(sig.id);
+    try {
+      const resp = await syncSignalOrder(sig.id);
+      const data = resp.data;
+      Message.success(`订单同步完成: ${data?.status || 'ok'}`);
+      loadSignals();
+    } catch (e: any) {
+      Message.error('同步失败: ' + (e?.message || '未知'));
+    } finally {
+      setSyncing(null);
+    }
   };
 
   const handleDeleteSignal = async (sig: Signal) => {
@@ -1119,6 +1134,9 @@ export default function LiveRunDetailPage() {
                       <div style={{ display: 'flex', gap: 4 }}>
                         {(r.status === 'pending' || r.status === 'confirmed' || r.status === 'pending_order') && (
                           <Button size="mini" type="primary" loading={executing === r.id} onClick={() => openExecuteModal(r)}>交易</Button>
+                        )}
+                        {(r.status === 'pending_order' || r.status === 'partial_filled') && r.brokerOrderId && (
+                          <Button size="mini" type="outline" loading={syncing === r.id} onClick={() => handleSyncOrder(r)}>同步</Button>
                         )}
                         {(r.status === 'pending' || r.status === 'pending_order') && (
                           <>

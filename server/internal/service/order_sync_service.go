@@ -227,15 +227,90 @@ func (s *OrderSyncService) SyncAllPendingOrders() (*SyncResult, error) {
 	return result, nil
 }
 
-// SyncOrderForSignal syncs a single signal's order status (used for manual refresh).
+// SyncOrderForSignal syncs a single signal's order status from the broker.
 func (s *OrderSyncService) SyncOrderForSignal(signalID uint) (string, error) {
 	var sig model.BacktestSignal
 	if err := db.MySQL.Where("id = ?", signalID).First(&sig).Error; err != nil {
-		return "", fmt.Errorf("signal not found: %w", err)
+		return "", fmt.Errorf("signal %d not found: %w", signalID, err)
 	}
+
 	if sig.Status != "pending_order" && sig.Status != "partial_filled" {
-		return sig.Status, nil
+		return sig.Status, fmt.Errorf("signal %d status is %s, not pending_order/partial_filled", signalID, sig.Status)
 	}
-	_, err := s.SyncAllPendingOrders()
-	return sig.Status, err
+
+	if sig.BrokerOrderID == "" {
+		return sig.Status, fmt.Errorf("signal %d has no broker_order_id", signalID)
+	}
+
+	// Resolve account
+	var run model.StrategyRun
+	if err := db.MySQL.Where("id = ?", sig.RunID).First(&run).Error; err != nil {
+		return sig.Status, fmt.Errorf("run %d not found: %w", sig.RunID, err)
+	}
+	var account model.TradingAccount
+	if run.AccountID > 0 {
+		db.MySQL.Where("id = ?", run.AccountID).First(&account)
+	}
+	if account.ID == 0 {
+		db.MySQL.Where("user_id = ? AND status = ?", run.UserID, "active").
+			Order("id ASC").First(&account)
+	}
+	if account.ID == 0 {
+		return sig.Status, fmt.Errorf("no active account for run %d", sig.RunID)
+	}
+
+	// Query broker
+	orders, err := s.brokerSvc.GetBrokerOrders(account.ID, account.UserID)
+	if err != nil {
+		return sig.Status, fmt.Errorf("query broker orders failed: %w", err)
+	}
+
+	var matched *BrokerOrder
+	for j := range orders {
+		if orders[j].OrderID == sig.BrokerOrderID {
+			matched = &orders[j]
+			break
+		}
+	}
+	if matched == nil {
+		return sig.Status, fmt.Errorf("order %s not found in broker", sig.BrokerOrderID)
+	}
+
+	oldStatus := sig.Status
+	newStatus, ok := mxStatusMap[matched.Status]
+	if !ok {
+		return sig.Status, fmt.Errorf("unknown broker status %d", matched.Status)
+	}
+
+	// If filled, complete the signal
+	if matched.Status == 4 && newStatus == "executed" {
+		execPrice := matched.Price
+		if execPrice <= 0 && sig.OrderPrice > 0 {
+			execPrice = sig.OrderPrice
+		}
+		filledQty := matched.FilledQty
+		if filledQty <= 0 {
+			filledQty = matched.Quantity
+		}
+		if execPrice <= 0 || filledQty <= 0 {
+			return sig.Status, fmt.Errorf("invalid execution: price=%.2f qty=%d", execPrice, filledQty)
+		}
+
+		if err := s.liveSvc.FinalizeSignalExecution(sig.RunID, sig.ID, execPrice, filledQty); err != nil {
+			return sig.Status, fmt.Errorf("finalize execution failed: %w", err)
+		}
+		log.Printf("[order_sync] manual sync: %s %s filled %.2f×%d orderID=%s",
+			sig.StockCode, sig.StockName, execPrice, filledQty, sig.BrokerOrderID)
+		return "executed", nil
+	}
+
+	// Status change but not filled — update signal status
+	if newStatus != oldStatus {
+		sig.Status = newStatus
+		db.MySQL.Save(&sig)
+	}
+
+	log.Printf("[order_sync] manual sync: %s %s %s → %s orderID=%s",
+		sig.StockCode, sig.StockName, oldStatus, newStatus, sig.BrokerOrderID)
+	return newStatus, nil
 }
