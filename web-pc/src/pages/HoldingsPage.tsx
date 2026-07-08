@@ -263,8 +263,13 @@ export default function HoldingsPage() {
                 {r.availSellQty < r.quantity && <span style={{ display: 'block', fontSize: 10, color: 'var(--color-text-4)' }}>可卖{r.availSellQty}</span>}
               </div>
             )},
-            { title: '成本', dataIndex: 'costPrice', width: 85, render: (v: number) => `¥${v.toFixed(3)}` },
-            { title: '现价', dataIndex: 'curPrice', width: 80, render: (v: number) => `¥${v.toFixed(2)}` },
+            { title: '成本/现价', width: 100, render: (_: any, r: Holding) => (
+              <div>
+                <span style={{ color: 'var(--color-text-3)', fontSize: 11 }}>¥{r.costPrice.toFixed(3)}</span>
+                <span style={{ marginLeft: 4, fontSize: 11, color: 'var(--color-text-2)' }}>→</span>
+                <span style={{ fontWeight: 600, fontSize: 13, color: r.curPrice >= r.costPrice ? '#F53F3F' : '#00B42A' }}>¥{r.curPrice.toFixed(2)}</span>
+              </div>
+            )},
             { title: '市值', width: 95, render: (_: any, r: Holding) => <span style={{ fontWeight: 600 }}>¥{r.marketVal.toLocaleString()}</span> },
             { title: '浮动盈亏', width: 125, render: (_: any, r: Holding) => (
               <span style={{ color: pnlColor(r.pnl), fontWeight: 600, fontSize: 12 }}>
