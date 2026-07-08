@@ -33,7 +33,7 @@ func (h *Handler) RegisterRoutes(r *gin.RouterGroup) {
 // Health returns the scheduler's health status.
 func (h *Handler) Health(c *gin.Context) {
 	health := h.sched.Health()
-	c.JSON(http.StatusOK, health)
+	c.JSON(http.StatusOK, gin.H{"code": 200, "data": health})
 }
 
 // ListInstances returns all task instances, optionally filtered.
@@ -46,7 +46,7 @@ func (h *Handler) ListInstances(c *gin.Context) {
 		owner = &ResourceRef{Kind: ownerKind, ID: uint(ownerID)}
 	}
 	instances := h.sched.ListInstances(defID, owner)
-	c.JSON(http.StatusOK, instances)
+	c.JSON(http.StatusOK, gin.H{"code": 200, "data": instances})
 }
 
 // TriggerInstance manually triggers a task instance.
@@ -67,19 +67,19 @@ func (h *Handler) TriggerInstance(c *gin.Context) {
 func (h *Handler) ListDefinitions(c *gin.Context) {
 	kind := TaskKind(c.Query("kind"))
 	defs := h.sched.ListDefinitions(kind)
-	c.JSON(http.StatusOK, defs)
+	c.JSON(http.StatusOK, gin.H{"code": 200, "data": defs})
 }
 
 // QueueStatus returns per-kind queue depth and timing metrics.
 func (h *Handler) QueueStatus(c *gin.Context) {
 	stats := h.sched.queue.Stats()
-	c.JSON(http.StatusOK, stats)
+	c.JSON(http.StatusOK, gin.H{"code": 200, "data": stats})
 }
 
 // ListAlerts returns active health alerts.
 func (h *Handler) ListAlerts(c *gin.Context) {
 	health := h.sched.Health()
-	c.JSON(http.StatusOK, health.ActiveAlerts)
+	c.JSON(http.StatusOK, gin.H{"code": 200, "data": health.ActiveAlerts})
 }
 
 // ClearAlerts clears all active health alerts.
@@ -95,11 +95,11 @@ func (h *Handler) TaskHistory(c *gin.Context) {
 		limit = l
 	}
 	records := h.sched.GetTaskHistory(defID, limit)
-	c.JSON(http.StatusOK, records)
+	c.JSON(http.StatusOK, gin.H{"code": 200, "data": records})
 }
 // Readiness returns distributed execution readiness status.
 func (h *Handler) Readiness(c *gin.Context) {
 	status := h.sched.DistributedReadinessCheck()
-	c.JSON(http.StatusOK, status)
+	c.JSON(http.StatusOK, gin.H{"code": 200, "data": status})
 }
 
