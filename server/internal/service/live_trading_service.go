@@ -1153,6 +1153,77 @@ func (s *LiveTradingService) ResetDailyBuyLock() error {
 	return db.MySQL.Exec("UPDATE live_positions SET avail_sell_qty = quantity, today_buy_qty = 0 WHERE today_buy_qty > 0").Error
 }
 
+// ImportBrokerPositionsToRun imports existing broker positions into a new strategy run.
+// Unlike ReconcileFromBroker, this does NOT delete existing positions first — it only adds
+// positions that don't already exist in the run.
+func (s *LiveTradingService) ImportBrokerPositionsToRun(strategyRunID uint, accountID uint, userID uint) error {
+	bs := NewBrokerService()
+	portfolio, err := bs.SyncPositionsFromBroker(accountID, userID)
+	if err != nil {
+		return fmt.Errorf("sync broker positions: %w", err)
+	}
+
+	// Get balance for cash + total equity update
+	balance, err := bs.GetBrokerBalance(accountID, userID)
+	if err != nil {
+		return fmt.Errorf("get broker balance: %w", err)
+	}
+
+	today := time.Now().Format("2006-01-02")
+
+	for _, bp := range portfolio.Positions {
+		// Skip if this position already exists for this run
+		var existing model.LivePosition
+		if err := db.MySQL.Where("strategy_run_id = ? AND stock_code = ?", strategyRunID, bp.SecCode).First(&existing).Error; err == nil {
+			continue
+		}
+
+		pos := model.LivePosition{
+			UserID:        userID,
+			StrategyRunID: strategyRunID,
+			StockCode:     bp.SecCode,
+			StockName:     bp.SecName,
+			Quantity:      bp.Count,
+			AvailSellQty:  bp.AvailCount,
+			TodayBuyQty:   bp.Count - bp.AvailCount,
+			AvgCost:       bp.CostPrice,
+			CurrentPrice:  bp.Price,
+			UnrealizedPnl: math.Round((bp.Price-bp.CostPrice)*float64(bp.Count)*100) / 100,
+		}
+		if bp.CostPrice > 0 {
+			pos.UnrealizedPnlPct = math.Round((bp.Price-bp.CostPrice)/bp.CostPrice*10000) / 100
+		}
+		pos.FirstBuyDate = today
+		pos.LastTradeDate = today
+		db.MySQL.Create(&pos)
+
+		// Sync holdings
+		s.syncHoldingToAccountFromReconcile(accountID, bp.SecCode, bp.SecName, bp.Count, bp.CostPrice, today)
+	}
+
+	// Update fund allocation with actual cash and equity from broker
+	var alloc model.StrategyFundAllocation
+	if err := db.MySQL.Where("strategy_run_id = ? AND status = ?", strategyRunID, "active").First(&alloc).Error; err == nil {
+		db.MySQL.Model(&alloc).Updates(map[string]interface{}{
+			"current_cash":     balance.AvailBalance,
+			"allocated_capital": portfolio.TotalAssets,
+		})
+	}
+
+	// Update strategy_runs with actual portfolio state
+	var run model.StrategyRun
+	if err := db.MySQL.First(&run, strategyRunID).Error; err == nil {
+		db.MySQL.Model(&run).Updates(map[string]interface{}{
+			"current_equity": portfolio.TotalAssets,
+			"initial_capital": portfolio.TotalAssets,
+		})
+	}
+
+	log.Printf("[import] run=%d account=%d: imported %d positions, equity=%.2f cash=%.2f",
+		strategyRunID, accountID, portfolio.PosCount, portfolio.TotalAssets, balance.AvailBalance)
+	return nil
+}
+
 // ReconcileFromBroker rebuilds live_positions, holdings, and strategy_runs
 // from the broker's actual portfolio snapshot. Used as a data repair mechanism
 // when local records diverge from broker state.

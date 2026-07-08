@@ -174,6 +174,12 @@ func (h *LiveTradingHandler) CreateRun(c *gin.Context) {
 			response.BadRequest(c, "交易账户不存在")
 			return
 		}
+		// Prevent same account being used by multiple active strategy runs
+		var conflictRun model.StrategyRun
+		if err := db.MySQL.Where("account_id = ? AND status IN ?", body.AccountID, []string{"active", "paused"}).First(&conflictRun).Error; err == nil {
+			response.BadRequest(c, fmt.Sprintf("该资金账户已被实盘「%s」使用，请先停用或归档后再创建新实盘", conflictRun.Name))
+			return
+		}
 	} else {
 		// Auto-create default account
 		db.MySQL.Where("user_id = ? AND status = ?", uid, "active").First(&account)
@@ -246,6 +252,18 @@ func (h *LiveTradingHandler) CreateRun(c *gin.Context) {
 			"notify_enabled":  true,
 			"notify_channels": string(channelsJSON),
 		})
+	}
+
+	// Import existing positions from broker if account already has holdings
+	if account.Broker != "" && account.Broker != "manual" {
+		go func() {
+			svc := service.NewLiveTradingService()
+			if err := svc.ImportBrokerPositionsToRun(run.ID, account.ID, uid); err != nil {
+				log.Printf("[live] CreateRun: import positions for run %d failed: %v", run.ID, err)
+			} else {
+				log.Printf("[live] CreateRun: imported broker positions for run %d from account %d", run.ID, account.ID)
+			}
+		}()
 	}
 
 	// Register v2 scheduler tasks for this strategy run
@@ -989,6 +1007,18 @@ func (h *LiveTradingHandler) SyncFromBroker(c *gin.Context) {
 		response.InternalError(c, "同步失败: "+err.Error())
 		return
 	}
+
+	// Auto-reconcile active strategy runs that use this account
+	go func() {
+		var activeRuns []model.StrategyRun
+		db.MySQL.Where("account_id = ? AND status IN ?", id, []string{"active", "paused"}).Find(&activeRuns)
+		for _, run := range activeRuns {
+			svc := service.NewLiveTradingService()
+			if err := svc.ImportBrokerPositionsToRun(run.ID, uint(id), uid); err != nil {
+				log.Printf("[live] SyncFromBroker: auto-reconcile run %d failed: %v", run.ID, err)
+			}
+		}
+	}()
 
 	response.Success(c, portfolio)
 }
