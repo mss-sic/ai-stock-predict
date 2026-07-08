@@ -1034,7 +1034,7 @@ const handleChatSend = async (text?: string) => {
                     <span className={`price-num ${upClass}`}>{priceStats.price.toFixed(2)}</span>
                     <span className={`price-chg ${upClass}`}>{sign}{priceStats.chg.toFixed(2)}</span>
                     <span className={`price-chg ${upClass}`}>{sign}{priceStats.chgPct.toFixed(2)}%</span>
-                    {priceStats.tradeDate && <span style={{ fontSize: 10, color: 'var(--color-text-4)', marginLeft: 8, verticalAlign: 'middle' }}>数据日: {priceStats.tradeDate}</span>}
+                    {priceStats.tradeDate && <span style={{ fontSize: 10, color: 'var(--color-text-4)', marginLeft: 8, verticalAlign: 'middle' }}>数据日: {priceStats.tradeDate.slice(0, 10)}</span>}
                   </div>
                   <div style={{ display: 'flex', gap: 14, marginTop: 8, fontSize: 12, color: 'var(--color-text-3)', flexWrap: 'wrap' }}>
                     <span>今开 <b style={{ color: 'var(--color-text-1)', fontWeight: 500 }}>{priceStats.open.toFixed(2)}</b></span>
