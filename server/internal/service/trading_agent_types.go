@@ -41,6 +41,17 @@ type TradingAgentContext struct {
 	NewsSentiment   float64
 	NewsHeadlines   []string
 
+	// Financial data (from stock_financials)
+	NetProfit        float64 // 净利润（最近报告期）
+	TotalRevenue     float64 // 营业总收入
+	TotalAssets      float64 // 总资产
+	TotalLiabilities float64 // 总负债
+	DebtRatio        float64 // 资产负债率
+	EPS              float64 // 每股收益
+	BVPS             float64 // 每股净资产
+	IndustryPE       float64 // 行业平均PE
+	IndustryPB       float64 // 行业平均PB
+
 	BuyConditions  []string
 	SellConditions []string
 	StopProfit     float64

@@ -360,10 +360,9 @@ func (b *MxMoniBroker) GetBalance(account *model.TradingAccount) (*BrokerBalance
 	}
 
 	// Backfill account fields from broker
+	// NOTE: Never overwrite InitialCapital — it's a system parameter set by user,
+	// not a broker-derived value. Broker InitMoney may differ from actual initial capital.
 	now := time.Now()
-	if raw.InitMoney > 0 {
-		account.InitialCapital = raw.InitMoney
-	}
 	if raw.AccID != "" {
 		account.MxAccountID = raw.AccID
 	}
@@ -378,7 +377,6 @@ func (b *MxMoniBroker) GetBalance(account *model.TradingAccount) (*BrokerBalance
 		"total_market_value": raw.TotalPosValue,
 		"frozen_cash":        raw.FrozenMoney,
 		"nav":                raw.Nav,
-		"initial_capital":    account.InitialCapital,
 		"mx_account_id":      account.MxAccountID,
 		"updated_at":         now,
 	})

@@ -210,10 +210,17 @@ func (s *PreMarketService) RunAsync(task *model.PreMarketTask) {
 				}
 				sig.SkipReason = reason
 			}
-			sig.SuggestedPremium = decision.SuggestedPremium
+			// Validate AI-suggested values: reject absurd outputs
+			if decision.SuggestedPremium > 0 && decision.SuggestedPremium < 5 {
+				sig.SuggestedPremium = decision.SuggestedPremium
+			}
 			sig.OrderPrice = decision.OrderPrice
 			sig.OrderPriceLimit = decision.OrderPriceLimit
-			sig.SuggestedQty = decision.SuggestedQty
+			if decision.SuggestedQty > 0 && float64(decision.SuggestedQty) < float64(sig.PlannedQty)*10 {
+				sig.SuggestedQty = decision.SuggestedQty
+			} else if sig.PlannedQty > 0 {
+				sig.SuggestedQty = sig.PlannedQty
+			}
 			sig.OpenPrice = decision.OpenPrice
 			sig.OpenDeviation = decision.OpenDeviation
 			sig.DecisionRule = decision.DecisionRule
@@ -611,10 +618,17 @@ func (s *PreMarketService) FinalizePreMarketForRun(tradeDate string, runID uint)
 			sig.Status = "skipped"
 			sig.SkipReason = decision.Reason
 		}
-		sig.SuggestedPremium = decision.SuggestedPremium
+		// Validate AI-suggested values
+		if decision.SuggestedPremium > 0 && decision.SuggestedPremium < 5 {
+			sig.SuggestedPremium = decision.SuggestedPremium
+		}
 		sig.OrderPrice = decision.OrderPrice
 		sig.OrderPriceLimit = decision.OrderPriceLimit
-		sig.SuggestedQty = decision.SuggestedQty
+		if decision.SuggestedQty > 0 && float64(decision.SuggestedQty) < float64(sig.PlannedQty)*10 {
+			sig.SuggestedQty = decision.SuggestedQty
+		} else if sig.PlannedQty > 0 {
+			sig.SuggestedQty = sig.PlannedQty
+		}
 		sig.OpenPrice = decision.OpenPrice
 		sig.OpenDeviation = decision.OpenDeviation
 		sig.DecisionRule = decision.DecisionRule
@@ -719,10 +733,17 @@ func (s *PreMarketService) FinalizePreMarket(tradeDate string) (*PreMarketResult
 			sig.Status = "skipped"
 			sig.SkipReason = decision.Reason
 		}
-		sig.SuggestedPremium = decision.SuggestedPremium
+		// Validate AI-suggested values
+		if decision.SuggestedPremium > 0 && decision.SuggestedPremium < 5 {
+			sig.SuggestedPremium = decision.SuggestedPremium
+		}
 		sig.OrderPrice = decision.OrderPrice
 		sig.OrderPriceLimit = decision.OrderPriceLimit
-		sig.SuggestedQty = decision.SuggestedQty
+		if decision.SuggestedQty > 0 && float64(decision.SuggestedQty) < float64(sig.PlannedQty)*10 {
+			sig.SuggestedQty = decision.SuggestedQty
+		} else if sig.PlannedQty > 0 {
+			sig.SuggestedQty = sig.PlannedQty
+		}
 		sig.OpenPrice = decision.OpenPrice
 		sig.OpenDeviation = decision.OpenDeviation
 		sig.DecisionRule = decision.DecisionRule
@@ -1133,7 +1154,12 @@ func (s *PreMarketService) validateSignalWithProgress(sig *model.BacktestSignal,
 		decision.FinalAction = fd.Action
 		decision.FinalPrice = fd.Price
 		if fd.Amount > 0 {
+			// Validate AI amount: reject garbage (< 100 or absurdly large)
+		if fd.Amount > 100 && fd.Amount < sig.PlannedAmount*10 {
 			decision.FinalAmount = fd.Amount
+		} else {
+			decision.FinalAmount = sig.PlannedAmount
+		}
 		} else {
 			decision.FinalAmount = sig.PlannedAmount
 		}
@@ -1432,6 +1458,50 @@ func (s *PreMarketService) buildTAContext(sig *model.BacktestSignal, tradeDate s
 			ctx.NewsHeadlines = append(ctx.NewsHeadlines, n.Title)
 		}
 	}
+
+	// Load financial data from stock_financials (latest report)
+	type FinRow struct {
+		NetProfit        float64 `json:"net_profit"`
+		TotalRevenue     float64 `json:"total_revenue"`
+		TotalAssets      float64 `json:"total_assets"`
+		TotalLiabilities float64 `json:"total_liabilities"`
+	}
+	var fin FinRow
+	db.PG.Raw(`SELECT COALESCE(net_profit,0) as net_profit, COALESCE(total_revenue,0) as total_revenue,
+		COALESCE(total_assets,0) as total_assets, COALESCE(total_liabilities,0) as total_liabilities
+		FROM stock_financials WHERE code = ? ORDER BY report_date DESC LIMIT 1`, sig.StockCode).Scan(&fin)
+	ctx.NetProfit = fin.NetProfit
+	ctx.TotalRevenue = fin.TotalRevenue
+	ctx.TotalAssets = fin.TotalAssets
+	ctx.TotalLiabilities = fin.TotalLiabilities
+	if ctx.TotalAssets > 0 {
+		ctx.DebtRatio = ctx.TotalLiabilities / ctx.TotalAssets * 100
+	}
+	if ctx.TotalAssets > 0 && ctx.TotalLiabilities > 0 {
+		// BVPS = (总资产-总负债) / 总股本, approximate using market cap / (price * 1e8)
+		ctx.BVPS = (ctx.TotalAssets - ctx.TotalLiabilities) / (ctx.MarketCap / ctx.CurrentPrice) * 10000
+	}
+	// EPS = NetProfit / shares, approximate
+	if ctx.CurrentPrice > 0 && ctx.PE > 0 {
+		ctx.EPS = ctx.CurrentPrice / ctx.PE
+	}
+
+	// Load industry average PE/PB from stocks_daily_indicator
+	type IndAvg struct {
+		AvgPE float64 `json:"avg_pe"`
+		AvgPB float64 `json:"avg_pb"`
+	}
+	var indAvg IndAvg
+	db.PG.Raw(`SELECT COALESCE(AVG(pe),0) as avg_pe, COALESCE(AVG(pb),0) as avg_pb 
+		FROM stocks_daily_indicator WHERE trade_date = (SELECT MAX(trade_date) FROM stocks_daily_indicator WHERE code = ?)
+		AND pe > 0 AND pe < 5000 AND pb > 0 AND pb < 100`, sig.StockCode).Scan(&indAvg)
+	// Fallback: use broader market average
+	if indAvg.AvgPE == 0 {
+		db.PG.Raw(`SELECT COALESCE(AVG(pe),0) as avg_pe, COALESCE(AVG(pb),0) as avg_pb 
+			FROM stocks_daily_indicator WHERE trade_date = ? AND pe > 0 AND pe < 5000 AND pb > 0 AND pb < 100`, tradeDate).Scan(&indAvg)
+	}
+	ctx.IndustryPE = indAvg.AvgPE
+	ctx.IndustryPB = indAvg.AvgPB
 
 	// For hold signals: populate position data so AI knows cost, quantity, and P&L
 	if strings.ToLower(sig.ActionType) == "hold" {

@@ -1281,9 +1281,106 @@ func RegisterLiveTradingRoutes(r *gin.RouterGroup, h *LiveTradingHandler) {
 	r.POST("/reconcile", h.ReconcileFromBroker)
 	r.GET("/runs/:id/reconciliation", h.GetReconciliation)
 	r.POST("/signals/:id/sync-order", h.SyncSignalOrder)
+	r.POST("/signals/:id/cancel-order", h.CancelSignalOrder)
+	r.POST("/runs/:id/signals/cancel-all-orders", h.CancelAllSignalOrders)
 
 	// Execution logs
 	r.GET("/runs/:id/logs", h.GetRunLogs)
+}
+
+// CancelSignalOrder cancels a pending_order signal's broker order and resets it to pending.
+func (h *LiveTradingHandler) CancelSignalOrder(c *gin.Context) {
+	sid, _ := strconv.Atoi(c.Param("id"))
+	if sid <= 0 {
+		response.BadRequest(c, "无效的信号ID")
+		return
+	}
+	uid := getUID(c)
+
+	var sig model.BacktestSignal
+	if err := db.MySQL.Where("id = ? AND user_id = ?", sid, uid).First(&sig).Error; err != nil {
+		response.NotFound(c, "信号不存在")
+		return
+	}
+	if sig.Status != "pending_order" && sig.Status != "partial_filled" {
+		response.BadRequest(c, "只有委托中或部分成交的信号才能撤单")
+		return
+	}
+
+	// Get the run to find the account
+	var run model.StrategyRun
+	if err := db.MySQL.Where("id = ?", sig.RunID).First(&run).Error; err != nil {
+		response.InternalError(c, "找不到关联策略运行")
+		return
+	}
+
+	// Cancel broker order if broker_order_id exists
+	if sig.BrokerOrderID != "" && run.AccountID > 0 {
+		if err := h.brokerSvc.CancelBrokerOrder(run.AccountID, uid, sig.BrokerOrderID, sig.StockCode); err != nil {
+			log.Printf("[live] CancelSignalOrder signal=%d order=%s failed: %v", sid, sig.BrokerOrderID, err)
+			response.InternalError(c, "券商撤单失败: "+err.Error())
+			return
+		}
+	}
+
+	// Reset signal status to pending for re-execution
+	db.MySQL.Model(&sig).Updates(map[string]interface{}{
+		"status":          "pending",
+		"broker_order_id": "",
+		"reason":          sig.Reason + " | 已撤单，等待重新执行",
+	})
+
+	log.Printf("[live] CancelSignalOrder signal=%d stock=%s order=%s → reset to pending", sid, sig.StockCode, sig.BrokerOrderID)
+	response.SuccessMsg(c, "撤单成功，信号已重置为待执行")
+}
+
+// CancelAllSignalOrders batch-cancels all pending_order signals for a run on the current date.
+func (h *LiveTradingHandler) CancelAllSignalOrders(c *gin.Context) {
+	rid, _ := strconv.Atoi(c.Param("id"))
+	if rid <= 0 {
+		response.BadRequest(c, "无效的运行ID")
+		return
+	}
+	uid := getUID(c)
+	today := time.Now().Format("2006-01-02")
+
+	var sigs []model.BacktestSignal
+	db.MySQL.Where("run_id = ? AND user_id = ? AND exec_date = ? AND status IN ?",
+		rid, uid, today, []string{"pending_order", "partial_filled"}).Find(&sigs)
+
+	if len(sigs) == 0 {
+		response.Success(c, map[string]interface{}{"cancelled": 0, "message": "当日无委托中的订单"})
+		return
+	}
+
+	// Get the run to find the account
+	var run model.StrategyRun
+	db.MySQL.Where("id = ?", rid).First(&run)
+
+	successCount := 0
+	failCount := 0
+	for _, sig := range sigs {
+		if sig.BrokerOrderID != "" && run.AccountID > 0 {
+			if err := h.brokerSvc.CancelBrokerOrder(run.AccountID, uid, sig.BrokerOrderID, sig.StockCode); err != nil {
+				log.Printf("[live] CancelAllSignalOrders signal=%d order=%s failed: %v", sig.ID, sig.BrokerOrderID, err)
+				failCount++
+				continue
+			}
+		}
+		db.MySQL.Model(&sig).Updates(map[string]interface{}{
+			"status":          "pending",
+			"broker_order_id": "",
+			"reason":          sig.Reason + " | 批量撤单，等待重新执行",
+		})
+		successCount++
+	}
+
+	log.Printf("[live] CancelAllSignalOrders run=%d: cancelled=%d failed=%d", rid, successCount, failCount)
+	response.Success(c, map[string]interface{}{
+		"cancelled": successCount,
+		"failed":    failCount,
+		"message":   fmt.Sprintf("成功撤单 %d 笔，失败 %d 笔", successCount, failCount),
+	})
 }
 
 // GetRunLogs returns execution logs for a run, grouped by log_type.
@@ -1480,90 +1577,104 @@ func (h *LiveTradingHandler) SyncSignalOrder(c *gin.Context) {
 
 // buildCardFromReport builds a Feishu card JSON from pre-market task result data.
 func buildCardFromReport(runName, displayDate, markdownReport string, result map[string]interface{}, executionMode string) (cardJSON, textBody string) {
-	total, confirmed, rejected, modified := 0, 0, 0, 0
-	if v, ok := result["total"].(float64); ok { total = int(v) }
-	if v, ok := result["confirmed"].(float64); ok { confirmed = int(v) }
-	if v, ok := result["rejected"].(float64); ok { rejected = int(v) }
-	if v, ok := result["modified"].(float64); ok { modified = int(v) }
+	// ── Extract structured data from result ──
+	buyCount, _ := result["buyCount"].(float64)
+	sellCount, _ := result["sellCount"].(float64)
+	totalSignals, _ := result["totalSignals"].(float64)
+	availableCash, _ := result["availableCash"].(float64)
+	totalBuyAmount, _ := result["totalBuyAmount"].(float64)
+	totalSellAmount, _ := result["totalSellAmount"].(float64)
 
-	// --- Text body (DingTalk/WeCom) ---
+	// ── Text body (DingTalk/WeCom) ──
 	tl := []string{}
-	tl = append(tl, fmt.Sprintf("**确认** %d 笔 | **驳回** %d 笔 | **总计** %d 条", confirmed+modified, rejected, total))
+	tl = append(tl, fmt.Sprintf("📊 %s · %s", runName, displayDate))
+	tl = append(tl, fmt.Sprintf("买入 %d 笔 (¥%.0f) | 卖出 %d 笔 (¥%.0f) | 可用 ¥%.0f",
+		int(buyCount), totalBuyAmount, int(sellCount), totalSellAmount, availableCash))
 	textBody = strings.Join(tl, "\n")
 
-	// --- Feishu Card ---
+	// ── Feishu Card ──
 	el := []map[string]interface{}{}
 
-	// Signal stats
-	el = append(el, fcMd("**📊 信号统计**", "0px 0px 8px 0px"))
-	el = append(el, fcSignalStats(confirmed+modified, rejected, total-confirmed-modified-rejected, "—"))
-
-	// Execution mode
-	execLabel, execDesc := "🔧 手动执行", "信号需在开盘前手动确认下单"
-	if executionMode == "auto" {
-		execLabel, execDesc = "🤖 自动执行", "开盘后 9:30 自动按挂单价下单"
+	// Mode tag
+	isAuto := executionMode == "auto"
+	modeTag := "🔧 手动执行模式"
+	if isAuto {
+		modeTag = "🤖 自动执行模式"
 	}
-	el = append(el, fcMd(fmt.Sprintf("**%s**  %s", execLabel, execDesc), "0px 0px 8px 0px"))
 
-	// Rejected detail from markdown
-	rejectLines := []string{}
-	signalRows := []string{}
-	inTable := false
-	for _, line := range strings.Split(markdownReport, "\n") {
-		if strings.Contains(line, "📡 信号与决策概览") { inTable = true; continue }
-		if inTable && strings.HasPrefix(line, "| **") {
-			parts := strings.Split(line, "|")
-			if len(parts) >= 8 {
-				signalRows = append(signalRows, fmt.Sprintf("%s %s → %s %s",
-					strings.TrimSpace(parts[1]), strings.TrimSpace(parts[2]),
-					strings.TrimSpace(parts[5]), strings.TrimSpace(parts[7])))
+	// --- Fund Summary Row ---
+	el = append(el, map[string]interface{}{
+		"tag": "column_set", "flex_mode": "stretch", "horizontal_spacing": "8px", "margin": "0px 0px 12px 0px",
+		"columns": []map[string]interface{}{
+			fcFundCard("blue", fmt.Sprintf("¥%.0f", availableCash), "💰 可用资金"),
+			fcFundCard("blue", fmt.Sprintf("¥%.0f", totalBuyAmount), "📈 计划买入"),
+			fcFundCard("red", fmt.Sprintf("¥%.0f", totalSellAmount), "📉 计划卖出"),
+		},
+	})
+
+	// --- Position summary (if exists) ---
+	if positions, ok := result["positions"].([]interface{}); ok && len(positions) > 0 {
+		totalMV := 0.0
+		totalPnL := 0.0
+		for _, p := range positions {
+			if pm, ok := p.(map[string]interface{}); ok {
+				if mv, ok := pm["marketValue"].(float64); ok { totalMV += mv }
+				if pnl, ok := pm["unrealizedPnl"].(float64); ok { totalPnL += pnl }
 			}
 		}
-		if inTable && !strings.HasPrefix(line, "|") && line != "" { inTable = false }
-		if strings.Contains(line, "AI 详细分析") || strings.Contains(line, "驳回信号") { inTable = false }
-		if strings.HasPrefix(line, "**❌") {
-			clean := strings.TrimPrefix(line, "**❌ ")
-			parts := strings.SplitN(clean, "`", 3)
-			if len(parts) >= 2 {
-				name := strings.TrimSpace(parts[0])
-				code := strings.TrimSpace(parts[1])
-				if code != "" {
-					rejectLines = append(rejectLines, fmt.Sprintf("- **%s**(%s): 被AI多轮辩论驳回", name, code))
-				}
+		pnlColor := "green"
+		pnlSign := "+"
+		if totalPnL < 0 { pnlColor = "red"; pnlSign = "" }
+		el = append(el, fcMd(fmt.Sprintf("📦 **当前持仓**  %d 只 · 市值 ¥%.0f · 浮动 <font color='%s'>%s¥%.0f</font>",
+			len(positions), totalMV, pnlColor, pnlSign, totalPnL), "0px 0px 12px 0px"))
+	}
+
+	// --- Signal Cards (2-column grid) ---
+	signals, _ := result["signals"].([]interface{})
+	if len(signals) > 0 {
+		el = append(el, fcMd(fmt.Sprintf("**📡 交易信号 (%d 笔)**", len(signals)), "0px 0px 8px 0px"))
+
+		// Build 2-column rows
+		for i := 0; i < len(signals); i += 2 {
+			row := []map[string]interface{}{}
+			for j := i; j < i+2 && j < len(signals); j++ {
+				row = append(row, fcSignalCard(signals[j].(map[string]interface{})))
 			}
+			// If odd count, add empty placeholder
+			if len(row) == 1 {
+				row = append(row, map[string]interface{}{
+					"tag": "column", "width": "weighted", "weight": 1,
+					"elements": []map[string]interface{}{},
+				})
+			}
+			el = append(el, map[string]interface{}{
+				"tag": "column_set", "flex_mode": "stretch", "horizontal_spacing": "8px", "margin": "0px 0px 8px 0px",
+				"columns": row,
+			})
 		}
 	}
 
-	// Signal detail
-	if len(signalRows) > 0 {
-		el = append(el, fcColoredBlock("default", "**📡 信号与决策明细**\n"+strings.Join(signalRows, "\n")))
-	}
-
-	// Rejected block
-	if len(rejectLines) > 0 {
-		el = append(el, fcColoredBlock("red-50",
-			fmt.Sprintf("**<font color='#F53F3F'>❌ 驳回信号 (%d)</font>**\n%s", len(rejectLines), strings.Join(rejectLines, "\n"))))
-	} else if rejected > 0 {
-		el = append(el, fcColoredBlock("red-50",
-			fmt.Sprintf("**<font color='#F53F3F'>❌ 驳回信号 (%d)</font>**\n> 详见系统内AI分析详情", rejected)))
-	}
-
+	// --- Mode instruction ---
 	el = append(el, fcHr())
+	if isAuto {
+		el = append(el, fcMd("🤖 **自动执行** — 系统将在开盘后按挂单价自动下单，请确保账户资金充足。", "0px 0px 4px 0px"))
+	} else {
+		el = append(el, fcMd("🔧 **手动执行** — 请登录交易终端，参考以上价格和数量进行挂单操作。", "0px 0px 4px 0px"))
+		el = append(el, fcMd(fmt.Sprintf("> 📋 共 **%d 笔**交易指令，建议在开盘前完成挂单", int(totalSignals)), "0px"))
+	}
 
-	summary := "> 当日无确认执行信号"
-	if confirmed > 0 { summary = fmt.Sprintf("> **%d 笔确认执行**，建议开盘前挂单。", confirmed) }
-	if rejected > 0 { summary += fmt.Sprintf(" %d 笔被 AI 驳回。", rejected) }
-	el = append(el, fcMd(summary, "0px"))
-	el = append(el, fcMd("<font color='#86909C' size='12'>⚠️ 本报告由 AI 多智能体系统自动生成，仅供参考，不构成投资建议。</font>", "8px 0px 0px 0px"))
+	// --- Footer ---
+	el = append(el, fcMd("<font color='#86909C' size='12'>⚠️ 本报告由 AI 多智能体系统自动生成，仅供参考，不构成投资建议。市场有风险，投资需谨慎。</font>", "8px 0px 0px 0px"))
 
 	card := map[string]interface{}{
 		"schema": "2.0", "config": map[string]interface{}{"update_multi": true},
 		"header": map[string]interface{}{
-			"template": "blue", "padding": "16px 16px 14px 16px",
-			"icon":  map[string]string{"tag": "standard_icon", "token": "chart-line"},
-			"title": map[string]string{"tag": "plain_text", "content": "智策投研 · 盘前决策报告"},
+			"template": "blue", "padding": "10px 10px 10px 10px",
+			"icon":  map[string]string{"tag": "standard_icon", "color": "blue", "token": "chart-line"},
+			"title": map[string]string{"tag": "plain_text", "content": "智策投研 · 决策报告"},
 			"text_tag_list": []map[string]interface{}{
 				{"tag": "text_tag", "color": "blue", "text": map[string]string{"tag": "plain_text", "content": runName}},
+				{"tag": "text_tag", "color": "neutral", "text": map[string]string{"tag": "plain_text", "content": modeTag}},
 				{"tag": "text_tag", "color": "neutral", "text": map[string]string{"tag": "plain_text", "content": displayDate}},
 			},
 		},
@@ -1574,13 +1685,83 @@ func buildCardFromReport(runName, displayDate, markdownReport string, result map
 	return
 }
 
-func fcMoneyCol(color, value, label string) map[string]interface{} {
+// fcFundCard builds a fund summary card (small blue box with value + label).
+func fcFundCard(color, value, label string) map[string]interface{} {
 	return map[string]interface{}{
-		"tag": "column", "width": "weighted", "weight": 1, "vertical_spacing": "2px",
-		"background_style": "blue-50", "padding": "12px 10px",
+		"tag": "column", "width": "weighted", "weight": 1,
+		"background_style": "blue-50", "padding": "8px", "vertical_spacing": "2px",
 		"elements": []map[string]interface{}{
 			{"tag": "markdown", "content": fmt.Sprintf("## <font color='%s'>%s</font>", color, value), "text_align": "center"},
-			{"tag": "markdown", "content": fmt.Sprintf("<font color='grey' size='12'>%s</font>", label), "text_align": "center"},
+			{"tag": "markdown", "content": fmt.Sprintf("<font color='grey' size='12'>%s</font>", label), "text_align": "center", "text_size": "normal"},
+		},
+	}
+}
+
+// fcSignalCard builds a single signal card for the 2-column grid.
+func fcSignalCard(sig map[string]interface{}) map[string]interface{} {
+	stockName, _ := sig["stockName"].(string)
+	stockCode, _ := sig["stockCode"].(string)
+	action, _ := sig["action"].(string)
+	status, _ := sig["status"].(string)
+	price, _ := sig["price"].(float64)
+	qty, _ := sig["qty"].(float64)
+	amount, _ := sig["amount"].(float64)
+	confidence, _ := sig["confidence"].(float64)
+	premium, _ := sig["premium"].(float64)
+
+	actColor := "blue"
+	actLabel := "买入"
+	if action == "sell" || action == "reduce" || action == "stop" {
+		actColor = "red"
+		actLabel = "卖出"
+	}
+
+	// Map status to Chinese label
+	statusLabel := ""
+	switch status {
+	case "pending":
+		statusLabel = "待确认"
+	case "confirmed":
+		statusLabel = "已确认"
+	case "executed":
+		statusLabel = "已执行"
+	case "pending_order":
+		statusLabel = "委托中"
+	case "pending_manual":
+		statusLabel = "待手动"
+	case "pending_auto":
+		statusLabel = "待自动"
+	case "partial_filled":
+		statusLabel = "部分成交"
+	case "rejected":
+		statusLabel = "已驳回"
+	case "skipped":
+		statusLabel = "已跳过"
+	}
+
+	actionText := actLabel
+	if statusLabel != "" {
+		actionText = fmt.Sprintf("%s（%s）", actLabel, statusLabel)
+	}
+
+	header := fmt.Sprintf("**<font color='%s'>%s %s</font>**", actColor, stockName, stockCode)
+	details := fmt.Sprintf("• 操作: <font color='%s'>**%s**</font>\n", actColor, actionText)
+	if premium != 0 {
+		details += fmt.Sprintf("• 价格: ¥%.2f (+%.1f%%)\n", price, premium)
+	} else {
+		details += fmt.Sprintf("• 价格: ¥%.2f\n", price)
+	}
+	details += fmt.Sprintf("• 数量: %.0f 股\n• 金额: ¥%.0f", qty, amount)
+	if confidence > 0 {
+		details += fmt.Sprintf("\n• AI置信度: %.0f%%", confidence)
+	}
+
+	return map[string]interface{}{
+		"tag": "column", "width": "weighted", "weight": 1,
+		"background_style": "blue-50", "padding": "8px", "vertical_spacing": "2px",
+		"elements": []map[string]interface{}{
+			{"tag": "markdown", "content": header},
+			{"tag": "markdown", "content": details},
 		},
 	}
 }
@@ -1591,41 +1772,6 @@ func fcHr() map[string]interface{} {
 
 func fcMd(content, margin string) map[string]interface{} {
 	return map[string]interface{}{"tag": "markdown", "content": content, "margin": margin}
-}
-
-func fcSignalStats(confirmed, rejected, pending int, exposure string) map[string]interface{} {
-	return map[string]interface{}{
-		"tag": "column_set", "flex_mode": "stretch", "horizontal_spacing": "8px", "margin": "0px 0px 12px 0px",
-		"columns": []map[string]interface{}{
-			{"tag": "column", "width": "weighted", "weight": 1,
-				"elements": []map[string]interface{}{
-					{"tag": "markdown", "content": fmt.Sprintf("<text_tag color='green'>确认</text_tag> **%d** 笔", confirmed), "text_align": "center"},
-				}},
-			{"tag": "column", "width": "weighted", "weight": 1,
-				"elements": []map[string]interface{}{
-					{"tag": "markdown", "content": fmt.Sprintf("<text_tag color='red'>驳回</text_tag> **%d** 笔", rejected), "text_align": "center"},
-				}},
-			{"tag": "column", "width": "weighted", "weight": 1,
-				"elements": []map[string]interface{}{
-					{"tag": "markdown", "content": fmt.Sprintf("<text_tag color='orange'>待验证</text_tag> **%d** 笔", pending), "text_align": "center"},
-				}},
-			{"tag": "column", "width": "weighted", "weight": 1,
-				"elements": []map[string]interface{}{
-					{"tag": "markdown", "content": fmt.Sprintf("敞口 **%s**", exposure), "text_align": "center"},
-				}},
-		},
-	}
-}
-
-func fcColoredBlock(bgStyle, content string) map[string]interface{} {
-	return map[string]interface{}{
-		"tag": "column_set", "flex_mode": "stretch", "margin": "0px 0px 12px 0px",
-		"columns": []map[string]interface{}{{
-			"tag": "column", "width": "weighted", "weight": 1,
-			"background_style": bgStyle, "padding": "10px 14px", "vertical_spacing": "4px",
-			"elements": []map[string]interface{}{{"tag": "markdown", "content": content}},
-		}},
-	}
 }
 
 // buildReportFromLiveData builds a notification report from live signals and decisions
@@ -1639,8 +1785,8 @@ func (h *LiveTradingHandler) buildReportFromLiveData(run model.StrategyRun, trad
 
 	// Load signals
 	var signals []model.BacktestSignal
-	db.MySQL.Where("exec_date = ? AND run_id = ? AND status IN ?", tradeDate, run.ID,
-		[]string{"pending", "confirmed", "executed"}).Order("id ASC").Find(&signals)
+	db.MySQL.Where("exec_date = ? AND run_id = ?", tradeDate, run.ID).
+		Order("id ASC").Find(&signals)
 
 	// Load decisions
 	var decisions []model.PreMarketDecision
@@ -1649,8 +1795,50 @@ func (h *LiveTradingHandler) buildReportFromLiveData(run model.StrategyRun, trad
 
 	// Fallback: if no signals on exec_date, try signal_date
 	if len(signals) == 0 {
-		db.MySQL.Where("signal_date = ? AND run_id = ? AND status IN ?", tradeDate, run.ID,
-			[]string{"pending", "confirmed", "executed"}).Order("id ASC").Find(&signals)
+		db.MySQL.Where("signal_date = ? AND run_id = ?", tradeDate, run.ID).
+			Order("id ASC").Find(&signals)
+	}
+
+	// Load account info for fund data
+	var availableCash, totalBuyAmount, totalSellAmount float64
+	if run.AccountID > 0 {
+		var acc model.TradingAccount
+		if err := db.MySQL.Where("id = ?", run.AccountID).First(&acc).Error; err == nil {
+			availableCash = acc.AvailableCash
+		}
+	}
+	// Fallback: use run equity
+	if availableCash == 0 {
+		availableCash = run.CurrentEquity
+	}
+
+	// Load positions for portfolio summary
+	type posSummary struct {
+		StockCode      string  `json:"stockCode"`
+		StockName      string  `json:"stockName"`
+		Quantity       int     `json:"quantity"`
+		CurrentPrice   float64 `json:"currentPrice"`
+		MarketValue    float64 `json:"marketValue"`
+		UnrealizedPnl  float64 `json:"unrealizedPnl"`
+		UnrealizedPnlPct float64 `json:"unrealizedPnlPct"`
+	}
+	var positions []interface{}
+	var rawPositions []struct {
+		StockCode       string
+		StockName       string
+		Quantity        int
+		CurrentPrice    float64
+		UnrealizedPnl   float64
+		UnrealizedPnlPct float64
+	}
+	db.MySQL.Table("live_positions").Where("strategy_run_id = ? AND quantity > 0", run.ID).Find(&rawPositions)
+	for _, p := range rawPositions {
+		positions = append(positions, map[string]interface{}{
+			"stockCode": p.StockCode, "stockName": p.StockName,
+			"quantity": p.Quantity, "currentPrice": p.CurrentPrice,
+			"marketValue": float64(p.Quantity) * p.CurrentPrice,
+			"unrealizedPnl": p.UnrealizedPnl, "unrealizedPnlPct": p.UnrealizedPnlPct,
+		})
 	}
 
 	buyCount, sellCount, holdCount := 0, 0, 0
@@ -1665,20 +1853,65 @@ func (h *LiveTradingHandler) buildReportFromLiveData(run model.StrategyRun, trad
 		}
 	}
 
-	// Build markdown report
-	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("# 交易执行报告\n\n> %s · %s  ·  信号 `%d` 条\n\n---\n\n",
-		run.Name, tradeDate, len(signals)))
-
-	sb.WriteString(fmt.Sprintf("## 📋 交易执行指令\n\n> %s\n\n> 买入 %d · 卖出 %d · 持有 %d\n\n",
-		tradeDate, buyCount, sellCount, holdCount))
-
-	// Build decision-synced markdown
+	// Build decision map
 	decMap := make(map[uint]model.PreMarketDecision)
 	for _, d := range decisions {
 		decMap[d.SignalID] = d
 	}
 
+	// Build structured signals array for card rendering
+	var sigCards []interface{}
+	for _, sig := range signals {
+		dec, hasDec := decMap[sig.ID]
+		action := sig.ActionType
+		qty := sig.PlannedQty
+		price := sig.PlannedPrice
+		amount := sig.PlannedAmount
+		confidence := 0.0
+		premium := sig.SuggestedPremium
+
+		if hasDec {
+			if dec.FinalAction != "" { action = dec.FinalAction }
+			confidence = dec.Confidence
+			if dec.SuggestedPremium != 0 { premium = dec.SuggestedPremium }
+
+			// Sanity-check decision values before overriding signal originals
+			// AI sometimes generates absurd amounts (e.g., ¥0.1) or zero quantities
+			if dec.SuggestedQty > 0 && dec.SuggestedQty < sig.PlannedQty*10 {
+				qty = dec.SuggestedQty
+			}
+			if dec.FinalPrice > 0 && dec.FinalPrice < sig.PlannedPrice*2 {
+				price = dec.FinalPrice
+			}
+			if dec.FinalAmount > 100 && dec.FinalAmount < sig.PlannedAmount*10 {
+				amount = dec.FinalAmount
+			} else if qty > 0 && price > 0 {
+				// Recalculate amount from qty*price if decision amount is garbage
+				amount = float64(qty) * price
+			}
+		}
+
+		if action == "buy" || action == "add" {
+			totalBuyAmount += amount
+		} else {
+			totalSellAmount += amount
+		}
+
+		sigCards = append(sigCards, map[string]interface{}{
+			"stockName": sig.StockName, "stockCode": sig.StockCode,
+			"action": action, "status": sig.Status, "price": price, "qty": float64(qty),
+			"amount": amount, "confidence": confidence, "premium": premium,
+		})
+	}
+
+	// Build markdown report (for text-based channels)
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("# 交易执行报告\n\n> %s · %s  ·  信号 `%d` 条\n\n---\n\n",
+		run.Name, tradeDate, len(signals)))
+	sb.WriteString(fmt.Sprintf("## 💰 资金概览\n\n> 可用资金: ¥%.0f | 计划买入: ¥%.0f | 计划卖出: ¥%.0f\n\n",
+		availableCash, totalBuyAmount, totalSellAmount))
+	sb.WriteString(fmt.Sprintf("## 📋 交易执行指令\n\n> %s\n\n> 买入 %d · 卖出 %d · 持有 %d\n\n",
+		tradeDate, buyCount, sellCount, holdCount))
 	for i, sig := range signals {
 		dec, hasDec := decMap[sig.ID]
 		action := sig.ActionType
@@ -1686,48 +1919,41 @@ func (h *LiveTradingHandler) buildReportFromLiveData(run model.StrategyRun, trad
 		price := sig.PlannedPrice
 		amount := sig.PlannedAmount
 		confidence := 0.0
-
 		if hasDec {
-			if dec.FinalAction != "" {
-				action = dec.FinalAction
-			}
-			if dec.SuggestedQty > 0 {
-				qty = dec.SuggestedQty
-			}
-			if dec.FinalPrice > 0 {
-				price = dec.FinalPrice
-			}
-			if dec.FinalAmount > 0 {
-				amount = dec.FinalAmount
-			}
+			if dec.FinalAction != "" { action = dec.FinalAction }
+			if dec.SuggestedQty > 0 { qty = dec.SuggestedQty }
+			if dec.FinalPrice > 0 { price = dec.FinalPrice }
+			if dec.FinalAmount > 0 { amount = dec.FinalAmount }
 			confidence = dec.Confidence
 		}
-
 		actionEmoji := "📈"
 		if action == "sell" || action == "reduce" || action == "stop" {
 			actionEmoji = "📉"
 		}
-
 		sb.WriteString(fmt.Sprintf("**%d.** %s %s %s %s \\\n", i+1, actionEmoji, sig.StockName, sig.StockCode, action))
 		sb.WriteString(fmt.Sprintf("> 价格: ¥%.2f | 数量: %d 股 | 金额: ¥%.0f", price, qty, amount))
-		if confidence > 0 {
-			sb.WriteString(fmt.Sprintf(" | AI %.0f%%", confidence))
-		}
+		if confidence > 0 { sb.WriteString(fmt.Sprintf(" | AI %.0f%%", confidence)) }
 		sb.WriteString("\n\n")
 	}
-
-	if len(signals) == 0 {
-		sb.WriteString("> ⚠️ 当日无确认执行的信号\n\n")
-	}
-
+	if len(signals) == 0 { sb.WriteString("> ⚠️ 当日无确认执行的信号\n\n") }
 	sb.WriteString("---\n\n> ⚠️ **免责声明**：本报告由 AI 多智能体系统自动生成，仅供参考，不构成投资建议。市场有风险，投资需谨慎。")
 
+	// Populate result
+	result["total"] = len(signals)
+	result["confirmed"] = buyCount + sellCount
+	result["rejected"] = 0
+	result["modified"] = 0
 	result["notifyMarkdown"] = sb.String()
-	result["buyCount"] = buyCount
-	result["sellCount"] = sellCount
-	result["holdCount"] = holdCount
-	result["totalSignals"] = len(signals)
+	result["buyCount"] = float64(buyCount)
+	result["sellCount"] = float64(sellCount)
+	result["holdCount"] = float64(holdCount)
+	result["totalSignals"] = float64(len(signals))
 	result["tradeDate"] = tradeDate
+	result["availableCash"] = availableCash
+	result["totalBuyAmount"] = totalBuyAmount
+	result["totalSellAmount"] = totalSellAmount
+	result["signals"] = sigCards
+	result["positions"] = positions
 
 	return result
 }

@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { Card, Table, Tag, Button, Spin, Message, Tabs, Select, Divider, Alert, Progress, Modal, Drawer, Dropdown, Menu, TimePicker, Input, Switch, Popconfirm, Tooltip } from '@arco-design/web-react';
 import ReactECharts from 'echarts-for-react';
 import { ArrowLeft, TrendingUp, Wallet, Zap, Settings, Activity, Calendar, RefreshCw, Loader, XCircle, Bell, FileText, Building2, Cpu } from 'lucide-react';
-import { fetchLiveRun, fetchLiveSnapshots, runLiveDaily, fetchDailyRunTask, fetchLatestDailyRunTask, runTradeExec, executeLiveSignal, syncSignalOrder, syncOrders, reconcileFromBroker, fetchReconciliation, fetchTradeExecTask, fetchLatestTradeExecTask, updateLiveRunConfig, fetchNotificationConfigs, createNotificationConfig, deleteNotificationConfig, testNotification, sendLiveRunNotification, updateLiveSignal, deleteLiveSignal, clearLiveSignals, fetchRunLogs } from '../services/api';
+import { fetchLiveRun, fetchLiveSnapshots, runLiveDaily, fetchDailyRunTask, fetchLatestDailyRunTask, runTradeExec, executeLiveSignal, syncSignalOrder, syncOrders, reconcileFromBroker, fetchReconciliation, fetchTradeExecTask, fetchLatestTradeExecTask, updateLiveRunConfig, fetchNotificationConfigs, createNotificationConfig, deleteNotificationConfig, testNotification, sendLiveRunNotification, updateLiveSignal, deleteLiveSignal, clearLiveSignals, fetchRunLogs, cancelSignalOrder, cancelAllSignalOrders } from '../services/api';
 import ReactMarkdown from 'react-markdown';
 
 interface Run { id: number; strategyId: number; name: string; status: string; startDate: string; initialCapital: number; currentEquity: number; totalReturn: number; maxDrawdown: number; winRate: number; tradeCount: number; lastRunDate: string; autoDailyCron?: string; autoTradeExecCron?: string; notifyEnabled?: boolean; notifyChannels?: string; executionMode?: string; aiReviewEnabled?: boolean; }
@@ -84,6 +84,8 @@ export default function LiveRunDetailPage() {
   const [decisions, setDecisions] = useState<Decision[]>([]);
   const [loading, setLoading] = useState(true);
   const [executing, setExecuting] = useState<number | null>(null);
+  const [cancelModalVisible, setCancelModalVisible] = useState(false);
+  const [cancellingAll, setCancellingAll] = useState(false);
   const [syncing, setSyncing] = useState<number | null>(null);
   const [syncingAll, setSyncingAll] = useState(false);
   const [syncingBroker, setSyncingBroker] = useState(false);
@@ -472,6 +474,10 @@ export default function LiveRunDetailPage() {
       // Refresh signal statuses and reload log timestamps
       refreshSignals();
       loadLogs(signalDate);
+      // Auto-send notification — reports current signal state regardless of new executions
+      try {
+        await sendLiveRunNotification(Number(id), signalDate);
+      } catch (_) { /* notification is best-effort */ }
     } catch (e: any) {
       Message.error('交易执行失败: ' + (e?.response?.data?.message || e?.message || '网络错误'));
       setRunningTradeExec(false);
@@ -608,6 +614,40 @@ export default function LiveRunDetailPage() {
     } catch (e: any) { Message.error('操作失败: ' + (e?.message || '未知')); }
     setExecuting(null);
   };
+
+  const handleCancelOrder = async (sig: Signal) => {
+    setExecuting(sig.id);
+    try {
+      await cancelSignalOrder(sig.id);
+      Message.success('撤单成功，信号已重置为待执行');
+      load();
+    } catch (e: any) {
+      Message.error('撤单失败: ' + (e?.response?.data?.message || e?.message || '未知'));
+    }
+    setExecuting(null);
+  };
+
+  const handleCancelAllOrders = () => {
+    if (!run) return;
+    setCancelModalVisible(true);
+  };
+
+  const doCancelAllOrders = async () => {
+    if (!run) return;
+    setCancellingAll(true);
+    try {
+      const res = await cancelAllSignalOrders(run.id);
+      const data = res.data?.data;
+      Message.success(data?.message || `成功撤单 ${data?.cancelled || 0} 笔`);
+      setCancelModalVisible(false);
+      load();
+    } catch (e: any) {
+      Message.error('批量撤单失败: ' + (e?.response?.data?.message || e?.message || '未知'));
+    } finally {
+      setCancellingAll(false);
+    }
+  };
+
 
   const posValue = useMemo(() => positions.reduce((s, p) => s + p.currentPrice * p.quantity, 0), [positions]);
   const dailyPnl = useMemo(() => positions.reduce((s, p) => s + (p.unrealizedPnl || 0), 0), [positions]);
@@ -897,6 +937,9 @@ export default function LiveRunDetailPage() {
                 <Button size="small" type="primary" icon={<Zap size={12} />} loading={runningTradeExec} onClick={handleTradeExec}>
                   交易执行
                 </Button>
+                <Button size="small" type="outline" icon={<Bell size={12} />} loading={sendingNotify} onClick={handleSendNotify}>
+                  发送通知
+                </Button>
               </div>
             </div>
 
@@ -1051,7 +1094,7 @@ export default function LiveRunDetailPage() {
                 <span style={{ width: 4, height: 14, borderRadius: 2, background: '#165DFF', display: 'inline-block' }} />
                 交易信号 · AI 交易执行
                 <Tag size="small" color="arcoblue">{filteredSignals.length} 条</Tag>
-                {filteredSignals.some((s: Signal) => s.status === "pending") && <Button size="mini" type="text" status="danger" onClick={handleClearSignals} style={{ fontSize: 11, padding: "0 6px", height: 20 }}>清空待执行</Button>}
+                {filteredSignals.some((s: Signal) => s.status === "pending") && <Button size="mini" type="text" status="danger" onClick={handleClearSignals} style={{ fontSize: 11, padding: "0 6px", height: 20 }}>清空待执行</Button>}{filteredSignals.some((s: Signal) => s.status === "pending_order" || s.status === "partial_filled") && <Button size="mini" type="text" status="warning" onClick={handleCancelAllOrders} style={{ fontSize: 11, padding: "0 6px", height: 20 }}>批量撤单</Button>}
                 <Tag size="small" color="purple">{decisions.filter((d: Decision) => filteredSignals.some((s: Signal) => s.id === d.signalId)).length} 已验证</Tag>
               </div>
 
@@ -1090,7 +1133,7 @@ export default function LiveRunDetailPage() {
                   该日期暂无交易信号
                 </div>
               ) : (
-                <Table data={filteredSignals} rowKey="id" size="small" pagination={false}
+                <Table data={filteredSignals} rowKey="id" size="small" pagination={false} scroll={{ x: 950 }}
                   expandedRowRender={(record: Signal) => {
                     const dec = decisions.find((d: Decision) => d.signalId === record.id);
                     if (!dec) return (
@@ -1191,15 +1234,28 @@ export default function LiveRunDetailPage() {
                     { title: '原因', dataIndex: 'reason', width: 200, ellipsis: true, render: (v: string) => (
     <span style={{ fontSize: 10, maxWidth: 190, display: 'inline-block' }} title={(v || '').replace(/\| /g, String.fromCharCode(10))}>{v || '—'}</span>
   ) },
-                    { title: '操作', width: 120, render: (_: any, r: Signal) => (
-                      <div style={{ display: 'flex', gap: 4 }}>
-                        {(r.status === 'pending' || r.status === 'confirmed' || r.status === 'pending_order') && (
+                    { title: '操作', width: 130, fixed: 'right', render: (_: any, r: Signal) => (
+                      <div style={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+                        {(r.status === 'pending' || r.status === 'confirmed') && (
                           <Button size="mini" type="primary" loading={executing === r.id} onClick={() => openExecuteModal(r)}>交易</Button>
                         )}
-                        {(r.status === 'pending_order' || r.status === 'partial_filled') && r.brokerOrderId && (
-                          <Button size="mini" type="outline" loading={syncing === r.id} onClick={() => handleSyncOrder(r)}>同步</Button>
+                        {(r.status === 'pending_order') && (
+                          <>
+                            <Button size="mini" type="outline" loading={syncing === r.id} onClick={() => handleSyncOrder(r)}>同步</Button>
+                            <Popconfirm title="确定撤销此委托？撤单后信号将重置为待执行" onOk={() => handleCancelOrder(r)}>
+                              <Button size="mini" type="text" status="warning" loading={executing === r.id}>撤单</Button>
+                            </Popconfirm>
+                          </>
                         )}
-                        {(r.status === 'pending' || r.status === 'pending_order') && (
+                        {(r.status === 'partial_filled') && r.brokerOrderId && (
+                          <>
+                            <Button size="mini" type="outline" loading={syncing === r.id} onClick={() => handleSyncOrder(r)}>同步</Button>
+                            <Popconfirm title="确定撤销剩余委托？" onOk={() => handleCancelOrder(r)}>
+                              <Button size="mini" type="text" status="warning" loading={executing === r.id}>撤单</Button>
+                            </Popconfirm>
+                          </>
+                        )}
+                        {(r.status === 'pending') && (
                           <>
                             <Button size="mini" type="text" onClick={() => handleOpenEditSignal(r)}>编辑</Button>
                             <Popconfirm title="确定删除此信号？" onOk={() => handleDeleteSignal(r)}>
@@ -1291,10 +1347,16 @@ export default function LiveRunDetailPage() {
                                   </span>
                                 )}
                                 <span style={{ fontSize: 13 }}>
-                                  数量: <b>{dec.suggestedQty > 0 ? dec.suggestedQty.toLocaleString() : dec.finalQty > 0 ? dec.finalQty : '—'} 股</b>
+                                  数量: <b>{(() => {
+                    const q = dec.suggestedQty > 0 ? dec.suggestedQty : dec.finalQty > 0 ? dec.finalQty : (sig?.suggestedQty || sig?.plannedQty || 0);
+                    return q > 0 ? q.toLocaleString() : '—';
+                  })()} 股</b>
                                 </span>
                                 <span style={{ fontSize: 13 }}>
-                                  金额: <b style={{ color: '#1a1a2e' }}>¥{dec.finalAmount > 0 ? dec.finalAmount.toLocaleString() : '—'}</b>
+                                  金额: <b style={{ color: '#1a1a2e' }}>¥{(() => {
+                    const a = dec.finalAmount > 0 ? dec.finalAmount : (sig?.plannedAmount || 0);
+                    return a > 0 ? a.toLocaleString() : '—';
+                  })()}</b>
                                 </span>
                               </div>
 
@@ -1394,7 +1456,10 @@ export default function LiveRunDetailPage() {
                               {dec.suggestedPremium > 0 ? '+' : ''}{dec.suggestedPremium.toFixed(1)}%
                             </b></span>
                           )}
-                          <span>数量 <b>{dec.suggestedQty > 0 ? dec.suggestedQty.toLocaleString() : dec.finalQty > 0 ? dec.finalQty : '—'} 股</b></span>
+                          <span>数量 <b>{(() => {
+                    const q = dec.suggestedQty > 0 ? dec.suggestedQty : dec.finalQty > 0 ? dec.finalQty : (sig?.suggestedQty || sig?.plannedQty || 0);
+                    return q > 0 ? q.toLocaleString() : '—';
+                  })()} 股</b></span>
                           {((dec.finalAmount > 0) || (sig && sig.plannedAmount > 0)) && (
                             <span>金额 <b style={{ color: '#1a1a2e' }}>{
                               (dec.finalAmount != null && dec.finalAmount > 0) ? `¥${dec.finalAmount.toLocaleString()}` :
@@ -1974,6 +2039,21 @@ export default function LiveRunDetailPage() {
       >
         <div style={{ padding: '8px 0' }}>
           确认清空 <b>{signalDate}</b> 全部 <b style={{ color: '#F53F3F' }}>{clearPendingCount}</b> 条待执行信号？
+        </div>
+      </Modal>
+
+      {/* Batch Cancel Orders Modal */}
+      <Modal
+        title="批量撤单"
+        visible={cancelModalVisible}
+        onOk={doCancelAllOrders}
+        onCancel={() => setCancelModalVisible(false)}
+        confirmLoading={cancellingAll}
+        okText="确认撤单"
+        cancelText="取消"
+      >
+        <div style={{ padding: '8px 0' }}>
+          确定撤销当日全部委托中的订单？撤单后信号将重置为待执行，可重新下单。
         </div>
       </Modal>
     </div>

@@ -205,12 +205,15 @@ func taBuildAnalystData(role TradingAgentRole, ctx TradingAgentContext) string {
 		}
 
 	case TARoleFundamentalAnalyst:
-		sb.WriteString(fmt.Sprintf("PE: %.2f | PB: %.2f | PS: %.2f\n", ctx.PE, ctx.PB, ctx.PS))
-		sb.WriteString(fmt.Sprintf("Market Cap: %.2f 亿元\n", ctx.MarketCap/1e8))
+		sb.WriteString(fmt.Sprintf("PE: %.2f (行业均值 %.2f) | PB: %.2f (行业均值 %.2f) | PS: %.2f\n", ctx.PE, ctx.IndustryPE, ctx.PB, ctx.IndustryPB, ctx.PS))
+		sb.WriteString(fmt.Sprintf("Market Cap: %.2f 亿元\n", ctx.MarketCap))
+		sb.WriteString(fmt.Sprintf("EPS: %.4f | BVPS: %.4f\n", ctx.EPS, ctx.BVPS))
+		sb.WriteString(fmt.Sprintf("Net Profit (latest): %.2f 亿 | Revenue: %.2f 亿\n", ctx.NetProfit/1e8, ctx.TotalRevenue/1e8))
+		sb.WriteString(fmt.Sprintf("Total Assets: %.2f 亿 | Total Liabilities: %.2f 亿 | Debt Ratio: %.1f%%\n", ctx.TotalAssets/1e8, ctx.TotalLiabilities/1e8, ctx.DebtRatio))
 
 	case TARoleMarketAnalyst:
-		sb.WriteString(fmt.Sprintf("Social Sentiment Score: %.2f (-1 bearish ~ +1 bullish)\n", ctx.SocialSentiment))
-		sb.WriteString(fmt.Sprintf("News Sentiment Score: %.2f\n", ctx.NewsSentiment))
+		sb.WriteString(fmt.Sprintf("Market Sentiment (market-level, -1 bearish ~ +1 bullish): %.2f\n", ctx.SocialSentiment))
+		sb.WriteString(fmt.Sprintf("Market Breadth Score: %.2f\n", ctx.NewsSentiment))
 		sb.WriteString("\n## News Headlines:\n")
 		if len(ctx.NewsHeadlines) > 0 {
 			for _, h := range ctx.NewsHeadlines {
