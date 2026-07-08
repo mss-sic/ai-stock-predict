@@ -855,9 +855,36 @@ func (s *LiveTradingService) updateRunStats(runID uint) {
 	var tradeCount int64
 	db.MySQL.Model(&model.LiveTrade{}).Where("strategy_run_id = ? AND signal_id IS NOT NULL", runID).Count(&tradeCount)
 
+	// 从历史快照计算最大回撤
+	var maxDrawdown float64
+	if run.InitialCapital > 0 {
+		var snapshots []model.DailyPortfolioSnapshot
+		db.MySQL.Where("strategy_run_id = ?", runID).Order("snapshot_date ASC").Find(&snapshots)
+		peak := run.InitialCapital
+		for _, snap := range snapshots {
+			if snap.TotalEquity > peak {
+				peak = snap.TotalEquity
+			}
+			if peak > 0 {
+				dd := (peak - snap.TotalEquity) / peak * 100
+				if dd > maxDrawdown {
+					maxDrawdown = dd
+				}
+			}
+		}
+		// 也要和当前 equity 比较
+		if peak > 0 {
+			dd := (peak - equity) / peak * 100
+			if dd > maxDrawdown {
+				maxDrawdown = dd
+			}
+		}
+	}
+
 	db.MySQL.Model(&run).Updates(map[string]interface{}{
 		"current_equity": equity,
 		"total_return":   math.Round(totalReturn*100) / 100,
+		"max_drawdown":   math.Round(maxDrawdown*100) / 100,
 		"trade_count":    tradeCount,
 	})
 

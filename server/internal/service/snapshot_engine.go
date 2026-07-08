@@ -76,6 +76,7 @@ func (e *SnapshotEngine) TakeSnapshot(
 		drawdown = (e.peakEquity - totalEquity) / e.peakEquity * 100
 	}
 
+	dailyReturnAmt := totalEquity - e.prevDayEquity
 	e.prevDayEquity = totalEquity
 
 	return SnapshotResult{
@@ -84,7 +85,7 @@ func (e *SnapshotEngine) TakeSnapshot(
 		PositionValue:    math.Round(posValue*100) / 100,
 		TotalEquity:      math.Round(totalEquity*100) / 100,
 		DailyReturn:      math.Round(dailyRet*100) / 100,
-		DailyReturnAmt:   math.Round((totalEquity-e.prevDayEquity)*100) / 100,
+		DailyReturnAmt:   math.Round(dailyReturnAmt*100) / 100,
 		CumulativeReturn: math.Round(cumRet*100) / 100,
 		MaxDrawdownPct:   math.Round(drawdown*100) / 100,
 		PositionCount:    len(positions),
