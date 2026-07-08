@@ -607,6 +607,7 @@ export default function LiveRunDetailPage() {
   };
 
   const posValue = useMemo(() => positions.reduce((s, p) => s + p.currentPrice * p.quantity, 0), [positions]);
+  const dailyPnl = useMemo(() => positions.reduce((s, p) => s + (p.unrealizedPnl || 0), 0), [positions]);
   const totalEquity = (allocation?.currentCash || 0) + posValue;
   const dateOptions = useMemo(() => {
     const dates = [...new Set(signals.map(s => s.execDate))].sort().reverse();
@@ -673,6 +674,7 @@ export default function LiveRunDetailPage() {
               { l: '当前权益', v: `¥${totalEquity.toLocaleString()}`, c: '#165DFF' },
               { l: '可用现金', v: `¥${(allocation?.currentCash || 0).toLocaleString()}`, c: '#0FC6C2' },
               { l: '持仓市值', v: `¥${posValue.toLocaleString()}`, c: '#722ED1' },
+              { l: '当日盈亏', v: `${pnlSign(dailyPnl)}¥${Math.abs(dailyPnl).toLocaleString()}`, c: pnlColor(dailyPnl) },
               { l: '累计收益', v: `${pnlSign(run.totalReturn)}${(run.totalReturn||0).toFixed(2)}%`, c: pnlColor(run.totalReturn) },
               { l: '最大回撤', v: `${(run.maxDrawdown||0).toFixed(2)}%`, c: '#F53F3F' },
               { l: '胜率/交易', v: `${(run.winRate||0).toFixed(0)}% / ${run.tradeCount||0}笔`, c: '#F7BA1E' },
@@ -701,14 +703,22 @@ export default function LiveRunDetailPage() {
       </div>
 
       {/* Equity Curve */}
-      {snapshots.length > 1 && (() => {
-        const initialEquity = snapshots[0]?.totalEquity || 0;
-        const dates = snapshots.map(s => s.snapshotDate);
-        const equities = snapshots.map(s => s.totalEquity);
-        const cashData = snapshots.map(s => s.cash);
-        const posData = snapshots.map(s => s.positionValue);
-        const returns = snapshots.map(s => s.cumulativeReturn);
-        const drawdowns = snapshots.map(s => s.maxDrawdownPct);
+      {(() => {
+        const allSnapshots = snapshots.length > 0 ? snapshots : [{
+          snapshotDate: run.startDate || new Date().toISOString().slice(0,10),
+          cash: allocation?.currentCash || 0,
+          positionValue: posValue,
+          totalEquity: totalEquity,
+          cumulativeReturn: run.totalReturn || 0,
+          maxDrawdownPct: run.maxDrawdown || 0,
+        }];
+        const initialEquity = allSnapshots[0]?.totalEquity || (run.initialCapital || 0);
+        const dates = allSnapshots.map((s: any) => s.snapshotDate);
+        const equities = allSnapshots.map((s: any) => s.totalEquity);
+        const cashData = allSnapshots.map((s: any) => s.cash);
+        const posData = allSnapshots.map((s: any) => s.positionValue);
+        const returns = allSnapshots.map((s: any) => s.cumulativeReturn);
+        const drawdowns = allSnapshots.map((s: any) => s.maxDrawdownPct);
 
         const option = {
           tooltip: {
@@ -814,18 +824,31 @@ export default function LiveRunDetailPage() {
           <Tabs.TabPane key="positions" title={`当前持仓 (${positions.filter(p => p.quantity > 0).length})`}>
             <Table data={positions.filter(p => p.quantity > 0)} rowKey="id" size="small" pagination={false}
               columns={[
-                { title: '代码', dataIndex: 'stockCode', width: 75, render: (v: string) => <span style={{ fontWeight: 600, cursor: 'pointer', color: '#165DFF' }} onClick={() => navigate(`/stock/${v}`)}>{v}</span> },
-                { title: '名称', dataIndex: 'stockName', width: 85 },
-                { title: '持仓', dataIndex: 'quantity', width: 55 },
-                { title: '成本', dataIndex: 'avgCost', width: 75, render: (v: number) => `¥${v.toFixed(3)}` },
-                { title: '现价', dataIndex: 'currentPrice', width: 70, render: (v: number) => `¥${v.toFixed(2)}` },
-                { title: '市值', width: 85, render: (_: any, r: Position) => `¥${(r.currentPrice * r.quantity).toLocaleString()}` },
-                { title: '浮动盈亏', width: 120, render: (_: any, r: Position) => (
-                  <span style={{ color: pnlColor(r.unrealizedPnl), fontWeight: 600, fontSize: 12 }}>
-                    {pnlSign(r.unrealizedPnl)}¥{Math.abs(r.unrealizedPnl).toFixed(0)} ({pnlSign(r.unrealizedPnlPct)}{r.unrealizedPnlPct.toFixed(2)}%)
+                { title: '代码', dataIndex: 'stockCode', width: 70, render: (v: string) => <span style={{ fontWeight: 600, cursor: 'pointer', color: '#165DFF' }} onClick={() => navigate(`/stock/${v}`)}>{v}</span> },
+                { title: '名称', dataIndex: 'stockName', width: 70 },
+                { title: '持仓', width: 70, render: (_: any, r: Position) => (
+                  <span>
+                    <span style={{ fontWeight: 600 }}>{r.quantity}</span>
+                    {r.todayBuyQty > 0 && <span style={{ fontSize: 9, color: '#F7BA1E', marginLeft: 2, background: '#FFF7E6', padding: '0 3px', borderRadius: 3 }}>锁{r.todayBuyQty}</span>}
                   </span>
                 )},
-                { title: '持天数', dataIndex: 'holdDays', width: 50 },
+                { title: '可卖', width: 48, render: (_: any, r: Position) => (
+                  <span style={{ color: (r.availSellQty ?? r.quantity) === r.quantity ? 'var(--color-text-2)' : '#F53F3F', fontWeight: (r.availSellQty ?? r.quantity) !== r.quantity ? 600 : 400, fontSize: 11 }}>
+                    {r.availSellQty ?? r.quantity}
+                  </span>
+                )},
+                { title: '成本', dataIndex: 'avgCost', width: 70, render: (v: number) => `¥${v.toFixed(3)}` },
+                { title: '现价', dataIndex: 'currentPrice', width: 65, render: (v: number) => `¥${v.toFixed(2)}` },
+                { title: '市值', width: 78, render: (_: any, r: Position) => `¥${(r.currentPrice * r.quantity).toLocaleString()}` },
+                { title: '浮动盈亏', width: 125, render: (_: any, r: Position) => (
+                  <span style={{ color: pnlColor(r.unrealizedPnl), fontWeight: 600, fontSize: 11 }}>
+                    {pnlSign(r.unrealizedPnl)}¥{Math.abs(r.unrealizedPnl||0).toFixed(0)} <span style={{ fontSize: 9, opacity: 0.7 }}>({pnlSign(r.unrealizedPnlPct)}{(r.unrealizedPnlPct||0).toFixed(2)}%)</span>
+                  </span>
+                )},
+                { title: '已实盈亏', dataIndex: 'realizedPnl', width: 78, render: (v: number) => v ? (
+                  <span style={{ color: pnlColor(v), fontSize: 11, fontWeight: 500 }}>{pnlSign(v)}¥{Math.abs(v).toFixed(0)}</span>
+                ) : <span style={{ color: 'var(--color-text-4)', fontSize: 10 }}>—</span> },
+                { title: '持天', dataIndex: 'holdDays', width: 38 },
               ]}
             />
           </Tabs.TabPane>
