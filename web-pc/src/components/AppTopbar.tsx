@@ -1,7 +1,7 @@
-import { useMemo, useState, useCallback, useRef } from 'react';
+import { useMemo, useState, useCallback, useRef, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Input, AutoComplete, Badge, Button, Tag, Dropdown, Menu } from '@arco-design/web-react';
-import { Search, Bell, ChevronRight, Home, Clock, User, Settings, BarChart3 } from 'lucide-react';
+import { Search, Bell, ChevronRight, Home, Clock, User, Settings, BarChart3, BookOpen } from 'lucide-react';
 import { useAuth } from '../services/AuthContext';
 import { searchStock } from '../services/api';
 
@@ -51,11 +51,29 @@ function useMarketStatus(): { isOpen: boolean; label: string } {
   }, []);
 }
 
+import HelpDrawer from './HelpDrawer';
+
 export default function AppTopbar() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const market = useMarketStatus();
+  const [helpVisible, setHelpVisible] = useState(false);
+  const pathSeg = location.pathname.split('/').filter(Boolean);
+
+  // Listen for global help-drawer event from child pages
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const section = (e as CustomEvent).detail?.section || '';
+      setHelpVisible(true);
+      if (section) {
+        // Store desired section temporarily
+        (window as any).__helpSection = section;
+      }
+    };
+    window.addEventListener('app:open-help', handler);
+    return () => window.removeEventListener('app:open-help', handler);
+  }, []);
 
   // ── Search state ──
   const [searchOptions, setSearchOptions] = useState<{ value: string; name: string }[]>([]);
@@ -227,6 +245,14 @@ export default function AppTopbar() {
         )}
       </div>
 
+      {/* ── Help ── */}
+      <Button
+        type="text"
+        icon={<BookOpen size={16} />}
+        onClick={() => setHelpVisible(true)}
+        style={{ color: 'var(--color-text-2)', padding: '4px 8px' }}
+      />
+
       {/* ── Notification Bell ── */}
       <Badge count={0} dotStyle={{ background: '#F53F3F' }}>
         <Button
@@ -283,6 +309,19 @@ export default function AppTopbar() {
           </span>
         </Button>
       </Dropdown>
+
+      {/* ── Help Drawer ── */}
+      <HelpDrawer
+        visible={helpVisible}
+        onClose={() => setHelpVisible(false)}
+        initialSection={
+          (() => {
+            const s = (window as any).__helpSection;
+            if (s) { delete (window as any).__helpSection; return s; }
+            return pathSeg[0] === 'risk' ? 'scoring' : undefined;
+          })()
+        }
+      />
 
       {/* ── Pulse animation for market dot ── */}
       <style>{`

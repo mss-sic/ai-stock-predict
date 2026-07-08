@@ -16,8 +16,12 @@ import (
 )
 
 func main() {
+	// Release mode unless GIN_DEBUG=true (reduces 200+ route log lines)
+	if os.Getenv("GIN_DEBUG") != "true" {
+		gin.SetMode(gin.ReleaseMode)
+	}
 	cfg := config.Load()
-	log.Printf("智策投研 server starting on :%s", cfg.Port)
+	log.Printf("[startup] 智策投研 server starting on :%s", cfg.Port)
 
 	db.InitPostgres(cfg.PostgresDSN)
 	db.InitMySQL(cfg.MySQLDSN)
@@ -61,6 +65,11 @@ func main() {
 	r.POST("/api/v1/auth/login", authH.Login)
 	r.POST("/api/v1/auth/refresh", authH.Refresh)
 	r.GET("/api/v1/indices", handler.GetIndices) // public index data
+
+	// Market style compute (public for internal collector pipeline)
+	marketPubH := handler.NewMarketStyleHandler()
+	r.POST("/api/v1/market/compute-style", marketPubH.ComputeStyle)
+	r.POST("/api/v1/market/bulk-compute", marketPubH.BulkCompute)
 
 	// Market sentiment (public)
 	sentimentH := &handler.SentimentHandler{}
@@ -197,8 +206,7 @@ func main() {
 		api.GET("/market/style-curve", marketH.GetStyleCurve)
 		api.GET("/market/daily-review", marketH.GetDailyReview)
 		api.GET("/market/latest-style", marketH.GetLatestStyle)
-		api.POST("/market/compute-style", marketH.ComputeStyle)
-		api.POST("/market/bulk-compute", marketH.BulkCompute)
+
 
 
 		boardH := handler.NewBoardHandler()
@@ -238,6 +246,15 @@ func main() {
 		// Risk alerts
 		riskH := handler.NewRiskHandler()
 		api.GET("/risks", riskH.List)
+		api.GET("/risk/dashboard", riskH.Dashboard)
+		api.GET("/risk/aggregated", riskH.ListAggregated)
+		api.GET("/risk/alerts", riskH.ListAlerts)
+		api.GET("/risk/alerts/:id", riskH.GetAlertDetail)
+		api.PUT("/risk/alerts/:id/acknowledge", riskH.AcknowledgeAlert)
+		api.GET("/risk/rules", riskH.ListRules)
+		api.PUT("/risk/rules/:key", riskH.UpdateRule)
+		api.GET("/risk/snapshots", riskH.ListSnapshots)
+		api.GET("/risk/circuit-breaker", riskH.CircuitBreakerStatus)
 		api.PUT("/risks/:id/ignore", riskH.Ignore)
 
 		// Strategy
@@ -307,6 +324,7 @@ func main() {
 		preMarketGroup.POST("/notification-configs", preMarketH.CreateNotificationConfig)
 		preMarketGroup.PUT("/notification-configs/:id", preMarketH.UpdateNotificationConfig)
 		preMarketGroup.DELETE("/notification-configs/:id", preMarketH.DeleteNotificationConfig)
+		preMarketGroup.POST("/notification-configs/:id/test", preMarketH.TestNotificationConfig)
 
 		// Collector
 		collectorH := handler.NewCollectorHandler()
@@ -372,6 +390,8 @@ func main() {
 		os.Exit(0)
 	}()
 
+	log.Printf("[startup] ready — :%s | postgres+mysql | scheduler-v2 | %d risk rules",
+		cfg.Port, len(service.GetEngine().Rules()))
 	if err := r.Run(":" + cfg.Port); err != nil {
 		log.Fatalf("server error: %v", err)
 	}

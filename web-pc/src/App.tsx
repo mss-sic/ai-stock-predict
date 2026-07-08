@@ -46,7 +46,8 @@ const navGroups = [
   {
     label: '风控分析',
     items: [
-      { key: '/risk', label: '风险监控', icon: ShieldAlert },
+      { key: "/risk", label: "风险监控", icon: ShieldAlert },
+
       { key: '/sentiment', label: '市场情绪', icon: TrendingUp },
       { key: '/capital-flow', label: '资金面分析', icon: DollarSign },
       { key: '/limit-stats', label: '涨跌停情绪', icon: BarChart3 },

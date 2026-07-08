@@ -158,7 +158,7 @@ func (s *UnifiedScheduler) RegisterDefinition(def *TaskDefinition) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.definitions[def.ID] = def
-	log.Printf("[scheduler-v2] registered definition: %s (kind=%s)", def.ID, def.Kind)
+	// (batch logged at startup)
 }
 
 // GetDefinition returns a task definition by ID.
@@ -221,7 +221,7 @@ func (s *UnifiedScheduler) RegisterInstance(inst *TaskInstance) error {
 	}
 	s.byOwner[ownerKey][inst.ID] = struct{}{}
 
-	log.Printf("[scheduler-v2] registered instance: %d (def=%s owner=%s)", inst.ID, inst.DefinitionID, ownerKey)
+	// (batch logged at startup)
 	return nil
 }
 

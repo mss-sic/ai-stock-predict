@@ -1,0 +1,8 @@
+
+/* Risk Dashboard — high alert row highlight */
+.risk-row-high td {
+  background: #f53f3f06 !important;
+}
+.risk-row-high:hover td {
+  background: #f53f3f0c !important;
+}

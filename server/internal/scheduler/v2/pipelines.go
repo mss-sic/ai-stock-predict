@@ -52,6 +52,12 @@ var AfterCloseDataPipeline = Pipeline{
 			Timeout:   5 * time.Minute,
 			Handler:   wrapCollectorPhase("market_style", "市场风格计算"),
 		},
+		{
+			Name:      "risk_full_scan",
+			DependsOn: []string{"market_style"},
+			Timeout:   10 * time.Minute,
+			Handler:   wrapRiskFullScan("risk_full_scan", "风控全量扫描"),
+		},
 	},
 	OnComplete: EventDataReady,
 }
@@ -75,6 +81,12 @@ var PreMarketDataPipeline = Pipeline{
 			Name:    "cninfo",
 			Timeout: 10 * time.Minute,
 			Handler: wrapCollectorPhase("cninfo", "巨潮公告采集"),
+		},
+		{
+			Name:      "risk_event_scan",
+			DependsOn: []string{"cninfo"},
+			Timeout:   5 * time.Minute,
+			Handler:   wrapRiskEventScan("risk_event_scan", "风控事件扫描"),
 		},
 	},
 	OnComplete: "morning_partial",
@@ -244,16 +256,10 @@ func SystemTaskDefs() []*TaskDefinition {
 			Handler: makeTaskHandler("backfill_shareholder", "股东回填"),
 		},
 		{
-			ID: "risk_scan", Kind: KindPipeline, Label: "风险扫描",
-			Trigger: TriggerSpec{Cron: "0 5 * * * *"},
+			ID: "risk_scan", Kind: KindPipeline, Label: "风险扫描（手动/API触发，定时由pipeline负责）",
+			Trigger: TriggerSpec{Cron: ""}, // disabled: scheduled scan handled by AfterCloseDataPipeline
 			Timeout: 5 * time.Minute, MaxConcurrent: 1,
 			Handler: makeRiskScanHandler(),
-		},
-		{
-			ID: "ai_score", Kind: KindPipeline, Label: "AI评分更新",
-			Trigger: TriggerSpec{Cron: "0 0 20 * * 0"},
-			Timeout: 30 * time.Minute,
-			Handler: makeTaskHandler("ai_score", "AI评分"),
 		},
 		{
 			ID: "unlock", Kind: KindPipeline, Label: "解禁数据采集",
@@ -337,9 +343,43 @@ func makeTaskHandlerWithEvent(phase, label, eventType, eventKey string) TaskHand
 	}
 }
 
-// makeRiskScanHandler creates a handler for risk scanning.
+// makeRiskScanHandler creates a handler for risk scanning (manual/admin only).
 func makeRiskScanHandler() TaskHandler {
 	return makeTaskHandlerWithEvent("risk_scan", "风险扫描", "", "")
+}
+
+// wrapRiskFullScan creates a handler for post-close full risk scan.
+func wrapRiskFullScan(phase, label string) func(ctx context.Context, logger *StructuredLogger) error {
+	return func(ctx context.Context, logger *StructuredLogger) error {
+		logger.Phase("risk_full_scan_start", nil)
+		count, err := service.ScanUserHoldings()
+		if err != nil {
+			logger.Error("risk_full_scan_failed", err, nil)
+			return err
+		}
+		logger.Info("risk_full_scan_complete", map[string]any{"alerts": count})
+
+		// Generate daily risk snapshot
+		snapshotErr := service.GenerateRiskSnapshot()
+		if snapshotErr != nil {
+			logger.Warn("risk_snapshot_failed", map[string]any{"error": snapshotErr.Error()})
+		}
+		return nil
+	}
+}
+
+// wrapRiskEventScan creates a handler for pre-market event risk scan.
+func wrapRiskEventScan(phase, label string) func(ctx context.Context, logger *StructuredLogger) error {
+	return func(ctx context.Context, logger *StructuredLogger) error {
+		logger.Phase("risk_event_scan_start", nil)
+		count, err := service.ScanRiskEvents()
+		if err != nil {
+			logger.Error("risk_event_scan_failed", err, nil)
+			return err
+		}
+		logger.Info("risk_event_scan_complete", map[string]any{"event_alerts": count})
+		return nil
+	}
 }
 
 // ── Context helper ──

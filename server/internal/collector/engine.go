@@ -496,6 +496,9 @@ func RunManualCollection(phases []string, extraArgs ...string) error {
 	if shouldRun("market_sentiment") {
 		appendResult(runMarketSentimentPhase())
 	}
+	if shouldRun("market_style") {
+		appendResult(runMarketStylePhase())
+	}
 	if shouldRun("profile") {
 		appendResult(runProfilePhase())
 	}
@@ -1213,6 +1216,29 @@ func RepairStock(code string) error {
 
 func runNorthboundPhase() PhaseResult {
 	return runStatsPhase("northbound", "北向资金", "collect_northbound.py")
+}
+
+// runMarketStylePhase computes market style for today via internal API call.
+func runMarketStylePhase() PhaseResult {
+	setPhase("market_style", "市场风格计算...")
+	sseSend(SSELine{Type: "phase", Phase: "market_style", Message: "开始计算市场风格（趋势/波动/结构）...", Level: "info"})
+	t0 := time.Now()
+	var before int64
+	db.PG.Raw("SELECT COUNT(*) FROM market_style_daily").Scan(&before)
+	err := runPythonWithRepair("compute_market_style.py")
+	phaseRes := PhaseResult{Phase: "market_style", Skipped: int(before)}
+	var after int64
+	db.PG.Raw("SELECT COUNT(*) FROM market_style_daily").Scan(&after)
+	phaseRes.Total = int(after)
+	phaseRes.New = int(after - before)
+	phaseRes.DurationMs = time.Since(t0).Milliseconds()
+	if err != nil {
+		phaseRes.Errors = 1
+		sseSend(SSELine{Type: "result", Phase: "market_style", Result: &phaseRes, Level: "error", Message: fmt.Sprintf("市场风格计算失败: %v", err)})
+	} else {
+		sseSend(SSELine{Type: "result", Phase: "market_style", Result: &phaseRes, Level: "success", Message: fmt.Sprintf("市场风格: %d 天 (%+d)", after, after-before)})
+	}
+	return phaseRes
 }
 
 func runLimitStatsPhase() PhaseResult {

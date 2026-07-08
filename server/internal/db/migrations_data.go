@@ -1864,5 +1864,33 @@ Register(Migration{
 	})
 
 
+
+	// v083: Risk alert system overhaul — expanded fields, rules table, snapshots table
+	Register(Migration{
+		Version:     83,
+		Description: "Risk alert overhaul: expand risk_alerts + add risk_rules + risk_snapshots",
+		Up: func() error {
+			// Expand risk_alerts (gorm AutoMigrate handles new columns)
+			gormAutoMigrate(MySQL, &model.RiskAlert{})
+
+			// Data migration: ignored → status
+			MySQL.Exec("UPDATE risk_alerts SET status = 'ignored' WHERE ignored = true AND (status = 'active' OR status = '')")
+
+			// Dedup index (safe to fail if already exists via ROW_COUNT)
+			_ = MySQL.Exec("CREATE UNIQUE INDEX idx_alert_dedup ON risk_alerts(user_id, stock_code, rule_key, hit_date)")
+			_ = MySQL.Exec("CREATE INDEX idx_alert_user_status ON risk_alerts(user_id, status)")
+			_ = MySQL.Exec("CREATE INDEX idx_alert_rule_date ON risk_alerts(rule_key, hit_date)")
+
+			// New tables
+			gormAutoMigrate(MySQL, &model.RiskRule{})
+			gormAutoMigrate(MySQL, &model.RiskSnapshot{})
+
+			// Seed 34 risk rules
+			seedRiskRules(MySQL)
+
+			return nil
+		},
+	})
+
 }
 

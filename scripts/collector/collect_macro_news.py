@@ -4,7 +4,7 @@
 数据源: 东财 np-weblist (零鉴权)
 用法: python3 collect_macro_news.py
 """
-import os, sys, time, json, uuid
+import os, sys, time, json, uuid, random
 import psycopg2
 import urllib.request
 
@@ -12,6 +12,7 @@ PG_DSN = os.environ.get("PG_DSN", "host=localhost dbname=stock_predict user=stoc
 UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
 
 def fetch_global_news(page_size=50):
+    time.sleep(random.uniform(0.3, 1.5))  # 随机延迟，避免触发东财限流
     url = "https://np-weblist.eastmoney.com/comm/web/getFastNewsList"
     params = urllib.parse.urlencode({
         "client": "web", "biz": "web_724",
@@ -21,13 +22,20 @@ def fetch_global_news(page_size=50):
     })
     full_url = f"{url}?{params}"
     headers = {"User-Agent": UA, "Referer": "https://kuaixun.eastmoney.com/"}
-    try:
-        req = urllib.request.Request(full_url, headers=headers)
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            d = json.loads(resp.read().decode("utf-8"))
-    except Exception as e:
-        print(f"[宏观资讯] API 请求失败: {e}")
-        return []
+    for attempt in range(3):
+        try:
+            req = urllib.request.Request(full_url, headers=headers)
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                d = json.loads(resp.read().decode("utf-8"))
+            break
+        except Exception as e:
+            if attempt < 2:
+                wait = (attempt + 1) * 3
+                print(f"[宏观资讯] 请求失败(重试{attempt+1}/3, {wait}s后): {e}")
+                time.sleep(wait)
+            else:
+                print(f"[宏观资讯] API 请求失败(已重试3次): {e}")
+                return []
 
     rows = []
     for item in d.get("data", {}).get("fastNewsList", []):

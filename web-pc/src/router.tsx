@@ -12,7 +12,9 @@ import AIAnalysisPage from './pages/AIAnalysisPage';
 import WatchlistPage from './pages/WatchlistPage';
 import StrategyPage from './pages/StrategyPage';
 import HoldingsPage from './pages/HoldingsPage';
-import RiskPage from './pages/RiskPage';
+
+import RiskDashboard from './pages/RiskDashboard';
+import RiskRules from './pages/RiskRules';
 import StockListPage from './pages/StockListPage';
 import LimitStatsPage from "./pages/LimitStatsPage";
 import SentimentDashboard from './pages/SentimentDashboard';
@@ -105,7 +107,9 @@ const router = createBrowserRouter([
           { path: 'watchlist', element: <WatchlistPage /> },
           { path: 'strategy', element: <StrategyPage /> },
           { path: 'holdings', element: <HoldingsPage /> },
-          { path: 'risk', element: <RiskPage /> },
+          { path: 'risk', element: <RiskDashboard /> },
+          
+          { path: 'risk/rules', element: <RiskRules /> },
           { path: 'live', element: <LiveTradingPage /> },
           { path: 'live/:id', element: <LiveRunDetailPage /> },
           { path: 'sentiment', element: <SentimentDashboard /> },

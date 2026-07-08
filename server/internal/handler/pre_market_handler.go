@@ -296,3 +296,21 @@ func (h *PreMarketHandler) DeleteNotificationConfig(c *gin.Context) {
 	response.Success(c, map[string]string{"status": "deleted"})
 }
 
+
+// TestNotificationConfig sends a test message to verify webhook configuration.
+func (h *PreMarketHandler) TestNotificationConfig(c *gin.Context) {
+	uid := getUID(c)
+	cid, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "参数错误")
+		return
+	}
+	var cfg model.NotificationConfig
+	if err := db.MySQL.Where("id = ? AND user_id = ?", cid, uid).First(&cfg).Error; err != nil {
+		response.NotFound(c, "通知配置不存在")
+		return
+	}
+	svc := service.GetDispatcher()
+	svc.DispatchTest(cfg)
+	response.SuccessMsg(c, "测试消息已发送")
+}

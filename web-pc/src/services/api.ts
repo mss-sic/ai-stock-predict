@@ -519,3 +519,17 @@ export const fetchNorthbound = (days: number = 30) => api.get('/northbound', { p
 export const fetchLimitStats = (days?: number) => api.get("/sentiment/limit-stats", { params: { days: days || 60 } });
 
 export const fetchReturnDistribution = () => api.get('/sentiment/distribution');
+
+// ── Risk Dashboard APIs (new) ──
+export const fetchRiskDashboard = () => api.get('/risk/dashboard');
+export const fetchRiskAlertList = (params?: {
+  page?: number; pageSize?: number; level?: string; dimension?: string; status?: string;
+}) => api.get('/risk/alerts', { params });
+export const fetchRiskAlertDetail = (id: number) => api.get(`/risk/alerts/${id}`);
+export const acknowledgeRiskAlert = (id: number) => api.put(`/risk/alerts/${id}/acknowledge`);
+export const fetchRiskRules = () => api.get('/risk/rules');
+export const updateRiskRule = (key: string, data: { enabled?: boolean; thresholds?: any; weight?: number }) =>
+  api.put(`/risk/rules/${key}`, data);
+export const fetchRiskSnapshots = (days?: number) => api.get('/risk/snapshots', { params: { days } });
+export const fetchRiskAggregated = () => api.get("/risk/aggregated");
+export const fetchCircuitBreakerStatus = () => api.get('/risk/circuit-breaker');
