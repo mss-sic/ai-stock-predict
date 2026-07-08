@@ -318,7 +318,7 @@ func (h *HoldingHandler) List(c *gin.Context) {
 		holdDays := 0
 		if h.BuyDate != "" {
 			if buyT, err := time.Parse("2006-01-02", h.BuyDate); err == nil {
-				holdDays = int(now.Sub(buyT).Hours() / 24)
+				holdDays = int(now.Sub(buyT).Hours()/24) + 1
 			}
 		}
 
@@ -442,7 +442,7 @@ func (h *HoldingHandler) Delete(c *gin.Context) {
 	if holding.CostPrice > 0 { pnlPct = (curPrice - holding.CostPrice) / holding.CostPrice * 100 }
 	holdDays := 0
 	if holding.BuyDate != "" {
-		if buyT, err := time.Parse("2006-01-02", holding.BuyDate); err == nil { holdDays = int(time.Since(buyT).Hours() / 24) }
+		if buyT, err := time.Parse("2006-01-02", holding.BuyDate); err == nil { holdDays = int(time.Since(buyT).Hours()/24) + 1 }
 	}
 
 	// Return cash to account
