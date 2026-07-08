@@ -4,6 +4,7 @@ import { Card, Table, Tag, Button, Spin, Message, Tabs, Select, Divider, Alert, 
 import ReactECharts from 'echarts-for-react';
 import { ArrowLeft, TrendingUp, Wallet, Zap, Settings, Activity, Calendar, RefreshCw, Loader, XCircle, Bell, FileText, Building2, Cpu } from 'lucide-react';
 import { fetchLiveRun, fetchLiveSnapshots, runLiveDaily, fetchDailyRunTask, fetchLatestDailyRunTask, runTradeExec, executeLiveSignal, syncSignalOrder, syncOrders, reconcileFromBroker, fetchReconciliation, fetchTradeExecTask, fetchLatestTradeExecTask, updateLiveRunConfig, fetchNotificationConfigs, createNotificationConfig, deleteNotificationConfig, testNotification, sendLiveRunNotification, updateLiveSignal, deleteLiveSignal, clearLiveSignals, fetchRunLogs } from '../services/api';
+import ReactMarkdown from 'react-markdown';
 
 interface Run { id: number; strategyId: number; name: string; status: string; startDate: string; initialCapital: number; currentEquity: number; totalReturn: number; maxDrawdown: number; winRate: number; tradeCount: number; lastRunDate: string; autoDailyCron?: string; autoTradeExecCron?: string; notifyEnabled?: boolean; notifyChannels?: string; executionMode?: string; aiReviewEnabled?: boolean; }
 interface Strategy { id: number; name: string; description: string; stopProfit: number; stopLoss: number; maxHoldings: number; buyPositionPct: number; addPositionPct: number; positionSizing: string; positionConcentrationLimit: number; maxDailyLoss: number; initialCapital: number; enableAIAgent?: boolean; }
