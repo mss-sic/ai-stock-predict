@@ -1055,7 +1055,7 @@ func (s *UnifiedScheduler) RestoreLiveTradingTasks() {
 
 // RegisterStrategyRunTasks creates per-run TaskInstance entries for live trading.
 // Called when a new StrategyRun is created or activated.
-// Reads user-configured cron from StrategyRun.AutoDailyCron / AutoPreMarketCron.
+// Reads user-configured cron from StrategyRun.AutoDailyCron / AutoTradeExecCron.
 func (s *UnifiedScheduler) RegisterStrategyRunTasks(runID uint, userID uint) {
 	// Read user-configured crons from DB
 	dailyCron := "0 10 16 * * 1-5"   // default
@@ -1063,7 +1063,6 @@ func (s *UnifiedScheduler) RegisterStrategyRunTasks(runID uint, userID uint) {
 
 	var run struct {
 		AutoDailyCron     string
-		AutoPreMarketCron string
 	}
 	if err := db.MySQL.Table("strategy_runs").Where("id = ?", runID).
 		Select("auto_daily_cron").Scan(&run).Error; err == nil {
