@@ -26,6 +26,7 @@ type StockDailyK struct {
 	ChangePct    float64   `gorm:"type:numeric(8,4)" json:"changePct"`       // 涨跌幅(%,如0.31=0.31%)
 	Amplitude    float64   `gorm:"type:numeric(8,4)" json:"amplitude"`       // 振幅(%,如2.10=2.10%)
 	VolumeRatio  float64   `gorm:"type:numeric(8,4)" json:"volumeRatio"`     // 量比(相对5日均量)
+	UpdatedAt    time.Time `json:"updatedAt"`
 }
 
 func (StockDailyK) TableName() string { return "stocks_daily_k" }

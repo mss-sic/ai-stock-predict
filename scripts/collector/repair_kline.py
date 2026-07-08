@@ -142,8 +142,12 @@ def main():
         ))
 
     execute_values(cur, """
-        INSERT INTO stocks_daily_k (code, trade_date, open, high, low, close, volume, amount, turnover_rate)
+        INSERT INTO stocks_daily_k (code, trade_date, open, high, low, close, volume, amount, turnover_rate, updated_at)
         VALUES %s
+        ON CONFLICT (code, trade_date) DO UPDATE SET
+            open = EXCLUDED.open, high = EXCLUDED.high, low = EXCLUDED.low,
+            close = EXCLUDED.close, volume = EXCLUDED.volume, amount = EXCLUDED.amount,
+            turnover_rate = EXCLUDED.turnover_rate, updated_at = NOW()
     """, rows)
     conn.commit()
     log(f"[{code}] 入库: {len(rows)} 条 (含成交量+成交额+换手率)")

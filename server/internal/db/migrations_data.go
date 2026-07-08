@@ -1853,5 +1853,16 @@ Register(Migration{
 		},
 	})
 
+	// v82: PG stocks_daily_k updated_at tracking
+	Register(Migration{
+		Version:     82,
+		Description: "PG: add updated_at to stocks_daily_k for K-line freshness tracking",
+		Up: func() error {
+			safeExec(`ALTER TABLE stocks_daily_k ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()`)
+			return nil
+		},
+	})
+
+
 }
 

@@ -22,7 +22,8 @@ UPSERT_SQL = """
         close = EXCLUDED.close, volume = EXCLUDED.volume, amount = EXCLUDED.amount,
         turnover_rate = CASE WHEN stocks_daily_k.turnover_rate = 0 THEN EXCLUDED.turnover_rate
                              ELSE stocks_daily_k.turnover_rate END,
-        data_source = 'youzi'
+        data_source = 'youzi',
+        updated_at = NOW()
 """
 
 def main():

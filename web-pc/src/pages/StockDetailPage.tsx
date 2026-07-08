@@ -768,7 +768,7 @@ fetchPredictionResult(code).then((r: any) => {
     const high = Math.max(...safeKlines.slice(-20).map((k: any) => k.high)), low = Math.min(...safeKlines.slice(-20).map((k: any) => k.low));
     const vol = latest.volume ?? 0, amount = latest.amount ?? 0; const turnover = (latest.turnoverRate ?? 0) * 100;
     const amplitude = latest?.amplitude ?? 0;
-    return { price: latest?.close ?? 0, chg, chgPct, high, low, prevClose: prev?.close ?? 0, open: latest?.open ?? 0, vol, amount, amplitude, turnover, tradeDate: latest?.tradeDate ?? '' };
+    return { price: latest?.close ?? 0, chg, chgPct, high, low, prevClose: prev?.close ?? 0, open: latest?.open ?? 0, vol, amount, amplitude, turnover, tradeDate: latest?.tradeDate ?? '', klineUpdatedAt: latest?.updatedAt ?? '' };
   }, [safeKlines]);
 
   const indicators = useMemo(() => {
@@ -1036,7 +1036,8 @@ const handleChatSend = async (text?: string) => {
                     <span className={`price-num ${upClass}`}>{priceStats.price.toFixed(2)}</span>
                     <span className={`price-chg ${upClass}`}>{sign}{priceStats.chg.toFixed(2)}</span>
                     <span className={`price-chg ${upClass}`}>{sign}{priceStats.chgPct.toFixed(2)}%</span>
-                    {quoteUpdatedAt && <Tooltip content={`行情更新: ${quoteUpdatedAt}`}><span style={{ fontSize: 10, color: 'var(--color-text-4)', marginLeft: 8, verticalAlign: 'middle', cursor: 'help' }}>更新: {(() => { const d = new Date(quoteUpdatedAt); return `${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; })()}</span></Tooltip>)}
+                    {quoteUpdatedAt && <Tooltip content={`行情: ${quoteUpdatedAt}`}><span style={{ fontSize: 10, color: 'var(--color-text-4)', marginLeft: 8, verticalAlign: 'middle', cursor: 'help', whiteSpace: 'nowrap' }}>{quoteUpdatedAt.replace('T',' ').slice(0,19)}</span></Tooltip>}
+                    {!quoteUpdatedAt && priceStats?.klineUpdatedAt && <Tooltip content={`K线: ${priceStats.klineUpdatedAt}`}><span style={{ fontSize: 10, color: 'var(--color-text-4)', marginLeft: 4, verticalAlign: 'middle', cursor: 'help', whiteSpace: 'nowrap' }}>K线: {priceStats.klineUpdatedAt.replace('T',' ').slice(0,19)}</span></Tooltip>}
                   </div>
                   <div style={{ display: 'flex', gap: 14, marginTop: 8, fontSize: 12, color: 'var(--color-text-3)', flexWrap: 'wrap' }}>
                     <span>今开 <b style={{ color: 'var(--color-text-1)', fontWeight: 500 }}>{priceStats.open.toFixed(2)}</b></span>

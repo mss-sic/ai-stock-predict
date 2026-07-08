@@ -47,6 +47,7 @@ func RunDailyKTask() *TaskResult {
 				Close:     k.Close,
 				Volume:    k.Volume,
 				Amount:    k.Close * float64(k.Volume) / 100,
+				UpdatedAt: time.Now(),
 			}
 			db.PG.Where("code = ? AND trade_date = ?", stock.Code, tradeDate).
 				Assign(record).FirstOrCreate(&record)
