@@ -166,6 +166,7 @@ func (s *LiveTradingService) RunDailyWithTask(task *model.DailyRunTask) {
 	addLog("活跃策略运行: %d个", len(runs))
 
 	totalSignals := 0
+	hasErrors := false
 	progressFn := func(scanned, candidates, signals int) {
 		if scanned > 0 { task.ScannedStocks = scanned }
 		if candidates > 0 { task.CandidateCount = candidates }
@@ -183,19 +184,35 @@ func (s *LiveTradingService) RunDailyWithTask(task *model.DailyRunTask) {
 	for _, run := range runs {
 		sigCount, logs, err := s.runStrategyDaily(&run, tradeDate, mode, progressFn)
 		if err != nil {
+			hasErrors = true
+			errMsg := fmt.Sprintf("[%s] %v", tradeDate, err)
 			addLog("❌ run %d 执行失败: %v", run.ID, err)
+			db.MySQL.Model(&run).Updates(map[string]interface{}{
+				"last_error":    errMsg,
+				"last_run_date": tradeDate,
+			})
+		} else {
+			db.MySQL.Model(&run).Updates(map[string]interface{}{
+				"last_error":    "",
+				"last_run_date": tradeDate,
+			})
 		}
 		totalSignals += sigCount
 		allLogs = append(allLogs, logs...)
 	}
 
-	task.Status = "completed"
+	if hasErrors {
+		task.Status = "failed"
+		task.Error = "部分或全部策略执行失败，请查看日志详情"
+	} else {
+		task.Status = "completed"
+	}
 	task.SignalCount = totalSignals
 	logsJSON, _ := json.Marshal(allLogs)
 	task.Logs = string(logsJSON)
 	db.MySQL.Save(task)
 
-	log.Printf("[live-async] RunDaily %s complete: %d signals", tradeDate, totalSignals)
+	log.Printf("[live-async] RunDaily %s complete: %d signals, errors=%v", tradeDate, totalSignals, hasErrors)
 }
 
 // runStrategyDaily processes one strategy run for one trading day.
