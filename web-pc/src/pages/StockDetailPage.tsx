@@ -878,6 +878,7 @@ const handleChatSend = async (text?: string) => {
   const handleRunScore = async () => { if (!code || scoreLoading) return; setScoreLoading(true); try { const res = await authFetch(`/api/v1/ai/score/${code}`, { method: 'POST' }); const json = await checkAPIError(await res.json()); setAiScore(json.data); showToast('success', 'AI评分完成'); } catch (e: any) { if (e.message !== 'canceled') showToast('error', e.message || 'AI评分失败'); } finally { setScoreLoading(false); } };
 
   const [refreshingPhase, setRefreshingPhase] = useState('');
+  const [quoteUpdatedAt, setQuoteUpdatedAt] = useState('');
   const [refreshLogs, setRefreshLogs] = useState<string[]>([]);
   const handleRefreshStockData = async (phase: string) => {
     if (!code || refreshingPhase) return;
@@ -912,6 +913,7 @@ const handleChatSend = async (text?: string) => {
       setRefreshingPhase('quote');
       try {
         const res: any = await fetchRealtimeQuoteSingle(code!);
+        if (res.data?.data?.updatedAt) setQuoteUpdatedAt(res.data.data.updatedAt);
         showToast('success', res.data?.message || '行情已刷新');
         // Reload K-line (includes latest price/turnover) and indicators
         try {
@@ -1034,7 +1036,7 @@ const handleChatSend = async (text?: string) => {
                     <span className={`price-num ${upClass}`}>{priceStats.price.toFixed(2)}</span>
                     <span className={`price-chg ${upClass}`}>{sign}{priceStats.chg.toFixed(2)}</span>
                     <span className={`price-chg ${upClass}`}>{sign}{priceStats.chgPct.toFixed(2)}%</span>
-                    {priceStats.tradeDate && <Tooltip content={`最新K线日: ${priceStats.tradeDate.slice(0,10)}`}><span style={{ fontSize: 10, color: 'var(--color-text-4)', marginLeft: 8, verticalAlign: 'middle', cursor: 'help' }}>K线: {priceStats.tradeDate.slice(0, 10)}</span></Tooltip>}
+                    {quoteUpdatedAt && <Tooltip content={`行情更新: ${quoteUpdatedAt}`}><span style={{ fontSize: 10, color: 'var(--color-text-4)', marginLeft: 8, verticalAlign: 'middle', cursor: 'help' }}>更新: {(() => { const d = new Date(quoteUpdatedAt); return `${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; })()}</span></Tooltip>)}
                   </div>
                   <div style={{ display: 'flex', gap: 14, marginTop: 8, fontSize: 12, color: 'var(--color-text-3)', flexWrap: 'wrap' }}>
                     <span>今开 <b style={{ color: 'var(--color-text-1)', fontWeight: 500 }}>{priceStats.open.toFixed(2)}</b></span>

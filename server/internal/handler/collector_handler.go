@@ -500,8 +500,13 @@ func (h *CollectorHandler) RealtimeQuoteSingle(c *gin.Context) {
 		return
 	}
 
+	// Read updated_at from the refreshed quote
+	var updatedAt string
+	db.PG.Raw("SELECT updated_at FROM stock_realtime_quote WHERE code = ?", code).Scan(&updatedAt)
+	
 	response.Success(c, map[string]interface{}{
-		"message": fmt.Sprintf("%s 行情已刷新", code),
-		"output":  string(output),
+		"message":   fmt.Sprintf("%s 行情已刷新", code),
+		"updatedAt": updatedAt,
+		"output":    string(output),
 	})
 }
