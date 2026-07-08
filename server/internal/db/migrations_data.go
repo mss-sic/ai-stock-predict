@@ -1821,4 +1821,36 @@ Register(Migration{
 		},
 	})
 
+	// v81: holdings table additions for account-level T+1 and strategy sync
+	Register(Migration{
+		Version:     81,
+		Description: "MySQL: add today_buy_qty, avail_sell_qty, stock_name, current_price to holdings",
+		Up: func() error {
+			_ = MySQL.Exec("ALTER TABLE holdings ADD COLUMN today_buy_qty INT DEFAULT 0").Error
+			_ = MySQL.Exec("ALTER TABLE holdings ADD COLUMN avail_sell_qty INT DEFAULT 0").Error
+			_ = MySQL.Exec("ALTER TABLE holdings ADD COLUMN stock_name VARCHAR(50) DEFAULT ''").Error
+			_ = MySQL.Exec("ALTER TABLE holdings ADD COLUMN current_price DECIMAL(12,4) DEFAULT 0").Error
+			// Backfill from live_positions
+			return MySQL.Exec(`
+				UPDATE holdings h
+				INNER JOIN (
+					SELECT sr.account_id, lp.stock_code,
+						MAX(lp.today_buy_qty) AS tq,
+						MAX(lp.avail_sell_qty) AS aq,
+						MAX(lp.stock_name) AS sn,
+						MAX(lp.current_price) AS cp
+					FROM live_positions lp
+					JOIN strategy_runs sr ON sr.id = lp.strategy_run_id
+					WHERE lp.quantity > 0
+					GROUP BY sr.account_id, lp.stock_code
+				) lp ON h.stock_code = lp.stock_code
+				SET h.today_buy_qty = COALESCE(lp.tq, 0),
+				    h.avail_sell_qty = COALESCE(lp.aq, 0),
+				    h.stock_name = COALESCE(lp.sn, ''),
+				    h.current_price = COALESCE(lp.cp, 0)
+			`).Error
+		},
+	})
+
 }
+

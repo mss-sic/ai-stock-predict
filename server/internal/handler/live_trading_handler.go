@@ -1008,14 +1008,33 @@ func (h *LiveTradingHandler) SyncFromBroker(c *gin.Context) {
 		return
 	}
 
-	// Auto-reconcile active strategy runs that use this account
+	// Detect drift between live_positions and holdings for active runs
 	go func() {
 		var activeRuns []model.StrategyRun
 		db.MySQL.Where("account_id = ? AND status IN ?", id, []string{"active", "paused"}).Find(&activeRuns)
 		for _, run := range activeRuns {
-			svc := service.NewLiveTradingService()
-			if err := svc.ImportBrokerPositionsToRun(run.ID, uint(id), uid); err != nil {
-				log.Printf("[live] SyncFromBroker: auto-reconcile run %d failed: %v", run.ID, err)
+			var lpCount, hCount int64
+			db.MySQL.Model(&model.LivePosition{}).Where("strategy_run_id = ? AND quantity > 0", run.ID).Count(&lpCount)
+			db.MySQL.Model(&model.Holding{}).Where("account_id = ? AND quantity > 0", id).Count(&hCount)
+			if lpCount != hCount {
+				log.Printf("[reconcile] run=%d account=%d: live_positions=%d holdings=%d (drift detected — possible manual trades or pending settlement)", run.ID, id, lpCount, hCount)
+			} else {
+				// Same count, check per-stock quantity match
+				rows, _ := db.MySQL.Raw(`
+					SELECT lp.stock_code, lp.quantity AS lq, COALESCE(h.quantity, 0) AS hq
+					FROM live_positions lp
+					LEFT JOIN holdings h ON h.account_id = ? AND h.stock_code = lp.stock_code
+					WHERE lp.strategy_run_id = ? AND lp.quantity > 0 AND lp.quantity != COALESCE(h.quantity, 0)
+				`, id, run.ID).Rows()
+				if rows != nil {
+					defer rows.Close()
+					for rows.Next() {
+						var code string
+						var lq, hq int
+						rows.Scan(&code, &lq, &hq)
+						log.Printf("[reconcile] run=%d stock=%s: live=%d holdings=%d (quantity drift)", run.ID, code, lq, hq)
+					}
+				}
 			}
 		}
 	}()
@@ -1238,6 +1257,7 @@ func RegisterLiveTradingRoutes(r *gin.RouterGroup, h *LiveTradingHandler) {
 	// Order sync
 	r.POST("/order-sync", h.SyncOrders)
 	r.POST("/reconcile", h.ReconcileFromBroker)
+	r.GET("/runs/:id/reconciliation", h.GetReconciliation)
 	r.POST("/signals/:id/sync-order", h.SyncSignalOrder)
 
 	// Execution logs
@@ -1312,6 +1332,97 @@ func (h *LiveTradingHandler) ReconcileFromBroker(c *gin.Context) {
 		return
 	}
 	response.Success(c, map[string]string{"status": "ok"})
+}
+
+// GetReconciliation compares live_positions (strategy view) vs holdings (broker view).
+func (h *LiveTradingHandler) GetReconciliation(c *gin.Context) {
+	uid := getUID(c)
+	rid, _ := strconv.Atoi(c.Param("id"))
+
+	// Load run
+	var run model.StrategyRun
+	if err := db.MySQL.Where("id = ? AND user_id = ?", rid, uid).First(&run).Error; err != nil {
+		response.NotFound(c, "实盘运行不存在")
+		return
+	}
+
+	// Load live_positions (strategy view)
+	var livePositions []model.LivePosition
+	db.MySQL.Where("strategy_run_id = ? AND quantity > 0", rid).Find(&livePositions)
+
+	// Load holdings (broker view)
+	var holdings []model.Holding
+	db.MySQL.Where("account_id = ? AND quantity > 0", run.AccountID).Find(&holdings)
+
+	// Build lookup maps
+	liveMap := make(map[string]model.LivePosition)
+	for _, p := range livePositions { liveMap[p.StockCode] = p }
+	holdingMap := make(map[string]model.Holding)
+	for _, h := range holdings { holdingMap[h.StockCode] = h }
+
+	type ReconItem struct {
+		StockCode  string      `json:"stockCode"`
+		Live       interface{} `json:"live,omitempty"`
+		Holding    interface{} `json:"holding,omitempty"`
+		Status     string      `json:"status"`
+		DiffCause  string      `json:"diffCause,omitempty"`
+	}
+	var matched, manualOnly, strategyOnly, priceDiff []ReconItem
+
+	for code, lp := range liveMap {
+		if h, ok := holdingMap[code]; ok {
+			diff := lp.AvgCost - h.CostPrice
+			if diff < 0 { diff = -diff }
+			if diff > 0.01 {
+				priceDiff = append(priceDiff, ReconItem{
+					StockCode: code,
+					Live:      map[string]interface{}{"quantity": lp.Quantity, "avgCost": lp.AvgCost, "todayBuyQty": lp.TodayBuyQty},
+					Holding:   map[string]interface{}{"quantity": h.Quantity, "costPrice": h.CostPrice, "todayBuyQty": h.TodayBuyQty},
+					Status:    "price_diff",
+					DiffCause: fmt.Sprintf("成本差异 %.2f%%", (lp.AvgCost-h.CostPrice)/h.CostPrice*100),
+				})
+			} else {
+				matched = append(matched, ReconItem{
+					StockCode: code,
+					Live:      map[string]interface{}{"quantity": lp.Quantity, "avgCost": lp.AvgCost, "todayBuyQty": lp.TodayBuyQty},
+					Holding:   map[string]interface{}{"quantity": h.Quantity, "costPrice": h.CostPrice, "todayBuyQty": h.TodayBuyQty},
+					Status:    "matched",
+				})
+			}
+		} else {
+			strategyOnly = append(strategyOnly, ReconItem{
+				StockCode: code,
+				Live:      map[string]interface{}{"quantity": lp.Quantity, "avgCost": lp.AvgCost},
+				Status:    "strategy_only",
+			})
+		}
+	}
+	for code, h := range holdingMap {
+		if _, ok := liveMap[code]; !ok {
+			manualOnly = append(manualOnly, ReconItem{
+				StockCode: code,
+				Holding:   map[string]interface{}{"quantity": h.Quantity, "costPrice": h.CostPrice, "stockName": h.StockName},
+				Status:    "manual_only",
+				DiffCause: "手动交易或券商同步",
+			})
+		}
+	}
+
+	response.Success(c, map[string]interface{}{
+		"runId":       rid,
+		"accountId":   run.AccountID,
+		"matched":     matched,
+		"manualOnly":  manualOnly,
+		"strategyOnly": strategyOnly,
+		"priceDiff":   priceDiff,
+		"summary": map[string]interface{}{
+			"totalMatched":     len(matched),
+			"totalManualOnly":  len(manualOnly),
+			"totalStrategyOnly": len(strategyOnly),
+			"totalPriceDiff":   len(priceDiff),
+			"isClean":          len(manualOnly) == 0 && len(strategyOnly) == 0 && len(priceDiff) == 0,
+		},
+	})
 }
 
 // SyncOrders manually triggers order status synchronization from brokers.

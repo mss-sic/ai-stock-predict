@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"maps"
 	"math"
 	"strings"
 	"time"
@@ -291,7 +292,7 @@ func (s *LiveTradingService) executeSignal(
 	// Use account-level commission/tax for live trading
 	commissionRate, minCommission, stampTaxRate := s.getAccountCommission(alloc)
 
-	// Get existing position info
+	// Get existing position info (from live_positions — strategy view)
 	var existingQty int
 	var existingAvgCost float64
 	var existingTodayBuyQty int
@@ -303,6 +304,14 @@ func (s *LiveTradingService) executeSignal(
 			existingTodayBuyQty = p.TodayBuyQty
 			buyDate = p.FirstBuyDate
 			break
+		}
+	}
+
+	// Also read account-level today_buy_qty from holdings (covers manual trades)
+	var h model.Holding
+	if db.MySQL.Where("account_id = ? AND stock_code = ?", alloc.AccountID, sig.StockCode).First(&h).Error == nil {
+		if h.TodayBuyQty > existingTodayBuyQty {
+			existingTodayBuyQty = h.TodayBuyQty // Use max: strategy buy + manual buy
 		}
 	}
 
@@ -359,7 +368,7 @@ func (s *LiveTradingService) executeSignal(
 		db.MySQL.Create(&livePos)
 		*positions = append(*positions, livePos)
 		s.recordTrade(run, alloc, sig, result.ExecPrice, result.ExecQty, result.ExecAmount, 0, 0, result.Reason)
-		s.syncHoldingToAccount(run, sig.StockCode, tradeDate, result.NewQuantity, result.NewAvgCost)
+		s.syncHoldingToAccount(run, sig.StockCode, sig.StockName, tradeDate, result.NewQuantity, result.NewAvgCost, result.NewQuantity, result.ExecPrice)
 
 	case "add":
 		for j := range *positions {
@@ -373,7 +382,7 @@ func (s *LiveTradingService) executeSignal(
 				p.LastTradeDate = tradeDate
 				db.MySQL.Save(p)
 				s.recordTrade(run, alloc, sig, result.ExecPrice, result.ExecQty, result.ExecAmount, 0, 0, result.Reason)
-				s.syncHoldingToAccount(run, sig.StockCode, tradeDate, p.Quantity, p.AvgCost)
+				s.syncHoldingToAccount(run, sig.StockCode, sig.StockName, tradeDate, p.Quantity, p.AvgCost, p.TodayBuyQty, result.ExecPrice)
 				break
 			}
 		}
@@ -389,7 +398,7 @@ func (s *LiveTradingService) executeSignal(
 				p.LastTradeDate = tradeDate
 				db.MySQL.Save(p)
 				s.recordTrade(run, alloc, sig, result.ExecPrice, result.ExecQty, result.ExecAmount, result.Pnl, result.PnlPct, result.Reason)
-				s.syncHoldingToAccount(run, sig.StockCode, tradeDate, 0, 0)
+				s.syncHoldingToAccount(run, sig.StockCode, sig.StockName, tradeDate, 0, 0, 0, 0)
 				break
 			}
 		}
@@ -408,9 +417,9 @@ func (s *LiveTradingService) executeSignal(
 				db.MySQL.Save(p)
 				s.recordTrade(run, alloc, sig, result.ExecPrice, result.ExecQty, result.ExecAmount, result.Pnl, result.PnlPct, result.Reason)
 				if p.Quantity <= 0 {
-					s.syncHoldingToAccount(run, sig.StockCode, tradeDate, 0, 0)
+					s.syncHoldingToAccount(run, sig.StockCode, sig.StockName, tradeDate, 0, 0, 0, 0)
 				} else {
-					s.syncHoldingToAccount(run, sig.StockCode, tradeDate, p.Quantity, p.AvgCost)
+					s.syncHoldingToAccount(run, sig.StockCode, sig.StockName, tradeDate, p.Quantity, p.AvgCost, p.TodayBuyQty, result.ExecPrice)
 				}
 				break
 			}
@@ -992,7 +1001,7 @@ func (s *LiveTradingService) ExecuteSignalByIDWithPrice(signalID uint, userID ui
 }
 
 // syncHoldingToAccount keeps the holdings table in sync with live_positions.
-func (s *LiveTradingService) syncHoldingToAccount(run *model.StrategyRun, stockCode, tradeDate string, quantity int, avgCost float64) {
+func (s *LiveTradingService) syncHoldingToAccount(run *model.StrategyRun, stockCode, stockName, tradeDate string, quantity int, avgCost float64, todayBuyQty int, currentPrice float64) {
 	// Find the account linked to this run's allocation, then get the account owner (user_id)
 	var alloc model.StrategyFundAllocation
 	if err := db.MySQL.Where("strategy_run_id = ? AND status = ?", run.ID, "active").First(&alloc).Error; err != nil {
@@ -1018,17 +1027,23 @@ func (s *LiveTradingService) syncHoldingToAccount(run *model.StrategyRun, stockC
 	if err == nil {
 		// Update existing
 		db.MySQL.Model(&holding).Updates(map[string]interface{}{
-			"quantity":   quantity,
-			"cost_price": avgCost,
-			"total_cost": avgCost * float64(quantity),
-			"buy_date":   tradeDate,
+			"quantity":       quantity,
+			"cost_price":     avgCost,
+			"total_cost":     avgCost * float64(quantity),
+			"buy_date":       tradeDate,
+			"today_buy_qty":  todayBuyQty,
+			"avail_sell_qty": quantity - todayBuyQty,
+			"stock_name":     stockName,
+			"current_price":  currentPrice,
 		})
 	} else {
 		// Create new
 		newH := model.Holding{
 			UserID: ownerUserID, AccountID: alloc.AccountID,
-			StockCode: stockCode,
+			StockCode: stockCode, StockName: stockName,
 			CostPrice: avgCost, Quantity: quantity,
+			TodayBuyQty: todayBuyQty, AvailSellQty: quantity - todayBuyQty,
+			CurrentPrice: currentPrice,
 			TotalCost: avgCost * float64(quantity), BuyDate: tradeDate,
 		}
 		db.MySQL.Create(&newH)
@@ -1198,7 +1213,7 @@ func (s *LiveTradingService) ImportBrokerPositionsToRun(strategyRunID uint, acco
 		db.MySQL.Create(&pos)
 
 		// Sync holdings
-		s.syncHoldingToAccountFromReconcile(accountID, bp.SecCode, bp.SecName, bp.Count, bp.CostPrice, today)
+		s.syncHoldingToAccountFromReconcile(accountID, bp.SecCode, bp.SecName, bp.Count, bp.CostPrice, bp.Count-bp.AvailCount, bp.Price, today)
 	}
 
 	// Update fund allocation with actual cash and equity from broker
@@ -1242,32 +1257,58 @@ func (s *LiveTradingService) ReconcileFromBroker(accountID uint, userID uint, st
 
 	today := time.Now().Format("2006-01-02")
 
-	// Step 1: Reset live_positions for this strategy run and rebuild from broker
-	db.MySQL.Where("strategy_run_id = ?", strategyRunID).Delete(&model.LivePosition{})
-
+	// Step 1: Upsert live_positions from broker (preserve strategy cost basis)
+	brokerCodes := make(map[string]bool)
 	for _, bp := range portfolio.Positions {
-		pos := model.LivePosition{
-			UserID:        userID,
-			StrategyRunID: strategyRunID,
-			StockCode:     bp.SecCode,
-			StockName:     bp.SecName,
-			Quantity:      bp.Count,
-			AvailSellQty:  bp.AvailCount,
-			TodayBuyQty:   bp.Count - bp.AvailCount,
-			AvgCost:       bp.CostPrice,
-			CurrentPrice:  bp.Price,
-			UnrealizedPnl: math.Round((bp.Price-bp.CostPrice)*float64(bp.Count)*100) / 100,
+		brokerCodes[bp.SecCode] = true
+
+		var existing model.LivePosition
+		err := db.MySQL.Where("strategy_run_id = ? AND stock_code = ?", strategyRunID, bp.SecCode).First(&existing).Error
+		if err == nil {
+			// Strategy already tracks this → refresh quantity/price, KEEP strategy cost
+			db.MySQL.Model(&existing).Updates(map[string]interface{}{
+				"current_price":   bp.Price,
+				"unrealized_pnl":  math.Round((bp.Price-existing.AvgCost)*float64(bp.Count)*100) / 100,
+				"quantity":        bp.Count,
+				"avail_sell_qty":  bp.AvailCount,
+				"last_trade_date": today,
+				"updated_at":      time.Now(),
+			})
+			if existing.AvgCost > 0 {
+				unrealizedPnlPct := math.Round((bp.Price-existing.AvgCost)/existing.AvgCost*10000) / 100
+				db.MySQL.Model(&existing).Update("unrealized_pnl_pct", unrealizedPnlPct)
+			}
+		} else {
+			// New position from broker — strategy doesn't track it (manual trade)
+			pos := model.LivePosition{
+				UserID:        userID,
+				StrategyRunID: strategyRunID,
+				StockCode:     bp.SecCode,
+				StockName:     bp.SecName,
+				Quantity:      bp.Count,
+				AvailSellQty:  bp.AvailCount,
+				TodayBuyQty:   bp.Count - bp.AvailCount,
+				AvgCost:       bp.CostPrice,
+				CurrentPrice:  bp.Price,
+				UnrealizedPnl: math.Round((bp.Price-bp.CostPrice)*float64(bp.Count)*100) / 100,
+				ActionPlan:    "manual_import",
+			}
+			if bp.CostPrice > 0 {
+				pos.UnrealizedPnlPct = math.Round((bp.Price-bp.CostPrice)/bp.CostPrice*10000) / 100
+			}
+			pos.FirstBuyDate = today
+			pos.LastTradeDate = today
+			db.MySQL.Create(&pos)
 		}
-		if bp.CostPrice > 0 {
-			pos.UnrealizedPnlPct = math.Round((bp.Price-bp.CostPrice)/bp.CostPrice*10000) / 100
-		}
-		pos.FirstBuyDate = today
-		pos.LastTradeDate = today
-		db.MySQL.Create(&pos)
 
 		// Sync holdings
-		s.syncHoldingToAccountFromReconcile(accountID, bp.SecCode, bp.SecName, bp.Count, bp.CostPrice, today)
+		s.syncHoldingToAccountFromReconcile(accountID, bp.SecCode, bp.SecName, bp.Count, bp.CostPrice, bp.Count-bp.AvailCount, bp.Price, today)
 	}
+
+	// Mark strategy positions that broker no longer has (strategy sold, broker synced)
+	db.MySQL.Model(&model.LivePosition{}).
+		Where("strategy_run_id = ? AND quantity > 0 AND stock_code NOT IN ?", strategyRunID, maps.Keys(brokerCodes)).
+		Update("action_plan", "broker_cleared")
 
 	// Step 2: Update fund allocation cash
 	var alloc model.StrategyFundAllocation
@@ -1284,14 +1325,16 @@ func (s *LiveTradingService) ReconcileFromBroker(accountID uint, userID uint, st
 }
 
 // syncHoldingToAccountFromReconcile is a variant that takes accountID directly.
-func (s *LiveTradingService) syncHoldingToAccountFromReconcile(accountID uint, stockCode, stockName string, quantity int, costPrice float64, tradeDate string) {
+func (s *LiveTradingService) syncHoldingToAccountFromReconcile(accountID uint, stockCode, stockName string, quantity int, costPrice float64, todayBuyQty int, currentPrice float64, tradeDate string) {
 	if db.MySQL == nil {
 		return
 	}
 	totalCost := costPrice * float64(quantity)
-	db.MySQL.Exec("INSERT INTO holdings (user_id, account_id, stock_code, cost_price, quantity, total_cost, buy_date, created_at, updated_at) "+
-		"VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "+
-		"ON DUPLICATE KEY UPDATE cost_price = VALUES(cost_price), quantity = VALUES(quantity), total_cost = VALUES(total_cost), updated_at = NOW()",
-		0, accountID, stockCode, costPrice, quantity, totalCost, tradeDate, time.Now(), time.Now())
+	availQty := quantity - todayBuyQty
+	if availQty < 0 { availQty = 0 }
+	db.MySQL.Exec("INSERT INTO holdings (user_id, account_id, stock_code, stock_name, cost_price, quantity, today_buy_qty, avail_sell_qty, current_price, total_cost, buy_date, created_at, updated_at) "+
+		"VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "+
+		"ON DUPLICATE KEY UPDATE stock_name = VALUES(stock_name), cost_price = VALUES(cost_price), quantity = VALUES(quantity), today_buy_qty = VALUES(today_buy_qty), avail_sell_qty = VALUES(avail_sell_qty), current_price = VALUES(current_price), total_cost = VALUES(total_cost), updated_at = NOW()",
+		0, accountID, stockCode, stockName, costPrice, quantity, todayBuyQty, availQty, currentPrice, totalCost, tradeDate, time.Now(), time.Now())
 }
 

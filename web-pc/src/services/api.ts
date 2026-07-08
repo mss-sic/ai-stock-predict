@@ -318,6 +318,7 @@ export const syncSignalOrder = (signalId: number) => api.post(`/live/signals/${s
 // Batch sync all pending orders, optional runId filter
 export const syncOrders = (runId?: number) => api.post('/live/order-sync', {}, { params: runId ? { runId } : {} });
 export const reconcileFromBroker = (runId: number, accountId: number) => api.post('/live/reconcile', {}, { params: { runId, accountId } });
+export const fetchReconciliation = (runId: number) => api.get(`/live/runs/${runId}/reconciliation`);
 
 // Pre-market
 export const runTradeExec = (tradeDate: string, skipAi?: boolean, runId?: number, force?: boolean) => api.post(`/live/runs/${runId}/trade-exec`, { tradeDate, skipAi, force }, { timeout: 120000 });

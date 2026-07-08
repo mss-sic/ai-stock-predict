@@ -3,12 +3,12 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { Card, Table, Tag, Button, Spin, Message, Tabs, Select, Divider, Alert, Progress, Modal, Drawer, Dropdown, Menu, TimePicker, Input, Switch, Popconfirm , } from '@arco-design/web-react';
 import ReactECharts from 'echarts-for-react';
 import { ArrowLeft, TrendingUp, Wallet, Zap, Settings, Activity, Calendar, RefreshCw, Loader, XCircle, Bell, FileText, Building2, Cpu } from 'lucide-react';
-import { fetchLiveRun, fetchLiveSnapshots, runLiveDaily, fetchDailyRunTask, fetchLatestDailyRunTask, runTradeExec, executeLiveSignal, syncSignalOrder, syncOrders, reconcileFromBroker, fetchTradeExecTask, fetchLatestTradeExecTask, updateLiveRunConfig, fetchNotificationConfigs, createNotificationConfig, deleteNotificationConfig, testNotification, sendLiveRunNotification, updateLiveSignal, deleteLiveSignal, clearLiveSignals, fetchRunLogs } from '../services/api';
+import { fetchLiveRun, fetchLiveSnapshots, runLiveDaily, fetchDailyRunTask, fetchLatestDailyRunTask, runTradeExec, executeLiveSignal, syncSignalOrder, syncOrders, reconcileFromBroker, fetchReconciliation, fetchTradeExecTask, fetchLatestTradeExecTask, updateLiveRunConfig, fetchNotificationConfigs, createNotificationConfig, deleteNotificationConfig, testNotification, sendLiveRunNotification, updateLiveSignal, deleteLiveSignal, clearLiveSignals, fetchRunLogs } from '../services/api';
 
 interface Run { id: number; strategyId: number; name: string; status: string; startDate: string; initialCapital: number; currentEquity: number; totalReturn: number; maxDrawdown: number; winRate: number; tradeCount: number; lastRunDate: string; autoDailyCron?: string; autoTradeExecCron?: string; notifyEnabled?: boolean; notifyChannels?: string; executionMode?: string; aiReviewEnabled?: boolean; }
 interface Strategy { id: number; name: string; description: string; stopProfit: number; stopLoss: number; maxHoldings: number; buyPositionPct: number; addPositionPct: number; positionSizing: string; positionConcentrationLimit: number; maxDailyLoss: number; initialCapital: number; enableAIAgent?: boolean; }
 interface Allocation { id: number; allocatedCapital: number; currentCash: number; pctOfAccount: number; status: string; }
-interface Position { id: number; stockCode: string; stockName: string; quantity: number; avgCost: number; currentPrice: number; unrealizedPnl: number; unrealizedPnlPct: number; realizedPnl: number; holdDays: number; }
+interface Position { id: number; stockCode: string; stockName: string; quantity: number; avgCost: number; currentPrice: number; unrealizedPnl: number; unrealizedPnlPct: number; realizedPnl: number; holdDays: number; todayBuyQty?: number; availSellQty?: number; }
 interface Trade { id: number; tradeDate: string; stockCode: string; stockName: string; actionType: string; price: number; quantity: number; amount: number; pnl: number; pnlPct: number; reason: string; }
 interface Snapshot { id: number; snapshotDate: string; cash: number; positionValue: number; totalEquity: number; dailyReturnPct: number; cumulativeReturn: number; maxDrawdownPct: number; }
 interface Signal { id: number; signalDate: string; execDate: string; stockCode: string; stockName: string; actionType: string; plannedPrice: number; plannedQty: number; plannedAmount: number; status: string; reason: string; brokerOrderId?: string; suggestedPremium: number; orderPrice: number; orderPriceLimit: number; suggestedQty: number; originalQty: number; openPrice: number; openDeviation: number; decisionRule: string; }
@@ -77,6 +77,8 @@ export default function LiveRunDetailPage() {
   const [trades, setTrades] = useState<Trade[]>([]);
   const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
   const [signals, setSignals] = useState<Signal[]>([]);
+  const [reconData, setReconData] = useState<any>(null);
+  const [reconcileLoading, setReconcileLoading] = useState(false);
   const [conditions, setConditions] = useState<Condition[]>([]);
   const [decisions, setDecisions] = useState<Decision[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1547,6 +1549,73 @@ export default function LiveRunDetailPage() {
                 ]}
               />
             )}
+          </Tabs.TabPane>
+
+          {/* 对账 */}
+          <Tabs.TabPane key="reconciliation" title={`对账${reconData?.summary?.isClean ? ' ✅' : ' ⚠️'}`}>
+            <div style={{ padding: '8px 0', display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <Button type="primary" size="small" icon={<RefreshCw size={12} />} loading={reconcileLoading}
+                  onClick={async () => {
+                    setReconcileLoading(true);
+                    try {
+                      const { data: r } = await fetchReconciliation(Number(id));
+                      setReconData(r.data || r);
+                    } catch (e) { console.error('reconciliation failed', e); }
+                    setReconcileLoading(false);
+                  }}>执行对账</Button>
+                <Button size="small" icon={<RefreshCw size={12} />}
+                  onClick={async () => {
+                    try {
+                      await reconcileFromBroker(Number(id), (run as any)?.accountId || 0);
+                      const { data: r } = await fetchReconciliation(Number(id));
+                      setReconData(r.data || r);
+                    } catch (e) { console.error('sync failed', e); }
+                  }}>同步券商数据</Button>
+              </div>
+              {reconData ? (
+                <>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
+                    {[
+                      { label: '匹配', val: reconData.summary?.totalMatched || 0, color: '#00b42a' },
+                      { label: '手动交易', val: reconData.summary?.totalManualOnly || 0, color: '#ff7d00' },
+                      { label: '策略独有', val: reconData.summary?.totalStrategyOnly || 0, color: '#86909c' },
+                      { label: '成本差异', val: reconData.summary?.totalPriceDiff || 0, color: '#f53f3f' },
+                    ].map(item => (
+                      <div key={item.label} style={{ padding: '8px 12px', background: 'var(--color-fill-1)', borderRadius: 8, textAlign: 'center' }}>
+                        <div style={{ fontSize: 22, fontWeight: 700, color: item.color }}>{item.val}</div>
+                        <div style={{ fontSize: 11, color: 'var(--color-text-3)' }}>{item.label}</div>
+                      </div>
+                    ))}
+                  </div>
+                  {reconData.summary?.isClean && <div style={{ padding: 12, background: '#f0fff4', borderRadius: 6, fontSize: 13, color: '#00b42a' }}>✅ 策略持仓与券商账户完全一致，无差异</div>}
+                  {!reconData.summary?.isClean && (
+                    <Table data={[
+                      ...(reconData.priceDiff || []).map((r: any) => ({ ...r, _type: '成本差异' })),
+                      ...(reconData.manualOnly || []).map((r: any) => ({ ...r, _type: '手动交易' })),
+                      ...(reconData.strategyOnly || []).map((r: any) => ({ ...r, _type: '策略独有' })),
+                    ]} rowKey="stockCode" size="small" pagination={false}
+                      columns={[
+                        { title: '股票', dataIndex: 'stockCode', width: 80 },
+                        { title: '类型', dataIndex: '_type', width: 90,
+                          render: (v: string) => <Tag color={v === '成本差异' ? 'red' : v === '手动交易' ? 'orange' : 'gray'}>{v}</Tag>
+                        },
+                        { title: '策略', width: 80,
+                          render: (_: any, r: any) => r.live ? <span>{r.live.quantity}股 @{r.live.avgCost}</span> : '-'
+                        },
+                        { title: '券商', width: 80,
+                          render: (_: any, r: any) => r.holding ? <span>{r.holding.quantity}股 @{r.holding.costPrice}</span> : '-'
+                        },
+                        { title: '说明', dataIndex: 'diffCause', ellipsis: true },
+                      ]} />
+                  )}
+                </>
+              ) : (
+                <div style={{ padding: 32, textAlign: 'center', color: 'var(--color-text-3)', fontSize: 13 }}>
+                  点击「执行对账」将策略持仓与券商账户持仓进行比对
+                </div>
+              )}
+            </div>
           </Tabs.TabPane>
 
           {/* 运行配置 */}

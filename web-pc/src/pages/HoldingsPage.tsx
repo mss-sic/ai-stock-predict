@@ -12,6 +12,7 @@ interface Holding {
   buyDate: string; curPrice: number; priceDate: string; prevClose: number;
   dailyChg: number; dailyChgPct: number; dailyPnl: number;
   marketVal: number; pnl: number; pnlPct: number; holdDays: number;
+  todayBuyQty: number; availSellQty: number;
 }
 
 interface Summary {
@@ -271,6 +272,8 @@ export default function HoldingsPage() {
             { title: '日盈亏', width: 90, render: (_: any, r: Holding) => (
               <span style={{ color: pnlColor(r.dailyPnl), fontSize: 12 }}>{pnlSign(r.dailyPnl)}¥{Math.abs(r.dailyPnl).toFixed(0)}</span>
             )},
+            { title: '可卖', dataIndex: 'availSellQty', width: 55, render: (v: number) => v + '股' },
+            { title: '今买', dataIndex: 'todayBuyQty', width: 55, render: (v: number) => v > 0 ? <span style={{color:'#F53F3F'}}>{v}股</span> : '-' },
             { title: '持天数', dataIndex: 'holdDays', width: 55 },
             { title: '日期', dataIndex: 'buyDate', width: 90 },
             { title: '操作', width: 90, render: (_: any, r: Holding) => (

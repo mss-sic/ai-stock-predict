@@ -18,25 +18,27 @@ type HoldingHandler struct{}
 func NewHoldingHandler() *HoldingHandler { return &HoldingHandler{} }
 
 type HoldingOut struct {
-	ID          uint    `json:"id"`
-	AccountID   uint    `json:"accountId"`
-	StockCode   string  `json:"stockCode"`
-	StockName   string  `json:"stockName"`
-	CostPrice   float64 `json:"costPrice"`
-	Quantity    int     `json:"quantity"`
-	TotalCost   float64 `json:"totalCost"`
-	BuyDate     string  `json:"buyDate"`
-	CurPrice    float64 `json:"curPrice"`
-	PriceDate   string  `json:"priceDate"`
-	PrevClose   float64 `json:"prevClose"`
-	DailyChg    float64 `json:"dailyChg"`
-	DailyChgPct float64 `json:"dailyChgPct"`
-	DailyPnl    float64 `json:"dailyPnl"`
-	DailyPnlPct float64 `json:"dailyPnlPct"`
-	MarketVal   float64 `json:"marketVal"`
-	Pnl         float64 `json:"pnl"`
-	PnlPct      float64 `json:"pnlPct"`
-	HoldDays    int     `json:"holdDays"`
+	ID           uint    `json:"id"`
+	AccountID    uint    `json:"accountId"`
+	StockCode    string  `json:"stockCode"`
+	StockName    string  `json:"stockName"`
+	CostPrice    float64 `json:"costPrice"`
+	Quantity     int     `json:"quantity"`
+	TotalCost    float64 `json:"totalCost"`
+	BuyDate      string  `json:"buyDate"`
+	CurPrice     float64 `json:"curPrice"`
+	PriceDate    string  `json:"priceDate"`
+	PrevClose    float64 `json:"prevClose"`
+	DailyChg     float64 `json:"dailyChg"`
+	DailyChgPct  float64 `json:"dailyChgPct"`
+	DailyPnl     float64 `json:"dailyPnl"`
+	DailyPnlPct  float64 `json:"dailyPnlPct"`
+	MarketVal    float64 `json:"marketVal"`
+	Pnl          float64 `json:"pnl"`
+	PnlPct       float64 `json:"pnlPct"`
+	HoldDays     int     `json:"holdDays"`
+	TodayBuyQty  int     `json:"todayBuyQty"`
+	AvailSellQty int     `json:"availSellQty"`
 }
 
 type AccountOverview struct {
@@ -331,6 +333,8 @@ func (h *HoldingHandler) List(c *gin.Context) {
 			MarketVal: math.Round(mv*100)/100,
 			Pnl: math.Round(pnl*100)/100, PnlPct: math.Round(pnlPct*100)/100,
 			HoldDays: holdDays,
+			TodayBuyQty: h.TodayBuyQty,
+			AvailSellQty: h.AvailSellQty,
 		})
 	}
 	response.Success(c, out)

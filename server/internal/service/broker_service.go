@@ -274,7 +274,7 @@ func (b *MxMoniBroker) SyncPositions(account *model.TradingAccount) (*BrokerPort
 
 	today := time.Now().Format("2006-01-02")
 	for _, pos := range portfolio.Positions {
-		b.syncLocalHolding(account, pos.SecCode, pos.SecName, pos.Count, pos.CostPrice, today)
+		b.syncLocalHolding(account, pos.SecCode, pos.SecName, pos.Count, pos.CostPrice, pos.AvailCount, pos.Price, today)
 	}
 
 	log.Printf("[broker] Synced %d positions for account %d, total=%.2f avail=%.2f",
@@ -283,7 +283,7 @@ func (b *MxMoniBroker) SyncPositions(account *model.TradingAccount) (*BrokerPort
 	return portfolio, nil
 }
 
-func (b *MxMoniBroker) syncLocalHolding(account *model.TradingAccount, stockCode, stockName string, quantity int, costPrice float64, tradeDate string) {
+func (b *MxMoniBroker) syncLocalHolding(account *model.TradingAccount, stockCode, stockName string, quantity int, costPrice float64, availCount int, currentPrice float64, tradeDate string) {
 	var holding model.Holding
 	err := db.MySQL.Where("user_id = ? AND account_id = ? AND stock_code = ?",
 		account.UserID, account.ID, stockCode).First(&holding).Error
@@ -297,21 +297,34 @@ func (b *MxMoniBroker) syncLocalHolding(account *model.TradingAccount, stockCode
 
 	totalCost := costPrice * float64(quantity)
 	if err == nil {
+		todayBuyQty := quantity - availCount
+		if todayBuyQty < 0 { todayBuyQty = 0 }
+		availQty := availCount
 		db.MySQL.Model(&holding).Updates(map[string]interface{}{
-			"quantity":   quantity,
-			"cost_price": costPrice,
-			"total_cost": totalCost,
-			"buy_date":   tradeDate,
+			"quantity":       quantity,
+			"cost_price":     costPrice,
+			"total_cost":     totalCost,
+			"buy_date":       tradeDate,
+			"today_buy_qty":  todayBuyQty,
+			"avail_sell_qty": availQty,
+			"stock_name":     stockName,
+			"current_price":  currentPrice,
 		})
 	} else {
+		todayBuyQty := quantity - availCount
+		if todayBuyQty < 0 { todayBuyQty = 0 }
 		newH := model.Holding{
-			UserID:    account.UserID,
-			AccountID: account.ID,
-			StockCode: stockCode,
-			CostPrice: costPrice,
-			Quantity:  quantity,
-			TotalCost: totalCost,
-			BuyDate:   tradeDate,
+			UserID:       account.UserID,
+			AccountID:    account.ID,
+			StockCode:    stockCode,
+			StockName:    stockName,
+			CostPrice:    costPrice,
+			Quantity:     quantity,
+			TodayBuyQty:  todayBuyQty,
+			AvailSellQty: availCount,
+			CurrentPrice: currentPrice,
+			TotalCost:    totalCost,
+			BuyDate:      tradeDate,
 		}
 		db.MySQL.Create(&newH)
 	}
