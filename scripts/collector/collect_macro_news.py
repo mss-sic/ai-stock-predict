@@ -66,7 +66,7 @@ def main():
     sql = """
         INSERT INTO macro_news (title, summary, news_time, category)
         VALUES (%s, %s, %s, %s)
-        ON CONFLICT DO NOTHING
+        ON CONFLICT (title, news_time, category) DO NOTHING
     """
     inserted = 0
     for r in data:
