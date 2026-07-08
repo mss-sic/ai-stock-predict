@@ -249,31 +249,31 @@ export default function HoldingsPage() {
           loading={loading}
           rowKey="id"
           size="small"
+          scroll={{ x: 'max-content' }}
           pagination={{ pageSize: 30, sizeCanChange: false }}
           columns={[
             { title: '代码', dataIndex: 'stockCode', width: 80, render: (v: string, r: Holding) => (
               <span style={{ cursor: 'pointer', color: '#165DFF' }} onClick={() => navigate(`/stock/${v}`)}>{v}</span>
             )},
             { title: '名称', dataIndex: 'stockName', width: 100 },
-            { title: '持仓', dataIndex: 'quantity', width: 70, render: (v: number) => `${v}股` },
+            { title: '持仓', width: 85, render: (_: any, r: Holding) => (
+              <div>
+                <span>{r.quantity}股</span>
+                {r.todayBuyQty > 0 && <span style={{ fontSize: 10, color: '#F53F3F', marginLeft: 4 }}>(+{r.todayBuyQty})</span>}
+                {r.availSellQty < r.quantity && <span style={{ display: 'block', fontSize: 10, color: 'var(--color-text-4)' }}>可卖{r.availSellQty}</span>}
+              </div>
+            )},
             { title: '成本', dataIndex: 'costPrice', width: 85, render: (v: number) => `¥${v.toFixed(3)}` },
             { title: '现价', dataIndex: 'curPrice', width: 80, render: (v: number) => `¥${v.toFixed(2)}` },
             { title: '市值', width: 95, render: (_: any, r: Holding) => <span style={{ fontWeight: 600 }}>¥{r.marketVal.toLocaleString()}</span> },
-            { title: '日涨跌', width: 90, render: (_: any, r: Holding) => (
-              <span style={{ color: pnlColor(r.dailyChg), fontSize: 12 }}>
-                {r.dailyChg.toFixed(2)} ({r.dailyChgPct.toFixed(2)}%)
-              </span>
+            { title: '浮动盈亏', width: 130, render: (_: any, r: Holding) => (
+              <div>
+                <div style={{ color: pnlColor(r.pnl), fontWeight: 600, fontSize: 12 }}>
+                  {pnlSign(r.pnl)}¥{Math.abs(r.pnl).toLocaleString(undefined, {maximumFractionDigits: 0})} ({r.pnlPct.toFixed(2)}%)
+                </div>
+                <div style={{ color: pnlColor(r.dailyPnl), fontSize: 11 }}>日{ pnlSign(r.dailyPnl)}¥{Math.abs(r.dailyPnl).toFixed(0)}</div>
+              </div>
             )},
-            { title: '浮动盈亏', width: 120, render: (_: any, r: Holding) => (
-              <span style={{ color: pnlColor(r.pnl), fontWeight: 600, fontSize: 12 }}>
-                {pnlSign(r.pnl)}¥{Math.abs(r.pnl).toLocaleString(undefined, {maximumFractionDigits: 0})} ({r.pnlPct.toFixed(2)}%)
-              </span>
-            )},
-            { title: '日盈亏', width: 90, render: (_: any, r: Holding) => (
-              <span style={{ color: pnlColor(r.dailyPnl), fontSize: 12 }}>{pnlSign(r.dailyPnl)}¥{Math.abs(r.dailyPnl).toFixed(0)}</span>
-            )},
-            { title: '可卖', dataIndex: 'availSellQty', width: 55, render: (v: number) => v + '股' },
-            { title: '今买', dataIndex: 'todayBuyQty', width: 55, render: (v: number) => v > 0 ? <span style={{color:'#F53F3F'}}>{v}股</span> : '-' },
             { title: '持天数', dataIndex: 'holdDays', width: 55 },
             { title: '日期', dataIndex: 'buyDate', width: 90 },
             { title: '操作', width: 90, render: (_: any, r: Holding) => (
