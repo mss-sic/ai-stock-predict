@@ -1134,7 +1134,7 @@ func (s *LiveTradingService) RefreshLivePositions() error {
 				}
 				if p.FirstBuyDate != "" {
 					buyDate, _ := time.Parse("2006-01-02", p.FirstBuyDate)
-					p.HoldDays = int(time.Since(buyDate).Hours() / 24)
+					p.HoldDays = int(time.Since(buyDate).Hours()/24) + 1
 				}
 				db.MySQL.Save(p)
 			}
