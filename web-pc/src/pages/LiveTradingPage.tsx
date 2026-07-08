@@ -299,7 +299,7 @@ export default function LiveTradingPage() {
             { title: '状态', dataIndex: 'status', width: 80, render: (v: string) => <Tag color={statusColor(v)}>{statusLabel(v)}</Tag> },
             { title: '初始资金', dataIndex: 'initialCapital', width: 110, render: (v: number) => `¥${v.toLocaleString()}` },
             { title: '当前权益', dataIndex: 'currentEquity', width: 110, render: (v: number) => <span style={{ fontWeight: 600 }}>¥{v.toLocaleString()}</span> },
-            { title: '收益率', dataIndex: 'totalReturn', width: 80, render: (v: number) => <span style={{ color: v >= 0 ? '#00B42A' : '#F53F3F', fontWeight: 600 }}>{v > 0 ? '+' : ''}{v?.toFixed(2)}%</span> },
+            { title: '收益率', dataIndex: 'totalReturn', width: 80, render: (v: number) => <span style={{ color: v >= 0 ? '#F53F3F' : '#00B42A', fontWeight: 600 }}>{v?.toFixed(2)}%</span> },
             { title: '最大回撤', dataIndex: 'maxDrawdown', width: 80, render: (v: number) => <span style={{ color: '#F53F3F' }}>{v?.toFixed(2)}%</span> },
             { title: '交易', dataIndex: 'tradeCount', width: 60 },
             { title: '最后运行', dataIndex: 'lastRunDate', width: 100 },

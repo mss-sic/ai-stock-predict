@@ -24,8 +24,8 @@ const getMarketTag = (code: string): string => {
   return '';
 };
 
-const pnlColor = (v: number) => v >= 0 ? '#00B42A' : '#F53F3F';
-const pnlSign = (v: number) => v >= 0 ? '+' : '';
+const pnlColor = (v: number) => v >= 0 ? '#F53F3F' : '#00B42A';
+const pnlSign = (v: number) => v >= 0 ? '' : '-';
 
 // Phase label map for display
 const phaseLabels: Record<string, string> = {
@@ -675,7 +675,7 @@ export default function LiveRunDetailPage() {
               { l: '可用现金', v: `¥${(allocation?.currentCash || 0).toLocaleString()}`, c: '#0FC6C2' },
               { l: '持仓市值', v: `¥${posValue.toLocaleString()}`, c: '#722ED1' },
               { l: '当日盈亏', v: `${pnlSign(dailyPnl)}¥${Math.abs(dailyPnl).toLocaleString()}`, c: pnlColor(dailyPnl) },
-              { l: '累计收益', v: `${pnlSign(run.totalReturn)}${(run.totalReturn||0).toFixed(2)}%`, c: pnlColor(run.totalReturn) },
+              { l: '累计收益', v: `${(run.totalReturn||0).toFixed(2)}%`, c: pnlColor(run.totalReturn) },
               { l: '最大回撤', v: `${(run.maxDrawdown||0).toFixed(2)}%`, c: '#F53F3F' },
               { l: '胜率/交易', v: `${(run.winRate||0).toFixed(0)}% / ${run.tradeCount||0}笔`, c: '#F7BA1E' },
             ].map((item, i) => (
@@ -733,7 +733,7 @@ export default function LiveRunDetailPage() {
               const dd = params.find((p: any) => p.seriesName === '最大回撤');
               let html = `<div style="font-weight:700;margin-bottom:6px">${d}</div>`;
               if (eq) html += `<div>📊 总权益 <b style="float:right;margin-left:20px">¥${eq.value.toLocaleString()}</b></div>`;
-              if (ret) html += `<div style="color:${ret.value>=0?'#F53F3F':'#00B42A'}">📈 累计收益 <b style="float:right;margin-left:20px">${ret.value>=0?'+':''}${ret.value.toFixed(2)}%</b></div>`;
+              if (ret) html += `<div style="color:${ret.value>=0?'#F53F3F':'#00B42A'}">📈 累计收益 <b style="float:right;margin-left:20px">${ret.value>=0?'':''}${ret.value.toFixed(2)}%</b></div>`;
               if (dd) html += `<div style="color:#F7BA1E">⚠ 最大回撤 <b style="float:right;margin-left:20px">${dd.value.toFixed(2)}%</b></div>`;
               return html;
             },
@@ -811,7 +811,7 @@ export default function LiveRunDetailPage() {
               <span>📅 起始: <b>{dates[0]}</b></span>
               <span>💰 初始权益: <b>¥{initialEquity.toLocaleString()}</b></span>
               <span>📊 当前: <b style={{ color: equities[equities.length-1] >= initialEquity ? '#F53F3F' : '#00B42A' }}>¥{equities[equities.length-1].toLocaleString()}</b></span>
-              <span>📈 累计收益: <b style={{ color: returns[returns.length-1] >= 0 ? '#F53F3F' : '#00B42A' }}>{returns[returns.length-1] >= 0 ? '+' : ''}{returns[returns.length-1].toFixed(2)}%</b></span>
+              <span>📈 累计收益: <b style={{ color: returns[returns.length-1] >= 0 ? '#F53F3F' : '#00B42A' }}>{returns[returns.length-1] >= 0 ? '' : ''}{returns[returns.length-1].toFixed(2)}%</b></span>
             </div>
           </Card>
         );
@@ -842,7 +842,7 @@ export default function LiveRunDetailPage() {
                 { title: '市值', width: 78, render: (_: any, r: Position) => `¥${(r.currentPrice * r.quantity).toLocaleString()}` },
                 { title: '浮动盈亏', width: 125, render: (_: any, r: Position) => (
                   <span style={{ color: pnlColor(r.unrealizedPnl), fontWeight: 600, fontSize: 11 }}>
-                    {pnlSign(r.unrealizedPnl)}¥{Math.abs(r.unrealizedPnl||0).toFixed(0)} <span style={{ fontSize: 9, opacity: 0.7 }}>({pnlSign(r.unrealizedPnlPct)}{(r.unrealizedPnlPct||0).toFixed(2)}%)</span>
+                    {pnlSign(r.unrealizedPnl)}¥{Math.abs(r.unrealizedPnl||0).toFixed(0)} <span style={{ fontSize: 9, opacity: 0.7 }}>({(r.unrealizedPnlPct||0).toFixed(2)}%)</span>
                   </span>
                 )},
                 { title: '已实盈亏', dataIndex: 'realizedPnl', width: 78, render: (v: number) => v ? (
@@ -1260,7 +1260,7 @@ export default function LiveRunDetailPage() {
                               {/* 序号 + 股票 */}
                               <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 140 }}>
                                 <span style={{
-                                  width: 22, height: 22, borderRadius: 6, background: isBuy ? '#00B42A' : '#F53F3F',
+                                  width: 22, height: 22, borderRadius: 6, background: isBuy ? '#F53F3F' : '#00B42A',
                                   color: '#fff', fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center'
                                 }}>{i + 1}</span>
                                 <span style={{ fontSize: 14, fontWeight: 700, color: '#1a1a2e' }}>
@@ -1339,7 +1339,7 @@ export default function LiveRunDetailPage() {
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
                           <div style={{
                             width: 28, height: 28, borderRadius: 8,
-                            background: isConfirmed ? '#00B42A' : isRejected ? '#F53F3F' : '#F7BA1E',
+                            background: isConfirmed ? '#F53F3F' : isRejected ? '#00B42A' : '#F7BA1E',
                             color: '#fff', fontSize: 12, fontWeight: 700,
                             display: 'flex', alignItems: 'center', justifyContent: 'center'
                           }}>{i + 1}</div>
@@ -1539,7 +1539,7 @@ export default function LiveRunDetailPage() {
                   { title: '价格', dataIndex: 'price', width: 75, render: (v: number) => `¥${v.toFixed(3)}` },
                   { title: '数量', dataIndex: 'quantity', width: 50 },
                   { title: '金额', dataIndex: 'amount', width: 80, render: (v: number) => `¥${v.toLocaleString()}` },
-                  { title: '盈亏', dataIndex: 'pnl', width: 80, render: (v: number) => v ? <span style={{ color: v >= 0 ? '#00B42A' : '#F53F3F', fontWeight: 600 }}>{pnlSign(v)}¥{Math.abs(v).toFixed(0)}</span> : '-' },
+                  { title: '盈亏', dataIndex: 'pnl', width: 80, render: (v: number) => v ? <span style={{ color: v >= 0 ? '#F53F3F' : '#00B42A', fontWeight: 600 }}>{pnlSign(v)}¥{Math.abs(v).toFixed(0)}</span> : '-' },
                 ]}
               />
             )}

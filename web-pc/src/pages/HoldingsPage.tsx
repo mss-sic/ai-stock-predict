@@ -36,7 +36,7 @@ interface AccountInfo {
 }
 
 const pnlColor = (v: number) => v >= 0 ? '#F53F3F' : '#00B42A';
-const pnlSign = (v: number) => v >= 0 ? '+' : '';
+const pnlSign = (v: number) => v >= 0 ? '' : '-';
 
 export default function HoldingsPage() {
   const navigate = useNavigate();
@@ -212,7 +212,7 @@ export default function HoldingsPage() {
             { label: '总资产', value: `¥${summary.totalEquity.toLocaleString(undefined, {maximumFractionDigits: 0})}`, icon: Wallet, color: '#165DFF' },
             { label: '可用资金', value: `¥${summary.availableCash.toLocaleString(undefined, {maximumFractionDigits: 0})}`, icon: DollarSign, color: '#0FC6C2' },
             { label: '持仓市值', value: `¥${summary.totalMarketValue.toLocaleString(undefined, {maximumFractionDigits: 0})}`, icon: BarChart3, color: '#722ED1' },
-            { label: '累计盈亏', value: `${pnlSign(summary.totalPnl)}¥${Math.abs(summary.totalPnl).toLocaleString(undefined, {maximumFractionDigits: 0})}`, sub: `${pnlSign(summary.totalPnlPct)}${summary.totalPnlPct.toFixed(2)}%`, icon: TrendingUp, color: pnlColor(summary.totalPnl) },
+            { label: '累计盈亏', value: `${pnlSign(summary.totalPnl)}¥${Math.abs(summary.totalPnl).toLocaleString(undefined, {maximumFractionDigits: 0})}`, sub: `${summary.totalPnlPct.toFixed(2)}%`, icon: TrendingUp, color: pnlColor(summary.totalPnl) },
             { label: '日收益', value: `${pnlSign(summary.totalDailyPnl)}¥${Math.abs(summary.totalDailyPnl).toLocaleString(undefined, {maximumFractionDigits: 0})}`, icon: TrendingDown, color: pnlColor(summary.totalDailyPnl) },
           ].map((item, idx) => (
             <div key={idx} style={{ background: 'var(--color-bg-2)', borderRadius: 10, border: '1px solid var(--color-border-2)', padding: '14px 16px' }}>
@@ -260,12 +260,12 @@ export default function HoldingsPage() {
             { title: '市值', width: 95, render: (_: any, r: Holding) => <span style={{ fontWeight: 600 }}>¥{r.marketVal.toLocaleString()}</span> },
             { title: '日涨跌', width: 90, render: (_: any, r: Holding) => (
               <span style={{ color: pnlColor(r.dailyChg), fontSize: 12 }}>
-                {pnlSign(r.dailyChg)}{r.dailyChg.toFixed(2)} ({pnlSign(r.dailyChgPct)}{r.dailyChgPct.toFixed(2)}%)
+                {r.dailyChg.toFixed(2)} ({r.dailyChgPct.toFixed(2)}%)
               </span>
             )},
             { title: '浮动盈亏', width: 120, render: (_: any, r: Holding) => (
               <span style={{ color: pnlColor(r.pnl), fontWeight: 600, fontSize: 12 }}>
-                {pnlSign(r.pnl)}¥{Math.abs(r.pnl).toLocaleString(undefined, {maximumFractionDigits: 0})} ({pnlSign(r.pnlPct)}{r.pnlPct.toFixed(2)}%)
+                {pnlSign(r.pnl)}¥{Math.abs(r.pnl).toLocaleString(undefined, {maximumFractionDigits: 0})} ({r.pnlPct.toFixed(2)}%)
               </span>
             )},
             { title: '日盈亏', width: 90, render: (_: any, r: Holding) => (
