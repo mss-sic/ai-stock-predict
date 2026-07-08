@@ -255,7 +255,7 @@ export default function HoldingsPage() {
             )},
             { title: '名称', dataIndex: 'stockName', width: 100 },
             { title: '持仓', dataIndex: 'quantity', width: 70, render: (v: number) => `${v}股` },
-            { title: '成本', dataIndex: 'costPrice', width: 80, render: (v: number) => `¥${v.toFixed(2)}` },
+            { title: '成本', dataIndex: 'costPrice', width: 85, render: (v: number) => `¥${v.toFixed(3)}` },
             { title: '现价', dataIndex: 'curPrice', width: 80, render: (v: number) => `¥${v.toFixed(2)}` },
             { title: '市值', width: 95, render: (_: any, r: Holding) => <span style={{ fontWeight: 600 }}>¥{r.marketVal.toLocaleString()}</span> },
             { title: '日涨跌', width: 90, render: (_: any, r: Holding) => (
