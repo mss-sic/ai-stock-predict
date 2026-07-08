@@ -939,11 +939,23 @@ func (h *LiveTradingHandler) SendNotification(c *gin.Context) {
 
 	log.Printf("[live] SendNotification run=%d strategy=%d user=%d", rid, run.StrategyID, uid)
 
-	// Load latest completed pre-market task for this run
+	// Read requested trade date from body (default to latest)
+	var reqBody struct { TradeDate string `json:"tradeDate"` }
+	c.ShouldBindJSON(&reqBody)
+	reqDate := reqBody.TradeDate
+
+	// Load completed pre-market task for the requested date
 	var task model.PreMarketTask
-	if err := db.MySQL.Where("run_id = ? AND status = ?", run.ID, "completed").
-		Order("id DESC").First(&task).Error; err != nil || task.ResultJSON == "" {
-		response.Error(c, 404, 404, "未找到已完成的盘前决策报告")
+	query := db.MySQL.Where("run_id = ? AND status = ?", run.ID, "completed")
+	if reqDate != "" {
+		query = query.Where("trade_date = ?", reqDate)
+	}
+	if err := query.Order("id DESC").First(&task).Error; err != nil || task.ResultJSON == "" {
+		errMsg := "未找到已完成的盘前决策报告"
+		if reqDate != "" {
+			errMsg += " (" + reqDate + ")"
+		}
+		response.Error(c, 404, 404, errMsg+"，请先执行盘前分析")
 		return
 	}
 

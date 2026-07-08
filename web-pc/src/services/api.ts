@@ -344,7 +344,7 @@ export const testNotification = (ncid: number) => api.post(`/live/notify-configs
 export const fetchLivePositions = (runId: number) => api.get(`/live/runs/${runId}/positions`);
 export const fetchLiveTrades = (runId: number) => api.get(`/live/runs/${runId}/trades`);
 export const fetchLiveSnapshots = (runId: number) => api.get(`/live/runs/${runId}/snapshots`);
-export const sendLiveRunNotification = (runId: number) => api.post(`/live/runs/${runId}/notify`);
+export const sendLiveRunNotification = (runId: number, tradeDate?: string) => api.post(`/live/runs/${runId}/notify`, { tradeDate });
 export const updateLiveSignal = (id: number, data: { plannedPrice?: number; plannedQty?: number; reason?: string }) => api.put(`/live/signals/${id}`, data);
 export const clearLiveSignals = (runId: number, date: string) => api.delete(`/live/runs/${runId}/signals?date=${encodeURIComponent(date)}`);
 export const deleteLiveSignal = (id: number) => api.delete(`/live/signals/${id}`);

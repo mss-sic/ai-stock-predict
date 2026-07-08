@@ -370,7 +370,7 @@ export default function LiveRunDetailPage() {
     if (!id) return;
     setSendingNotify(true);
     try {
-      const { data: r } = await sendLiveRunNotification(Number(id));
+      const { data: r } = await sendLiveRunNotification(Number(id), signalDate);
       Message.success(r?.data?.message || r?.message || '通知已发送');
     } catch (e: any) { Message.error('发送失败: ' + (e?.message || '未知')); }
     setSendingNotify(false);
