@@ -39,6 +39,7 @@ type HoldingOut struct {
 	HoldDays     int     `json:"holdDays"`
 	TodayBuyQty  int     `json:"todayBuyQty"`
 	AvailSellQty int     `json:"availSellQty"`
+	UpdatedAt    string  `json:"updatedAt"`
 }
 
 type AccountOverview struct {
@@ -335,6 +336,7 @@ func (h *HoldingHandler) List(c *gin.Context) {
 			HoldDays: holdDays,
 			TodayBuyQty: h.TodayBuyQty,
 			AvailSellQty: h.AvailSellQty,
+			UpdatedAt: h.UpdatedAt.Format("2006-01-02 15:04:05"),
 		})
 	}
 	response.Success(c, out)

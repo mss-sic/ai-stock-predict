@@ -841,7 +841,7 @@ export default function LiveRunDetailPage() {
                 { title: '成本/现价', width: 90, render: (_: any, r: Position) => (
                   <div>
                     <div style={{ color: 'var(--color-text-3)', fontSize: 11 }}>成本 ¥{r.avgCost.toFixed(3)}</div>
-                    <Tooltip content={r.updatedAt ? `价格更新: ${new Date(r.updatedAt).toLocaleString('zh-CN')}` : '暂无'}><div style={{ fontWeight: 600, fontSize: 12, color: r.currentPrice >= r.avgCost ? '#F53F3F' : '#00B42A', cursor: 'help' }}>现价 ¥{r.currentPrice.toFixed(2)}</div></Tooltip>
+                    <Tooltip content={r.updatedAt ? (() => { if (!r.updatedAt) return '暂无'; const d = new Date(r.updatedAt); return `价格更新: ${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}:${String(d.getSeconds()).padStart(2,'0')}`; })() : '暂无'}><div style={{ fontWeight: 600, fontSize: 12, color: r.currentPrice >= r.avgCost ? '#F53F3F' : '#00B42A', cursor: 'help' }}>现价 ¥{r.currentPrice.toFixed(2)}</div></Tooltip>
                   </div>
                 )},
                 { title: '市值', width: 78, render: (_: any, r: Position) => `¥${(r.currentPrice * r.quantity).toLocaleString()}` },
