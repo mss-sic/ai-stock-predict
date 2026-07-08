@@ -292,7 +292,7 @@ export default function DataManagementPage() {
       ]);
       setSchedDefinitions(Array.isArray(defsRes.data) ? defsRes.data : defsRes.data?.data || []);
       setSchedInstances(Array.isArray(tasksRes.data) ? tasksRes.data : tasksRes.data?.data || []);
-      setSchedHealth(healthRes.data || healthRes.data?.data || null);
+      setSchedHealth(healthRes.data?.data || healthRes.data || null);
     } catch (e: any) {
       console.error('[scheduler] load failed:', e?.response?.status, e?.message);
       showToast('error', '调度数据加载失败: ' + (e?.message || '请检查后端是否已重启'));
@@ -306,7 +306,7 @@ export default function DataManagementPage() {
         fetchSchedulerAlerts(),
       ]);
       setSchedHistory(Array.isArray(histRes.data) ? histRes.data : histRes.data?.data || []);
-      setSchedQueues(queueRes.data || queueRes.data?.data || null);
+      setSchedQueues(queueRes.data?.data || queueRes.data || null);
       setSchedAlerts(Array.isArray(alertRes.data) ? alertRes.data : alertRes.data?.data || []);
     } catch {}
   };
