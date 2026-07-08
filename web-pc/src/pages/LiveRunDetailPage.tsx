@@ -1126,8 +1126,8 @@ export default function LiveRunDetailPage() {
                         {dec.taReasoning && (
                           <details style={{ marginTop: 4 }}>
                             <summary style={{ cursor: 'pointer', color: '#722ED1', fontSize: 11 }}>AI 推理详情</summary>
-                            <div style={{ marginTop: 4, padding: '6px 10px', background: 'rgba(114,46,209,0.06)', borderRadius: 4, color: 'var(--color-text-2)', fontSize: 10, whiteSpace: 'pre-wrap', maxHeight: 200, overflowY: 'auto' }}>
-                              {dec.taReasoning}
+                            <div style={{ marginTop: 4, padding: '6px 10px', background: 'rgba(114,46,209,0.06)', borderRadius: 4, color: 'var(--color-text-2)', fontSize: 10, maxHeight: 200, overflowY: 'auto' }}>
+                              <ReactMarkdown>{dec.taReasoning}</ReactMarkdown>
                             </div>
                           </details>
                         )}
@@ -1915,8 +1915,18 @@ export default function LiveRunDetailPage() {
             <div style={{ padding: '8px 14px', background: rl.color + '15', fontWeight: 700, fontSize: 13, color: rl.color, borderBottom: '1px solid ' + rl.color + '20' }}>
               {rl.label}
             </div>
-            <div style={{ padding: '12px 14px', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-              {entry.content}
+            <div style={{ padding: '12px 14px', wordBreak: 'break-word' }}>
+              <ReactMarkdown
+                components={{
+                  h2: ({ children }) => <div style={{ fontSize: 14, fontWeight: 700, color: '#1a1a2e', margin: '10px 0 6px', paddingBottom: 4, borderBottom: '1px solid #eee' }}>{children}</div>,
+                  h3: ({ children }) => <div style={{ fontSize: 13, fontWeight: 600, color: '#333', margin: '8px 0 4px' }}>{children}</div>,
+                  p: ({ children }) => <p style={{ margin: '4px 0', lineHeight: 1.8, color: '#444' }}>{children}</p>,
+                  strong: ({ children }) => <strong style={{ color: '#1a1a2e' }}>{children}</strong>,
+                  code: ({ children }) => <code style={{ background: '#f0f0f0', padding: '1px 5px', borderRadius: 3, fontSize: 11 }}>{children}</code>,
+                }}
+              >
+                {entry.content}
+              </ReactMarkdown>
             </div>
           </div>
         );
