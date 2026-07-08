@@ -117,6 +117,13 @@ func (w *sseWriter) emitLine(line string) {
 		progress.PhaseCurrent = curr
 		progress.PhaseTotal = total
 		progress.LastOutput = time.Now()
+		// Also update per-phase progress
+		if ps, ok := progress.ActivePhases[progress.Phase]; ok {
+			ps.PhaseCurrent = curr
+			ps.PhaseTotal = total
+			ps.Current = curr
+			ps.Total = total
+		}
 		progress.mu.Unlock()
 		return
 	}
@@ -161,6 +168,17 @@ type PhaseResult struct {
 	DurationMs int64  `json:"durationMs"`
 }
 
+
+// PhaseState tracks per-phase running state for concurrent collection.
+type PhaseState struct {
+	Running       bool      `json:"running"`
+	Phase         string    `json:"phase"`
+	Current       int       `json:"current"`
+	Total         int       `json:"total"`
+	Started       time.Time `json:"started"`
+	PhaseCurrent  int       `json:"phaseCurrent"`
+	PhaseTotal    int       `json:"phaseTotal"`
+}
 type CollectionProgress struct {
 	mu       sync.RWMutex
 	Running  bool              `json:"running"`
@@ -178,37 +196,49 @@ type CollectionProgress struct {
 	// Per-phase sub-progress
 	PhaseCurrent int `json:"phaseCurrent"`
 	PhaseTotal   int `json:"phaseTotal"`
+	ActivePhases map[string]*PhaseState `json:"activePhases"` // per-phase concurrency tracking
 	// Accumulated behavior stats across all phases
 	BehaviorStats map[string]int64 `json:"behaviorStats"`
 }
 
 var (
-	progress     = &CollectionProgress{}
+	progress     = &CollectionProgress{ActivePhases: make(map[string]*PhaseState)}
 	activeWriter *sseWriter
 	writerMu     sync.Mutex
 )
 
 func GetProgress() *CollectionProgress {
 	progress.mu.RLock()
-	// Auto-reset only if truly stuck: no log output for 15+ minutes
-	if progress.Running && !progress.LastOutput.IsZero() && time.Since(progress.LastOutput) > 15*time.Minute {
-		progress.mu.RUnlock()
-		progress.mu.Lock()
-		if progress.Running && !progress.LastOutput.IsZero() && time.Since(progress.LastOutput) > 15*time.Minute {
-			progress.Running = false
-			progress.Phase = "done"
-			now := time.Now()
-			progress.Finished = &now
-			log.Println("[collector] auto-reset stuck collection (no output for 15+ min)")
+	// Auto-reset per-phase: any phase stuck >15 min without output gets cleared
+	hasRunning := false
+	for name, ps := range progress.ActivePhases {
+		if ps.Running && !progress.LastOutput.IsZero() && time.Since(progress.LastOutput) > 15*time.Minute {
+			progress.mu.RUnlock()
+			progress.mu.Lock()
+			if p, ok := progress.ActivePhases[name]; ok && p.Running {
+				p.Running = false
+				log.Printf("[collector] auto-reset stuck phase %s (no output for 15+ min)", name)
+			}
+			progress.mu.Unlock()
+			progress.mu.RLock()
 		}
-		progress.mu.Unlock()
-		progress.mu.RLock()
+		if ps.Running {
+			hasRunning = true
+		}
+	}
+	progress.Running = hasRunning
+	if !hasRunning {
+		progress.Phase = "done"
 	}
 	cp := *progress
 	cp.Results = make([]PhaseResult, len(progress.Results))
 	copy(cp.Results, progress.Results)
 	cp.Errors = make([]string, len(progress.Errors))
 	copy(cp.Errors, progress.Errors)
+	cp.ActivePhases = make(map[string]*PhaseState, len(progress.ActivePhases))
+	for k, v := range progress.ActivePhases {
+		cp.ActivePhases[k] = &PhaseState{Running: v.Running, Phase: v.Phase, Current: v.Current, Total: v.Total, Started: v.Started, PhaseCurrent: v.PhaseCurrent, PhaseTotal: v.PhaseTotal}
+	}
 	progress.mu.RUnlock()
 	return &cp
 }
@@ -301,16 +331,25 @@ func runQuotePhase() PhaseResult {
 // RunManualCollection runs specified phases. Phases must be non-empty.
 func RunManualCollection(phases []string, extraArgs ...string) error {
 	progress.mu.Lock()
-	if progress.Running {
-		currentPhase := progress.Phase
-		progress.mu.Unlock()
-		return fmt.Errorf("采集任务 [%s] 正在执行中，请等待完成", currentPhase)
-	}
 	if len(phases) == 0 {
 		progress.mu.Unlock()
-		log.Println("[collector] RunManualCollection called with empty phases, refusing to run all")
 		return fmt.Errorf("采集任务列表为空")
 	}
+
+	// Per-phase lock: reject if ANY requested phase is already running
+	var conflicts []string
+	for _, p := range phases {
+		if ps, ok := progress.ActivePhases[p]; ok && ps.Running {
+			conflicts = append(conflicts, p)
+		}
+	}
+	if len(conflicts) > 0 {
+		progress.mu.Unlock()
+		return fmt.Errorf("采集任务 [%s] 正在执行中，请等待完成", strings.Join(conflicts, ", "))
+	}
+
+	// Mark all requested phases as running
+	now := time.Now()
 	progress.Running = true
 	progress.LastOutput = time.Now()
 	if len(extraArgs) > 0 {
@@ -320,14 +359,22 @@ func RunManualCollection(phases []string, extraArgs ...string) error {
 	progress.Current = 0
 	totalPhases := len(phases)
 	progress.Total = totalPhases
-	progress.Results = nil
-	progress.Errors = nil
-	progress.Started = time.Now()
+	if len(progress.ActivePhases) <= len(phases) {
+		progress.Results = nil
+		progress.Errors = nil
+		progress.Started = now
+	}
+	for _, p := range phases {
+		progress.ActivePhases[p] = &PhaseState{Running: true, Phase: p, Started: now}
+	}
+	progress.Phase = phases[0]
 	progress.LastRun = progress.Started
 	progress.Finished = nil
 	progress.PhaseCurrent = 0
 	progress.PhaseTotal = 0
-	progress.BehaviorStats = make(map[string]int64)
+	if progress.BehaviorStats == nil {
+		progress.BehaviorStats = make(map[string]int64)
+	}
 	progress.mu.Unlock()
 
 	logEntry := model.CollectionLog{
@@ -339,8 +386,21 @@ func RunManualCollection(phases []string, extraArgs ...string) error {
 	defer func() {
 		now := time.Now()
 		progress.mu.Lock()
-		progress.Running = false
-		progress.Phase = "done"
+		// Clear only our phases; other concurrent phases stay running
+		for _, p := range phases {
+			delete(progress.ActivePhases, p)
+		}
+		if len(progress.ActivePhases) == 0 {
+			progress.Running = false
+			progress.Phase = "done"
+		} else {
+			progress.Running = true
+			// Keep Phase as first remaining active phase
+			for _, ps := range progress.ActivePhases {
+				progress.Phase = ps.Phase
+				break
+			}
+		}
 		progress.Finished = &now
 		progress.Current = len(progress.Results)
 		progress.mu.Unlock()
@@ -918,6 +978,9 @@ func setPhase(phase, msg string) {
 	progress.mu.Lock()
 	progress.Phase = phase
 	progress.Message = msg
+	if ps, ok := progress.ActivePhases[phase]; ok {
+		ps.Phase = phase
+	}
 	progress.mu.Unlock()
 }
 

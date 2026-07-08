@@ -456,7 +456,9 @@ export default function DataManagementPage() {
             return arr.filter((r: any) => { if (seen.has(r.phase)) return false; seen.add(r.phase); return true; });
           });
         }
-        if (!data.running && collectingRef.current) {
+        // Check running from activePhases too (multi-phase support)
+        const hasActive = data.activePhases && Object.values(data.activePhases).some((s: any) => s?.running);
+        if (!data.running && !hasActive && collectingRef.current) {
           setCollecting(false);
           setTotalDuration(Date.now() - startTimeRef.current);
           clearInterval(pollRef.current);
@@ -1082,30 +1084,54 @@ export default function DataManagementPage() {
                   </div>
                 </div>
                 <div style={{ padding: '12px 16px', minHeight: 120 }}>
-                  {/* 采集进度条 */}
-                  {collecting && progress && (
-                    <div style={{ marginBottom: 12 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 6 }}>
-                        {phaseProgress.total > 0 ? (
-                          <>
-                            <Progress percent={Math.round((phaseProgress.current / Math.max(phaseProgress.total, 1)) * 100)} style={{ flex: 1 }} status="normal" />
-                            <span style={{ fontSize: 12, color: 'var(--color-text-3)', whiteSpace: 'nowrap' }}>{phaseProgress.current.toLocaleString()} / {phaseProgress.total.toLocaleString()}</span>
-                          </>
-                        ) : progress?.total > 0 ? (
-                          <>
-                            <Progress percent={Math.round((progress.current / Math.max(progress.total, 1)) * 100)} style={{ flex: 1 }} status="normal" />
-                            <span style={{ fontSize: 12, color: 'var(--color-text-3)', whiteSpace: 'nowrap' }}>阶段 {progress.current}/{progress.total}</span>
-                          </>
-                        ) : (
-                          <>
-                            <Progress percent={0} style={{ flex: 1 }} status="normal" />
-                            <span style={{ fontSize: 12, color: 'var(--color-text-3)', whiteSpace: 'nowrap', animation: 'collectBgPulse 1.5s infinite' }}>采集中...</span>
-                          </>
+                  {/* 采集进度条 — 支持多 phase 并行 */}
+                  {collecting && progress && (() => {
+                    const activePhases: Record<string, any> = progress.activePhases || {};
+                    const activeEntries = Object.entries(activePhases).filter(([, s]: [string, any]) => s?.running);
+                    if (activeEntries.length === 0 && progress.running) {
+                      // Fallback: single-phase display
+                      activeEntries.push([progress.phase || 'unknown', { running: true, phaseCurrent: progress.phaseCurrent, phaseTotal: progress.phaseTotal }]);
+                    }
+                    if (activeEntries.length === 0) return null;
+                    return (
+                      <div style={{ marginBottom: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        {activeEntries.map(([phaseName, ps]: [string, any]) => (
+                          <div key={phaseName} style={{
+                            border: '1px solid var(--color-border-2)',
+                            borderRadius: 6,
+                            padding: '6px 10px',
+                            background: phaseName === selectedCollectPhase ? 'var(--color-primary-light-1)' : 'var(--color-bg-1)',
+                          }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                              <span style={{
+                                width: 8, height: 8, borderRadius: '50%',
+                                background: '#ff6d00',
+                                display: 'inline-block',
+                                animation: 'collectPulse 1.2s ease-in-out infinite',
+                              }} />
+                              <span style={{ fontSize: 13, fontWeight: 600 }}>{PHASE_LABELS[phaseName] || phaseName}</span>
+                              {activeEntries.length > 1 && (
+                                <Button size="mini" type="text" onClick={() => setSelectedCollectPhase(phaseName)}>
+                                  {phaseName === selectedCollectPhase ? '当前' : '查看'}
+                                </Button>
+                              )}
+                            </div>
+                            {ps.phaseTotal > 0 ? (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                <Progress percent={Math.round((ps.phaseCurrent / Math.max(ps.phaseTotal, 1)) * 100)} style={{ flex: 1 }} size="small" />
+                                <span style={{ fontSize: 11, color: 'var(--color-text-3)', whiteSpace: 'nowrap' }}>{ps.phaseCurrent.toLocaleString()} / {ps.phaseTotal.toLocaleString()}</span>
+                              </div>
+                            ) : (
+                              <Progress percent={0} style={{ flex: 1 }} size="small" />
+                            )}
+                          </div>
+                        ))}
+                        {progress.message && (
+                          <div style={{ fontSize: 12, color: 'var(--color-text-2)' }}>{progress.message}</div>
                         )}
                       </div>
-                      <div style={{ fontSize: 12, color: 'var(--color-text-2)' }}>{progress.message || '正在采集...'}</div>
-                    </div>
-                  )}
+                    );
+                  })()}
 
                   {/* 采集结果统计 */}
                   {phaseResults.filter((r: any) => r.phase === selectedCollectPhase).map((r: any) => (

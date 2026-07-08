@@ -12,6 +12,7 @@ import (
 	"github.com/robfig/cron/v3"
 
 	"github.com/ai-stock-predict/server/internal/db"
+	"github.com/ai-stock-predict/server/internal/model"
 )
 
 // cronParser is a shared cron parser with seconds support.
@@ -1319,6 +1320,29 @@ func (s *UnifiedScheduler) RecordExecution(defID string, instID uint, bizTaskID 
 		ErrorMsg:     errMsg,
 	}
 	s.recordExecution(rec)
+
+	// Also persist to MySQL task_logs for frontend "定时任务" tab
+	go func() {
+		taskName := label
+		if taskName == "" {
+			taskName = defID
+		}
+		phase := defID
+		durationMs := finishedAt.Sub(startedAt).Milliseconds()
+		logEntry := model.TaskLog{
+			TaskID:     0, // v2 scheduler tasks have no MySQL task_id
+			TaskName:   taskName,
+			Phase:      phase,
+			Status:     status,
+			ErrorMsg:   errMsg,
+			DurationMs: durationMs,
+			StartedAt:  startedAt,
+			FinishedAt: &finishedAt,
+		}
+		if err := db.MySQL.Create(&logEntry).Error; err != nil {
+			log.Printf("[scheduler-v2] failed to persist task log for %s: %v", defID, err)
+		}
+	}()
 }
 
 func (s *UnifiedScheduler) recordExecution(rec TaskRunRecord) {

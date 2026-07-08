@@ -90,17 +90,17 @@ func initTaskManagerX() *TaskManager {
 			"error_msg": "服务重启，任务中断",
 		})
 
-	// Load existing tasks from DB and schedule them
+	// Legacy cron execution disabled — all task scheduling handled by scheduler-v2 UnifiedScheduler.
+	// The scheduled_tasks table is maintained for frontend display and manual triggers only.
 	var tasks []model.ScheduledTask
 	db.MySQL.Find(&tasks)
+	enabledCount := 0
 	for i := range tasks {
 		if tasks[i].Enabled {
-			tm.ScheduleTask(&tasks[i])
+			enabledCount++
 		}
 	}
-
-	tm.cron.Start()
-	log.Printf("[TaskManager] started with %d scheduled tasks", len(tm.jobs))
+	log.Printf("[TaskManager] initialized %d tasks (cron disabled, execution via scheduler-v2)", enabledCount)
 	return tm
 }
 
