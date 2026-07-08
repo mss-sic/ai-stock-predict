@@ -123,9 +123,13 @@ func (s *TradeExecService) ExecuteForRun(tradeDate string, runID uint, force boo
 				Reason:     "AI审查未开启，信号直接通过",
 				TradeDate:  tradeDate,
 				FinalAction:  sig.ActionType,
+				FinalPrice:   sig.PlannedPrice,
+				FinalQty:     sig.PlannedQty,
 				FinalAmount:  sig.PlannedAmount,
-				SuggestedQty: sig.SuggestedQty,
-				OrderPrice:   sig.OrderPrice,
+				SuggestedQty:     sig.PlannedQty,
+				SuggestedPremium: 1.5,
+				OrderPrice:       sig.PlannedPrice * 1.015,
+				OrderPriceLimit:  sig.PlannedPrice * 1.03,
 				CreatedAt:    time.Now(),
 			}
 			decisions = append(decisions, decision)

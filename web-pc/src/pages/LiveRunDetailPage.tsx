@@ -1394,8 +1394,11 @@ export default function LiveRunDetailPage() {
                             </b></span>
                           )}
                           <span>数量 <b>{dec.suggestedQty > 0 ? dec.suggestedQty.toLocaleString() : dec.finalQty > 0 ? dec.finalQty : '—'} 股</b></span>
-                          {dec.finalAmount > 0 && (
-                            <span>金额 <b style={{ color: '#1a1a2e' }}>{dec.finalAmount != null ? `¥${dec.finalAmount.toLocaleString()}` : '—'}</b></span>
+                          {((dec.finalAmount > 0) || (sig && sig.plannedAmount > 0)) && (
+                            <span>金额 <b style={{ color: '#1a1a2e' }}>{
+                              (dec.finalAmount != null && dec.finalAmount > 0) ? `¥${dec.finalAmount.toLocaleString()}` :
+                              (sig && sig.plannedAmount != null && sig.plannedAmount > 0) ? `¥${sig.plannedAmount.toLocaleString()}` : '—'
+                            }</b></span>
                           )}
                           {dec.openPrice > 0 && (
                             <span>开盘 <b>¥{dec.openPrice.toFixed(2)}</b>
