@@ -265,9 +265,8 @@ export default function HoldingsPage() {
             )},
             { title: '成本/现价', width: 100, render: (_: any, r: Holding) => (
               <div>
-                <span style={{ color: 'var(--color-text-3)', fontSize: 11 }}>¥{r.costPrice.toFixed(3)}</span>
-                <span style={{ marginLeft: 4, fontSize: 11, color: 'var(--color-text-2)' }}>→</span>
-                <span style={{ fontWeight: 600, fontSize: 13, color: r.curPrice >= r.costPrice ? '#F53F3F' : '#00B42A' }}>¥{r.curPrice.toFixed(2)}</span>
+                <div style={{ color: 'var(--color-text-3)', fontSize: 11 }}>成本 ¥{r.costPrice.toFixed(3)}</div>
+                <div style={{ fontWeight: 600, fontSize: 13, color: r.curPrice >= r.costPrice ? '#F53F3F' : '#00B42A' }}>现价 ¥{r.curPrice.toFixed(2)}</div>
               </div>
             )},
             { title: '市值', width: 95, render: (_: any, r: Holding) => <span style={{ fontWeight: 600 }}>¥{r.marketVal.toLocaleString()}</span> },
