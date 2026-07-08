@@ -112,13 +112,13 @@ func SystemTaskDefs() []*TaskDefinition {
 		},
 		{
 			ID: "news", Kind: KindPipeline, Label: "资讯数据采集",
-			Trigger: TriggerSpec{Cron: "0 */30 * * * *"},
+			Trigger: TriggerSpec{Cron: "0 */5 * * * *"},
 			Timeout: 5 * time.Minute,
 			Handler: makeTaskHandler("news", "资讯"),
 		},
 		{
 			ID: "macro_news", Kind: KindPipeline, Label: "宏观资讯采集",
-			Trigger: TriggerSpec{Cron: "0 */30 * * * *"},
+			Trigger: TriggerSpec{Cron: "0 */5 * * * *"},
 			Timeout: 5 * time.Minute,
 			Handler: makeTaskHandler("macro_news", "宏观资讯"),
 		},
