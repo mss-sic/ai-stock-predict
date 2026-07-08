@@ -859,36 +859,64 @@ func (s *LiveTradingService) ExecuteSignalByID(signalID uint, userID uint) error
 	return s.ExecuteSignalByIDWithPrice(signalID, userID, 0, 0)
 }
 
+// FinalizeSignalExecution is the unified entry point for completing a trade.
+// It takes runID, signalID, actual execution price and quantity, and performs:
+//   - signal status update to "executed"
+//   - trade record creation
+//   - position update (create/add/reduce/close)
+//   - fund allocation cash update
+//   - holding sync to account
+// All order paths (manual, broker sync, lobster auto, API) should call this.
+func (s *LiveTradingService) FinalizeSignalExecution(runID uint, signalID uint, execPrice float64, execQty int) error {
+	var sig model.BacktestSignal
+	if err := db.MySQL.Where("id = ?", signalID).First(&sig).Error; err != nil {
+		return fmt.Errorf("signal %d not found: %w", signalID, err)
+	}
+
+	// Set actual execution values
+	if execPrice > 0 {
+		sig.PlannedPrice = execPrice
+	}
+	if execQty > 0 {
+		sig.PlannedQty = execQty
+		sig.PlannedAmount = execPrice * float64(execQty)
+	}
+
+	// Load run by runID directly
+	var run model.StrategyRun
+	if err := db.MySQL.Where("id = ?", runID).First(&run).Error; err != nil {
+		return fmt.Errorf("run %d not found: %w", runID, err)
+	}
+
+	// Verify signal belongs to this run
+	if sig.RunID != runID {
+		return fmt.Errorf("signal %d does not belong to run %d (sig.RunID=%d)", signalID, runID, sig.RunID)
+	}
+
+	var strategy model.Strategy
+	if err := db.MySQL.First(&strategy, run.StrategyID).Error; err != nil {
+		return fmt.Errorf("strategy %d not found: %w", run.StrategyID, err)
+	}
+
+	var alloc model.StrategyFundAllocation
+	if err := db.MySQL.Where("strategy_run_id = ? AND status = ?", run.ID, "active").First(&alloc).Error; err != nil {
+		return fmt.Errorf("allocation for run %d not found: %w", runID, err)
+	}
+
+	var positions []model.LivePosition
+	db.MySQL.Where("strategy_run_id = ?", run.ID).Find(&positions)
+
+	return s.executeSignal(&run, &strategy, &alloc, &positions, &sig, sig.ExecDate)
+}
+
 // ExecuteSignalByIDWithPrice executes a signal with actual trade price/qty.
-// If actualPrice=0, uses the signal's planned price.
+// Delegates to FinalizeSignalExecution for unified trade completion logic.
 func (s *LiveTradingService) ExecuteSignalByIDWithPrice(signalID uint, userID uint, actualPrice float64, actualQty int) error {
 	var sig model.BacktestSignal
 	if err := db.MySQL.Where("id = ? AND user_id = ?", signalID, userID).First(&sig).Error; err != nil {
 		return fmt.Errorf("signal not found: %w", err)
 	}
-	// Use actual price/qty if provided, fall back to planned
-	if actualPrice > 0 {
-		sig.PlannedPrice = actualPrice
-	}
-	if actualQty > 0 {
-		sig.PlannedQty = actualQty
-		sig.PlannedAmount = actualPrice * float64(actualQty)
-	}
-	var run model.StrategyRun
-	if err := db.MySQL.Where("strategy_id = ? AND user_id = ? AND status = ?", sig.StrategyID, userID, "active").First(&run).Error; err != nil {
-		return fmt.Errorf("active run not found for strategy %d: %w", sig.StrategyID, err)
-	}
-	var strategy model.Strategy
-	if err := db.MySQL.First(&strategy, run.StrategyID).Error; err != nil {
-		return fmt.Errorf("strategy not found: %w", err)
-	}
-	var alloc model.StrategyFundAllocation
-	if err := db.MySQL.Where("strategy_run_id = ? AND status = ?", run.ID, "active").First(&alloc).Error; err != nil {
-		return fmt.Errorf("allocation not found: %w", err)
-	}
-	var positions []model.LivePosition
-	db.MySQL.Where("strategy_run_id = ?", run.ID).Find(&positions)
-	return s.executeSignal(&run, &strategy, &alloc, &positions, &sig, sig.ExecDate)
+	return s.FinalizeSignalExecution(sig.RunID, sig.ID, actualPrice, actualQty)
 }
 
 // syncHoldingToAccount keeps the holdings table in sync with live_positions.

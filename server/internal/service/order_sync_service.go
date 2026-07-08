@@ -181,9 +181,9 @@ func (s *OrderSyncService) SyncAllPendingOrders() (*SyncResult, error) {
 			log.Printf("[order_sync] ✅ %s %s 已成: price=%.2f qty=%d orderID=%s → completing via executeSignal",
 				sig.StockCode, sig.StockName, execPrice, filledQty, orderID)
 
-			// Call the same completion logic as manual "执行" button on the frontend
-			// This handles: position, trade record, fund update, holding sync, daily snapshot
-			if err := s.liveSvc.ExecuteSignalByIDWithPrice(sig.ID, sig.UserID, execPrice, filledQty); err != nil {
+			// Call the unified trade finalization entry point
+			// This handles: signal status, position, trade record, fund update, holding sync
+			if err := s.liveSvc.FinalizeSignalExecution(sig.RunID, sig.ID, execPrice, filledQty); err != nil {
 				result.Logs = append(result.Logs, fmt.Sprintf("❌ %s %s 信号完成失败: %v orderID=%s",
 					sig.StockCode, sig.StockName, err, orderID))
 				result.Failed++
