@@ -15,6 +15,7 @@ interface StrategyRun {
   initialCapital: number; currentEquity: number;
   totalReturn: number; maxDrawdown: number;
   winRate: number; tradeCount: number; lastRunDate: string;
+  lastError?: string;
   autoDailyCron?: string; autoTradeExecCron?: string;
   notifyEnabled?: boolean; notifyChannels?: string;
 }
@@ -296,7 +297,16 @@ export default function LiveTradingPage() {
                 <div style={{ fontSize: 11, color: 'var(--color-text-3)' }}>策略 #{r.strategyId} · {r.startDate}</div>
               </div>
             )},
-            { title: '状态', dataIndex: 'status', width: 80, render: (v: string) => <Tag color={statusColor(v)}>{statusLabel(v)}</Tag> },
+            { title: '状态', dataIndex: 'status', width: 100, render: (v: string, r: StrategyRun) => (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <Tag color={statusColor(v)}>{statusLabel(v)}</Tag>
+                {r.lastError && (
+                  <Tooltip content={<div style={{ maxWidth: 300, wordBreak: 'break-all' }}>{r.lastError}</div>}>
+                    <AlertCircle size={14} style={{ color: '#F53F3F', cursor: 'help', flexShrink: 0 }} />
+                  </Tooltip>
+                )}
+              </div>
+            )},
             { title: '初始资金', dataIndex: 'initialCapital', width: 110, render: (v: number) => `¥${v.toLocaleString()}` },
             { title: '当前权益', dataIndex: 'currentEquity', width: 110, render: (v: number) => <span style={{ fontWeight: 600 }}>¥{v.toLocaleString()}</span> },
             { title: '收益率', dataIndex: 'totalReturn', width: 80, render: (v: number) => <span style={{ color: v >= 0 ? '#F53F3F' : '#00B42A', fontWeight: 600 }}>{v?.toFixed(2)}%</span> },
