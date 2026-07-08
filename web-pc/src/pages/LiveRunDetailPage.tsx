@@ -1143,7 +1143,7 @@ export default function LiveRunDetailPage() {
                       return <Tag size="small" color="purple" style={{ fontSize: 9, padding: '0 4px', lineHeight: '16px' }}>{tag}</Tag>;
                     }},
                     { title: '数量', dataIndex: 'plannedQty', width: 48, render: (v: number, r: Signal) => {
-                      const qty = r.suggestedQty || v || 0;
+                      const qty = (r.suggestedQty && r.suggestedQty > 0) ? r.suggestedQty : (v && v > 0) ? v : 0;
                       return <span style={{ fontSize: 11, fontWeight: 500 }}>{qty > 0 ? qty.toLocaleString() : '—'}</span>;
                     }},
                     { title: '操作', dataIndex: 'actionType', width: 45, render: (v: string) => {
@@ -1152,7 +1152,7 @@ export default function LiveRunDetailPage() {
     return <Tag size="small" color={colors[v] || 'gray'}>{labels[v] || v}</Tag>;
   } },
                     { title: '价格', dataIndex: 'plannedPrice', width: 65, render: (v: number) => <span style={{ fontSize: 11 }}>¥{v.toFixed(3)}</span> },
-                    { title: '金额', dataIndex: 'plannedAmount', width: 65, render: (v: number) => `¥${v.toLocaleString()}` },
+                    { title: '金额', dataIndex: 'plannedAmount', width: 65, render: (v: number | null) => v != null && v > 0 ? `¥${v.toLocaleString()}` : <span style={{ color: 'var(--color-text-3)' }}>—</span> },
                     { title: 'AI决策', width: 70, render: (_: any, r: Signal) => {
                       const dec = decisions.find((d: Decision) => d.signalId === r.id);
                       if (!dec) return <Tag size="small" color="gray">未验证</Tag>;
@@ -1395,7 +1395,7 @@ export default function LiveRunDetailPage() {
                           )}
                           <span>数量 <b>{dec.suggestedQty > 0 ? dec.suggestedQty.toLocaleString() : dec.finalQty > 0 ? dec.finalQty : '—'} 股</b></span>
                           {dec.finalAmount > 0 && (
-                            <span>金额 <b style={{ color: '#1a1a2e' }}>¥{dec.finalAmount.toLocaleString()}</b></span>
+                            <span>金额 <b style={{ color: '#1a1a2e' }}>{dec.finalAmount != null ? `¥${dec.finalAmount.toLocaleString()}` : '—'}</b></span>
                           )}
                           {dec.openPrice > 0 && (
                             <span>开盘 <b>¥{dec.openPrice.toFixed(2)}</b>
@@ -1486,7 +1486,7 @@ export default function LiveRunDetailPage() {
                           if (!dec) return <span style={{ fontSize: 10 }}>—</span>;
                           return <span style={{ fontWeight: 600, fontSize: 10, color: dec.confidence >= 60 ? '#00B42A' : dec.confidence >= 30 ? '#F7BA1E' : '#F53F3F' }}>{dec.confidence.toFixed(0)}%</span>;
                         }},
-                        { title: '金额', width: 65, render: (_: any, s: Signal) => <span style={{ fontSize: 10 }}>¥{s.plannedAmount.toLocaleString()}</span> },
+                        { title: '金额', width: 65, render: (_: any, s: Signal) => <span style={{ fontSize: 10 }}>{s.plannedAmount != null && s.plannedAmount > 0 ? `¥${s.plannedAmount.toLocaleString()}` : <span style={{ color: 'var(--color-text-3)' }}>—</span>}</span> },
                       ]}
                     />
                   </>
@@ -1860,7 +1860,7 @@ export default function LiveRunDetailPage() {
               </div>
               <div>
                 <div style={{ color: 'var(--color-text-3)', fontSize: 11, marginBottom: 4 }}>计划数量</div>
-                <div style={{ fontWeight: 600 }}>{executeModal.signal.plannedQty || '-'} 股</div>
+                <div style={{ fontWeight: 600 }}>{(executeModal.signal.plannedQty && executeModal.signal.plannedQty > 0) ? executeModal.signal.plannedQty.toLocaleString() : '—'} 股</div>
               </div>
             </div>
             <div style={{ borderTop: '1px solid var(--color-border-1)', paddingTop: 12 }}>
