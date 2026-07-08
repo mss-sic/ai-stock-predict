@@ -828,31 +828,30 @@ export default function LiveRunDetailPage() {
         <Tabs activeTab={activeTab} onChange={setActiveTab}>
           {/* 当前持仓 */}
           <Tabs.TabPane key="positions" title={`当前持仓 (${positions.filter(p => p.quantity > 0).length})`}>
-            <Table data={positions.filter(p => p.quantity > 0)} rowKey="id" size="small" pagination={false}
+            <Table data={positions.filter(p => p.quantity > 0)} rowKey="id" size="small" scroll={{ x: 'max-content' }} pagination={false}
               columns={[
                 { title: '代码', dataIndex: 'stockCode', width: 70, render: (v: string) => <span style={{ fontWeight: 600, cursor: 'pointer', color: '#165DFF' }} onClick={() => navigate(`/stock/${v}`)}>{v}</span> },
-                { title: '名称', dataIndex: 'stockName', width: 70 },
-                { title: '持仓', width: 70, render: (_: any, r: Position) => (
-                  <span>
-                    <span style={{ fontWeight: 600 }}>{r.quantity}</span>
-                    <span style={{ fontSize: 9, marginLeft: 4, color: (r.availSellQty ?? r.quantity) > 0 ? 'var(--color-text-4)' : '#F53F3F' }}>可用{r.availSellQty ?? r.quantity}</span>
-                  </span>
+                { title: '名称', dataIndex: 'stockName', width: 65 },
+                { title: '持仓', width: 78, render: (_: any, r: Position) => (
+                  <div>
+                    <span style={{ fontWeight: 600 }}>{r.quantity}股</span>
+                    {(r.availSellQty ?? r.quantity) < r.quantity && <span style={{ display: 'block', fontSize: 10, color: '#F53F3F' }}>可卖{r.availSellQty}</span>}
+                  </div>
                 )},
-                { title: '可卖', width: 48, render: (_: any, r: Position) => (
-                  <span style={{ color: (r.availSellQty ?? r.quantity) === r.quantity ? 'var(--color-text-2)' : '#F53F3F', fontWeight: (r.availSellQty ?? r.quantity) !== r.quantity ? 600 : 400, fontSize: 11 }}>
-                    {r.availSellQty ?? r.quantity}
-                  </span>
+                { title: '成本/现价', width: 90, render: (_: any, r: Position) => (
+                  <div>
+                    <div style={{ color: 'var(--color-text-3)', fontSize: 11 }}>成本 ¥{r.avgCost.toFixed(3)}</div>
+                    <div style={{ fontWeight: 600, fontSize: 12, color: r.currentPrice >= r.avgCost ? '#F53F3F' : '#00B42A' }}>现价 ¥{r.currentPrice.toFixed(2)}</div>
+                  </div>
                 )},
-                { title: '成本', dataIndex: 'avgCost', width: 70, render: (v: number) => `¥${v.toFixed(3)}` },
-                { title: '现价', dataIndex: 'currentPrice', width: 65, render: (v: number) => `¥${v.toFixed(2)}` },
                 { title: '市值', width: 78, render: (_: any, r: Position) => `¥${(r.currentPrice * r.quantity).toLocaleString()}` },
-                { title: '浮动盈亏', width: 125, render: (_: any, r: Position) => (
+                { title: '浮动盈亏', width: 115, render: (_: any, r: Position) => (
                   <span style={{ color: pnlColor(r.unrealizedPnl), fontWeight: 600, fontSize: 11 }}>
                     {pnlSign(r.unrealizedPnl)}¥{Math.abs(r.unrealizedPnl||0).toFixed(0)} <span style={{ fontSize: 9, opacity: 0.7 }}>({(r.unrealizedPnlPct||0).toFixed(2)}%)</span>
                   </span>
                 )},
-                { title: '已实盈亏', dataIndex: 'realizedPnl', width: 78, render: (v: number) => v ? (
-                  <span style={{ color: pnlColor(v), fontSize: 11, fontWeight: 500 }}>{pnlSign(v)}¥{Math.abs(v).toFixed(0)}</span>
+                { title: '已实盈亏', width: 70, render: (_: any, r: Position) => r.realizedPnl ? (
+                  <span style={{ color: pnlColor(r.realizedPnl), fontSize: 11, fontWeight: 500 }}>{pnlSign(r.realizedPnl)}¥{Math.abs(r.realizedPnl).toFixed(0)}</span>
                 ) : <span style={{ color: 'var(--color-text-4)', fontSize: 10 }}>—</span> },
                 { title: '持天', dataIndex: 'holdDays', width: 38 },
               ]}
