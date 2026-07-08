@@ -833,7 +833,7 @@ export default function LiveRunDetailPage() {
                 { title: '持仓', width: 70, render: (_: any, r: Position) => (
                   <span>
                     <span style={{ fontWeight: 600 }}>{r.quantity}</span>
-                    {r.todayBuyQty > 0 && <span style={{ fontSize: 9, color: '#F7BA1E', marginLeft: 2, background: '#FFF7E6', padding: '0 3px', borderRadius: 3 }}>锁{r.todayBuyQty}</span>}
+                    <span style={{ fontSize: 9, marginLeft: 4, color: (r.availSellQty ?? r.quantity) > 0 ? 'var(--color-text-4)' : '#F53F3F' }}>可用{r.availSellQty ?? r.quantity}</span>
                   </span>
                 )},
                 { title: '可卖', width: 48, render: (_: any, r: Position) => (
