@@ -315,6 +315,9 @@ export const executeLiveSignal = (signalId: number, body?: { action?: string; ac
 
 export const syncSignalOrder = (signalId: number) => api.post(`/live/signals/${signalId}/sync-order`);
 
+// Batch sync all pending orders, optional runId filter
+export const syncOrders = (runId?: number) => api.post('/live/order-sync', {}, { params: runId ? { runId } : {} });
+
 // Pre-market
 export const runTradeExec = (tradeDate: string, skipAi?: boolean, runId?: number, force?: boolean) => api.post(`/live/runs/${runId}/trade-exec`, { tradeDate, skipAi, force }, { timeout: 120000 });
 export const fetchTradeExecTask = (id: number) => api.get(`/live/trade-exec/tasks/${id}`);

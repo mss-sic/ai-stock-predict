@@ -67,7 +67,7 @@ type SyncResult struct {
 // SyncAllPendingOrders scans pending_order / partial_filled signals for today & yesterday
 // with non-empty broker_order_id, queries broker for actual status, and completes filled orders.
 // Called by the scheduler every 30 minutes during trading hours.
-func (s *OrderSyncService) SyncAllPendingOrders() (*SyncResult, error) {
+func (s *OrderSyncService) SyncAllPendingOrders(runID uint) (*SyncResult, error) {
 	result := &SyncResult{}
 
 	today := time.Now().Format("2006-01-02")
@@ -75,19 +75,21 @@ func (s *OrderSyncService) SyncAllPendingOrders() (*SyncResult, error) {
 
 	// Find signals that need syncing: today/yesterday, pending_order/partial_filled, has broker_order_id
 	var signals []model.BacktestSignal
-	db.MySQL.Where("exec_date IN ? AND status IN ? AND broker_order_id != ''",
+	q := db.MySQL.Where("exec_date IN ? AND status IN ? AND broker_order_id != ''",
 		[]string{today, yesterday},
-		[]string{"pending_order", "partial_filled"}).
-		Order("run_id ASC, id ASC").
-		Find(&signals)
+		[]string{"pending_order", "partial_filled"})
+	if runID > 0 {
+		q = q.Where("run_id = ?", runID)
+	}
+	q.Order("run_id ASC, id ASC").Find(&signals)
 
 	result.TotalScanned = len(signals)
 	if len(signals) == 0 {
-		result.Logs = append(result.Logs, fmt.Sprintf("无需同步的委托订单 (日期: %s ~ %s)", yesterday, today))
+		result.Logs = append(result.Logs, fmt.Sprintf("无需同步的委托订单 (日期: %s ~ %s, runId=%d)", yesterday, today, runID))
 		return result, nil
 	}
 
-	result.Logs = append(result.Logs, fmt.Sprintf("扫描到 %d 条待同步委托 (日期: %s ~ %s)", len(signals), yesterday, today))
+	result.Logs = append(result.Logs, fmt.Sprintf("扫描到 %d 条待同步委托 (日期: %s ~ %s, runId=%d)", len(signals), yesterday, today, runID))
 
 	// Group by run to get account info efficiently
 	type runKey struct {
@@ -226,6 +228,7 @@ func (s *OrderSyncService) SyncAllPendingOrders() (*SyncResult, error) {
 
 	return result, nil
 }
+
 
 // SyncOrderForSignal syncs a single signal's order status from the broker.
 func (s *OrderSyncService) SyncOrderForSignal(signalID uint) (string, error) {

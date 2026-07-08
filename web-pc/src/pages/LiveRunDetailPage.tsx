@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { Card, Table, Tag, Button, Spin, Message, Tabs, Select, Divider, Alert, Progress, Modal, Drawer, Dropdown, Menu, TimePicker, Input, Switch, Popconfirm , } from '@arco-design/web-react';
 import ReactECharts from 'echarts-for-react';
 import { ArrowLeft, TrendingUp, Wallet, Zap, Settings, Activity, Calendar, RefreshCw, Loader, XCircle, Bell, FileText, Building2, Cpu } from 'lucide-react';
-import { fetchLiveRun, fetchLiveSnapshots, runLiveDaily, fetchDailyRunTask, fetchLatestDailyRunTask, runTradeExec, executeLiveSignal, syncSignalOrder, fetchTradeExecTask, fetchLatestTradeExecTask, updateLiveRunConfig, fetchNotificationConfigs, createNotificationConfig, deleteNotificationConfig, testNotification, sendLiveRunNotification, updateLiveSignal, deleteLiveSignal, clearLiveSignals, fetchRunLogs } from '../services/api';
+import { fetchLiveRun, fetchLiveSnapshots, runLiveDaily, fetchDailyRunTask, fetchLatestDailyRunTask, runTradeExec, executeLiveSignal, syncSignalOrder, syncOrders, fetchTradeExecTask, fetchLatestTradeExecTask, updateLiveRunConfig, fetchNotificationConfigs, createNotificationConfig, deleteNotificationConfig, testNotification, sendLiveRunNotification, updateLiveSignal, deleteLiveSignal, clearLiveSignals, fetchRunLogs } from '../services/api';
 
 interface Run { id: number; strategyId: number; name: string; status: string; startDate: string; initialCapital: number; currentEquity: number; totalReturn: number; maxDrawdown: number; winRate: number; tradeCount: number; lastRunDate: string; autoDailyCron?: string; autoTradeExecCron?: string; notifyEnabled?: boolean; notifyChannels?: string; executionMode?: string; aiReviewEnabled?: boolean; }
 interface Strategy { id: number; name: string; description: string; stopProfit: number; stopLoss: number; maxHoldings: number; buyPositionPct: number; addPositionPct: number; positionSizing: string; positionConcentrationLimit: number; maxDailyLoss: number; initialCapital: number; enableAIAgent?: boolean; }
@@ -82,6 +82,7 @@ export default function LiveRunDetailPage() {
   const [loading, setLoading] = useState(true);
   const [executing, setExecuting] = useState<number | null>(null);
   const [syncing, setSyncing] = useState<number | null>(null);
+  const [syncingAll, setSyncingAll] = useState(false);
   const [executeModal, setExecuteModal] = useState<{ open: boolean; signal: Signal | null }>({ open: false, signal: null });
   const [execForm, setExecForm] = useState({ actualPrice: '', actualQty: '' });
   const [editSignalModal, setEditSignalModal] = useState<{ open: boolean; signal: Signal | null }>({ open: false, signal: null });
@@ -541,6 +542,20 @@ export default function LiveRunDetailPage() {
     setSavingSignal(false);
   };
 
+  const handleSyncAll = async () => {
+    setSyncingAll(true);
+    try {
+      const resp = await syncOrders(id ? Number(id) : undefined);
+      const d = resp.data?.data || {};
+      Message.success(`同步完成: 扫描${d.totalScanned||0} 更新${d.updated||0} 已成${d.executed||0}`);
+      load();
+    } catch (e: any) {
+      console.error('[syncAll] failed:', e?.message || e);
+    } finally {
+      setSyncingAll(false);
+    }
+  };
+
   const handleSyncOrder = async (sig: Signal) => {
     setSyncing(sig.id);
     try {
@@ -818,6 +833,7 @@ export default function LiveRunDetailPage() {
                   allowClear
                 />
                 {signalDate && <Tag size="small" color="arcoblue">{signalDate}</Tag>}
+                <Button size="small" type="outline" loading={syncingAll} onClick={handleSyncAll}>同步全部订单</Button>
               </div>
               <div style={{ display: 'flex', gap: 6 }}>
                 <Dropdown

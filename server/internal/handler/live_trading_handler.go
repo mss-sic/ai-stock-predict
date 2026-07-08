@@ -1256,9 +1256,11 @@ func (h *LiveTradingHandler) GetRunLogs(c *gin.Context) {
 }
 
 // SyncOrders manually triggers order status synchronization from brokers.
+// Optional query param: ?runId=N to sync only signals for a specific run.
 func (h *LiveTradingHandler) SyncOrders(c *gin.Context) {
 	svc := service.NewOrderSyncService()
-	result, err := svc.SyncAllPendingOrders()
+	runID, _ := strconv.Atoi(c.DefaultQuery("runId", "0"))
+	result, err := svc.SyncAllPendingOrders(uint(runID))
 	if err != nil {
 		response.InternalError(c, "订单同步失败: "+err.Error())
 		return
