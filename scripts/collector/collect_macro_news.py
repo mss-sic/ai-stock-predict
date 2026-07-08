@@ -78,6 +78,7 @@ def main():
     """
     inserted = 0
     skipped = 0
+    errors = 0
     for r in data:
         try:
             cur.execute(sql, r)
@@ -85,8 +86,9 @@ def main():
                 inserted += 1
             else:
                 skipped += 1
-        except Exception:
-            skipped += 1
+        except Exception as e:
+            errors += 1
+            print(f"[宏观资讯] 写入异常: {e} | {r[0][:50]}...")
     conn.commit()
 
     cur.close()
@@ -101,7 +103,7 @@ def main():
         print(f"  {cat}: {cnt} 条")
 
     print(f"[宏观资讯] ✅ 完成 | 日期: {today} | 新增 {inserted} 条, 跳过 {skipped} 条", flush=True)
-    print(f"STAT:records_new={inserted},records_skip={skipped},records_err=0,macro_news_count={inserted}", flush=True)
+    print(f"STAT:records_new={inserted},records_skip={skipped},records_err={errors},macro_news_count={inserted}", flush=True)
 
 if __name__ == "__main__":
     main()

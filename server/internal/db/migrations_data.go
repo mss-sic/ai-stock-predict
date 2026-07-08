@@ -1892,5 +1892,25 @@ Register(Migration{
 		},
 	})
 
-}
+	// v084: macro_news 去重约束修复
+	Register(Migration{
+		Version:     84,
+		Description: "PG: add UNIQUE constraint on macro_news(title, news_time, category) for dedup",
+		Up: func() error {
+			// 删除重复数据（保留最早的一条）
+			PG.Exec(`
+				DELETE FROM macro_news a
+				USING macro_news b
+				WHERE a.id > b.id
+				  AND a.title = b.title
+				  AND a.news_time = b.news_time
+				  AND a.category = b.category
+			`)
+			// 删除普通索引，创建唯一索引
+			_ = PG.Exec("DROP INDEX IF EXISTS idx_macro_news_time")
+			_ = PG.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_macro_news_dedup ON macro_news(title, news_time, category)")
+			return nil
+		},
+	})
 
+}
