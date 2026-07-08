@@ -77,18 +77,21 @@ def main():
         ON CONFLICT (title, news_time, category) DO NOTHING
     """
     inserted = 0
+    skipped = 0
     for r in data:
         try:
             cur.execute(sql, r)
-            inserted += 1
+            if cur.rowcount > 0:
+                inserted += 1
+            else:
+                skipped += 1
         except Exception:
-            continue
+            skipped += 1
     conn.commit()
 
     cur.close()
     conn.close()
-    print(f"[宏观资讯] ✓ 写入 {inserted} 条")
-    print(f"STAT:records_new={inserted},records_skip=0,records_err=0", flush=True)
+    print(f"[宏观资讯] ✓ 写入 {inserted} 条, 跳过 {skipped} 条(重复)")
 
     # 分类统计
     from collections import Counter
@@ -97,9 +100,8 @@ def main():
     for cat, cnt in cats.most_common():
         print(f"  {cat}: {cnt} 条")
 
-    inserted = inserted if 'inserted' in dir() else len(data) if 'data' in dir() else 0
-    print(f"[宏观资讯] ✅ 完成 | 日期: {today} | 新增 {inserted} 条", flush=True)
-    print(f"STAT:records_new={inserted},records_skip=0,records_err=0,macro_news_count={inserted}", flush=True)
+    print(f"[宏观资讯] ✅ 完成 | 日期: {today} | 新增 {inserted} 条, 跳过 {skipped} 条", flush=True)
+    print(f"STAT:records_new={inserted},records_skip={skipped},records_err=0,macro_news_count={inserted}", flush=True)
 
 if __name__ == "__main__":
     main()
