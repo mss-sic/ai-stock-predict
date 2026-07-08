@@ -650,7 +650,10 @@ func (h *LiveTradingHandler) GetLatestDailyRunTask(c *gin.Context) {
 		query = query.Where("run_id = ?", runID)
 	}
 	if err := query.Order("id DESC").First(&task).Error; err != nil {
-		response.NotFound(c, "无任务记录")
+		response.Success(c, map[string]interface{}{
+			"tradeDate": tradeDate,
+			"status":    "none",
+		})
 		return
 	}
 
