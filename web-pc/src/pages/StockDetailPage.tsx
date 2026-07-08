@@ -1034,7 +1034,7 @@ const handleChatSend = async (text?: string) => {
                     <span className={`price-num ${upClass}`}>{priceStats.price.toFixed(2)}</span>
                     <span className={`price-chg ${upClass}`}>{sign}{priceStats.chg.toFixed(2)}</span>
                     <span className={`price-chg ${upClass}`}>{sign}{priceStats.chgPct.toFixed(2)}%</span>
-                    {priceStats.tradeDate && <span style={{ fontSize: 10, color: 'var(--color-text-4)', marginLeft: 8, verticalAlign: 'middle' }}>数据日: {priceStats.tradeDate.slice(0, 10)}</span>}
+                    {priceStats.tradeDate && <Tooltip content={`数据更新: ${priceStats.tradeDate}`}><span style={{ fontSize: 10, color: 'var(--color-text-4)', marginLeft: 8, verticalAlign: 'middle', cursor: 'help' }}>数据: {(() => { const d = new Date(priceStats.tradeDate); return `${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}:${String(d.getSeconds()).padStart(2,'0')}`; })()}</span></Tooltip>}
                   </div>
                   <div style={{ display: 'flex', gap: 14, marginTop: 8, fontSize: 12, color: 'var(--color-text-3)', flexWrap: 'wrap' }}>
                     <span>今开 <b style={{ color: 'var(--color-text-1)', fontWeight: 500 }}>{priceStats.open.toFixed(2)}</b></span>
