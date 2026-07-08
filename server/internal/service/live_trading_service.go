@@ -1137,6 +1137,7 @@ func (s *LiveTradingService) RefreshLivePositions() error {
 		}
 
 		s.updateRunStats(run.ID)
+		s.snapshotPortfolio(&run, &alloc, &positions, time.Now().Format("2006-01-02"))
 	}
 
 	return nil
