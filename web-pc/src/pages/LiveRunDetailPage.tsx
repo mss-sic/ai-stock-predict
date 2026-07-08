@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Card, Table, Tag, Button, Spin, Message, Tabs, Select, Divider, Alert, Progress, Modal, Drawer, Dropdown, Menu, TimePicker, Input, Switch, Popconfirm , } from '@arco-design/web-react';
+import { Card, Table, Tag, Button, Spin, Message, Tabs, Select, Divider, Alert, Progress, Modal, Drawer, Dropdown, Menu, TimePicker, Input, Switch, Popconfirm, Tooltip } from '@arco-design/web-react';
 import ReactECharts from 'echarts-for-react';
 import { ArrowLeft, TrendingUp, Wallet, Zap, Settings, Activity, Calendar, RefreshCw, Loader, XCircle, Bell, FileText, Building2, Cpu } from 'lucide-react';
 import { fetchLiveRun, fetchLiveSnapshots, runLiveDaily, fetchDailyRunTask, fetchLatestDailyRunTask, runTradeExec, executeLiveSignal, syncSignalOrder, syncOrders, reconcileFromBroker, fetchReconciliation, fetchTradeExecTask, fetchLatestTradeExecTask, updateLiveRunConfig, fetchNotificationConfigs, createNotificationConfig, deleteNotificationConfig, testNotification, sendLiveRunNotification, updateLiveSignal, deleteLiveSignal, clearLiveSignals, fetchRunLogs } from '../services/api';
@@ -8,7 +8,7 @@ import { fetchLiveRun, fetchLiveSnapshots, runLiveDaily, fetchDailyRunTask, fetc
 interface Run { id: number; strategyId: number; name: string; status: string; startDate: string; initialCapital: number; currentEquity: number; totalReturn: number; maxDrawdown: number; winRate: number; tradeCount: number; lastRunDate: string; autoDailyCron?: string; autoTradeExecCron?: string; notifyEnabled?: boolean; notifyChannels?: string; executionMode?: string; aiReviewEnabled?: boolean; }
 interface Strategy { id: number; name: string; description: string; stopProfit: number; stopLoss: number; maxHoldings: number; buyPositionPct: number; addPositionPct: number; positionSizing: string; positionConcentrationLimit: number; maxDailyLoss: number; initialCapital: number; enableAIAgent?: boolean; }
 interface Allocation { id: number; allocatedCapital: number; currentCash: number; pctOfAccount: number; status: string; }
-interface Position { id: number; stockCode: string; stockName: string; quantity: number; avgCost: number; currentPrice: number; unrealizedPnl: number; unrealizedPnlPct: number; realizedPnl: number; holdDays: number; todayBuyQty?: number; availSellQty?: number; }
+interface Position { id: number; stockCode: string; stockName: string; quantity: number; avgCost: number; currentPrice: number; unrealizedPnl: number; unrealizedPnlPct: number; realizedPnl: number; holdDays: number; todayBuyQty?: number; availSellQty?: number; updatedAt?: string; }
 interface Trade { id: number; tradeDate: string; stockCode: string; stockName: string; actionType: string; price: number; quantity: number; amount: number; pnl: number; pnlPct: number; reason: string; }
 interface Snapshot { id: number; snapshotDate: string; cash: number; positionValue: number; totalEquity: number; dailyReturnPct: number; cumulativeReturn: number; maxDrawdownPct: number; }
 interface Signal { id: number; signalDate: string; execDate: string; stockCode: string; stockName: string; actionType: string; plannedPrice: number; plannedQty: number; plannedAmount: number; status: string; reason: string; brokerOrderId?: string; suggestedPremium: number; orderPrice: number; orderPriceLimit: number; suggestedQty: number; originalQty: number; openPrice: number; openDeviation: number; decisionRule: string; }
@@ -841,7 +841,7 @@ export default function LiveRunDetailPage() {
                 { title: '成本/现价', width: 90, render: (_: any, r: Position) => (
                   <div>
                     <div style={{ color: 'var(--color-text-3)', fontSize: 11 }}>成本 ¥{r.avgCost.toFixed(3)}</div>
-                    <div style={{ fontWeight: 600, fontSize: 12, color: r.currentPrice >= r.avgCost ? '#F53F3F' : '#00B42A' }}>现价 ¥{r.currentPrice.toFixed(2)}</div>
+                    <Tooltip content={r.updatedAt ? `价格更新: ${new Date(r.updatedAt).toLocaleString('zh-CN')}` : '暂无'}><div style={{ fontWeight: 600, fontSize: 12, color: r.currentPrice >= r.avgCost ? '#F53F3F' : '#00B42A', cursor: 'help' }}>现价 ¥{r.currentPrice.toFixed(2)}</div></Tooltip>
                   </div>
                 )},
                 { title: '市值', width: 78, render: (_: any, r: Position) => `¥${(r.currentPrice * r.quantity).toLocaleString()}` },

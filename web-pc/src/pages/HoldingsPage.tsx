@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Table, Button, Modal, Input, InputNumber, Tag, Select, Tabs, Card, Message } from '@arco-design/web-react';
+import { Table, Button, Modal, Input, InputNumber, Tag, Select, Tabs, Card, Message, Tooltip } from '@arco-design/web-react';
 import { Briefcase, Plus, Edit, Trash2, Search, Wallet, TrendingUp, TrendingDown, DollarSign, BarChart3, Building2, RefreshCw } from 'lucide-react';
 import { fetchHoldingsSummary, fetchHoldings, fetchAccountsOverview, fetchHoldingAccounts,
          createHolding, updateHolding, deleteHolding, updateAccount, searchStock, syncFromBroker } from '../services/api';
@@ -12,7 +12,7 @@ interface Holding {
   buyDate: string; curPrice: number; priceDate: string; prevClose: number;
   dailyChg: number; dailyChgPct: number; dailyPnl: number;
   marketVal: number; pnl: number; pnlPct: number; holdDays: number;
-  todayBuyQty: number; availSellQty: number;
+  todayBuyQty: number; availSellQty: number; priceDate?: string;
 }
 
 interface Summary {
@@ -266,7 +266,7 @@ export default function HoldingsPage() {
             { title: '成本/现价', width: 100, render: (_: any, r: Holding) => (
               <div>
                 <div style={{ color: 'var(--color-text-3)', fontSize: 11 }}>成本 ¥{r.costPrice.toFixed(3)}</div>
-                <div style={{ fontWeight: 600, fontSize: 13, color: r.curPrice >= r.costPrice ? '#F53F3F' : '#00B42A' }}>现价 ¥{r.curPrice.toFixed(2)}</div>
+                <Tooltip content={r.priceDate ? `行情日: ${r.priceDate}` : '暂无'}><div style={{ fontWeight: 600, fontSize: 13, color: r.curPrice >= r.costPrice ? '#F53F3F' : '#00B42A', cursor: 'help' }}>现价 ¥{r.curPrice.toFixed(2)}</div></Tooltip>
               </div>
             )},
             { title: '市值', width: 95, render: (_: any, r: Holding) => <span style={{ fontWeight: 600 }}>¥{r.marketVal.toLocaleString()}</span> },
