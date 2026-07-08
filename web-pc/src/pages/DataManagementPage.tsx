@@ -130,7 +130,9 @@ function Toast({ type, msg, onClose }: { type: 'success' | 'error' | 'info'; msg
     <div style={{ position: 'fixed', top: 20, right: 20, zIndex: 9999, padding: '10px 16px', borderRadius: 6, fontSize: 13, background: colors[type], border: `1px solid ${borders[type]}`, display: 'flex', alignItems: 'center', gap: 8, boxShadow: '0 2px 8px rgba(0,0,0,0.1)', maxWidth: 400 }}>
       {icons[type]}<span style={{ flex: 1, color: 'var(--color-text-1)' }}>{msg}</span>
       <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: 'var(--color-text-3)' }}><X size={12} /></button>
-
+    </div>
+  );
+}
 
 function cronToText(expr: string): string {
   if (!expr) return '';
