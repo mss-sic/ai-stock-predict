@@ -352,7 +352,7 @@ func (s *LiveTradingService) executeSignal(
 			Quantity: result.NewQuantity, TodayBuyQty: result.NewQuantity, AvailSellQty: 0,
 			AvgCost: result.NewAvgCost,
 			CurrentPrice: result.ExecPrice,
-			FirstBuyDate: tradeDate, LastTradeDate: tradeDate,
+			FirstBuyDate: tradeDate, LastTradeDate: tradeDate, HoldDays: 1,
 			StopLossPrice: calcStopLoss(strategy, result.ExecPrice),
 			StopProfitPrice: calcStopProfit(strategy, result.ExecPrice),
 		}
@@ -1131,6 +1131,10 @@ func (s *LiveTradingService) RefreshLivePositions() error {
 				p.UnrealizedPnl = math.Round((latestPrice-p.AvgCost)*float64(p.Quantity)*100) / 100
 				if p.AvgCost > 0 {
 					p.UnrealizedPnlPct = math.Round((latestPrice-p.AvgCost)/p.AvgCost*10000) / 100
+				}
+				if p.FirstBuyDate != "" {
+					buyDate, _ := time.Parse("2006-01-02", p.FirstBuyDate)
+					p.HoldDays = int(time.Since(buyDate).Hours() / 24)
 				}
 				db.MySQL.Save(p)
 			}
