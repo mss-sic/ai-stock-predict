@@ -851,6 +851,30 @@ func (s *LiveTradingService) updateRunStats(runID uint) {
 		"total_return":   math.Round(totalReturn*100) / 100,
 		"trade_count":    tradeCount,
 	})
+
+	// Also update linked trading account stats
+	if run.AccountID > 0 {
+		var account model.TradingAccount
+		if err := db.MySQL.Where("id = ?", run.AccountID).First(&account).Error; err == nil {
+			posValue := 0.0
+			for _, p := range positions {
+				if p.Quantity > 0 {
+					posValue += p.CurrentPrice * float64(p.Quantity)
+				}
+			}
+			totalProfit := equity - account.InitialCapital
+			nav := 1.0
+			if account.InitialCapital > 0 {
+				nav = equity / account.InitialCapital
+			}
+			db.MySQL.Model(&account).Updates(map[string]interface{}{
+				"total_assets":        equity,
+				"total_market_value":  math.Round(posValue*100) / 100,
+				"total_profit":        math.Round(totalProfit*100) / 100,
+				"nav":                 math.Round(nav*10000) / 10000,
+			})
+		}
+	}
 }
 
 func (s *LiveTradingService) recordTrade(

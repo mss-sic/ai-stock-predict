@@ -265,8 +265,11 @@ func (b *MxMoniBroker) SyncPositions(account *model.TradingAccount) (*BrokerPort
 	account.AvailableCash = raw.AvailBalance
 	now := time.Now()
 	db.MySQL.Model(account).Updates(map[string]interface{}{
-		"available_cash": raw.AvailBalance,
-		"updated_at":     now,
+		"available_cash":      raw.AvailBalance,
+		"total_assets":        raw.TotalAssets,
+		"total_market_value":  raw.TotalPosVal,
+		"total_profit":        raw.TotalProfit,
+		"updated_at":          now,
 	})
 
 	today := time.Now().Format("2006-01-02")
