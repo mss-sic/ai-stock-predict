@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/ai-stock-predict/server/internal/db"
+	"gorm.io/gorm"
 	"github.com/ai-stock-predict/server/internal/model"
 	"github.com/ai-stock-predict/server/pkg/response"
 	schedv2 "github.com/ai-stock-predict/server/internal/scheduler/v2"
@@ -53,10 +54,19 @@ func (h *LiveTradingHandler) SetBrokerService(svc *service.BrokerService) {
 // ── Account Management (Multi-Account) ──
 
 // ListAccounts returns all trading accounts for the user.
+// Query params: ?status=active (default) | archived | all
 func (h *LiveTradingHandler) ListAccounts(c *gin.Context) {
 	uid := getUID(c)
+	statusFilter := c.DefaultQuery("status", "active")
 	var accounts []model.TradingAccount
-	db.MySQL.Where("user_id = ? AND status = ?", uid, "active").Order("created_at ASC").Find(&accounts)
+	q := db.MySQL.Where("user_id = ?", uid)
+	if statusFilter == "all" {
+		// return all non-deleted
+		q = q.Where("status != ?", "deleted")
+	} else {
+		q = q.Where("status = ?", statusFilter)
+	}
+	q.Order("created_at ASC").Find(&accounts)
 	response.Success(c, accounts)
 }
 
@@ -142,7 +152,7 @@ func (h *LiveTradingHandler) UpdateAccount(c *gin.Context) {
 					return
 				}
 				if h.hub != nil && !h.hub.HasAgent(uint(aid)) {
-					response.BadRequest(c, "本地 agent 未连接，请先启动 agent 并通过连接测试")
+					response.BadRequest(c, "本地 agent 未连接，请先启动 agent 并点击测试连接验证")
 					return
 				}
 			}
@@ -158,15 +168,43 @@ func (h *LiveTradingHandler) UpdateAccount(c *gin.Context) {
 }
 
 // DeleteAccount soft-deletes (archives) an account.
+// Returns 409 if the account is still in use by active/paused strategy runs.
 func (h *LiveTradingHandler) DeleteAccount(c *gin.Context) {
 	uid := getUID(c)
 	aid, _ := strconv.Atoi(c.Param("id"))
+
+	// Check for active strategy runs using this account
+	var activeRuns []model.StrategyRun
+	db.MySQL.Where("account_id = ? AND status IN ?", aid, []string{"active", "paused"}).Find(&activeRuns)
+	if len(activeRuns) > 0 {
+		runNames := make([]string, len(activeRuns))
+		for i, r := range activeRuns {
+			runNames[i] = r.Name
+		}
+		response.Error(c, 409, 409,
+			fmt.Sprintf("该账户被 %d 个运行中的策略使用：%s。请先停止相关策略运行后再归档。",
+				len(activeRuns), strings.Join(runNames, "、")))
+		return
+	}
+
 	if err := db.MySQL.Model(&model.TradingAccount{}).Where("id = ? AND user_id = ?", aid, uid).
 		Update("status", "archived").Error; err != nil {
 		response.InternalError(c, "删除账户失败")
 		return
 	}
 	response.Success(c, map[string]string{"status": "archived"})
+}
+
+// RestoreAccount restores an archived account back to active.
+func (h *LiveTradingHandler) RestoreAccount(c *gin.Context) {
+	uid := getUID(c)
+	aid, _ := strconv.Atoi(c.Param("id"))
+	if err := db.MySQL.Model(&model.TradingAccount{}).Where("id = ? AND user_id = ? AND status = ?", aid, uid, "archived").
+		Update("status", "active").Error; err != nil {
+		response.InternalError(c, "恢复账户失败")
+		return
+	}
+	response.Success(c, map[string]string{"status": "active"})
 }
 
 // ── Agent Token Management (Local Auto-Trading) ──
@@ -261,6 +299,7 @@ func (h *LiveTradingHandler) CreateRun(c *gin.Context) {
 		PctOfAccount      float64              `json:"pctOfAccount"`
 		StockPool         string               `json:"stockPool"`
 		StartDate         string               `json:"startDate"`
+		ImportPositions   bool                 `json:"importPositions"`
 		AutoDailyCron     string               `json:"autoDailyCron"`
 		AutoTradeExecCron string               `json:"autoTradeExecCron"`
 		NotifyEnabled     bool                 `json:"notifyEnabled"`
@@ -284,26 +323,24 @@ func (h *LiveTradingHandler) CreateRun(c *gin.Context) {
 			response.BadRequest(c, "交易账户不存在")
 			return
 		}
-		// Prevent same account being used by multiple active strategy runs
-		var conflictRun model.StrategyRun
-		if err := db.MySQL.Where("account_id = ? AND status IN ?", body.AccountID, []string{"active", "paused"}).First(&conflictRun).Error; err == nil {
-			response.BadRequest(c, fmt.Sprintf("该资金账户已被实盘「%s」使用，请先停用或归档后再创建新实盘", conflictRun.Name))
+		// Validate allocatable budget (account free cash >= requested initial capital)
+		svc := service.NewLiveTradingService()
+		availBudget, ok, msg := svc.ValidateBudgetForAllocation(body.AccountID, body.InitialCapital)
+		if !ok {
+			response.BadRequest(c, msg)
 			return
 		}
+		_ = availBudget // available for logging/debugging
 	} else {
-		// Auto-create default account
+		// No account specified — use first active account or return error
 		db.MySQL.Where("user_id = ? AND status = ?", uid, "active").First(&account)
 		if account.ID == 0 {
-			account = model.TradingAccount{
-				UserID: uid, Name: "默认账户", AccountType: "simulated",
-				InitialCapital: body.InitialCapital, AvailableCash: body.InitialCapital,
-				TotalDeposit: body.InitialCapital,
-			}
-			db.MySQL.Create(&account)
+			response.BadRequest(c, "没有可用的资金账户，请先在「资金账户」页面创建账户")
+			return
 		}
 	}
 
-	// Create strategy run
+	// Create strategy run (in transaction)
 	run := model.StrategyRun{
 		UserID:            uid,
 		StrategyID:        body.StrategyID,
@@ -313,60 +350,64 @@ func (h *LiveTradingHandler) CreateRun(c *gin.Context) {
 		StockPool:         body.StockPool,
 		StartDate:         body.StartDate,
 		InitialCapital:    body.InitialCapital,
+		AvailableCash:     body.InitialCapital,
 		CurrentEquity:     body.InitialCapital,
 		AutoDailyCron:     body.AutoDailyCron,
 		AutoTradeExecCron: body.AutoTradeExecCron,
 	}
-	if err := db.MySQL.Create(&run).Error; err != nil {
-		response.InternalError(c, "创建运行实例失败")
+
+	var notifyChannelIDs []uint
+	txErr := db.MySQL.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&run).Error; err != nil {
+			return fmt.Errorf("创建运行实例失败: %w", err)
+		}
+
+		// Set strategy fund fields directly (no separate allocation table)
+		if err := tx.Model(&run).Updates(map[string]interface{}{
+			"available_cash": body.InitialCapital,
+		}).Error; err != nil {
+			return fmt.Errorf("设置资金字段失败: %w", err)
+		}
+
+		// Create notification configs and associate with run
+		if body.NotifyEnabled && len(body.NotifyConfigs) > 0 {
+			for _, nc := range body.NotifyConfigs {
+				if nc.Channel == "" || nc.WebhookURL == "" {
+					continue
+				}
+				if nc.Name == "" {
+					nc.Name = nc.Channel
+				}
+				cfg := model.NotificationConfig{
+					UserID:  uid,
+					Channel: nc.Channel,
+					Name:    nc.Name,
+					Config:  model.JSONMap{"webhook_url": nc.WebhookURL},
+					Enabled: true,
+				}
+				if err := tx.Create(&cfg).Error; err != nil {
+					log.Printf("[live] create notification config failed: %v", err)
+					continue
+				}
+				notifyChannelIDs = append(notifyChannelIDs, cfg.ID)
+			}
+			// Update run with notification settings
+			channelsJSON, _ := json.Marshal(notifyChannelIDs)
+			tx.Model(&run).Updates(map[string]interface{}{
+				"notify_enabled":  true,
+				"notify_channels": string(channelsJSON),
+			})
+		}
+		return nil
+	})
+	if txErr != nil {
+		response.InternalError(c, txErr.Error())
 		return
 	}
 
-	// Create fund allocation
-	if body.PctOfAccount <= 0 {
-		body.PctOfAccount = 100
-	}
-	alloc := model.StrategyFundAllocation{
-		UserID: uid, AccountID: account.ID, StrategyRunID: run.ID,
-		AllocatedCapital: body.InitialCapital, CurrentCash: body.InitialCapital,
-		PctOfAccount: body.PctOfAccount, Status: "active",
-	}
-	db.MySQL.Create(&alloc)
-
-	// Create notification configs and associate with run
-	var notifyChannelIDs []uint
-	if body.NotifyEnabled && len(body.NotifyConfigs) > 0 {
-		for _, nc := range body.NotifyConfigs {
-			if nc.Channel == "" || nc.WebhookURL == "" {
-				continue
-			}
-			if nc.Name == "" {
-				nc.Name = nc.Channel
-			}
-			cfg := model.NotificationConfig{
-				UserID:  uid,
-				Channel: nc.Channel,
-				Name:    nc.Name,
-				Config:  model.JSONMap{"webhook_url": nc.WebhookURL},
-				Enabled: true,
-			}
-			if err := db.MySQL.Create(&cfg).Error; err != nil {
-				log.Printf("[live] create notification config failed: %v", err)
-				continue
-			}
-			notifyChannelIDs = append(notifyChannelIDs, cfg.ID)
-		}
-		// Update run with notification settings
-		channelsJSON, _ := json.Marshal(notifyChannelIDs)
-		db.MySQL.Model(&run).Updates(map[string]interface{}{
-			"notify_enabled":  true,
-			"notify_channels": string(channelsJSON),
-		})
-	}
-
-	// Import existing positions from broker (API-direct only, not agent-based)
-	// Agent-based accounts require a connected local agent — skip auto-import on create
-	if model.GetExecChannel(account.BrokerMode) == model.ChannelAPI {
+	// Import existing positions from broker if explicitly requested.
+	// Only applicable for API-direct accounts (mx_moni); agent-based accounts skip.
+	if body.ImportPositions && model.GetExecChannel(account.BrokerMode) == model.ChannelAPI {
 		go func() {
 			svc := service.NewLiveTradingService()
 			if err := svc.ImportBrokerPositionsToRun(h.brokerSvc, run.ID, account.ID, uid); err != nil {
@@ -384,7 +425,7 @@ func (h *LiveTradingHandler) CreateRun(c *gin.Context) {
 
 	response.Created(c, map[string]interface{}{
 		"runId":        run.ID,
-		"allocationId": alloc.ID,
+		"allocationId": run.ID,
 		"accountId":    account.ID,
 	})
 }
@@ -422,8 +463,7 @@ func (h *LiveTradingHandler) GetRun(c *gin.Context) {
 			Order("id ASC").First(&linkedAccount)
 	}
 
-	var alloc model.StrategyFundAllocation
-	db.MySQL.Where("strategy_run_id = ? AND status = ?", rid, "active").First(&alloc)
+	// Strategy fund fields are on the run itself
 
 	var positions []model.LivePosition
 	db.MySQL.Where("strategy_run_id = ? AND quantity > 0", rid).Find(&positions)
@@ -459,7 +499,6 @@ func (h *LiveTradingHandler) GetRun(c *gin.Context) {
 		"run":           run,
 		"strategy":      strategy,
 		"account":       linkedAccount,
-		"allocation":    alloc,
 		"positions":     positions,
 		"trades":        trades,
 		"signals":       signals,
@@ -831,8 +870,8 @@ func (h *LiveTradingHandler) UpdateSignal(c *gin.Context) {
 		response.NotFound(c, "信号不存在")
 		return
 	}
-	if sig.Status != "pending" && sig.Status != "confirmed" {
-		response.BadRequest(c, "只能修改待执行/已确认的信号")
+	if sig.Status != "pending" && sig.Status != "confirmed" && sig.Status != "pending_manual" && sig.Status != "pending_auto" && sig.Status != "order_failed" && sig.Status != "claimed" && sig.Status != "cancelled" {
+		response.BadRequest(c, "只能修改待执行/已确认/待手动/待自动/下单失败/已认领/已撤单的信号")
 		return
 	}
 
@@ -840,6 +879,7 @@ func (h *LiveTradingHandler) UpdateSignal(c *gin.Context) {
 		PlannedPrice  *float64 `json:"plannedPrice"`
 		PlannedQty    *int     `json:"plannedQty"`
 		Reason        *string  `json:"reason"`
+		Status        *string  `json:"status"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		response.BadRequest(c, "参数错误")
@@ -850,6 +890,7 @@ func (h *LiveTradingHandler) UpdateSignal(c *gin.Context) {
 	if body.PlannedPrice != nil { updates["planned_price"] = *body.PlannedPrice; sig.PlannedPrice = *body.PlannedPrice }
 	if body.PlannedQty != nil { updates["planned_qty"] = *body.PlannedQty; sig.PlannedQty = *body.PlannedQty }
 	if body.Reason != nil { updates["reason"] = *body.Reason }
+	if body.Status != nil { updates["status"] = *body.Status }
 
 	if len(updates) == 0 {
 		response.BadRequest(c, "无更新内容")
@@ -878,8 +919,8 @@ func (h *LiveTradingHandler) DeleteSignal(c *gin.Context) {
 		response.NotFound(c, "信号不存在")
 		return
 	}
-	if sig.Status != "pending" {
-		response.BadRequest(c, "只能删除待执行的信号")
+	if sig.Status != "pending" && sig.Status != "claimed" {
+		response.BadRequest(c, "只能删除待执行/已认领的信号")
 		return
 	}
 
@@ -937,14 +978,10 @@ func (h *LiveTradingHandler) ExecuteSignal(c *gin.Context) {
 			sig.StrategyID, uid, "active").First(&run).Error; err != nil {
 			return
 		}
-		var alloc model.StrategyFundAllocation
-		if err := db.MySQL.Where("strategy_run_id = ? AND status = ?",
-			run.ID, "active").First(&alloc).Error; err != nil {
-			return
-		}
+		// Strategy funds are now on the run itself; skip separate allocation check
 		var account model.TradingAccount
 		if err := db.MySQL.Where("id = ? AND user_id = ?",
-			alloc.AccountID, uid).First(&account).Error; err != nil {
+			run.AccountID, uid).First(&account).Error; err != nil {
 			return
 		}
 		if account.BrokerMode != "mx_moni" {
@@ -1029,15 +1066,6 @@ func (h *LiveTradingHandler) GetAccount(c *gin.Context) {
 	uid := getUID(c)
 	var accounts []model.TradingAccount
 	db.MySQL.Where("user_id = ? AND status = ?", uid, "active").Find(&accounts)
-	// Auto-create if none
-	if len(accounts) == 0 {
-		acct := model.TradingAccount{
-			UserID: uid, Name: "默认账户", AccountType: "simulated",
-			InitialCapital: 100000, AvailableCash: 100000, TotalDeposit: 100000,
-		}
-		db.MySQL.Create(&acct)
-		accounts = append(accounts, acct)
-	}
 	response.Success(c, accounts)
 }
 
@@ -1436,18 +1464,13 @@ func (h *LiveTradingHandler) ClearSignals(c *gin.Context) {
 		debugStatuses = append(debugStatuses, r.Status)
 	}
 
-	// Count before delete
-	var deletedCount int64
-	statusList := []string{"pending", "pending_manual", "pending_auto"}
-	db.MySQL.Model(&model.BacktestSignal{}).
-		Where("run_id = ? AND exec_date = ? AND status IN ?", rid, date, statusList).
-		Count(&deletedCount)
-
-	db.MySQL.Where("run_id = ? AND exec_date = ? AND status IN ?", rid, date, statusList).
+	// Delete pending/confirmed signals for this run+date
+	statusList := []string{"pending", "confirmed", "pending_manual", "pending_auto"}
+	result := db.MySQL.Where("run_id = ? AND exec_date = ? AND status IN ?", rid, date, statusList).
 		Delete(&model.BacktestSignal{})
 
 	response.Success(c, map[string]interface{}{
-		"deleted": deletedCount,
+		"deleted": result.RowsAffected,
 		"date":    date,
 		"debug": map[string]interface{}{
 			"runId": rid,
@@ -1458,12 +1481,222 @@ func (h *LiveTradingHandler) ClearSignals(c *gin.Context) {
 	})
 }
 
+
+// ── Strategy Cash Flow ──
+
+// DepositToRun adds cash to a strategy run.
+func (h *LiveTradingHandler) DepositToRun(c *gin.Context) {
+	uid := getUID(c)
+	rid, _ := strconv.Atoi(c.Param("id"))
+	var body struct {
+		Amount float64 `json:"amount"`
+		Reason string  `json:"reason"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil || body.Amount <= 0 {
+		response.BadRequest(c, "参数错误：amount 必须大于0")
+		return
+	}
+
+	var run model.StrategyRun
+	if err := db.MySQL.Where("id = ? AND user_id = ?", rid, uid).First(&run).Error; err != nil {
+		response.NotFound(c, "运行实例不存在")
+		return
+	}
+	svc := service.NewLiveTradingService()
+	if err := svc.DepositToRun(uint(rid), body.Amount, body.Reason); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	response.SuccessMsg(c, fmt.Sprintf("入金成功: ¥%.0f", body.Amount))
+}
+
+// WithdrawFromRun withdraws cash from a strategy run.
+func (h *LiveTradingHandler) WithdrawFromRun(c *gin.Context) {
+	uid := getUID(c)
+	rid, _ := strconv.Atoi(c.Param("id"))
+	var body struct {
+		Amount float64 `json:"amount"`
+		Reason string  `json:"reason"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil || body.Amount <= 0 {
+		response.BadRequest(c, "参数错误：amount 必须大于0")
+		return
+	}
+
+	var run model.StrategyRun
+	if err := db.MySQL.Where("id = ? AND user_id = ?", rid, uid).First(&run).Error; err != nil {
+		response.NotFound(c, "运行实例不存在")
+		return
+	}
+	svc := service.NewLiveTradingService()
+	if err := svc.WithdrawFromRun(uint(rid), body.Amount, body.Reason); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	response.SuccessMsg(c, fmt.Sprintf("出金成功: ¥%.0f", body.Amount))
+}
+
+// GetCashFlows returns deposit/withdraw history for a strategy run.
+func (h *LiveTradingHandler) GetCashFlows(c *gin.Context) {
+	uid := getUID(c)
+	rid, _ := strconv.Atoi(c.Param("id"))
+	var run model.StrategyRun
+	if err := db.MySQL.Where("id = ? AND user_id = ?", rid, uid).First(&run).Error; err != nil {
+		response.NotFound(c, "运行实例不存在")
+		return
+	}
+	var flows []model.StrategyCashFlow
+	db.MySQL.Where("strategy_run_id = ?", rid).Order("created_at DESC").Limit(200).Find(&flows)
+	response.Success(c, flows)
+}
+
+// GetAccountDetail returns comprehensive account overview with strategy allocations.
+func (h *LiveTradingHandler) GetAccountDetail(c *gin.Context) {
+	uid := getUID(c)
+	aid, _ := strconv.Atoi(c.Param("id"))
+
+	var account model.TradingAccount
+	if err := db.MySQL.Where("id = ? AND user_id = ?", aid, uid).First(&account).Error; err != nil {
+		response.NotFound(c, "账户不存在")
+		return
+	}
+
+	// Account holdings
+	var holdings []model.Holding
+	db.MySQL.Where("account_id = ?", aid).Find(&holdings)
+
+	// Active strategy runs
+	var runs []model.StrategyRun
+	db.MySQL.Where("account_id = ? AND status IN ?", aid, []string{"active", "paused"}).Find(&runs)
+
+	// Per-run allocations
+	type RunAllocation struct {
+		RunID         uint    `json:"runId"`
+		RunName       string  `json:"runName"`
+		Status        string  `json:"status"`
+		AvailableCash float64 `json:"availableCash"`
+		PositionValue float64 `json:"positionValue"`
+		TotalEquity   float64 `json:"totalEquity"`
+		TotalCost     float64 `json:"totalCost"`
+		ReturnPct     float64 `json:"returnPct"`
+		PositionCount int     `json:"positionCount"`
+	}
+	allocations := make([]RunAllocation, 0)
+	for _, run := range runs {
+		var posCount int64
+		db.MySQL.Model(&model.LivePosition{}).Where("strategy_run_id = ? AND quantity > 0", run.ID).Count(&posCount)
+		allocs := RunAllocation{
+			RunID: run.ID, RunName: run.Name, Status: run.Status,
+			AvailableCash: run.AvailableCash, PositionValue: run.PositionValue,
+			TotalEquity: run.CurrentEquity, TotalCost: run.InitialCapital,
+			PositionCount: int(posCount),
+		}
+		if run.InitialCapital > 0 {
+			allocs.ReturnPct = float64(int((run.CurrentEquity-run.InitialCapital)/run.InitialCapital*1000000+0.5)) / 10000
+		}
+		allocations = append(allocations, allocs)
+	}
+
+	// Free cash
+	var allocatedCash float64
+	db.MySQL.Raw("SELECT COALESCE(SUM(available_cash), 0) FROM strategy_runs WHERE account_id = ? AND status IN ('active', 'paused')", aid).Scan(&allocatedCash)
+	freeCash := account.AvailableCash - allocatedCash
+
+	// Holdings allocation: which strategies hold which stocks
+	type HoldingAllocation struct {
+		StockCode  string `json:"stockCode"`
+		StockName  string `json:"stockName"`
+		TotalQty   int    `json:"totalQty"`
+		RunAllocs  []map[string]interface{} `json:"runAllocs"`
+	}
+	holdingAllocs := make([]HoldingAllocation, 0)
+	for _, h := range holdings {
+		ha := HoldingAllocation{StockCode: h.StockCode, StockName: h.StockName, TotalQty: h.Quantity}
+		for _, run := range runs {
+			var lp model.LivePosition
+			if err := db.MySQL.Where("strategy_run_id = ? AND stock_code = ? AND quantity > 0", run.ID, h.StockCode).First(&lp).Error; err == nil {
+				ha.RunAllocs = append(ha.RunAllocs, map[string]interface{}{
+					"runId": run.ID, "runName": run.Name, "quantity": lp.Quantity,
+				})
+			}
+		}
+		holdingAllocs = append(holdingAllocs, ha)
+	}
+
+	response.Success(c, map[string]interface{}{
+		"account":        account,
+		"holdings":       holdings,
+		"runs":           runs,
+		"allocations":    allocations,
+		"freeCash":       freeCash,
+		"holdingAllocs":  holdingAllocs,
+	})
+}
+
+// SyncAccountFromBroker syncs account holdings and balance from broker (account-level only).
+func (h *LiveTradingHandler) SyncAccountFromBroker(c *gin.Context) {
+	uid := getUID(c)
+	aid, _ := strconv.Atoi(c.Param("id"))
+
+	portfolio, err := h.brokerSvc.SyncPositionsFromBroker(uint(aid), uid)
+	if err != nil {
+		response.InternalError(c, "同步失败: "+err.Error())
+		return
+	}
+
+	// Update holdings from broker (full overwrite per stock)
+	for _, bp := range portfolio.Positions {
+		db.MySQL.Exec(`
+			INSERT INTO holdings (user_id, account_id, stock_code, stock_name, cost_price, quantity, total_cost, current_price, buy_date, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+			ON DUPLICATE KEY UPDATE stock_name=VALUES(stock_name), cost_price=VALUES(cost_price),
+				quantity=VALUES(quantity), total_cost=VALUES(total_cost), current_price=VALUES(current_price), updated_at=NOW()
+		`, uid, aid, bp.SecCode, bp.SecName, bp.CostPrice, bp.Count, bp.CostPrice*float64(bp.Count), bp.Price, time.Now().Format("2006-01-02"))
+	}
+
+	// Remove holdings that broker no longer has
+	db.MySQL.Exec(`
+		DELETE FROM holdings WHERE account_id = ? AND stock_code NOT IN (
+			SELECT * FROM (SELECT '' AS code) AS dummy
+		)
+	`, aid)
+
+	// Update account balance
+	db.MySQL.Model(&model.TradingAccount{}).Where("id = ?", aid).Updates(map[string]interface{}{
+		"available_cash":     portfolio.AvailBalance,
+		"total_assets":       portfolio.TotalAssets,
+		"total_market_value": portfolio.TotalPosVal,
+	})
+
+	// Return drift report (live_positions vs new holdings)
+	var driftItems []map[string]interface{}
+	var activeRuns []model.StrategyRun
+	db.MySQL.Where("account_id = ? AND status IN ?", aid, []string{"active", "paused"}).Find(&activeRuns)
+	for _, run := range activeRuns {
+		var lpCount, hCount int64
+		db.MySQL.Model(&model.LivePosition{}).Where("strategy_run_id = ? AND quantity > 0", run.ID).Count(&lpCount)
+		db.MySQL.Model(&model.Holding{}).Where("account_id = ? AND quantity > 0", aid).Count(&hCount)
+		if lpCount != hCount {
+			driftItems = append(driftItems, map[string]interface{}{
+				"runId": run.ID, "runName": run.Name,
+				"livePositions": lpCount, "holdings": hCount,
+				"type": "count_mismatch",
+			})
+		}
+	}
+
+	response.Success(c, map[string]interface{}{
+		"portfolio": portfolio,
+		"drift":     driftItems,
+	})
+}
 func RegisterLiveTradingRoutes(r *gin.RouterGroup, h *LiveTradingHandler) {
 	// Account CRUD (multi-account)
 	r.GET("/accounts", h.ListAccounts)
 	r.POST("/accounts", h.CreateAccount)
 	r.PUT("/accounts/:id", h.UpdateAccount)
 	r.DELETE("/accounts/:id", h.DeleteAccount)
+	r.POST("/accounts/:id/restore", h.RestoreAccount)
 
 	// Agent Token management (local auto-trading)
 	r.POST("/accounts/:id/generate-agent-token", h.GenerateAgentToken)
@@ -1513,6 +1746,15 @@ func RegisterLiveTradingRoutes(r *gin.RouterGroup, h *LiveTradingHandler) {
 	r.POST("/signals/:id/sync-order", h.SyncSignalOrder)
 	r.POST("/signals/:id/cancel-order", h.CancelSignalOrder)
 	r.POST("/runs/:id/signals/cancel-all-orders", h.CancelAllSignalOrders)
+
+	// Strategy cash flow
+	r.POST("/runs/:id/deposit", h.DepositToRun)
+	r.POST("/runs/:id/withdraw", h.WithdrawFromRun)
+	r.GET("/runs/:id/cash-flows", h.GetCashFlows)
+
+	// Account detail & sync
+	r.GET("/accounts/:id/detail", h.GetAccountDetail)
+	r.POST("/accounts/:id/sync-account", h.SyncAccountFromBroker)
 
 	// Execution logs
 	r.GET("/runs/:id/logs", h.GetRunLogs)
@@ -1567,15 +1809,16 @@ func (h *LiveTradingHandler) CancelSignalOrder(c *gin.Context) {
 		}
 	}
 
-	// Reset signal status to pending for re-execution
+	// Mark signal as cancelled (terminal state) — user actively cancelled the order,
+	// so it should NOT be re-queued for automatic execution.
 	db.MySQL.Model(&sig).Updates(map[string]interface{}{
-		"status":          "pending",
+		"status":          "cancelled",
 		"broker_order_id": "",
-		"reason":          sig.Reason + " | 已撤单，等待重新执行",
+		"reason":          sig.Reason + " | 已撤单",
 	})
 
-	log.Printf("[live] CancelSignalOrder signal=%d stock=%s order=%s → reset to pending", sid, sig.StockCode, sig.BrokerOrderID)
-	response.SuccessMsg(c, "撤单成功，信号已重置为待执行")
+	log.Printf("[live] CancelSignalOrder signal=%d stock=%s order=%s → cancelled", sid, sig.StockCode, sig.BrokerOrderID)
+	response.SuccessMsg(c, "撤单成功，信号已标记为已撤单")
 }
 
 // CancelAllSignalOrders batch-cancels all pending_order signals for a run on the current date.
@@ -1612,9 +1855,9 @@ func (h *LiveTradingHandler) CancelAllSignalOrders(c *gin.Context) {
 			}
 		}
 		db.MySQL.Model(&sig).Updates(map[string]interface{}{
-			"status":          "pending",
+			"status":          "cancelled",
 			"broker_order_id": "",
-			"reason":          sig.Reason + " | 批量撤单，等待重新执行",
+			"reason":          sig.Reason + " | 批量撤单",
 		})
 		successCount++
 	}
@@ -1690,11 +1933,12 @@ func (h *LiveTradingHandler) ReconcileFromBroker(c *gin.Context) {
 	}
 
 	svc := service.NewLiveTradingService()
-	if err := svc.ReconcileFromBroker(h.brokerSvc, uint(accountID), uid, uint(runID)); err != nil {
+	report, err := svc.ReconcileFromBroker(h.brokerSvc, uint(accountID), uid, uint(runID))
+	if err != nil {
 		response.InternalError(c, "数据修复失败: "+err.Error())
 		return
 	}
-	response.Success(c, map[string]string{"status": "ok"})
+	response.Success(c, report)
 }
 
 // GetReconciliation compares live_positions (strategy view) vs holdings (broker view).
@@ -1796,7 +2040,7 @@ func (h *LiveTradingHandler) GetReconciliation(c *gin.Context) {
 // SyncOrders manually triggers order status synchronization from brokers.
 // Optional query param: ?runId=N to sync only signals for a specific run.
 func (h *LiveTradingHandler) SyncOrders(c *gin.Context) {
-	svc := service.NewOrderSyncService()
+	svc := service.NewOrderSyncService(h.brokerSvc)
 	runID, _ := strconv.Atoi(c.DefaultQuery("runId", "0"))
 	result, err := svc.SyncAllPendingOrders(uint(runID))
 	if err != nil {
@@ -1813,7 +2057,7 @@ func (h *LiveTradingHandler) SyncSignalOrder(c *gin.Context) {
 		response.BadRequest(c, "参数错误")
 		return
 	}
-	svc := service.NewOrderSyncService()
+	svc := service.NewOrderSyncService(h.brokerSvc)
 	newStatus, err := svc.SyncOrderForSignal(uint(sid))
 	if err != nil {
 		response.InternalError(c, "订单同步失败: "+err.Error())

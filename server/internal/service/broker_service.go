@@ -1,6 +1,7 @@
 package service
 
 import (
+
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -9,7 +10,6 @@ import (
 	"net/http"
 	"os"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/ai-stock-predict/server/internal/db"
@@ -360,9 +360,9 @@ func (b *MxMoniBroker) GetBalance(account *model.TradingAccount) (*BrokerBalance
 		return nil, fmt.Errorf("unmarshal balance data: %w", err)
 	}
 
-	// Backfill account fields from broker
-	// NOTE: Never overwrite InitialCapital — it's a system parameter set by user,
-	// not a broker-derived value. Broker InitMoney may differ from actual initial capital.
+	// Backfill account fields from broker.
+	// InitialCapital is now synced from broker InitMoney because the broker is authoritative
+	// for the true cost basis (user manual input may be stale).
 	now := time.Now()
 	if raw.AccID != "" {
 		account.MxAccountID = raw.AccID
@@ -372,7 +372,10 @@ func (b *MxMoniBroker) GetBalance(account *model.TradingAccount) (*BrokerBalance
 	account.TotalMarketValue = raw.TotalPosValue
 	account.FrozenCash = raw.FrozenMoney
 	account.Nav = raw.Nav
-	db.MySQL.Model(account).Select("*").Updates(map[string]interface{}{
+	if raw.InitMoney > 0 {
+		account.InitialCapital = raw.InitMoney
+	}
+	updates := map[string]interface{}{
 		"available_cash":     raw.AvailBalance,
 		"total_assets":       raw.TotalAssets,
 		"total_market_value": raw.TotalPosValue,
@@ -380,7 +383,11 @@ func (b *MxMoniBroker) GetBalance(account *model.TradingAccount) (*BrokerBalance
 		"nav":                raw.Nav,
 		"mx_account_id":      account.MxAccountID,
 		"updated_at":         now,
-	})
+	}
+	if raw.InitMoney > 0 {
+		updates["initial_capital"] = raw.InitMoney
+	}
+	db.MySQL.Model(account).Select("*").Updates(updates)
 
 	return &BrokerBalance{
 		TotalAssets:  raw.TotalAssets,
@@ -529,6 +536,15 @@ func NewBrokerService() *BrokerService {
 	return &BrokerService{}
 }
 
+// ── Global BrokerService (for scheduler pipelines that need it) ──
+var globalBrokerSvc *BrokerService
+
+// SetGlobalBrokerService stores a hub+commander-injected BrokerService for global access.
+func SetGlobalBrokerService(svc *BrokerService) { globalBrokerSvc = svc }
+
+// GetGlobalBrokerService returns the globally registered BrokerService (may be nil).
+func GetGlobalBrokerService() *BrokerService { return globalBrokerSvc }
+
 // SetHubAndCommander injects the WebSocket hub and command tracker for lobster broker support.
 func (s *BrokerService) SetHubAndCommander(hub *ws.Hub, commander *ws.Commander) {
 	s.hub = hub
@@ -648,11 +664,10 @@ func (s *BrokerService) CancelBrokerOrder(accountID uint, userID uint, orderID s
 // ── Stock code helpers ──
 
 func StockPriceDecimals(code string) int {
-	if strings.HasPrefix(code, "6") || strings.HasPrefix(code, "9") {
-		return 2
-	}
-	return 3
+	// A-share stocks all use 2 decimal places (minimum tick 0.01)
+	return 2
 }
+
 
 func FormatStockPrice(code string, price float64) float64 {
 	decimals := StockPriceDecimals(code)

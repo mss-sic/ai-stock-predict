@@ -377,10 +377,23 @@ class EastMoneyMacTrader(AbstractTrader):
     # ── 内部辅助 ──
 
     def _activate(self) -> bool:
-        """将东方财富 APP 激活到前台。"""
+        """将东方财富 APP 激活到前台，并轮询等待主窗口可读。
+
+        实测：activateWithOptions 是异步的，激活后窗口需短暂时间才能被 AX
+        读取。固定短延时在 WS 命令线程调用时常常窗口尚未就绪导致
+        _window() 返回 None。这里改为轮询等待（最多 ~3s）。
+        """
         ok = ax.activate_app(self.app_name)
-        time.sleep(self.action_delay)
-        return ok
+        if not ok:
+            logger.warning("_activate: 未找到东方财富 APP")
+            return False
+        # 轮询等待主窗口真正可读
+        for _ in range(15):
+            time.sleep(0.2)
+            if ax.main_window(self._app) is not None:
+                return True
+        logger.warning("_activate: 激活后主窗口仍不可读（超时）")
+        return False
 
     def _window(self):
         """返回当前主窗口 AX 元素。"""
@@ -409,19 +422,35 @@ class EastMoneyMacTrader(AbstractTrader):
         return True
 
     def _fill_field(self, element, text: str) -> bool:
-        """向输入框写入文本：点击聚焦 → 全选 → 直接输入替换。
+        """向输入框写入文本：点击聚焦 → 光标移到行尾 → 单向退格清空 → 逐字输入。
 
-        东方财富输入框在「全选(⌘A)」后直接输入即会替换选中内容，
-        无需额外多次删除（多次删除反而会打乱焦点/光标，导致输入错乱）。
+        关键：不使用 ⌘A 全选。pyautogui 在 macOS 上发送 ⌘A 时，command 修饰键
+        与 a 键是两个独立事件，存在竞态——修饰键偶发未及时生效时，a 会作为普通
+        字符落入输入框，中文输入法再将其转成候选汉字（锕/呵），导致证券代码污染。
+
+        清空策略：点击后光标可能落在文本中间，若直接退格会从中间删起、删不干净
+        （如价格 136.03 变成错值）。故先用「右方向键」把光标推到行尾，再单向
+        「退格」逐个左删至空。方向键/退格键均不产生字符，也不受中文输入法影响。
         """
         c = ax.center(element)
         if not c:
             return False
         self._pa.click(c[0], c[1])
         time.sleep(0.2)
-        self._pa.hotkey("command", "a")   # 全选原有内容
+        # 读当前值长度，计算需要的按键次数（留足余量）
+        try:
+            cur = str(ax.value(element) or "")
+        except Exception:
+            cur = ""
+        n = max(len(cur), 12) + 6
+        # ① 先把光标移到行尾（右方向键，不产生字符）
+        for _ in range(n):
+            self._pa.press("right")
+        # ② 从行尾单向退格清空
+        for _ in range(n):
+            self._pa.press("backspace")
         time.sleep(0.1)
-        # 选中状态下逐字输入，新内容整体替换旧内容
+        # 逐字输入（纯数字/小数点，不受中文输入法影响）
         self._pa.typewrite(str(text), interval=0.08)
         time.sleep(0.2)
         return True
@@ -571,9 +600,12 @@ class EastMoneyMacTrader(AbstractTrader):
     def is_logged_in(self) -> bool:
         """判断实盘账户是否处于可交易的已登录状态。
 
+        实盘登录状态有三种：「已登录」（可交易）、「未登录」（需登录）、
+        「已锁定」（超时锁定，需重新登录/解锁）。仅「已登录」视为可交易。
+
         Returns:
             True  —— 已登录，或模拟盘（无登录状态标签，视为可交易）
-            False —— 明确读到「未登录」等非已登录状态
+            False —— 明确读到「未登录」「已锁定」等非可交易状态
         """
         status = self.get_login_status()
         if status is None:
@@ -603,17 +635,27 @@ class EastMoneyMacTrader(AbstractTrader):
         return None
 
     def _open_login_window(self):
-        """点击「登录证券账户」打开登录浮层，返回登录窗口或 None。"""
+        """点击「登录证券账户」或「解锁证券账户」打开登录/解锁浮层。
+
+        实盘超时后有两种入口：
+          - 「登录证券账户」：完全登出，需账号+密码+验证码
+          - 「解锁证券账户」：会话锁定（已锁定状态），通常需密码+验证码
+        两者浮层结构类似，统一用 _locate_login_fields 定位输入框。
+
+        Returns:
+            登录/解锁浮层窗口 AX 元素，或 None（未找到按钮/浮层）
+        """
         login = self._find_login_window()
         if login is not None:
             return login
         win = self._window()
         if win is None:
             return None
-        btn = ax.find_button(win, "登录证券账户")
+        btn = ax.find_button(win, "登录证券账户") or ax.find_button(win, "解锁证券账户")
         if btn is None:
-            logger.warning("未找到「登录证券账户」按钮，可能已登录或界面异常")
+            logger.warning("未找到「登录/解锁证券账户」按钮，可能已登录或界面异常")
             return None
+        logger.info(f"点击「{ax.title(btn)}」打开登录/解锁浮层")
         ax.press(btn)
         time.sleep(self.action_delay + 1.5)
         return self._find_login_window()
@@ -798,6 +840,90 @@ class EastMoneyMacTrader(AbstractTrader):
         logger.error(f"自动登录失败（已尝试 {max_attempts} 次）")
         return False
 
+    # 解锁浮层：小尺寸窗口（实测 361×216），仅含 1 个密码输入框 + 确定按钮
+    _UNLOCK_WIN_W_RANGE = (300, 460)
+    _UNLOCK_WIN_H_RANGE = (150, 300)
+
+    def _find_unlock_window(self):
+        """查找「解锁证券账户」浮层（小窗口，仅需密码），返回窗口或 None。"""
+        if self._app is None:
+            return None
+        wlo, whi = self._UNLOCK_WIN_W_RANGE
+        hlo, hhi = self._UNLOCK_WIN_H_RANGE
+        for w in ax.all_windows(self._app):
+            s = ax.size(w)
+            if not s:
+                continue
+            if wlo < s[0] < whi and hlo < s[1] < hhi:
+                # 校验含「解锁」提示文本，避免误匹配其他小窗
+                txts = " ".join(v for v, _ in ax.collect_static_texts(w))
+                if "解锁" in txts or "已锁定" in txts:
+                    return w
+        return None
+
+    def unlock(self) -> bool:
+        """实盘账户「已锁定」状态解锁（仅需交易密码，无验证码）。
+
+        与 login() 不同：会话锁定时东财显示「解锁证券账户」按钮，点击后弹出
+        小浮层（约361×216），仅含 1 个密码输入框 + 「确定」按钮，无需账号/验证码。
+
+        Returns:
+            True 解锁成功；False 失败（无密码/结构不匹配/密码错误）
+        """
+        if not self.trade_password:
+            logger.error("未配置交易密码(trade_password)，无法自动解锁")
+            return False
+        if self._pa is None:
+            logger.error("pyautogui 未初始化，请先 connect()")
+            return False
+        if not self._activate() or not self._goto_trade_tab():
+            logger.error("无法进入交易页，无法解锁")
+            return False
+
+        win = self._window()
+        if win is None:
+            return False
+        # 若解锁浮层已打开则直接复用，否则点击「解锁证券账户」按钮打开
+        unlock_win = self._find_unlock_window()
+        if unlock_win is None:
+            btn = ax.find_button(win, "解锁证券账户")
+            if btn is None:
+                logger.warning("未找到「解锁证券账户」按钮，可能未锁定或界面异常")
+                return False
+            ax.press(btn)
+            time.sleep(self.action_delay + 1.0)
+            unlock_win = self._find_unlock_window()
+        if unlock_win is None:
+            logger.error("未找到解锁浮层")
+            return False
+
+        # 定位唯一的密码输入框
+        pwd_fields = ax.collect(unlock_win, lambda el: ax.role(el) == "AXTextField")
+        if not pwd_fields:
+            logger.error("解锁浮层未找到密码输入框")
+            return False
+        self._fill_field(pwd_fields[0], self.trade_password)
+        time.sleep(0.3)
+
+        # 点击「确定」
+        ok_btn = None
+        for bb in ax.collect(unlock_win, lambda el: ax.role(el) == "AXButton"):
+            if (ax.title(bb) or "").strip() == "确定":
+                ok_btn = bb
+                break
+        if ok_btn is None:
+            logger.error("解锁浮层未找到「确定」按钮")
+            return False
+        ax.press(ok_btn) or self._click_element(ok_btn)
+        time.sleep(2.0)
+
+        # 校验解锁结果
+        if self.is_logged_in():
+            logger.info("✅ 账户解锁成功")
+            return True
+        logger.error("解锁失败（密码错误或界面异常）")
+        return False
+
     def _click_change_captcha(self, change_btn_pos) -> None:
         """点击「点击换图」刷新验证码。"""
         if change_btn_pos:
@@ -923,9 +1049,18 @@ class EastMoneyMacTrader(AbstractTrader):
 
         headers.sort(key=lambda h: h[0])
 
-        # 收集数据区（y > 表头）的所有 StaticText，按行(y)聚类
+        # 数据区右边界：最后一列表头 x + 半个列宽，排除表格右侧的行情区/
+        # 自选股面板文本（如 x=1233 的股票名）串入持仓行导致列值错位。
+        if len(headers) >= 2:
+            col_w = (headers[-1][0] - headers[0][0]) / (len(headers) - 1)
+        else:
+            col_w = 80.0
+        right_bound = headers[-1][0] + col_w * 0.6
+
+        # 收集数据区（y > 表头，且在表格 x 范围内）的所有 StaticText，按行(y)聚类
         cells = [(v, p) for v, p in ax.collect_static_texts(win)
-                 if p and p[1] > header_y + 5 and p[0] >= headers[0][0] - 30]
+                 if p and p[1] > header_y + 5
+                 and headers[0][0] - 30 <= p[0] <= right_bound]
         rows: dict[int, list] = {}
         for v, p in cells:
             row_key = None
@@ -956,6 +1091,7 @@ class EastMoneyMacTrader(AbstractTrader):
                 "available": _to_int(record.get("available")),
                 "cost_price": _to_float(record.get("cost_price")),
                 "current_price": _to_float(record.get("current_price")),
+                "market_value": _to_float(record.get("market_value")),
                 "pnl": _to_float(record.get("pnl")),
                 "pnl_pct": _to_float(record.get("pnl_pct", "").replace("%", "")),
             })
@@ -1002,14 +1138,30 @@ class EastMoneyMacTrader(AbstractTrader):
         if not self._activate() or not self._goto_trade_tab():
             return OrderResult(success=False, error_msg="无法切换到交易页")
 
-        # 下单前检查实盘登录状态（实盘约180分钟在线，超时需重新登录）
+        # 价格规整：东财下单框只接受 2 位小数（A股最小价位 0.01），
+        # 策略信号价可能带多余小数（如 136.0303）。此处统一四舍五入到分，
+        # 确保「下单填值」与「确认弹窗校验」使用同一精度，避免校验永远不等。
+        if price and price > 0:
+            price = round(float(price), 2)
+
+        # 下单前检查实盘登录状态（实盘约180分钟在线，超时需重新登录/解锁）
         # 模拟盘无「登录状态」标签，is_logged_in 返回 True 放行。
+        # 检测到锁定/未登录时尝试自动恢复一次，失败则拒绝下单（不盲目下单）。
         if not self.is_logged_in():
             status = self.get_login_status()
-            logger.error(f"实盘账户未登录（状态={status}），拒绝下单")
-            return OrderResult(
-                success=False,
-                error_msg=f"实盘账户未登录（{status}），请先在东财登录交易账户")
+            recovered = False
+            if self.trade_password:
+                if status and "锁定" in status:
+                    logger.warning(f"下单前检测到账户已锁定（{status}），尝试解锁…")
+                    recovered = self.unlock()
+                else:
+                    logger.warning(f"下单前检测到账户未登录（{status}），尝试登录…")
+                    recovered = self.login()
+            if not recovered:
+                logger.error(f"实盘账户不可交易（状态={status}），拒绝下单")
+                return OrderResult(
+                    success=False,
+                    error_msg=f"实盘账户不可交易（{status}），请先在东财登录/解锁交易账户")
 
         is_buy = action in ("buy", "add")
         submit_label = "买入" if is_buy else "卖出"
@@ -1261,6 +1413,17 @@ class EastMoneyMacTrader(AbstractTrader):
             return False
         return True
 
+    def _refresh_chengjiao_tab(self) -> bool:
+        """点击「委托」再点「成交」标签以强制刷新成交列表，返回是否成功。
+
+        与委托刷新对称：东财列表不会主动刷新，需切走再切回来才拿到最新数据。
+        """
+        if not self._switch_tab("weituo"):
+            return False
+        if not self._switch_tab("chengjiao"):
+            return False
+        return True
+
     def _click_chicang_tab(self) -> bool:
         """点击并切换到「持仓」标签页，返回是否成功（含校验）。"""
         return self._switch_tab("chicang")
@@ -1391,6 +1554,76 @@ class EastMoneyMacTrader(AbstractTrader):
                 continue
             return r
         return None
+
+    def _read_chengjiao_table(self) -> list:
+        """读取当前「成交」表格全部数据行（假定已切到成交 tab）。
+
+        列布局（AX 探测）：成交时间/证券代码/证券名称/操作/成交价格/
+        成交数量/成交金额/合同编号/成交编号
+
+        返回每行 dict，字段均为 snake_case 原始字段名。
+        注意：本方法不负责切 tab / 刷新，由调用方（query_orders）统一编排。
+        """
+        win = self._window()
+        if win is None:
+            return []
+        col_map = {
+            "成交时间": "deal_time", "证券代码": "stock_code", "证券名称": "stock_name",
+            "操作": "operation", "成交价格": "deal_price", "成交数量": "deal_qty",
+            "成交金额": "amount", "合同编号": "contract_id", "成交编号": "deal_id",
+        }
+        header_candidates = []  # (x, y, field)
+        for b in ax.collect(win, lambda el: ax.role(el) == "AXButton"):
+            p = ax.position(b)
+            t = ax.title(b)
+            if p and t and t.strip() in col_map:
+                header_candidates.append((p[0], p[1], col_map[t.strip()]))
+        if not header_candidates:
+            return []
+
+        # 按 y 聚类，选列头数量最多的行为表头行
+        y_groups: dict[int, list] = {}
+        for x, y, field in header_candidates:
+            key = None
+            for gy in y_groups:
+                if abs(gy - y) <= 6:
+                    key = gy
+                    break
+            if key is None:
+                key = round(y)
+                y_groups[key] = []
+            y_groups[key].append((x, field))
+        header_y = max(y_groups, key=lambda gy: len(y_groups[gy]))
+        cols = sorted(y_groups[header_y])  # [(x, field), ...]
+        if not cols:
+            return []
+
+        x_min = cols[0][0] - 30
+        x_max = cols[-1][0] + 200
+        cells = [(p[0], p[1], v) for v, p in ax.collect_static_texts(win)
+                 if p and p[1] > header_y + 5 and x_min <= p[0] <= x_max]
+        rows: dict[int, list] = {}
+        for x, y, v in cells:
+            key = None
+            for ry in rows:
+                if abs(ry - y) <= 8:
+                    key = ry
+                    break
+            if key is None:
+                key = round(y)
+                rows[key] = []
+            rows[key].append((x, v))
+
+        result = []
+        for ry in sorted(rows):
+            rec = {}
+            for cx, cv in rows[ry]:
+                field = min(cols, key=lambda c: abs(c[0] - cx))[1]
+                rec[field] = cv.strip()
+            code = rec.get("stock_code", "")
+            if code.isdigit() and len(code) == 6:
+                result.append(rec)
+        return result
 
     # ── 弹窗管理 ──
 
@@ -1574,6 +1807,67 @@ class EastMoneyMacTrader(AbstractTrader):
             time.sleep(0.3)
         return None, None
 
+    def _find_cancel_dialog(self):
+        """查找撤单确认弹窗。
+
+        撤单弹窗为独立小窗口，内含文本如「是否确定撤销[688331]的[买入]委托?」，
+        按钮为「是 / 否」。标题不固定（可能是「提示」「撤单」等），故不依赖标题，
+        改为遍历所有小尺寸窗口，匹配含「撤销」或「撤单」字样的说明文本。
+
+        返回 (dialog_window, detail_text) 或 (None, None)。
+        """
+        for w in ax.all_windows(self._app):
+            s = ax.size(w)
+            if not s or s[0] >= 500 or s[1] >= 500:
+                continue
+            for v, _p in ax.collect_static_texts(w):
+                if "撤销" in v or "撤单" in v:
+                    return w, v.replace("\n", " ")
+        return None, None
+
+    def _wait_cancel_dialog(self, attempts: int = 8):
+        """重试等待撤单确认弹窗出现，返回 (dialog_window, detail_text)。"""
+        for _ in range(attempts):
+            dialog, detail = self._find_cancel_dialog()
+            if dialog:
+                return dialog, detail
+            time.sleep(0.3)
+        return None, None
+
+    def _double_click_at(self, x: float, y: float):
+        """在屏幕坐标 (x, y) 双击。
+
+        pyautogui 的 click(clicks=2) 在 macOS 上发送的是两次独立单击
+        （clickState 均为 1），东财不识别为双击。这里用 Quartz 构造原生
+        双击事件（第二次 down/up 的 clickState=2），确保被识别为双击。
+        失败时回退到 pyautogui 连点。
+        """
+        try:
+            import Quartz
+            src = (Quartz.kCGEventLeftMouseDown, Quartz.kCGEventLeftMouseUp)
+            pt = Quartz.CGPointMake(x, y)
+
+            def _post(evt_type, click_state):
+                ev = Quartz.CGEventCreateMouseEvent(
+                    None, evt_type, pt, Quartz.kCGMouseButtonLeft)
+                Quartz.CGEventSetIntegerValueField(
+                    ev, Quartz.kCGMouseEventClickState, click_state)
+                Quartz.CGEventPost(Quartz.kCGHIDEventTap, ev)
+
+            # 第一次单击
+            _post(src[0], 1)
+            _post(src[1], 1)
+            time.sleep(0.05)
+            # 第二次单击，clickState=2 → 系统识别为双击
+            _post(src[0], 2)
+            _post(src[1], 2)
+            time.sleep(0.2)
+            return
+        except Exception as e:
+            logger.warning(f"_double_click_at: Quartz 双击失败，回退 pyautogui: {e}")
+        self._pa.click(x, y, clicks=2, interval=0.1)
+        time.sleep(0.2)
+
     def _click_dialog_button(self, dialog, label: str) -> bool:
         """点击确认弹窗中的指定按钮（「是」/「否」/「确定」），返回是否成功。"""
         btn = ax.find_button(dialog, label)
@@ -1631,22 +1925,12 @@ class EastMoneyMacTrader(AbstractTrader):
             logger.warning(f"cancel_order: 订单 {order_id} 状态={status}，无法撤单")
             return False
 
-        logger.info(f"cancel_order: 找到订单 {order_id} status={status}，查找撤单按钮...")
+        logger.info(f"cancel_order: 找到订单 {order_id} status={status}，定位数据行并双击撤单...")
 
-        # 3. 查找目标行 y 附近的撤单按钮
-        # 委托表中「撤单」按钮是 AXButton，位于每行末
+        # 3. 定位目标行的屏幕坐标（双击该行会弹出撤单确认弹窗）
         stock_code = target.get("stock_code", "")
-        cancel_btns = ax.collect(
-            win, lambda el: ax.role(el) == "AXButton" and ax.title(el) == "撤单"
-        )
-        if not cancel_btns:
-            logger.warning("cancel_order: 当前委托列表中没有撤单按钮（可能无可撤订单）")
-            return False
-
-        # 按 y 坐标匹配：读取委托表中对应 stock_code 的 AXStaticText y 值
-        target_y = None
+        # 先找表头 y（AXButton 列头的最小 y），用于排除表头误匹配
         header_y = None
-        # 先找表头 y（AXButton 列头的最小 y）
         col_names = {"申报时间", "证券代码", "证券名称", "操作", "状态说明",
                      "委托价格", "委托数量", "成交数量", "合同编号", "成交均价", "成交金额"}
         for b in ax.collect(win, lambda el: ax.role(el) == "AXButton"):
@@ -1656,55 +1940,65 @@ class EastMoneyMacTrader(AbstractTrader):
                 if header_y is None or p[1] < header_y:
                     header_y = p[1]
 
-        # 在所有 StaticText 中找 order_id 对应的 y
+        # 在所有 StaticText 中找 order_id 对应的行 y 坐标
         texts = ax.collect_static_texts(win)
+        target_y = None
         for v, p in texts:
             if p and str(v).strip() == order_id:
                 if header_y is None or p[1] > (header_y or 0) + 5:
                     target_y = p[1]
                     break
-
         if target_y is None:
-            # 兜底：尝试匹配 stock_code（同 y 行）
+            # 兜底：匹配 stock_code（6 位）所在行
             for v, p in texts:
                 if p and v and stock_code in str(v) and len(str(v).strip()) == 6:
                     if header_y is None or p[1] > (header_y or 0) + 5:
                         target_y = p[1]
                         break
-
         if target_y is None:
             logger.warning(f"cancel_order: 无法定位订单 {order_id} 的数据行坐标")
             return False
 
-        # 在同一 y 行找撤单按钮
-        best_btn, best_dy = None, 999
-        for btn in cancel_btns:
-            bp = ax.position(btn)
-            if bp:
-                dy = abs(bp[1] - target_y)
-                if dy < 14 and dy < best_dy:
-                    best_btn, best_dy = btn, dy
-
-        if best_btn is None:
-            logger.warning(f"cancel_order: 未找到与订单行 (y={target_y:.0f}) 匹配的撤单按钮")
+        # 取该行「证券代码」单元格（左侧核心列）的 x 作为双击点。
+        # 合同编号在最右列，东财对最右列双击不弹撤单窗；证券代码/名称列更可靠。
+        click_x, click_y = None, target_y
+        for v, p in texts:
+            if p and abs(p[1] - target_y) < 8 and str(v).strip() == stock_code:
+                click_x = p[0]
+                break
+        if click_x is None:
+            # 兜底：用该行最左侧的 StaticText
+            row_cells = [(p[0], p[1]) for v, p in texts if p and abs(p[1] - target_y) < 8]
+            if row_cells:
+                click_x = min(c[0] for c in row_cells)
+        if click_x is None:
+            logger.warning(f"cancel_order: 无法定位订单 {order_id} 行的可双击单元格")
             return False
+        target_xy = (click_x, click_y)
 
-        # 4. 点击撤单按钮
-        logger.info(f"cancel_order: 点击撤单按钮 @ {ax.position(best_btn)}")
-        self._click_element(best_btn)
+        # 4. 双击该行证券代码单元格 → 弹出撤单确认弹窗
+        logger.info(f"cancel_order: 双击数据行证券代码单元格 @ {target_xy}")
+        self._double_click_at(target_xy[0], target_xy[1])
         time.sleep(self.action_delay + 0.5)
 
-        # 5. 处理确认弹窗（如出现）
-        dialog, detail = self._wait_confirm_dialog(attempts=5)
-        if dialog:
-            logger.info(f"cancel_order: 检测到撤单确认弹窗: {detail}")
-            ok = self._click_dialog_button(dialog, "是")
-            if not ok:
-                self._click_dialog_button(dialog, "否")
-            time.sleep(self.action_delay)
-        else:
-            # 可能直接操作成功没有弹窗
-            logger.info("cancel_order: 未检测到确认弹窗，可能已直接撤单")
+        # 5. 处理撤单确认弹窗（文本如「是否确定撤销[688331]的[买入]委托?」）
+        dialog, detail = self._wait_cancel_dialog(attempts=10)
+        if not dialog:
+            # 诊断：dump 所有窗口标题+尺寸，定位弹窗真实形态
+            try:
+                wins = ax.all_windows(self._app)
+                logger.warning(f"cancel_order: 双击后未检测到撤单弹窗，当前 {len(wins)} 个窗口：")
+                for w in wins:
+                    logger.warning(f"  窗口 title='{ax.title(w)}' size={ax.size(w)}")
+            except Exception as e:
+                logger.warning(f"cancel_order: dump 窗口失败: {e}")
+            return False
+        logger.info(f"cancel_order: 检测到撤单确认弹窗: {detail}")
+        ok = self._click_dialog_button(dialog, "是")
+        if not ok:
+            logger.warning("cancel_order: 点击「是」失败")
+            return False
+        time.sleep(self.action_delay)
 
         # 6. 刷新验证
         self._refresh_weituo_tab()
@@ -1725,15 +2019,56 @@ class EastMoneyMacTrader(AbstractTrader):
         return True
 
     def query_orders(self) -> list[dict]:
-        """查询全部委托列表（委托 tab 下所有记录）。
-        返回 [dict, ...]，键: contract_id / stock_code / stock_name /
+        """查询全部委托+成交记录。
+
+        复用下单成功后验证过的刷新逻辑：东财列表不会主动刷新，需「切走→切回」
+        才能拿到最新状态。
+        - 委托表：_refresh_weituo_tab（点成交→点委托）
+        - 成交表：_refresh_chengjiao_tab（点委托→点成交）
+
+        字段与委托表统一：contract_id / stock_code / stock_name /
         operation / status / order_price / order_qty / filled_qty / avg_price / amount
         """
-        if not self._switch_tab("weituo", verify=False):
-            logger.warning("query_orders: 无法切换到委托 tab")
+        result = []
+        # 激活窗口并切到交易页（tab 是自绘控件，坐标点击需窗口在前台）
+        if not self._activate() or not self._goto_trade_tab():
+            logger.warning("query_orders: 无法激活东财交易页")
             return []
-        self._refresh_weituo_tab()
-        return self._read_weituo_table()
+
+        # 1) 委托表：先刷新（点成交→点委托）再读
+        if self._refresh_weituo_tab():
+            rows = self._read_weituo_table()
+            for r in rows:
+                logger.info(f"[委托行] 合同={r.get('contract_id')} 代码={r.get('stock_code')} "
+                            f"状态='{r.get('status')}' 委托量={r.get('order_qty')} "
+                            f"成交量={r.get('filled_qty')} 价格={r.get('order_price')}")
+            result.extend(rows)
+        else:
+            logger.warning("query_orders: 委托 tab 刷新失败（可能需重新校准）")
+
+        # 2) 成交表：先刷新（点委托→点成交）再读
+        if self._refresh_chengjiao_tab():
+            cj_rows = self._read_chengjiao_table()
+            for r in cj_rows:
+                logger.info(f"[成交行] 合同={r.get('contract_id')} 代码={r.get('stock_code')} "
+                            f"成交量={r.get('deal_qty')} 成交价={r.get('deal_price')}")
+                # 映射成交字段到委托格式（成交=全部成交）
+                result.append({
+                    "contract_id": r.get("contract_id", ""),
+                    "stock_code":   r.get("stock_code", ""),
+                    "stock_name":   r.get("stock_name", ""),
+                    "operation":    r.get("operation", ""),
+                    "status":       "全部成交",
+                    "order_price":  r.get("deal_price", 0),
+                    "order_qty":    r.get("deal_qty", 0),
+                    "filled_qty":   r.get("deal_qty", 0),
+                    "avg_price":    r.get("deal_price", 0),
+                    "amount":       r.get("amount", 0),
+                    "apply_time":   r.get("deal_time", ""),
+                })
+        else:
+            logger.warning("query_orders: 成交 tab 刷新失败（可能需重新校准）")
+        return result
 
 
 def _to_int(s) -> int:

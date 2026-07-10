@@ -103,12 +103,16 @@ def run_daemon(config):
 
     # ── Generic command dispatcher (trader-type agnostic) ──
     def _handle_place_order(trader, api, request_id, payload):
+        stock_name = payload.get("stockName", "?")
+        action = payload.get("orderType", "buy")
+        qty = int(payload.get("quantity", 0))
+        price = float(payload.get("price", 0))
         result = trader.place_order(
             stock_code=payload.get("stockCode", ""),
-            stock_name=payload.get("stockName", ""),
-            action=payload.get("orderType", "buy"),
-            price=float(payload.get("price", 0)),
-            quantity=int(payload.get("quantity", 0)),
+            stock_name=stock_name,
+            action=action,
+            price=price,
+            quantity=qty,
         )
         if result.success:
             api.respond_command(request_id, "ok", {
@@ -118,39 +122,118 @@ def run_daemon(config):
                 "statusText": getattr(result, "status_text", ""),
                 "filledQty": getattr(result, "filled_qty", 0),
             })
+            status_text = getattr(result, "status_text", "") or "委托中"
+            send_notification(
+                f"✅ {stock_name} {action} 已委托",
+                f"{qty}股 @ {result.exec_price} 委托编号: {result.order_id} 状态: {status_text}")
         else:
-            api.respond_command(request_id, "failed", error=result.error_msg or "place_order failed")
+            err = result.error_msg or "place_order failed"
+            api.respond_command(request_id, "failed", error=err)
+            send_notification(f"❌ {stock_name} 下单失败", err)
 
     def _handle_sync_positions(trader, api, request_id, payload):
-        positions = trader.get_positions() if trader else []
+        # trader 返回 snake_case，需转换为后端 BrokerPortfolio/BrokerPosition
+        # 期望的 camelCase 字段（见 server broker_service.go）
+        raw_positions = trader.get_positions() if trader else []
         balance = trader.get_balance() if trader else None
-        result = {"positions": positions}
+        positions = [{
+            "secCode": p.get("stock_code", ""),
+            "secName": p.get("stock_name", ""),
+            "count": p.get("quantity", 0),
+            "availCount": p.get("available", 0),
+            "costPrice": p.get("cost_price", 0),
+            "price": p.get("current_price", 0),
+            "value": p.get("market_value", 0),
+            "profit": p.get("pnl", 0),
+            "profitPct": p.get("pnl_pct", 0),
+        } for p in raw_positions]
+        result = {"positions": positions, "posCount": len(positions)}
         if balance:
             result["totalAssets"] = balance.get("total_assets", 0)
-            result["posCount"] = len(positions)
+            result["availBalance"] = balance.get("available_cash", 0)
+            result["totalPosValue"] = balance.get("market_value", 0)
+            result["totalProfit"] = balance.get("total_profit", 0)
         api.respond_command(request_id, "ok", result)
+        send_notification("✅ 持仓同步完成", f"{len(positions)} 只持仓已上报"
+                          + (f"，总资产 {balance.get('total_assets', 0):,.0f}" if balance else ""))
 
     def _handle_get_balance(trader, api, request_id, payload):
         balance = trader.get_balance() if trader else None
         if balance:
             api.respond_command(request_id, "ok", balance)
+            send_notification("✅ 资金查询完成",
+                              f"总资产 {balance.get('total_assets', 0):,.0f}，可用 {balance.get('available_cash', 0):,.0f}")
         else:
             api.respond_command(request_id, "failed", error="unable to read balance")
+            send_notification("❌ 资金查询失败", "无法读取资金信息")
 
     def _handle_cancel_order(trader, api, request_id, payload):
-        ok = trader.cancel_order(payload.get("orderId", "")) if trader else False
+        order_id = payload.get("orderId", "")
+        ok = trader.cancel_order(order_id) if trader else False
         if ok:
             api.respond_command(request_id, "ok", {})
+            send_notification("✅ 撤单成功", f"委托 {order_id} 已撤销")
         else:
             api.respond_command(request_id, "failed", error="cancel_order not supported or failed")
+            send_notification("❌ 撤单失败", f"委托 {order_id} 撤销未成功")
 
     def _handle_query_orders(trader, api, request_id, payload):
         orders = trader.query_orders() if trader else []
-        api.respond_command(request_id, "ok", {"orders": orders})
+
+        def map_status(text: str) -> int:
+            """东财状态文本 → 后端 mxStatusMap int。子串匹配，先长后短防误判。"""
+            t = (text or "").strip()
+            if not t:
+                return 0
+            # 顺序敏感：先匹配更具体的复合状态
+            rules = [
+                (("全部成交", "已成交", "全成"), 4),
+                (("部成待撤",), 5),
+                (("已报待撤",), 6),
+                (("部撤",), 7),
+                (("已撤", "撤单"), 8),
+                (("废单", "拒单", "作废"), 9),
+                (("部分成交", "部成"), 3),
+                (("已报", "已申报", "正报", "委托", "待成交"), 2),
+                (("未报", "待报"), 1),
+                (("已成",), 4),  # 放最后，避免与「已成交」冲突后又误吞
+            ]
+            for keys, code in rules:
+                if any(k in t for k in keys):
+                    return code
+            return 0
+
+        mapped = []
+        for o in orders:
+            raw_status = o.get("status") or ""
+            code = map_status(raw_status)
+            if code == 0:
+                log.warning(f"未识别委托状态: '{raw_status}' (合同={o.get('contract_id')})")
+            mapped.append({
+                "orderId":    o.get("contract_id", ""),
+                "stockCode":  o.get("stock_code", ""),
+                "stockName":  o.get("stock_name", ""),
+                "orderType":  o.get("operation", ""),
+                "price":      float(o.get("order_price", 0) or 0),
+                "tradePrice": float(o.get("avg_price", 0) or 0),
+                "quantity":   int(o.get("order_qty", 0) or 0),
+                "filledQty":  int(o.get("filled_qty", 0) or 0),
+                "status":     code,
+                "createTime": o.get("apply_time", ""),
+            })
+        api.respond_command(request_id, "ok", mapped)
+        # 分类统计：status==4 为已成交，其余为委托中/其它
+        filled = sum(1 for m in mapped if m["status"] == 4)
+        pending = len(mapped) - filled
+        ids = ", ".join(m["orderId"] for m in mapped if m["orderId"]) or "无"
+        send_notification(
+            f"✅ 查询到 {len(mapped)} 笔订单",
+            f"委托中/其它 {pending} 笔，已成交 {filled} 笔｜合同号: {ids}")
 
     def _handle_get_account_info(trader, api, request_id, payload):
         name = trader.get_account_name() if trader and hasattr(trader, "get_account_name") else ""
         api.respond_command(request_id, "ok", {"accountName": name or "unknown"})
+        send_notification("✅ 账户查询完成", f"账户名: {name or 'unknown'}")
 
     COMMAND_HANDLERS = {
         "sync_positions":  _handle_sync_positions,
@@ -163,16 +246,26 @@ def run_daemon(config):
 
     def on_command(request_id, action, payload):
         """Called when server dispatches a broker command via WS."""
+        action_names = {
+            "sync_positions": "同步持仓", "get_balance": "查询资金",
+            "cancel_order": "撤销委托", "query_orders": "查询委托",
+            "get_account_info": "查询账户",
+            # place_order is handled in signal flow
+        }
+        label = action_names.get(action, action)
         log.info(f"收到指令: {action} requestID={request_id[:8]}")
+        send_notification(f"📡 收到指令: {label}", f"requestID={request_id[:8]}...")
         try:
             handler = COMMAND_HANDLERS.get(action)
             if handler:
                 handler(trader, api, request_id, payload)
             else:
                 log.warning(f"未知指令 action={action}，忽略")
+                send_notification(f"⚠️ 未知指令: {action}", "该指令不被支持")
                 api.respond_command(request_id, "failed", error=f"unknown action: {action}")
         except Exception as e:
             log.error(f"指令处理异常 {action}: {e}", exc_info=True)
+            send_notification(f"❌ 指令失败: {label}", str(e))
             api.respond_command(request_id, "failed", error=str(e))
 
     # ── WS connect handler: send agent_hello ──
@@ -250,11 +343,14 @@ def run_daemon(config):
             qty = int(signal_data.get("quantity", 0) or signal_data.get("plannedQty", 0) or 0)
 
             log.info(f"📥 收到信号 #{sid}: {stock_name}({stock_code}) {action} {qty}股 @ {price}")
+            send_notification(
+                f"📥 策略信号 #{sid}", f"{stock_name}({stock_code}) {action} {qty}股 @ {price}")
 
             # 认领信号（CAS：pending_auto → claimed），防重复执行
             claimed = reporter.claim(sid)
             if not claimed:
                 log.warning(f"认领失败 #{sid}，跳过")
+                send_notification(f"⚠️ 信号认领失败 #{sid}", "可能已被其他代理认领")
                 continue
 
             # 下单执行（内部已含 max_retries 次校验重试，此处只调用一次）

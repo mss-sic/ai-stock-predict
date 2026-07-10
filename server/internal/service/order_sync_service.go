@@ -17,10 +17,14 @@ type OrderSyncService struct {
 	liveSvc   *LiveTradingService
 }
 
-// NewOrderSyncService creates a new order sync service.
-func NewOrderSyncService() *OrderSyncService {
+// NewOrderSyncService creates a new order sync service with a pre-configured BrokerService
+// (hub+commander already injected via SetHubAndCommander). Falls back to global if nil.
+func NewOrderSyncService(brokerSvc *BrokerService) *OrderSyncService {
+	if brokerSvc == nil {
+		brokerSvc = GetGlobalBrokerService()
+	}
 	return &OrderSyncService{
-		brokerSvc: NewBrokerService(),
+		brokerSvc: brokerSvc,
 		liveSvc:   NewLiveTradingService(),
 	}
 }
@@ -279,7 +283,9 @@ func (s *OrderSyncService) SyncOrderForSignal(signalID uint) (string, error) {
 		}
 	}
 	if matched == nil {
-		return sig.Status, fmt.Errorf("order %s not found in broker", sig.BrokerOrderID)
+		log.Printf("[order_sync] signal %d order %s not in broker list (may be cross-day or settled), keeping status=%s",
+			sig.ID, sig.BrokerOrderID, sig.Status)
+		return sig.Status, nil
 	}
 
 	oldStatus := sig.Status

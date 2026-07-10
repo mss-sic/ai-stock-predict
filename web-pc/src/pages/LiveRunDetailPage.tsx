@@ -1,19 +1,25 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Card, Table, Tag, Button, Spin, Message, Tabs, Select, Divider, Alert, Progress, Modal, Drawer, Dropdown, Menu, TimePicker, Input, AutoComplete, Switch, Popconfirm, Tooltip } from '@arco-design/web-react';
+import { Card, Table, Tag, Button, Spin, Message, Tabs, Select, Divider, Alert, Progress, Modal, Drawer, Dropdown, Menu, TimePicker, Input, InputNumber, AutoComplete, Switch, Popconfirm, Tooltip } from '@arco-design/web-react';
 import ReactECharts from 'echarts-for-react';
-import { ArrowLeft, TrendingUp, Wallet, Zap, Settings, Activity, Calendar, RefreshCw, Loader, XCircle, Bell, FileText, Building2, Cpu, Search } from 'lucide-react';
-import { fetchLiveRun, fetchLiveSnapshots, runLiveDaily, fetchDailyRunTask, fetchLatestDailyRunTask, runTradeExec, executeLiveSignal, syncSignalOrder, syncOrders, reconcileFromBroker, fetchReconciliation, fetchTradeExecTask, fetchLatestTradeExecTask, updateLiveRunConfig, fetchNotificationConfigs, createNotificationConfig, deleteNotificationConfig, testNotification, sendLiveRunNotification, updateLiveSignal, deleteLiveSignal, clearLiveSignals, fetchRunLogs, cancelSignalOrder, cancelAllSignalOrders, createTestSignal, searchStock } from '../services/api';
+import { ArrowLeft, TrendingUp, Wallet, Zap, Settings, Activity, Calendar, RefreshCw, Loader, XCircle, Bell, FileText, Building2, Cpu, Search, Terminal } from 'lucide-react';
+import { showToast } from '../components/Toast';
+import { fetchIndicators, fetchLiveRun, fetchLiveSnapshots, runLiveDaily, fetchDailyRunTask, fetchLatestDailyRunTask, runTradeExec, executeLiveSignal, syncSignalOrder, syncOrders, reconcileFromBroker, fetchReconciliation, fetchTradeExecTask, fetchLatestTradeExecTask, updateLiveRunConfig, fetchNotificationConfigs, createNotificationConfig, deleteNotificationConfig, testNotification, sendLiveRunNotification, updateLiveSignal, deleteLiveSignal, clearLiveSignals, fetchRunLogs, cancelSignalOrder, cancelAllSignalOrders, createTestSignal, searchStock, depositToRun, withdrawFromRun, fetchAccountDetail } from '../services/api';
 import ReactMarkdown from 'react-markdown';
 
-interface Run { id: number; strategyId: number; name: string; status: string; startDate: string; initialCapital: number; currentEquity: number; totalReturn: number; maxDrawdown: number; winRate: number; tradeCount: number; lastRunDate: string; autoDailyCron?: string; autoTradeExecCron?: string; notifyEnabled?: boolean; notifyChannels?: string; executionMode?: string; aiReviewEnabled?: boolean; }
+interface Run { id: number; strategyId: number; name: string; status: string; startDate: string; initialCapital: number; availableCash?: number; positionValue?: number; currentEquity: number; totalReturn: number; maxDrawdown: number; winRate: number; tradeCount: number; lastRunDate: string; autoDailyCron?: string; autoTradeExecCron?: string; notifyEnabled?: boolean; notifyChannels?: string; executionMode?: string; aiReviewEnabled?: boolean; }
 interface Strategy { id: number; name: string; description: string; stopProfit: number; stopLoss: number; maxHoldings: number; buyPositionPct: number; addPositionPct: number; positionSizing: string; positionConcentrationLimit: number; maxDailyLoss: number; initialCapital: number; enableAIAgent?: boolean; }
-interface Allocation { id: number; allocatedCapital: number; currentCash: number; pctOfAccount: number; status: string; }
+// Allocation removed — fields are now on Run directly (availableCash, positionValue)
 interface Position { id: number; stockCode: string; stockName: string; quantity: number; avgCost: number; currentPrice: number; unrealizedPnl: number; unrealizedPnlPct: number; realizedPnl: number; holdDays: number; todayBuyQty?: number; availSellQty?: number; updatedAt?: string; }
 interface Trade { id: number; tradeDate: string; stockCode: string; stockName: string; actionType: string; price: number; quantity: number; amount: number; pnl: number; pnlPct: number; reason: string; }
 interface Snapshot { id: number; snapshotDate: string; cash: number; positionValue: number; totalEquity: number; dailyReturnPct: number; cumulativeReturn: number; maxDrawdownPct: number; }
 interface Signal { id: number; signalDate: string; execDate: string; stockCode: string; stockName: string; actionType: string; plannedPrice: number; plannedQty: number; plannedAmount: number; status: string; reason: string; brokerOrderId?: string; suggestedPremium: number; orderPrice: number; orderPriceLimit: number; suggestedQty: number; originalQty: number; openPrice: number; openDeviation: number; decisionRule: string; }
-interface Condition { id: number; condType: string; indicator: string; operator: string; value: string; period: string; }
+interface Condition {
+  id: number; condType: string; indicator: string; operator: string;
+  value: number; enabled: boolean; logicGroup: number; sortOrder: number;
+  weight?: number; lookbackDays?: number; consecutiveDays?: number;
+  trendDirection?: string; timeframe?: string;
+}
 interface Decision { id: number; signalId: number; tradeDate: string; stockCode: string; stockName: string; status: string; finalAction: string; finalPrice: number; finalAmount: number; confidence: number; source: string; reason: string; suggestedPremium: number; orderPrice: number; orderPriceLimit: number; suggestedQty: number; openPrice: number; openDeviation: number; decisionRule: string; taReasoning?: string; taDebateJson?: string; }
 
 
@@ -67,13 +73,35 @@ const StatCard = ({ label, value, color }: { label: string; value: number; color
   </div>
 );
 
+// Indicator label/unit maps — populated from API in load()
+var indicatorLabels: Record<string, string> = {};
+var indicatorUnits: Record<string, string> = {};
+
+function fmtName(key: string): string { return indicatorLabels[key] || key; }
+function fmtValue(key: string, v: number): string {
+  const u = indicatorUnits[key];
+  if (u && u.includes('亿') && v > 10000) return (v / 100000000).toFixed(0) + '亿';
+  if (u && (u.includes('万') || u.includes('万元')) && v > 1000) return (v / 10000).toFixed(0) + '万';
+  return String(v) + (u && u !== '倍' ? u : '');
+}
+
+function opLabel(op: string): string {
+  const m: Record<string, string> = { gt: '>', lt: '<', gte: '≥', lte: '≤', eq: '=', cross_up: '↑', cross_down: '↓' };
+  return m[op] || op;
+}
+
 export default function LiveRunDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [run, setRun] = useState<Run | null>(null);
   const [linkedAccount, setLinkedAccount] = useState<any>(null);
   const [strategy, setStrategy] = useState<Strategy | null>(null);
-  const [allocation, setAllocation] = useState<Allocation | null>(null);
+  const [showDeposit, setShowDeposit] = useState(false);
+  const [depositAction, setDepositAction] = useState<'deposit' | 'withdraw'>('deposit');
+  const [depositAmount, setDepositAmount] = useState(0);
+  const [depositReason, setDepositReason] = useState('');
+  const [depositing, setDepositing] = useState(false);
+  const [freeAccountCash, setFreeAccountCash] = useState(0);
   const [positions, setPositions] = useState<Position[]>([]);
   const [trades, setTrades] = useState<Trade[]>([]);
   const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
@@ -87,8 +115,6 @@ export default function LiveRunDetailPage() {
   const [cancelModalVisible, setCancelModalVisible] = useState(false);
   const [cancellingAll, setCancellingAll] = useState(false);
   const [syncing, setSyncing] = useState<number | null>(null);
-  const [syncingAll, setSyncingAll] = useState(false);
-  const [syncingBroker, setSyncingBroker] = useState(false);
   const [executeModal, setExecuteModal] = useState<{ open: boolean; signal: Signal | null }>({ open: false, signal: null });
   const [execForm, setExecForm] = useState({ actualPrice: '', actualQty: '' });
   const [editSignalModal, setEditSignalModal] = useState<{ open: boolean; signal: Signal | null }>({ open: false, signal: null });
@@ -103,6 +129,7 @@ export default function LiveRunDetailPage() {
   const [dailyLogs, setDailyLogs] = useState<string[]>([]);
   const [tradeLogs, setTradeLogs] = useState<string[]>([]);
   const [logsCollapsed, setLogsCollapsed] = useState(false);
+  const [showLogConsole, setShowLogConsole] = useState(false);
   const [strategyExecTime, setStrategyExecTime] = useState('');
   const [tradeExecTime, setTradeExecTime] = useState('');
     const [signalDate, setSignalDate] = useState<string>('');
@@ -207,10 +234,10 @@ export default function LiveRunDetailPage() {
     setClearModalOpen(false);
     try {
       const res = await clearLiveSignals(Number(id), signalDate);
-      alert('已清空 ' + (res.data?.deleted || 0) + ' 条信号');
+      Message.success("已清空 " + (res.data?.deleted || 0) + " 条信号");
       load();
     } catch (e: any) {
-      alert('清空失败: ' + (e?.response?.data?.message || e?.message || '未知'));
+      Message.error("清空失败: " + (e?.response?.data?.message || e?.message || "未知"));
     }
   };
 
@@ -222,18 +249,34 @@ export default function LiveRunDetailPage() {
       const d = r.data || {};
       setRun(d.run || null);
       setStrategy(d.strategy || null);
-      setAllocation(d.allocation || null);
+      // Load indicator labels from API
+      try {
+        const { data: idata } = await fetchIndicators();
+        const items = idata?.data || [];
+        const labels: Record<string, string> = {};
+        const units: Record<string, string> = {};
+        items.forEach((it: any) => {
+          if (it.key) { labels[it.key] = it.label; units[it.key] = it.unit || ''; }
+        });
+        indicatorLabels = labels;
+        indicatorUnits = units;
+      } catch (_) { /* keep defaults */ }
+      // allocation removed — fields now on run directly
       setPositions(d.positions || []);
       setTrades(d.trades || []);
       setSignals(d.signals || []);
       setConditions(d.conditions || []);
       setDecisions(d.decisions || []);
       setLinkedAccount(d.account || null);
-      if (!dailyLogs.length) setDailyLogs(d.persistedLogs || []);
+      if (!dailyLogs.length) {
+            const logs = d.persistedLogs || [];
+            setDailyLogs(logs);
+            if (logs.length > 0) setShowLogConsole(true);
+          }
       const dates = [...new Set((d.signals || []).map((s: Signal) => s.execDate))].sort().reverse();
       if (dates.length && !signalDate) { setSignalDate(dates[0] as string); }
       // Load execution logs for the latest date
-      loadLogs(dates[0] as string);
+      loadLogs(d.run?.lastRunDate || new Date().toISOString().slice(0, 10));
       try { const { data: s } = await fetchLiveSnapshots(Number(id)); setSnapshots(s.data || []); } catch {}
     } catch (e) { console.error(e); }
     setLoading(false);
@@ -284,7 +327,10 @@ export default function LiveRunDetailPage() {
         if (pd.status === 'failed') {
           setTaskRunning(false);
           setRunningTradeExec(false);
-          Message.warning('上次任务执行失败: ' + (pd.error || '未知'));
+          if (!isInitialPoll) {
+            Message.warning('上次任务执行失败: ' + (pd.error || '未知'));
+          }
+          isInitialPoll = false;
           return;
         }
 
@@ -317,6 +363,7 @@ export default function LiveRunDetailPage() {
     let active = true;
     let pollTimer: ReturnType<typeof setInterval> | null = null;
     let failCount = 0;
+    let isInitialPoll = true; // suppress toast on page-load resume
 
     const pollDailyTask = async () => {
       try {
@@ -326,6 +373,7 @@ export default function LiveRunDetailPage() {
         failCount = 0;
 
         if (pd.status === 'running' || pd.status === 'pending') {
+          isInitialPoll = false;
           setRunningDaily(true);
           if (pd.logs && Array.isArray(pd.logs) && pd.logs.length > 0) setDailyLogs(pd.logs);
           if (!pollTimer) {
@@ -337,7 +385,10 @@ export default function LiveRunDetailPage() {
         if (pd.status === 'completed') {
           setRunningDaily(false);
           if (pd.logs && Array.isArray(pd.logs) && pd.logs.length > 0) setDailyLogs(pd.logs);
-          Message.success(`策略执行完成: ${pd.signalCount || 0} 个信号`);
+          if (!isInitialPoll) {
+            Message.success(`策略执行完成: ${pd.signalCount || 0} 个信号`);
+          }
+          isInitialPoll = false;
           load();
           return;
         }
@@ -369,7 +420,7 @@ export default function LiveRunDetailPage() {
   }, [id]);
 
   const loadConfig = useCallback(async () => {
-    if (!run || configLoaded) return;
+    if (!run) return;
     setConfigAutoDaily(run.autoDailyCron || '18:00');
     setConfigAutoTradeExec(run.autoTradeExecCron || '09:00');
     setConfigNotifyEnabled(run.notifyEnabled || false);
@@ -385,8 +436,7 @@ export default function LiveRunDetailPage() {
       }));
       setRemovedNotifyIds([]); setConfigChannels(linked);
     } catch(e) { console.error("load notification configs failed", e); Message.warning("加载通知配置失败"); setConfigChannels([]); }
-    setConfigLoaded(true);
-  }, [run, configLoaded]);
+  }, [run]);
 
   const handleSaveConfig = async () => {
     setConfigSaving(true);
@@ -422,8 +472,8 @@ export default function LiveRunDetailPage() {
         aiReviewEnabled: configAiReviewEnabled,
       });
       Message.success('配置已保存');
-      setConfigLoaded(false); // force reload on next tab switch
-      load();
+      await load();
+      await loadConfig();
     } catch (e: any) { Message.error('保存失败: ' + (e?.message || '未知')); }
     setConfigSaving(false);
   };
@@ -464,13 +514,13 @@ export default function LiveRunDetailPage() {
         try {
           const { data: pollR } = await fetchDailyRunTask(tid);
           const pd = pollR.data || {};
-          if (pd.logs && pd.logs.length > 0) setDailyLogs(pd.logs);
+          if (pd.logs && pd.logs.length > 0) { setDailyLogs(pd.logs); setShowLogConsole(true); }
           if (pd.status === 'completed') {
             clearInterval(poll);
             setRunningDaily(false);
             Message.success(`${label}: ${pd.signalCount || 0} 个信号`);
             load();
-            loadLogs(signalDate);
+            loadLogs(new Date().toISOString().slice(0, 10)); // trade date = today
           } else if (pd.status === 'failed') {
             clearInterval(poll);
             setRunningDaily(false);
@@ -506,8 +556,11 @@ export default function LiveRunDetailPage() {
       const { data: res } = await fetchRunLogs(Number(id), date);
       const d = res.data || {};
       const logs = d.logs || {};
-      setDailyLogs(logs.strategy || []);
-      setTradeLogs(logs.trade_exec || []);
+      const newDaily = logs.strategy || [];
+      const newTrade = logs.trade_exec || [];
+      if (newDaily.length > 0) { setDailyLogs(newDaily); }
+      if (newTrade.length > 0) { setTradeLogs(newTrade); }
+      if (newDaily.length > 0 || newTrade.length > 0) setShowLogConsole(true);
       setStrategyExecTime(d.strategyTime || '');
       setTradeExecTime(d.tradeExecTime || '');
     } catch { /* silent */ }
@@ -542,10 +595,10 @@ export default function LiveRunDetailPage() {
       // Refresh signal statuses and reload log timestamps
       refreshSignals();
       loadLogs(signalDate);
-      // Auto-send notification — reports current signal state regardless of new executions
-      try {
-        await sendLiveRunNotification(Number(id), signalDate);
-      } catch (_) { /* notification is best-effort */ }
+      // Auto-send notification — only if notification is enabled for this run
+      if (run?.notifyEnabled) {
+        try { await sendLiveRunNotification(Number(id), signalDate); } catch (_) {}
+      }
     } catch (e: any) {
       Message.error('交易执行失败: ' + (e?.response?.data?.message || e?.message || '网络错误'));
       setRunningTradeExec(false);
@@ -620,32 +673,6 @@ export default function LiveRunDetailPage() {
     setSavingSignal(false);
   };
 
-  const handleReconcile = async () => {
-    setSyncingBroker(true);
-    try {
-      const resp = await reconcileFromBroker(id ? Number(id) : 0, linkedAccount?.id || 0);
-      Message.success('券商数据同步完成');
-      load();
-    } catch (e: any) {
-      Message.error('同步失败: ' + (e?.message || '未知'));
-    } finally {
-      setSyncingBroker(false);
-    }
-  };
-
-  const handleSyncAll = async () => {
-    setSyncingAll(true);
-    try {
-      const resp = await syncOrders(id ? Number(id) : undefined);
-      const d = resp.data?.data || {};
-      Message.success(`同步完成: 扫描${d.totalScanned||0} 更新${d.updated||0} 已成${d.executed||0}`);
-      load();
-    } catch (e: any) {
-      console.error('[syncAll] failed:', e?.message || e);
-    } finally {
-      setSyncingAll(false);
-    }
-  };
 
   const handleSyncOrder = async (sig: Signal) => {
     setSyncing(sig.id);
@@ -687,7 +714,7 @@ export default function LiveRunDetailPage() {
     setExecuting(sig.id);
     try {
       await cancelSignalOrder(sig.id);
-      Message.success('撤单成功，信号已重置为待执行');
+      Message.success('撤单成功，信号已标记为已撤单');
       load();
     } catch (e: any) {
       Message.error('撤单失败: ' + (e?.response?.data?.message || e?.message || '未知'));
@@ -719,7 +746,7 @@ export default function LiveRunDetailPage() {
 
   const posValue = useMemo(() => positions.reduce((s, p) => s + p.currentPrice * p.quantity, 0), [positions]);
   const dailyPnl = useMemo(() => positions.reduce((s, p) => s + (p.unrealizedPnl || 0), 0), [positions]);
-  const totalEquity = (allocation?.currentCash || 0) + posValue;
+  const totalEquity = (run?.availableCash || 0) + posValue;
   const dateOptions = useMemo(() => {
     const dates = [...new Set(signals.map(s => s.execDate))].sort().reverse();
     return dates.map(d => ({ label: d, value: d }));
@@ -767,23 +794,98 @@ export default function LiveRunDetailPage() {
 
       {/* Strategy + Account */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 16 }}>
-        <Card title={<span><Settings size={15} style={{ marginRight: 6 }} />策略配置</span>} style={{ borderRadius: 10 }} bodyStyle={{ padding: '12px 16px' }}>
-          {strategy && (
-            <div style={{ fontSize: 12, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 16px' }}>
-              <div><span style={{ color: 'var(--color-text-3)' }}>策略名</span> {strategy.name}</div>
-              <div><span style={{ color: 'var(--color-text-3)' }}>仓位模式</span> {strategy.positionSizing || 'fixed_pct'}</div>
-              <div><span style={{ color: 'var(--color-text-3)' }}>止盈/止损</span> {strategy.stopProfit > 0 ? `+${strategy.stopProfit}%` : '—'} / {strategy.stopLoss < 0 ? `${strategy.stopLoss}%` : '—'}</div>
-              <div><span style={{ color: 'var(--color-text-3)' }}>最大持仓</span> {strategy.maxHoldings}只</div>
-              <div><span style={{ color: 'var(--color-text-3)' }}>单票/首仓/加仓</span> {(strategy.positionConcentrationLimit*100).toFixed(0)}% / {strategy.buyPositionPct}% / {strategy.addPositionPct}%</div>
-              <div><span style={{ color: 'var(--color-text-3)' }}>条件数</span> {conditions.length}条</div>
+        <Card
+          title={<span><Settings size={15} style={{ marginRight: 6 }} />策略配置</span>}
+          extra={<Button size="small" icon={<Settings size={12} />} onClick={() => navigate(`/strategy?strategy=${strategy?.id || run.strategyId}`)}>编辑策略</Button>}
+          style={{ borderRadius: 10 }} bodyStyle={{ padding: '12px 16px' }}
+        >
+          {strategy ? (
+            <div>
+              {/* Header row */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 10, flexWrap: 'wrap', fontSize: 12 }}>
+                <span style={{ fontWeight: 600, color: 'var(--color-text-1)' }}>{strategy.name}</span>
+                <Tag size="small" color="arcoblue">{strategy.positionSizing || 'fixed_pct'}</Tag>
+                <span style={{ color: 'var(--color-text-3)' }}>止盈 <b style={{ color: '#F53F3F' }}>{strategy.stopProfit > 0 ? '+' + strategy.stopProfit + '%' : '—'}</b></span>
+                <span style={{ color: 'var(--color-text-3)' }}>止损 <b style={{ color: '#00B42A' }}>{strategy.stopLoss < 0 ? strategy.stopLoss + '%' : '—'}</b></span>
+                <span style={{ color: 'var(--color-text-3)' }}>持仓 ≤ <b>{strategy.maxHoldings}只</b></span>
+                <span style={{ color: 'var(--color-text-3)' }}>单票/首仓/加仓 <b>{(strategy.positionConcentrationLimit*100).toFixed(0)}%/{strategy.buyPositionPct}%/{strategy.addPositionPct}%</b></span>
+                <span style={{ color: 'var(--color-text-3)' }}>日熔断 <b>{strategy.maxDailyLoss ? strategy.maxDailyLoss + '%' : '—'}</b></span>
+              </div>
+
+              {/* Conditions grouped by type */}
+              {(() => {
+                const typeConfig: Record<string, { label: string; color: string; icon: string }> = {
+                  buy: { label: '买入', color: '#F53F3F', icon: '📈' },
+                  add: { label: '加仓', color: '#FF7D00', icon: '➕' },
+                  sell: { label: '卖出', color: '#00B42A', icon: '📉' },
+                  reduce: { label: '减仓', color: '#0FC6C2', icon: '➖' },
+                };
+                const activeTypes = [...new Set(conditions.filter(c => c.enabled !== false).map(c => c.condType))];
+                if (activeTypes.length === 0) return <div style={{ fontSize: 12, color: 'var(--color-text-3)', padding: '8px 0' }}>暂无策略条件</div>;
+
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {activeTypes.map(condType => {
+                      const tc = typeConfig[condType] || { label: condType, color: '#86909C', icon: '' };
+                      const typedConditions = conditions.filter(c => c.condType === condType && c.enabled !== false);
+                      if (typedConditions.length === 0) return null;
+                      // Group by logicGroup
+                      const groups = new Map<number, Condition[]>();
+                      typedConditions.forEach(c => {
+                        const g = c.logicGroup || 1;
+                        if (!groups.has(g)) groups.set(g, []);
+                        groups.get(g)!.push(c);
+                      });
+                      const groupEntries = [...groups.entries()].sort((a, b) => a[0] - b[0]);
+
+                      return (
+                        <div key={condType} style={{ background: 'var(--color-fill-1)', borderRadius: 8, padding: '8px 10px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                            <span style={{ fontSize: 12, fontWeight: 600, color: tc.color }}>{tc.icon} {tc.label}</span>
+                            <span style={{ fontSize: 10, color: 'var(--color-text-4)' }}>{groupEntries.length}组 {typedConditions.length}条</span>
+                          </div>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 8px', alignItems: 'center' }}>
+                            {groupEntries.map(([gid, gconds], gi) => (
+                              <span key={gid} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+                                {gi > 0 && <Tag size="small" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', background: 'var(--color-fill-2)', color: 'var(--color-text-3)', border: 'none', margin: '0 2px' }}>OR</Tag>}
+                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, background: 'var(--color-bg-2)', borderRadius: 4, padding: '2px 6px', border: '1px solid var(--color-border-1)', fontSize: 11 }}>
+                                  {gconds.map((c, ci) => (
+                                    <span key={c.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+                                      {ci > 0 && <span style={{ color: 'var(--color-text-4)', fontWeight: 600 }}>AND</span>}
+                                      <span style={{ fontWeight: 600, color: 'var(--color-text-1)' }}>{fmtName(c.indicator)}</span>
+                                      <span style={{ color: 'var(--color-text-3)', margin: '0 1px' }}>{opLabel(c.operator)}</span>
+                                      <span style={{ fontWeight: 600, color: tc.color }}>{fmtValue(c.indicator, c.value)}</span>
+                                    </span>
+                                  ))}
+                                </span>
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
             </div>
+          ) : (
+            <div style={{ fontSize: 12, color: 'var(--color-text-3)', textAlign: 'center', padding: 16 }}>未关联策略</div>
           )}
         </Card>
-        <Card title={<span><Wallet size={15} style={{ marginRight: 6 }} />资金概览</span>} style={{ borderRadius: 10 }} bodyStyle={{ padding: '12px 16px' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+        <Card title={<div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}><span><Wallet size={15} style={{ marginRight: 6 }} />资金概览</span><Button size="small" type="primary" onClick={async () => {
+                  setShowDeposit(true);
+                  if (linkedAccount?.id) {
+                    try {
+                      const res = await fetchAccountDetail(linkedAccount.id);
+                      setFreeAccountCash(res.data?.data?.freeCash ?? linkedAccount.availableCash ?? 0);
+                    } catch { setFreeAccountCash(linkedAccount.availableCash || 0); }
+                  }
+                }}>出入金</Button></div>} style={{ borderRadius: 10 }} bodyStyle={{ padding: '12px 16px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 8 }}>
             {[
+              { l: '总成本(投入)', v: `¥${(run.initialCapital || 0).toLocaleString()}`, c: '#F7BA1E' },
               { l: '当前权益', v: `¥${totalEquity.toLocaleString()}`, c: '#165DFF' },
-              { l: '可用现金', v: `¥${(allocation?.currentCash || 0).toLocaleString()}`, c: '#0FC6C2' },
+              { l: '可用现金', v: `¥${(run.availableCash || 0).toLocaleString()}`, c: '#0FC6C2' },
               { l: '持仓市值', v: `¥${posValue.toLocaleString()}`, c: '#722ED1' },
               { l: '当日盈亏', v: `${pnlSign(dailyPnl)}¥${Math.abs(dailyPnl).toLocaleString()}`, c: pnlColor(dailyPnl) },
               { l: '累计收益', v: `${(run.totalReturn||0).toFixed(2)}%`, c: pnlColor(run.totalReturn) },
@@ -819,7 +921,7 @@ export default function LiveRunDetailPage() {
         const today = new Date().toISOString().slice(0,10);
         const currentPoint = {
           snapshotDate: today,
-          cash: allocation?.currentCash || 0,
+          cash: run?.availableCash || 0,
           positionValue: posValue,
           totalEquity: totalEquity,
           cumulativeReturn: run.totalReturn || 0,
@@ -984,8 +1086,7 @@ export default function LiveRunDetailPage() {
                   allowClear
                 />
                 {signalDate && <Tag size="small" color="arcoblue">{signalDate}</Tag>}
-                <Button size="small" type="outline" loading={syncingAll} onClick={handleSyncAll}>同步全部订单</Button>
-                <Button size="small" type="outline" status="warning" loading={syncingBroker} onClick={handleReconcile}>同步券商数据</Button>
+
               </div>
               <div style={{ display: 'flex', gap: 6 }}>
                 <Dropdown
@@ -1008,11 +1109,16 @@ export default function LiveRunDetailPage() {
                 <Button size="small" type="outline" icon={<Bell size={12} />} loading={sendingNotify} onClick={handleSendNotify}>
                   发送通知
                 </Button>
+                <Button size="small" type={showLogConsole ? 'primary' : 'outline'} icon={<Terminal size={12} />}
+                  onClick={() => setShowLogConsole(!showLogConsole)}
+                  style={{ borderColor: showLogConsole ? undefined : 'var(--color-border-2)' }}>
+                  {showLogConsole ? '隐藏日志' : '显示日志'}
+                </Button>
               </div>
             </div>
 
             {/* Dual Log Panels: Strategy | Trade — collapsible */}
-            {(dailyLogs.length > 0 || tradeLogs.length > 0) && (
+            {showLogConsole && (
               <div style={{ marginBottom: 12 }}>
                 <div
                   onClick={() => setLogsCollapsed(!logsCollapsed)}
@@ -1297,6 +1403,7 @@ export default function LiveRunDetailPage() {
                         cancelled:      ['gray', '已撤单'],
                         rejected:       ['red', '已驳回'],
                         skipped:        ['gray', '已跳过'],
+                        claimed:        ['orange', '已认领'],
                       };
                       const [color, label] = statusMap[v] || ['gray', v];
                       return <Tag size="small" color={color} style={{ fontSize: 10 }}>{label}</Tag>;
@@ -1312,7 +1419,7 @@ export default function LiveRunDetailPage() {
                         {(r.status === 'pending_order') && (
                           <>
                             <Button size="mini" type="outline" loading={syncing === r.id} onClick={() => handleSyncOrder(r)}>同步</Button>
-                            <Popconfirm title="确定撤销此委托？撤单后信号将重置为待执行" onOk={() => handleCancelOrder(r)}>
+                            <Popconfirm title="确定撤销此委托？撤单后信号将标记为已撤单" onOk={() => handleCancelOrder(r)}>
                               <Button size="mini" type="text" status="warning" loading={executing === r.id}>撤单</Button>
                             </Popconfirm>
                           </>
@@ -1328,6 +1435,66 @@ export default function LiveRunDetailPage() {
                         {(r.status === 'pending') && (
                           <>
                             <Button size="mini" type="text" onClick={() => handleOpenEditSignal(r)}>编辑</Button>
+                            <Popconfirm title="确定撤回此信号？撤回后状态变为已跳过，不再执行" onOk={async () => {
+                              try { await updateLiveSignal(r.id, { status: 'skipped' } as any); Message.success('信号已撤回'); load(); }
+                              catch (e: any) { Message.error('撤回失败: ' + (e?.message || '未知')); }
+                            }}>
+                              <Button size="mini" type="text" status="warning">撤回</Button>
+                            </Popconfirm>
+                            <Popconfirm title="确定删除此信号？" onOk={() => handleDeleteSignal(r)}>
+                              <Button size="mini" type="text" status="danger">删除</Button>
+                            </Popconfirm>
+                          </>
+                        )}
+                        {(r.status === 'claimed') && (
+                          <>
+                            <Button size="mini" type="outline" onClick={async () => {
+                              try { await updateLiveSignal(r.id, { status: 'pending' } as any); Message.success('已复原为待执行'); load(); }
+                              catch (e: any) { Message.error('复原失败: ' + (e?.message || '未知')); }
+                            }}>复原为待执行</Button>
+                            <Popconfirm title="确定删除此信号？" onOk={() => handleDeleteSignal(r)}>
+                              <Button size="mini" type="text" status="danger">删除</Button>
+                            </Popconfirm>
+                          </>
+                        )}
+                        {(r.status === 'order_failed') && (
+                          <>
+                            <Popconfirm title="确定重试此信号？将重置为待执行重新下单" onOk={async () => {
+                              try { await updateLiveSignal(r.id, { status: 'pending' } as any); Message.success('已重置，等待下次执行'); load(); }
+                              catch (e: any) { Message.error('重试失败: ' + (e?.message || '未知')); }
+                            }}>
+                              <Button size="mini" type="outline" status="warning">重试</Button>
+                            </Popconfirm>
+                            <Popconfirm title="确定跳过此信号？" onOk={async () => {
+                              try { await updateLiveSignal(r.id, { status: 'skipped' } as any); Message.success('已跳过'); load(); }
+                              catch (e: any) { Message.error('操作失败: ' + (e?.message || '未知')); }
+                            }}>
+                              <Button size="mini" type="text">跳过</Button>
+                            </Popconfirm>
+                            <Popconfirm title="确定删除此信号？" onOk={() => handleDeleteSignal(r)}>
+                              <Button size="mini" type="text" status="danger">删除</Button>
+                            </Popconfirm>
+                          </>
+                        )}
+                        {(r.status === 'pending_manual' || r.status === 'pending_auto') && (
+                          <>
+                            <Button size="mini" type="outline" onClick={async () => {
+                              try { await updateLiveSignal(r.id, { status: 'pending' } as any); Message.success('已变更为待执行'); load(); }
+                              catch (e: any) { Message.error('变更失败: ' + (e?.message || '未知')); }
+                            }}>恢复执行</Button>
+                            <Popconfirm title="确定删除此信号？" onOk={() => handleDeleteSignal(r)}>
+                              <Button size="mini" type="text" status="danger">删除</Button>
+                            </Popconfirm>
+                          </>
+                        )}
+                        {(r.status === 'cancelled') && (
+                          <>
+                            <Popconfirm title="确定恢复此信号？将重置为待执行重新下单" onOk={async () => {
+                              try { await updateLiveSignal(r.id, { status: 'pending' } as any); Message.success('已恢复为待执行'); load(); }
+                              catch (e: any) { Message.error('恢复失败: ' + (e?.message || '未知')); }
+                            }}>
+                              <Button size="mini" type="outline" status="warning">恢复待执行</Button>
+                            </Popconfirm>
                             <Popconfirm title="确定删除此信号？" onOk={() => handleDeleteSignal(r)}>
                               <Button size="mini" type="text" status="danger">删除</Button>
                             </Popconfirm>
@@ -1442,13 +1609,13 @@ export default function LiveRunDetailPage() {
                         })}
 
                         {/* 风险提示 */}
-                        {(buyList.length > 0 || sellList.length > 0) && allocation && (
+                        {(buyList.length > 0 || sellList.length > 0) && run && (
                           <div style={{
                             marginTop: 10, padding: '8px 12px', background: '#fffbe6', borderRadius: 6,
                             fontSize: 11, color: '#876800', display: 'flex', alignItems: 'center', gap: 6
                           }}>
                             <Zap size={12} color="#F7BA1E" />
-                            可用资金 ¥{allocation.currentCash?.toLocaleString() || 0}
+                            可用资金 ¥{(run?.availableCash || 0).toLocaleString()}
                             {totalBuy > 0 && <span> · 计划买入 ¥{totalBuy.toLocaleString()}</span>}
                             {totalSell > 0 && <span> · 计划卖出 ¥{totalSell.toLocaleString()}</span>}
                             {holdList.length > 0 && <span> · {holdList.length} 只建议持有观望</span>}
@@ -2130,7 +2297,7 @@ export default function LiveRunDetailPage() {
         cancelText="取消"
       >
         <div style={{ padding: '8px 0' }}>
-          确定撤销当日全部委托中的订单？撤单后信号将重置为待执行，可重新下单。
+          确定撤销当日全部委托中的订单？撤单后信号将标记为已撤单。
         </div>
       </Modal>
 
@@ -2198,6 +2365,126 @@ export default function LiveRunDetailPage() {
             <div style={{ padding: '6px 10px', fontSize: 13, fontWeight: 600, color: 'var(--color-text-1)', background: 'var(--color-fill-1)', borderRadius: 6 }}>
               ¥{((parseFloat(String(testSignal.price)) || 0) * (testSignal.quantity || 0)).toLocaleString()}
             </div>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Deposit/Withdraw Modal */}
+      <Modal
+        title="策略出入金"
+        visible={showDeposit}
+        onCancel={() => { setShowDeposit(false); setDepositAmount(0); setDepositReason(''); setDepositAction('deposit'); }}
+        footer={null}
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16, padding: '8px 0' }}>
+          {/* Action Toggle */}
+          <div style={{ display: 'flex', gap: 0, borderRadius: 6, overflow: 'hidden', border: '1px solid var(--color-border-2)' }}>
+            <Button
+              type={depositAction === 'deposit' ? 'primary' : 'default'}
+              onClick={() => { setDepositAction('deposit'); setDepositAmount(0); }}
+              style={{ flex: 1, borderRadius: 0, border: 'none' }}
+            >💰 入金（账户→策略）</Button>
+            <Button
+              type={depositAction === 'withdraw' ? 'primary' : 'default'}
+              onClick={() => { setDepositAction('withdraw'); setDepositAmount(0); }}
+              style={{ flex: 1, borderRadius: 0, border: 'none' }}
+            >📤 出金（策略→账户）</Button>
+          </div>
+
+          {/* Context info */}
+          {depositAction === 'deposit' ? (
+            <div style={{ fontSize: 13, color: 'var(--color-text-2)', background: 'var(--color-fill-1)', borderRadius: 8, padding: '10px 12px' }}>
+              <div>可分配资金: <b style={{ color: '#0FC6C2', fontSize: 16 }}>¥{freeAccountCash.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</b></div>
+              <div style={{ marginTop: 2, fontSize: 11, color: 'var(--color-text-4)' }}>账户余额 ¥{(linkedAccount?.availableCash || 0).toLocaleString()} − 已分配给策略 = 可分配</div>
+              <div style={{ marginTop: 2, fontSize: 11, color: 'var(--color-text-4)' }}>从「{linkedAccount?.name || '-'}」转入「{run?.name || '-'}」</div>
+            </div>
+          ) : (
+            <div style={{ fontSize: 13, color: 'var(--color-text-2)', background: 'var(--color-fill-1)', borderRadius: 8, padding: '10px 12px' }}>
+              <div>策略可出资金: <b style={{ color: '#0FC6C2', fontSize: 16 }}>¥{(run?.availableCash || 0).toLocaleString()}</b></div>
+              <div style={{ marginTop: 4, fontSize: 11, color: 'var(--color-text-4)' }}>从策略「{run?.name || '-'}」转回到账户「{linkedAccount?.name || '-'}」</div>
+            </div>
+          )}
+
+          {/* Quick Select */}
+          <div>
+            <div style={{ marginBottom: 6, fontSize: 12, color: 'var(--color-text-3)' }}>快捷选择</div>
+            <div style={{ display: 'flex', gap: 6 }}>
+              {(() => {
+                const maxAmount = depositAction === 'deposit' ? freeAccountCash : (run?.availableCash || 0);
+                const fractions = [
+                  { label: '全部', ratio: 1 },
+                  { label: '1/2', ratio: 0.5 },
+                  { label: '1/3', ratio: 1/3 },
+                  { label: '1/4', ratio: 0.25 },
+                ];
+                return fractions.map(f => (
+                  <Button
+                    key={f.label}
+                    size="small"
+                    type={depositAmount === Math.round(maxAmount * f.ratio * 100) / 100 ? 'primary' : 'outline'}
+                    onClick={() => setDepositAmount(Math.round(maxAmount * f.ratio * 100) / 100)}
+                  >
+                    {f.label}
+                  </Button>
+                ));
+              })()}
+            </div>
+          </div>
+
+          <Divider style={{ margin: '0' }} />
+
+          {/* Amount Input */}
+          <div>
+            <div style={{ marginBottom: 6, fontSize: 13, fontWeight: 600 }}>金额</div>
+            <InputNumber
+              value={depositAmount}
+              onChange={v => setDepositAmount(v as number)}
+              min={0.01}
+              max={depositAction === 'deposit' ? freeAccountCash : (run?.availableCash || 0)}
+              precision={2}
+              placeholder="输入金额"
+              style={{ width: '100%' }}
+            />
+          </div>
+
+          {/* Reason */}
+          <div>
+            <div style={{ marginBottom: 6, fontSize: 13, fontWeight: 600 }}>原因 (可选)</div>
+            <Input value={depositReason} onChange={v => setDepositReason(v)} placeholder="如：追加策略资金" />
+          </div>
+
+          {/* Confirm */}
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <Button onClick={() => { setShowDeposit(false); setDepositAmount(0); setDepositReason(''); setDepositAction('deposit'); }}>取消</Button>
+            <Button
+              type="primary"
+              loading={depositing}
+              disabled={depositAmount <= 0 || depositing}
+              onClick={async () => {
+                if (!run?.id || depositAmount <= 0) return;
+                setDepositing(true);
+                try {
+                  if (depositAction === 'deposit') {
+                    await depositToRun(run.id, { amount: depositAmount, reason: depositReason || '手动入金' });
+                    showToast('success', `入金成功`);
+                  } else {
+                    await withdrawFromRun(run.id, { amount: depositAmount, reason: depositReason || '手动出金' });
+                    showToast('success', `出金成功`);
+                  }
+                  setShowDeposit(false);
+                  setDepositAmount(0);
+                  setDepositReason('');
+                  setDepositAction('deposit');
+                  load();
+                } catch (e: any) {
+                  // toast handled by api interceptor
+                } finally {
+                  setDepositing(false);
+                }
+              }}
+            >
+              {depositAction === 'deposit' ? '💰 确认入金' : '📤 确认出金'}
+            </Button>
           </div>
         </div>
       </Modal>
