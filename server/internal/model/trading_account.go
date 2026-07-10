@@ -2,6 +2,47 @@ package model
 
 import "time"
 
+// ExecChannel classifies the execution channel for a broker_mode.
+type ExecChannel string
+
+const (
+	ChannelManual ExecChannel = "manual" // 纯手动
+	ChannelAPI    ExecChannel = "api"    // 服务端直连券商 API
+	ChannelAgent  ExecChannel = "agent"  // WS → 本地 Agent
+)
+
+// BrokerChannelMap maps broker_mode to execution channel.
+var BrokerChannelMap = map[string]ExecChannel{
+	"manual":  ChannelManual,
+	"mx_moni": ChannelAPI,
+	"lobster": ChannelAgent,
+}
+
+// GetExecChannel returns the execution channel for a broker_mode.
+func GetExecChannel(mode string) ExecChannel {
+	if ch, ok := BrokerChannelMap[mode]; ok {
+		return ch
+	}
+	return ChannelManual
+}
+
+// IsAgentMode returns true if broker_mode routes through a local agent.
+func IsAgentMode(mode string) bool {
+	return GetExecChannel(mode) == ChannelAgent
+}
+
+// AgentModes returns all broker_mode values that use the agent channel.
+func AgentModes() []string {
+	var modes []string
+	for mode, ch := range BrokerChannelMap {
+		if ch == ChannelAgent {
+			modes = append(modes, mode)
+		}
+	}
+	return modes
+}
+
+
 // TradingAccount represents a user's trading account (real brokerage or simulated).
 // Fields align with mx-moni (东方财富模拟盘) data model for seamless sync.
 type TradingAccount struct {
@@ -29,6 +70,7 @@ type TradingAccount struct {
 	MxAPIKey    string `gorm:"size:200" json:"mxApiKey"`                    // 妙想 API Key
 	MxAccountID string `gorm:"size:50" json:"mxAccountId"`                  // 妙想账户 ID (mx-moni: accID)
 	BrokerMode  string `gorm:"size:20;default:manual" json:"brokerMode"`    // 执行模式: manual / mx_moni / lobster
+	AgentToken  string `gorm:"size:64" json:"agentToken,omitempty"`          // 本地agent认证token
 
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`

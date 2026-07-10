@@ -1,10 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Card, Button, Table, Tag, Modal, InputNumber, Select, Input, Message, Grid, Switch, TimePicker, Divider } from '@arco-design/web-react';
-import { Play, Plus, Pause, Square, Wallet, TrendingUp, BarChart3, Target, RefreshCw, Building2, Trash2, Bell, Settings, Edit, Coins, DollarSign, Cpu } from 'lucide-react';
+import { Card, Button, Table, Tag, Modal, InputNumber, Select, Input, Grid, Switch, TimePicker, Divider } from '@arco-design/web-react';
+import { showToast } from '../components/Toast';
+import { Play, Plus, Pause, Square, Wallet, TrendingUp, BarChart3, Target, RefreshCw, Building2, Trash2, Bell, Settings, Edit, Coins, DollarSign, Cpu, Key, Radio, Zap } from 'lucide-react';
 import {
   fetchLiveRuns, createLiveRun, updateLiveRunStatus, updateLiveRunConfig,
   fetchLiveAccounts, createLiveAccount, updateLiveAccount, deleteLiveAccount, fetchLiveAccount, syncFromBroker,
+  generateAgentToken, revokeAgentToken, testAgentConnection, getAgentStatus,
   fetchStrategies,
   fetchNotificationConfigs, createNotificationConfig, deleteNotificationConfig, testNotification,
 } from '../services/api';
@@ -26,7 +28,7 @@ interface Account {
   initialCapital: number; availableCash: number;
   totalAssets?: number; totalMarketValue?: number;
   totalProfit?: number; nav?: number; frozenCash?: number;
-  brokerMode?: string; mxApiKey?: string; mxAccountId?: string;
+  brokerMode?: string; mxApiKey?: string; mxAccountId?: string; agentToken?: string;
 }
 
 interface Strategy {
@@ -47,6 +49,9 @@ export default function LiveTradingPage() {
   // Create account modal
   const [acctOpen, setAcctOpen] = useState(false);
   const [acctEditOpen, setAcctEditOpen] = useState(false);
+  // Agent auto-trading state
+  const [agentTesting, setAgentTesting] = useState<number | null>(null); // account ID under test
+  const [agentTestMsg, setAgentTestMsg] = useState<string>('');
   const [editingAcct, setEditingAcct] = useState<any>(null);
   const [configOpen, setConfigOpen] = useState(false);
   const [configRun, setConfigRun] = useState<{ id: number; autoDailyCron: string; autoTradeExecCron: string; aiReviewEnabled: boolean; notifyEnabled: boolean; notifyChannels: string }>({ id: 0, autoDailyCron: '', autoTradeExecCron: '', aiReviewEnabled: false, notifyEnabled: false, notifyChannels: '[]' });
@@ -68,7 +73,7 @@ export default function LiveTradingPage() {
   const [newNotify, setNewNotify] = useState({ channel: 'dingtalk_bot', webhookUrl: '' });
 
   const addNotifyChannel = () => {
-    if (!newNotify.webhookUrl) { Message.warning('请输入 Webhook 地址'); return; }
+    if (!newNotify.webhookUrl) { showToast('warning', '请输入 Webhook 地址'); return; }
     const name = newNotify.channel === 'dingtalk_bot' ? '钉钉通知' : newNotify.channel === 'feishu_bot' ? '飞书通知' : '企业微信通知';
     setNewRun(prev => ({
       ...prev,
@@ -85,14 +90,14 @@ export default function LiveTradingPage() {
   };
 
   const handleCreateRun = async () => {
-    if (!newRun.strategyId) { Message.warning('请选择策略'); return; }
+    if (!newRun.strategyId) { showToast('warning', '请选择策略'); return; }
     try {
       await createLiveRun(newRun);
-      Message.success('实盘运行已创建');
+      showToast('success', '实盘运行已创建');
       setCreateOpen(false);
       setNewRun({ strategyId: 0, accountId: 0, name: '', initialCapital: 100000, pctOfAccount: 100, startDate: '', notifyEnabled: false, notifyConfigs: [] });
       load();
-    } catch (e: any) { Message.error(e?.response?.data?.message || '创建失败'); }
+    } catch (e: any) { showToast('error', e?.response?.data?.message || '创建失败'); }
   };
 
   const handleConfigSave = async () => {
@@ -109,7 +114,7 @@ export default function LiveTradingPage() {
           try {
             const { data: created } = await createNotificationConfig({ channel: nc.channel, name: nc.name, config: { webhook_url: nc.webhookUrl } });
             if (created?.data?.id) newIds.push(created.data.id);
-          } catch (e) { console.error("create notif config failed", e); Message.error("通知渠道创建失败: " + ((e as any)?.message || "")); }
+          } catch (e) { console.error("create notif config failed", e); showToast('error', "通知渠道创建失败: " + ((e as any)?.message || "")); }
         }
       }
       // Delete removed configs
@@ -128,38 +133,83 @@ export default function LiveTradingPage() {
         notifyEnabled: configRun.notifyEnabled && finalChannelIds.length > 0,
         notifyChannels: configRun.notifyEnabled ? notifyChannels : '[]',
       });
-      Message.success('配置已保存');
+      showToast('success', '配置已保存');
       setConfigOpen(false);
       load();
-    } catch (e: any) { Message.error('保存失败: ' + (e?.message || '未知')); }
+    } catch (e: any) { showToast('error', '保存失败: ' + (e?.message || '未知')); }
   };
 
   const handleCreateAccount = async () => {
-    if (!newAcct.name) { Message.warning('请输入账户名称'); return; }
+    if (!newAcct.name) { showToast('warning', '请输入账户名称'); return; }
     try {
       await createLiveAccount(newAcct);
-      Message.success('账户已创建');
+      showToast('success', '账户已创建');
       setAcctOpen(false);
       setNewAcct({ name: '', broker: '', accountType: 'simulated', accountNumber: '', initialCapital: 100000, mxApiKey: '', mxAccountId: '', brokerMode: 'manual' });
       load();
-    } catch (e: any) { Message.error(e?.response?.data?.message || '创建失败'); }
+    } catch (e: any) { showToast('error', e?.response?.data?.message || '创建失败'); }
   };
 
   const handleDeleteAccount = async (id: number) => {
     try {
       await deleteLiveAccount(id);
-      Message.success('账户已归档');
+      showToast('success', '账户已归档');
       load();
-    } catch (e: any) { Message.error('删除失败'); }
+    } catch (e: any) { showToast('error', '删除失败'); }
   };
 
   const handleSyncAccount = async (acct: Account) => {
     try {
-      Message.info('正在同步...');
+      showToast('info', '正在同步...');
       const res = await syncFromBroker(acct.id);
-      Message.success(`同步完成: ¥${(res.data?.totalAssets || 0).toLocaleString()} · ${res.data?.posCount || 0}持仓`);
+      showToast('success', `同步完成: ¥${(res.data?.totalAssets || 0).toLocaleString()} · ${res.data?.posCount || 0}持仓`);
       load();
-    } catch (e: any) { Message.error('同步失败: ' + (e?.response?.data?.message || '未知')); }
+    } catch (e: any) { showToast('error', '同步失败: ' + (e?.response?.data?.message || '未知')); }
+  };
+
+  // Agent token handlers
+  const handleGenerateToken = async (accountId: number) => {
+    try {
+      showToast('info', '正在生成 Token...');
+      const { data } = await generateAgentToken(accountId);
+      if (data?.code === 0) {
+        setAccounts(prev => prev.map(a => a.id === accountId ? { ...a, agentToken: data.data.agentToken } : a));
+        if (editingAcct?.id === accountId) setEditingAcct({ ...editingAcct, agentToken: data.data.agentToken });
+        showToast('success', 'Agent Token 已生成，请复制并配置到本地 agent');
+      }
+    } catch (e: any) { showToast('error', e?.response?.data?.message || '生成失败'); }
+  };
+
+  const handleRevokeToken = async (accountId: number) => {
+    try {
+      showToast('info', '正在撤销 Token...');
+      await revokeAgentToken(accountId);
+      setAccounts(prev => prev.map(a => a.id === accountId ? { ...a, agentToken: '' } : a));
+      if (editingAcct?.id === accountId) setEditingAcct({ ...editingAcct, agentToken: '' });
+      showToast('success', 'Token 已撤销');
+    } catch (e: any) { showToast('error', e?.response?.data?.message || '撤销失败'); }
+  };
+
+  const handleTestConnection = async (accountId: number, token: string) => {
+    setAgentTesting(accountId);
+    setAgentTestMsg('');
+    try {
+      showToast('info', '正在测试 agent 连接...');
+      const { data } = await testAgentConnection(accountId, token);
+      if (data?.data?.passed) {
+        setAgentTestMsg('✅ 连接测试通过 — agent 响应正常');
+        showToast('success', '连接测试通过！可以保存');
+      } else {
+        setAgentTestMsg('❌ ' + (data?.data?.message || '测试失败'));
+        showToast('warning', data?.data?.message || '测试失败');
+      }
+    } catch (e: any) {
+      const msg = e?.response?.data?.message || '测试失败，请确认 agent 已启动';
+      setAgentTestMsg('❌ ' + msg);
+      showToast('error', msg);
+    } finally {
+      setAgentTesting(null);
+    }
   };
 
   const handleEditAccount = (acct: any) => {
@@ -171,18 +221,18 @@ export default function LiveTradingPage() {
     if (!editingAcct?.id) return;
     try {
       await updateLiveAccount(editingAcct.id, editingAcct);
-      Message.success('账户已更新');
+      showToast('success', '账户已更新');
       setAcctEditOpen(false);
       load();
-    } catch (e: any) { Message.error('更新失败: ' + (e?.response?.data?.message || '未知')); }
+    } catch (e: any) { showToast('error', '更新失败: ' + (e?.response?.data?.message || '未知')); }
   };
 
   const handleStatus = async (runId: number, status: string) => {
     try {
       await updateLiveRunStatus(runId, status);
-      Message.success(status === 'active' ? '已恢复' : status === 'paused' ? '已暂停' : '已停止');
+      showToast('success', status === 'active' ? '已恢复' : status === 'paused' ? '已暂停' : '已停止');
       load();
-    } catch (e: any) { Message.error('操作失败'); }
+    } catch (e: any) { showToast('error', '操作失败'); }
   };
 
 
@@ -237,6 +287,7 @@ export default function LiveTradingPage() {
                   : <Tag size="small" color="arcoblue" style={{ marginLeft: 6, fontSize: 10 }}>模拟</Tag>
                 }
                 {a.brokerMode === 'mx_moni' && <Tag size="small" color="green" style={{ marginLeft: 4, fontSize: 10 }}>妙想</Tag>}
+                {a.brokerMode === 'lobster' && <Tag size="small" color="purple" style={{ marginLeft: 4, fontSize: 10 }}>龙虾</Tag>}
               </div>
               <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 10 }}>
                 {a.broker || '—'}{a.accountNumber ? ` · ${a.accountNumber}` : ''}
@@ -330,7 +381,7 @@ export default function LiveTradingPage() {
                       id: nc.id, channel: nc.channel, name: nc.name, webhookUrl: nc.config?.webhook_url || ''
                     }));
                     setRemovedNotifyIds([]); setConfigNotifyChannels(linked);
-                  } catch(e) { console.error("load notification configs failed", e); Message.warning("加载通知配置失败"); setConfigNotifyChannels([]); }
+                  } catch(e) { console.error("load notification configs failed", e); showToast('warning', "加载通知配置失败"); setConfigNotifyChannels([]); }
                   setConfigOpen(true);
                 }} />
               </div>
@@ -524,7 +575,7 @@ export default function LiveTradingPage() {
                     </span>
                     <span style={{ fontSize: 11, color: 'var(--color-text-3)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nc.webhookUrl}</span>
                     <Button size="mini" type="text" status="danger" onClick={() => { if (nc.id) setRemovedNotifyIds(prev => [...prev, nc.id]); setConfigNotifyChannels(prev => prev.filter((_, i) => i !== idx)); }} style={{ padding: "0 4px", fontSize: 11 }}>移除</Button>
-                    {nc.id && <Button size="mini" type="text" onClick={async () => { try { await testNotification(nc.id!); Message.success("测试消息已发送"); } catch(e) { Message.error("发送失败: " + (e as any)?.response?.data?.message || String(e)); } }} style={{ padding: "0 4px", fontSize: 11 }}>测试</Button>}
+                    {nc.id && <Button size="mini" type="text" onClick={async () => { try { await testNotification(nc.id!); showToast('success', "测试消息已发送"); } catch(e) { showToast('error', "发送失败: " + (e as any)?.response?.data?.message || String(e)); } }} style={{ padding: "0 4px", fontSize: 11 }}>测试</Button>}
                   </div>
                 ))}
                 <div style={{ display: 'flex', gap: 8 }}>
@@ -538,7 +589,7 @@ export default function LiveTradingPage() {
                   <Input value={configNewNotify.webhookUrl} placeholder="Webhook URL"
                     onChange={v => setConfigNewNotify(prev => ({ ...prev, webhookUrl: v }))} style={{ flex: 1 }} />
                   <Button size="small" type="primary" onClick={() => {
-                    if (!configNewNotify.webhookUrl) { Message.warning('请输入 Webhook 地址'); return; }
+                    if (!configNewNotify.webhookUrl) { showToast('warning', '请输入 Webhook 地址'); return; }
                     const name = configNewNotify.channel === 'dingtalk_bot' ? '钉钉通知' : configNewNotify.channel === 'feishu_bot' ? '飞书通知' : '企业微信通知';
                     setConfigNotifyChannels(prev => [...prev, { channel: configNewNotify.channel, name, webhookUrl: configNewNotify.webhookUrl }]);
                     setConfigNewNotify({ channel: 'dingtalk_bot', webhookUrl: '' });
@@ -577,21 +628,35 @@ export default function LiveTradingPage() {
             <InputNumber value={newAcct.initialCapital} onChange={v => setNewAcct({ ...newAcct, initialCapital: v as number })} min={10000} style={{ width: '100%' }} />
           </div>
           <Divider style={{ margin: '4px 0' }} orientation="left">
-            <span style={{ fontSize: 12, color: 'var(--color-text-2)' }}>妙想模拟交易绑定 (可选)</span>
+            <span style={{ fontSize: 12, color: 'var(--color-text-2)' }}>
+              {newAcct.brokerMode === 'lobster' ? 'Agent 自动交易' : newAcct.brokerMode === 'mx_moni' ? '妙想模拟交易绑定' : '执行通道'}
+            </span>
           </Divider>
           <div>
             <div style={{ marginBottom: 4, fontSize: 13, color: 'var(--color-text-2)' }}>执行通道</div>
             <Select value={newAcct.brokerMode} onChange={v => setNewAcct({ ...newAcct, brokerMode: v as string })}
-              options={[{ label: '手动执行', value: 'manual' }, { label: '东财妙想模拟盘', value: 'mx_moni' }]} style={{ width: '100%' }} />
+              options={[{ label: '手动执行', value: 'manual' }, { label: '妙想模拟盘 API', value: 'mx_moni' }, { label: 'Agent 自动交易', value: 'lobster' }]} style={{ width: '100%' }} />
           </div>
-                    <div style={{ marginTop: 4 }}>
-            <div style={{ marginBottom: 4, fontSize: 13, color: 'var(--color-text-2)' }}>妙想 API Key <span style={{ fontSize: 10, color: 'var(--color-text-3)' }}>(绑定后支持同步持仓)</span></div>
-            <Input.Password value={newAcct.mxApiKey} onChange={v => setNewAcct({ ...newAcct, mxApiKey: v })} placeholder="mkt_xxx...（留空则用环境变量）" />
-          </div>
-          <div>
-            <div style={{ marginBottom: 4, fontSize: 13, color: 'var(--color-text-2)' }}>妙想账户ID</div>
-            <Input value={newAcct.mxAccountId} onChange={v => setNewAcct({ ...newAcct, mxAccountId: v })} placeholder="选填" />
-          </div>
+          {newAcct.brokerMode === 'mx_moni' && (<>
+            <div style={{ marginTop: 4 }}>
+              <div style={{ marginBottom: 4, fontSize: 13, color: 'var(--color-text-2)' }}>妙想 API Key <span style={{ fontSize: 10, color: 'var(--color-text-3)' }}>(绑定后支持同步持仓)</span></div>
+              <Input.Password value={newAcct.mxApiKey} onChange={v => setNewAcct({ ...newAcct, mxApiKey: v })} placeholder="mkt_xxx...（留空则用环境变量）" />
+            </div>
+            <div>
+              <div style={{ marginBottom: 4, fontSize: 13, color: 'var(--color-text-2)' }}>妙想账户ID</div>
+              <Input value={newAcct.mxAccountId} onChange={v => setNewAcct({ ...newAcct, mxAccountId: v })} placeholder="选填" />
+            </div>
+          </>)}
+          {newAcct.brokerMode === 'lobster' && (
+            <div style={{ fontSize: 12, color: 'var(--color-text-3)', lineHeight: 1.8, background: 'var(--color-fill-1)', borderRadius: 8, padding: 12 }}>
+              <div style={{ fontWeight: 600, marginBottom: 4 }}>Agent 自动交易说明</div>
+              1. 创建账户后，在账户卡片上点击 ✏️ 编辑生成 Agent Token<br />
+              2. 将 Token 填入本地 trade-agent/config.yaml<br />
+              3. 在 config.yaml 中配置 broker_mode（eastmoney_mac / eastmoney_web / lobster）<br />
+              4. 启动本地 agent（python3 agent.py --mode daemon）<br />
+              5. 在本页面点击"测试连接"，通过后点击保存
+            </div>
+          )}
         </div>
       </Modal>
 
@@ -632,8 +697,55 @@ export default function LiveTradingPage() {
             <div>
               <div style={{ marginBottom: 4, fontSize: 13, color: 'var(--color-text-2)' }}>执行模式</div>
               <Select value={editingAcct.brokerMode || 'manual'} onChange={v => setEditingAcct({ ...editingAcct, brokerMode: v })}
-                options={[{ label: '手动执行', value: 'manual' }, { label: '东财妙想模拟盘', value: 'mx_moni' }]} style={{ width: '100%' }} />
+                options={[{ label: '手动执行', value: 'manual' }, { label: '妙想模拟盘 API', value: 'mx_moni' }, { label: 'Agent 自动交易', value: 'lobster' }]} style={{ width: '100%' }} />
             </div>
+            {/* Agent Token (龙虾自动交易) */}
+            {editingAcct.brokerMode === 'lobster' && (
+              <>
+                <Divider style={{ margin: '4px 0' }} orientation="left">
+                  <span style={{ fontSize: 12, color: 'var(--color-text-2)' }}>🤖 本地 Agent 设置</span>
+                </Divider>
+                <div>
+                  <div style={{ marginBottom: 4, fontSize: 13, color: 'var(--color-text-2)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                    Agent Token
+                    {editingAcct.agentToken && <Tag size="small" color="green" style={{ fontSize: 10 }}>已生成</Tag>}
+                  </div>
+                  {editingAcct.agentToken ? (
+                    <>
+                      <Input.Password value={editingAcct.agentToken} readOnly style={{ fontFamily: 'monospace', fontSize: 12 }} />
+                      <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+                        <Button size="small" icon={<Zap size={12} />} loading={agentTesting === editingAcct.id}
+                          onClick={() => handleTestConnection(editingAcct.id, editingAcct.agentToken || '')}
+                          style={{ fontSize: 12 }}>
+                          测试连接
+                        </Button>
+                        <Button size="small" status="danger" onClick={() => handleRevokeToken(editingAcct.id)} style={{ fontSize: 12 }}>
+                          撤销 Token
+                        </Button>
+                        <Button size="small" onClick={() => handleGenerateToken(editingAcct.id)} style={{ fontSize: 12 }}>
+                          重新生成
+                        </Button>
+                      </div>
+                      {agentTestMsg && (
+                        <div style={{ marginTop: 6, fontSize: 12, color: agentTestMsg.startsWith('✅') ? '#00b42a' : '#f53f3f' }}>
+                          {agentTestMsg}
+                        </div>
+                      )}
+                      <div style={{ marginTop: 6, fontSize: 11, color: 'var(--color-text-3)', lineHeight: 1.5 }}>
+                        将 Token 填入本地 trade-agent/config.yaml 的 agent_token 字段，<br/>
+                        然后启动 agent.py --mode daemon，再点击"测试连接"。
+                      </div>
+                    </>
+                  ) : (
+                    <Button size="small" icon={<Key size={12} />} onClick={() => handleGenerateToken(editingAcct.id)} style={{ fontSize: 12 }}>
+                      生成 Agent Token
+                    </Button>
+                  )}
+                </div>
+              </>
+            )}
+
+            {editingAcct.brokerMode !== 'lobster' && (<>
             <Divider style={{ margin: '4px 0' }} orientation="left">
               <span style={{ fontSize: 12, color: 'var(--color-text-2)' }}>妙想绑定 (同步持仓/资金)</span>
             </Divider>
@@ -645,6 +757,7 @@ export default function LiveTradingPage() {
               <div style={{ marginBottom: 4, fontSize: 13, color: 'var(--color-text-2)' }}>妙想账户ID</div>
               <Input value={editingAcct.mxAccountId || ''} onChange={v => setEditingAcct({ ...editingAcct, mxAccountId: v })} />
             </div>
+            </>)}
           </div>
         )}
       </Modal>

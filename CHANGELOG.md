@@ -1,3 +1,26 @@
+## v1.10.0 (2026-07-10)
+
+### 交易代理（trade-agent）健壮性增强
+
+- **实盘账户校验修复**（`eastmoney_mac.py` + `preflight.py`）：
+  - 重写 `get_account_name()`：实盘存在多个「证券账户」标签，新增距离阈值排除行情区误匹配（原会误读为"停"牌标记），正确读取账户名（如「李江波 (0472)」）
+  - 账户校验改用后端 `accountNumber`（资金账号）与东财账户名归一化后做包含匹配，替代对不上的业务别名；不一致即阻断
+- **实盘自动登录**（应对实盘约 180 分钟在线超时）：
+  - 新增 `login()`：打开登录浮层 → 填资金账号/密码 → 截图 OCR 识别验证码 → 填写 → 点登录 → 校验，验证码错误自动换图重试（最多 5 次）
+  - 新增 `_recognize_captcha()`：基于验证码框相对锚点截图 + ddddocr 放大 4 倍识别，仅接受 4 位数字
+  - 新增 `get_login_status()` / `is_logged_in()`：读取「登录状态」标签；`place_order` 下单前校验登录态防超时误操作
+  - `preflight` 第⑥步：未登录且配置了密码则自动登录，失败弹窗引导手动
+- **登录凭据配置**（`config.yaml` + `factory.py`）：新增 `trade_password` / `fund_account`，优先读环境变量 `EM_TRADE_PASSWORD` / `EM_FUND_ACCOUNT`
+- **AX 基础修复**（`ax_helper.py`）：`activate_app()` 增加 `ActivateAllWindows` + `unhide`，解决隐藏/失焦状态下窗口 AX 读不到的问题（惠及全局）
+- **修复** `agent.py` `on_command` 异常分支 `respond_command` 重复调用 bug
+
+### 配置与依赖清理
+
+- **新增** `trade-agent/.gitignore`：保护 `config.yaml`（含密码/token）、`tab_calibration.json`、日志、验证码截图等敏感/临时文件
+- **requirements.txt**：补上核心依赖 `ddddocr`（自动登录验证码 OCR），按核心/可选分组标注
+- **移除冗余 `account_id`**：后端 `agent_hello` 仅解析 `traderType`/`capabilities`，账户身份完全由 token 识别，从 config / agent.py / README 移除
+- **config.example.yaml 全面重写**：对齐当前架构（`broker_mode` 替代旧 `trader`），移除废弃的 `fallback_traders` / `chengjiao_tab_xy` / `weituo_tab_xy` / `pyautogui` 块
+
 ## v1.9.0 (2026-07-08)
 
 ### 策略调度架构重构 v2

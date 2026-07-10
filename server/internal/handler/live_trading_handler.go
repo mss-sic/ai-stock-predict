@@ -2,6 +2,8 @@ package handler
 
 import (
 	"encoding/json"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"strconv"
@@ -13,6 +15,7 @@ import (
 	"github.com/ai-stock-predict/server/pkg/response"
 	schedv2 "github.com/ai-stock-predict/server/internal/scheduler/v2"
 	"github.com/ai-stock-predict/server/internal/service"
+	"github.com/ai-stock-predict/server/internal/ws"
 	"github.com/gin-gonic/gin"
 )
 
@@ -20,14 +23,31 @@ import (
 type LiveTradingHandler struct {
 	liveSvc   *service.LiveTradingService
 	brokerSvc *service.BrokerService
+	hub       *ws.Hub
 }
 
 // NewLiveTradingHandler creates a new live trading handler.
 func NewLiveTradingHandler() *LiveTradingHandler {
-	return &LiveTradingHandler{
-		liveSvc:   service.NewLiveTradingService(),
-		brokerSvc: service.NewBrokerService(),
+	return NewLiveTradingHandlerWithHub(nil)
+}
+
+// NewLiveTradingHandlerWithHub creates a live trading handler with an optional WebSocket hub
+// for agent auto-trading signal push.
+func NewLiveTradingHandlerWithHub(hub *ws.Hub) *LiveTradingHandler {
+	liveSvc := service.NewLiveTradingService()
+	if hub != nil {
+		liveSvc.SetAgentHub(hub)
 	}
+	return &LiveTradingHandler{
+		liveSvc:   liveSvc,
+		brokerSvc: service.NewBrokerService(),
+		hub:       hub,
+	}
+}
+
+// SetBrokerService replaces the default BrokerService with one that has hub+commander injected.
+func (h *LiveTradingHandler) SetBrokerService(svc *service.BrokerService) {
+	h.brokerSvc = svc
 }
 
 // ── Account Management (Multi-Account) ──
@@ -112,7 +132,23 @@ func (h *LiveTradingHandler) UpdateAccount(c *gin.Context) {
 	if body.Status != nil { updates["status"] = *body.Status }
 	if body.MxAPIKey != nil { updates["mx_api_key"] = *body.MxAPIKey }
 	if body.MxAccountID != nil { updates["mx_account_id"] = *body.MxAccountID }
-	if body.BrokerMode != nil { updates["broker_mode"] = *body.BrokerMode }
+	if body.BrokerMode != nil {
+		// Validate: setting lob.ster mode requires an active agent connection
+		if *body.BrokerMode == "lobster" {
+			var currentAccount model.TradingAccount
+			if err := db.MySQL.Where("id = ? AND user_id = ?", aid, uid).First(&currentAccount).Error; err == nil {
+				if currentAccount.AgentToken == "" {
+					response.BadRequest(c, "请先生成 Agent Token，点击启用自动交易")
+					return
+				}
+				if h.hub != nil && !h.hub.HasAgent(uint(aid)) {
+					response.BadRequest(c, "本地 agent 未连接，请先启动 agent 并通过连接测试")
+					return
+				}
+			}
+		}
+		updates["broker_mode"] = *body.BrokerMode
+	}
 
 	if err := db.MySQL.Model(&model.TradingAccount{}).Where("id = ? AND user_id = ?", aid, uid).Updates(updates).Error; err != nil {
 		response.InternalError(c, "更新账户失败")
@@ -131,6 +167,80 @@ func (h *LiveTradingHandler) DeleteAccount(c *gin.Context) {
 		return
 	}
 	response.Success(c, map[string]string{"status": "archived"})
+}
+
+// ── Agent Token Management (Local Auto-Trading) ──
+
+// GenerateAgentToken generates (or regenerates) an agent token for a trading account.
+// Used by the frontend to enable local auto-trading via the desktop agent.
+func (h *LiveTradingHandler) GenerateAgentToken(c *gin.Context) {
+	uid := getUID(c)
+	aid, _ := strconv.Atoi(c.Param("id"))
+	if aid <= 0 {
+		response.BadRequest(c, "无效的账户ID")
+		return
+	}
+
+	var account model.TradingAccount
+	if err := db.MySQL.Where("id = ? AND user_id = ?", aid, uid).First(&account).Error; err != nil {
+		response.NotFound(c, "账户不存在")
+		return
+	}
+	if account.BrokerMode == "manual" || account.BrokerMode == "" {
+		response.BadRequest(c, "手动执行模式的账户无法启用自动交易，请先切换到非手动执行通道")
+		return
+	}
+
+	// Generate token: tk_ + 32 hex chars
+	tokenBytes := make([]byte, 16)
+	if _, err := rand.Read(tokenBytes); err != nil {
+		response.InternalError(c, "生成token失败")
+		return
+	}
+	token := "tk_" + hex.EncodeToString(tokenBytes)
+
+	// Kick existing agent if any
+	if h.liveSvc != nil && account.AgentToken != "" {
+		h.liveSvc.KickAgent(uint(aid))
+	}
+
+	// Save token
+	if err := db.MySQL.Model(&account).Update("agent_token", token).Error; err != nil {
+		response.InternalError(c, "保存token失败")
+		return
+	}
+
+	log.Printf("[agent] token generated for account %d (%s)", aid, account.Name)
+	response.Success(c, map[string]string{"agentToken": token})
+}
+
+// RevokeAgentToken revokes the agent token, disabling local auto-trading.
+func (h *LiveTradingHandler) RevokeAgentToken(c *gin.Context) {
+	uid := getUID(c)
+	aid, _ := strconv.Atoi(c.Param("id"))
+	if aid <= 0 {
+		response.BadRequest(c, "无效的账户ID")
+		return
+	}
+
+	var account model.TradingAccount
+	if err := db.MySQL.Where("id = ? AND user_id = ?", aid, uid).First(&account).Error; err != nil {
+		response.NotFound(c, "账户不存在")
+		return
+	}
+
+	// Kick connected agent
+	if h.liveSvc != nil && account.AgentToken != "" {
+		h.liveSvc.KickAgent(uint(aid))
+	}
+
+	if err := db.MySQL.Model(&account).Update("agent_token", "").Error; err != nil {
+		response.InternalError(c, "撤销token失败")
+		return
+	}
+
+	log.Printf("[agent] token revoked for account %d (%s)", aid, account.Name)
+	response.Success(c, map[string]string{"status": "revoked"})
 }
 
 // ── Strategy Run Management ──
@@ -254,11 +364,12 @@ func (h *LiveTradingHandler) CreateRun(c *gin.Context) {
 		})
 	}
 
-	// Import existing positions from broker if account already has holdings
-	if account.Broker != "" && account.Broker != "manual" {
+	// Import existing positions from broker (API-direct only, not agent-based)
+	// Agent-based accounts require a connected local agent — skip auto-import on create
+	if model.GetExecChannel(account.BrokerMode) == model.ChannelAPI {
 		go func() {
 			svc := service.NewLiveTradingService()
-			if err := svc.ImportBrokerPositionsToRun(run.ID, account.ID, uid); err != nil {
+			if err := svc.ImportBrokerPositionsToRun(h.brokerSvc, run.ID, account.ID, uid); err != nil {
 				log.Printf("[live] CreateRun: import positions for run %d failed: %v", run.ID, err)
 			} else {
 				log.Printf("[live] CreateRun: imported broker positions for run %d from account %d", run.ID, account.ID)
@@ -383,14 +494,14 @@ func (h *LiveTradingHandler) UpdateRunConfig(c *gin.Context) {
 	if body.NotifyEnabled != nil     { updates["notify_enabled"] = *body.NotifyEnabled }
 	if body.NotifyChannels != nil    { updates["notify_channels"] = *body.NotifyChannels }
 
-	// Validate execution mode: if switching to auto/mx, verify at least one account supports it
+	// Validate execution mode: if switching to auto, verify at least one non-manual account exists
 	if body.ExecutionMode != nil && *body.ExecutionMode != "manual" {
 		var count int64
 		db.MySQL.Model(&model.TradingAccount{}).
-			Where("user_id = ? AND status = ? AND mx_api_key != ''", uid, "active").
+			Where("user_id = ? AND status = ? AND broker_mode != ?", uid, "active", "manual").
 			Count(&count)
 		if count == 0 {
-			response.Error(c, 400, 400, "切换为自动交易需要先在账户设置中配置妙想API Key")
+			response.Error(c, 400, 400, "切换为自动交易需要先在「交易账户」页面配置非手动执行通道（妙想模拟/龙虾自动）")
 			return
 		}
 	}
@@ -456,6 +567,9 @@ func (h *LiveTradingHandler) ExecuteTrade(c *gin.Context) {
 	}
 
 	svc := service.NewTradeExecService(service.NewAIService())
+	if h.hub != nil {
+		svc.SetHub(h.hub)
+	}
 	result, err := svc.ExecuteForRun(tradeDate, uint(rid), body.Force)
 	if err != nil {
 		response.InternalError(c, "交易执行失败: "+err.Error())
@@ -509,7 +623,11 @@ func (h *LiveTradingHandler) ExecuteSingleSignal(c *gin.Context) {
 	var account model.TradingAccount
 	db.MySQL.Where("user_id = ? AND status = ?", uid, "active").Order("id ASC").First(&account)
 
-	_ = service.NewTradeExecService(service.NewAIService())
+	execSvc := service.NewTradeExecService(service.NewAIService())
+	if h.hub != nil {
+		execSvc.SetHub(h.hub)
+	}
+	_ = execSvc
 	// Direct execution (manual dispatch regardless of broker mode)
 	sig.Status = "pending_manual"
 	sig.SkipReason = "用户手动触发，请在前端确认下单"
@@ -1208,6 +1326,85 @@ func (h *LiveTradingHandler) BrokerStatus(c *gin.Context) {
 }
 
 // ClearSignals removes all pending signals for a run on a specific date.
+// CreateTestSignal creates a manual test signal for the given run.
+// POST /api/v1/live/runs/:id/signals
+func (h *LiveTradingHandler) CreateTestSignal(c *gin.Context) {
+	uid := getUID(c)
+	rid, _ := strconv.Atoi(c.Param("id"))
+	if rid <= 0 {
+		c.JSON(400, gin.H{"error": "invalid run id"})
+		return
+	}
+
+	// Verify run belongs to user
+	var run model.StrategyRun
+	if err := db.MySQL.Where("id = ? AND user_id = ?", rid, uid).First(&run).Error; err != nil {
+		c.JSON(404, gin.H{"error": "run not found"})
+		return
+	}
+
+	var req struct {
+		ExecDate  string  `json:"execDate" binding:"required"`
+		StockCode string  `json:"stockCode" binding:"required"`
+		StockName string  `json:"stockName" binding:"required"`
+		ActionType string `json:"actionType" binding:"required"`
+		Price     float64 `json:"price" binding:"required"`
+		Quantity  int     `json:"quantity" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"error": "参数错误: " + err.Error()})
+		return
+	}
+
+	if req.Quantity <= 0 {
+		c.JSON(400, gin.H{"error": "数量必须大于0"})
+		return
+	}
+	if req.Price <= 0 {
+		c.JSON(400, gin.H{"error": "价格必须大于0"})
+		return
+	}
+
+	// Use execDate as signalDate (same day)
+	today := req.ExecDate
+
+	sig := model.BacktestSignal{
+		RunID:        uint(rid),
+		StrategyID:   run.StrategyID,
+		UserID:       uid,
+		SignalDate:   today,
+		ExecDate:     req.ExecDate,
+		StockCode:    req.StockCode,
+		StockName:    req.StockName,
+		ActionType:   req.ActionType,
+		PlannedPrice: req.Price,
+		PlannedQty:   req.Quantity,
+		PlannedAmount: req.Price * float64(req.Quantity),
+		OrderPrice:   req.Price,
+		SuggestedQty: req.Quantity,
+		Status:       "pending_manual",
+		Reason:       "手动选择的信号",
+	}
+
+	if err := db.MySQL.Create(&sig).Error; err != nil {
+		log.Printf("[live] CreateTestSignal failed: %v", err)
+		response.InternalError(c, "创建信号失败")
+		return
+	}
+
+	log.Printf("[live] CreateTestSignal run=%d %s %s %s %.2fx%d", rid, req.StockCode, req.StockName, req.ActionType, req.Price, req.Quantity)
+	response.Success(c, gin.H{
+		"id":         sig.ID,
+		"stockCode":  sig.StockCode,
+		"stockName":  sig.StockName,
+		"actionType": sig.ActionType,
+		"price":      sig.PlannedPrice,
+		"quantity":   sig.PlannedQty,
+		"execDate":   sig.ExecDate,
+		"status":     sig.Status,
+	})
+}
+
 func (h *LiveTradingHandler) ClearSignals(c *gin.Context) {
 	uid := getUID(c)
 	rid, _ := strconv.Atoi(c.Param("id"))
@@ -1224,12 +1421,40 @@ func (h *LiveTradingHandler) ClearSignals(c *gin.Context) {
 		return
 	}
 
-	result := db.MySQL.Where("run_id = ? AND user_id = ? AND exec_date = ? AND status IN ?",
-		rid, uid, date, []string{"pending"}).Delete(&model.BacktestSignal{})
+	// Debug: query all signals for this run+date to see what exists
+	type SigDebug struct {
+		Status   string
+		ExecDate string
+	}
+	var debugRows []SigDebug
+	db.MySQL.Model(&model.BacktestSignal{}).
+		Select("status, exec_date").
+		Where("run_id = ? AND exec_date = ?", rid, date).
+		Find(&debugRows)
+	var debugStatuses []string
+	for _, r := range debugRows {
+		debugStatuses = append(debugStatuses, r.Status)
+	}
+
+	// Count before delete
+	var deletedCount int64
+	statusList := []string{"pending", "pending_manual", "pending_auto"}
+	db.MySQL.Model(&model.BacktestSignal{}).
+		Where("run_id = ? AND exec_date = ? AND status IN ?", rid, date, statusList).
+		Count(&deletedCount)
+
+	db.MySQL.Where("run_id = ? AND exec_date = ? AND status IN ?", rid, date, statusList).
+		Delete(&model.BacktestSignal{})
 
 	response.Success(c, map[string]interface{}{
-		"deleted": result.RowsAffected,
+		"deleted": deletedCount,
 		"date":    date,
+		"debug": map[string]interface{}{
+			"runId": rid,
+			"uid": uid,
+			"totalSignalsOnDate": len(debugRows),
+			"statusesFound": debugStatuses,
+		},
 	})
 }
 
@@ -1239,6 +1464,10 @@ func RegisterLiveTradingRoutes(r *gin.RouterGroup, h *LiveTradingHandler) {
 	r.POST("/accounts", h.CreateAccount)
 	r.PUT("/accounts/:id", h.UpdateAccount)
 	r.DELETE("/accounts/:id", h.DeleteAccount)
+
+	// Agent Token management (local auto-trading)
+	r.POST("/accounts/:id/generate-agent-token", h.GenerateAgentToken)
+	r.DELETE("/accounts/:id/agent-token", h.RevokeAgentToken)
 	r.GET("/account", h.GetAccount) // backward compat — returns array
 
 	// Strategy runs
@@ -1261,6 +1490,7 @@ func RegisterLiveTradingRoutes(r *gin.RouterGroup, h *LiveTradingHandler) {
 	r.PUT("/signals/:id", h.UpdateSignal)
 	r.DELETE("/signals/:id", h.DeleteSignal)
 	r.POST("/signals/:id/execute", h.ExecuteSignal)
+	r.POST("/runs/:id/signals", h.CreateTestSignal)
 	r.DELETE("/runs/:id/signals", h.ClearSignals)
 
 	// Positions & trades
@@ -1302,8 +1532,22 @@ func (h *LiveTradingHandler) CancelSignalOrder(c *gin.Context) {
 		response.NotFound(c, "信号不存在")
 		return
 	}
-	if sig.Status != "pending_order" && sig.Status != "partial_filled" {
-		response.BadRequest(c, "只有委托中或部分成交的信号才能撤单")
+	if sig.Status != "pending_order" && sig.Status != "partial_filled" && sig.Status != "executed" {
+		response.BadRequest(c, "只有委托中、部分成交或已成交的信号才能撤单")
+		return
+	}
+
+	// For executed signals: delete the associated trade record (likely false positive from agent)
+	if sig.Status == "executed" {
+		db.MySQL.Where("signal_id = ?", sig.ID).Delete(&model.LiveTrade{})
+		// Reset back to pending_auto so agent can retry
+		db.MySQL.Model(&sig).Updates(map[string]interface{}{
+			"status":          "pending_auto",
+			"broker_order_id": "",
+			"reason":          sig.Reason + " | 已撤销成交，等待重新执行",
+		})
+		log.Printf("[live] CancelSignalOrder signal=%d executed → pending_auto (false positive revert)", sid)
+		response.SuccessMsg(c, "已撤销成交记录，信号重置为待自动执行")
 		return
 	}
 
@@ -1446,7 +1690,7 @@ func (h *LiveTradingHandler) ReconcileFromBroker(c *gin.Context) {
 	}
 
 	svc := service.NewLiveTradingService()
-	if err := svc.ReconcileFromBroker(uint(accountID), uid, uint(runID)); err != nil {
+	if err := svc.ReconcileFromBroker(h.brokerSvc, uint(accountID), uid, uint(runID)); err != nil {
 		response.InternalError(c, "数据修复失败: "+err.Error())
 		return
 	}
@@ -1481,6 +1725,7 @@ func (h *LiveTradingHandler) GetReconciliation(c *gin.Context) {
 
 	type ReconItem struct {
 		StockCode  string      `json:"stockCode"`
+		StockName  string      `json:"stockName"`
 		Live       interface{} `json:"live,omitempty"`
 		Holding    interface{} `json:"holding,omitempty"`
 		Status     string      `json:"status"`
@@ -1495,6 +1740,7 @@ func (h *LiveTradingHandler) GetReconciliation(c *gin.Context) {
 			if diff > 0.01 {
 				priceDiff = append(priceDiff, ReconItem{
 					StockCode: code,
+					StockName: lp.StockName,
 					Live:      map[string]interface{}{"quantity": lp.Quantity, "avgCost": lp.AvgCost, "todayBuyQty": lp.TodayBuyQty},
 					Holding:   map[string]interface{}{"quantity": h.Quantity, "costPrice": h.CostPrice, "todayBuyQty": h.TodayBuyQty},
 					Status:    "price_diff",
@@ -1503,6 +1749,7 @@ func (h *LiveTradingHandler) GetReconciliation(c *gin.Context) {
 			} else {
 				matched = append(matched, ReconItem{
 					StockCode: code,
+					StockName: lp.StockName,
 					Live:      map[string]interface{}{"quantity": lp.Quantity, "avgCost": lp.AvgCost, "todayBuyQty": lp.TodayBuyQty},
 					Holding:   map[string]interface{}{"quantity": h.Quantity, "costPrice": h.CostPrice, "todayBuyQty": h.TodayBuyQty},
 					Status:    "matched",
@@ -1511,6 +1758,7 @@ func (h *LiveTradingHandler) GetReconciliation(c *gin.Context) {
 		} else {
 			strategyOnly = append(strategyOnly, ReconItem{
 				StockCode: code,
+				StockName: lp.StockName,
 				Live:      map[string]interface{}{"quantity": lp.Quantity, "avgCost": lp.AvgCost},
 				Status:    "strategy_only",
 			})
@@ -1520,6 +1768,7 @@ func (h *LiveTradingHandler) GetReconciliation(c *gin.Context) {
 		if _, ok := liveMap[code]; !ok {
 			manualOnly = append(manualOnly, ReconItem{
 				StockCode: code,
+				StockName: h.StockName,
 				Holding:   map[string]interface{}{"quantity": h.Quantity, "costPrice": h.CostPrice, "stockName": h.StockName},
 				Status:    "manual_only",
 				DiffCause: "手动交易或券商同步",

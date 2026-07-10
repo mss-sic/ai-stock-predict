@@ -1,0 +1,16 @@
+# ── 核心依赖 ──
+websocket-client>=1.6.0
+requests>=2.31.0
+pyyaml>=6.0
+
+# ── 东方财富 Mac 原生 APP 自动化 (主力 trader，基于 Accessibility API) ──
+pyobjc-framework-Quartz>=10.0
+pyobjc-framework-ApplicationServices>=10.0
+pyautogui>=0.9.54
+Pillow>=10.0.0
+ddddocr>=1.4.0            # 登录验证码 OCR 识别（自动登录用）
+
+# ── 可选依赖 ──
+mcp>=1.0.0               # 仅 --mode mcp 需要
+playwright>=1.40.0       # 仅 broker_mode=eastmoney_web (网页版 trader) 需要
+pytesseract>=0.3.10      # 仅旧版 pyautogui trader (test-broker) 需要

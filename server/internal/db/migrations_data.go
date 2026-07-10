@@ -1913,4 +1913,14 @@ Register(Migration{
 		},
 	})
 
+	// v085: Add agent_token for lobster auto-trading local agent auth
+	Register(Migration{
+		Version:     85,
+		Description: "MySQL: add agent_token to trading_accounts for local agent authentication",
+		Up: func() error {
+			MySQL.Exec("ALTER TABLE trading_accounts ADD COLUMN agent_token VARCHAR(64) DEFAULT '' AFTER broker_mode")
+			return nil
+		},
+	})
+
 }

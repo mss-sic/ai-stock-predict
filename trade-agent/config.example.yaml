@@ -1,0 +1,44 @@
+# 交易代理配置示例
+# 复制为 config.yaml 并填入你的实际值：cp config.example.yaml config.yaml
+# ⚠️ config.yaml 含密码/token，已在 .gitignore 中忽略，切勿提交
+
+# ── 服务端连接 ──
+server_url: "https://your-server.com"        # 服务端地址
+agent_token: "tk_your_agent_token_here"      # 从服务端账户管理页生成的 token（账户身份由 token 识别）
+
+# ── 本地执行客户端类型（服务端不感知此值）──
+# 可选: eastmoney_mac(东财Mac原生,主力) / eastmoney_web(网页版) / lobster(龙虾)
+broker_mode: "eastmoney_mac"
+
+# ── 运行参数 ──
+poll_interval: 30                            # 轮询间隔 (秒)，作为 WS 的兜底
+ws_enabled: true                             # 是否启用 WebSocket 实时推送
+log_level: "INFO"                            # DEBUG / INFO / WARN / ERROR
+log_file: "agent.log"                        # 日志文件路径
+
+# ── 东方财富 Mac 原生 APP (基于 macOS Accessibility API，推荐主力) ──
+# 前置：安装依赖 pip install -r requirements.txt，并在
+#      「系统设置 → 隐私与安全性 → 辅助功能 / 输入监控」中授权运行 Agent 的程序
+# 注意：持仓/成交/委托 tab 坐标需先手动校准一次：python3 agent.py --mode calibrate
+eastmoney:
+  app_name: "东方财富"                        # 目标 APP 名称
+  confirm_order: true                        # 下单后是否自动点击二次确认弹窗
+  action_delay: 0.4                          # 每步操作间隔 (秒)，界面卡顿可调大
+  max_retries: 5                             # 下单前信息校验不通过时的最大重试次数
+  # calibration_path: ""                     # tab 校准文件路径（留空用默认 tab_calibration.json）
+  # 实盘自动登录凭据（实盘账户约180分钟在线，超时后自动重新登录）
+  # 优先读环境变量 EM_TRADE_PASSWORD / EM_FUND_ACCOUNT，其次用此处配置
+  # 留空则不自动登录，未登录时仅弹窗引导手动登录
+  trade_password: ""                         # 交易密码（建议用环境变量 EM_TRADE_PASSWORD 注入）
+  fund_account: ""                           # 资金账号（留空则沿用东财登录框预填值）
+
+# ── 东方财富网页版 (broker_mode=eastmoney_web 时启用) ──
+playwright:
+  headless: false                            # 是否无头模式（调试时建议 false）
+  trading_url: "https://jywg.18.cn/"         # 券商网页交易地址
+  profile_dir: "~/.agent_browser_profile"    # 浏览器 profile 目录（保存登录态）
+
+# ── 龙虾客户端 (broker_mode=lobster 时启用) ──
+lobster:
+  exe_path: "/Applications/Lobster.app"      # 龙虾程序路径（macOS）
+  api_url: "http://127.0.0.1:19999"          # 龙虾本地 API 地址

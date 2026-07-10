@@ -1,0 +1,23 @@
+# ── 敏感配置（含交易密码 / agent_token / 资金账号，严禁提交）──
+config.yaml
+
+# ── 本地校准数据（与具体设备/窗口相关，不应提交）──
+tab_calibration.json
+
+# ── 运行日志 ──
+*.log
+agent-stdout.log
+agent-stderr.log
+agent_daemon.log
+
+# ── 验证码 / 截图等临时产物 ──
+screenshots/
+*.png
+
+# ── Python 缓存与虚拟环境 ──
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.env

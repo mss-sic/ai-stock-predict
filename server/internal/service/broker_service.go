@@ -12,8 +12,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ai-stock-predict/server/internal/model"
 	"github.com/ai-stock-predict/server/internal/db"
+	"github.com/ai-stock-predict/server/internal/model"
+	"github.com/ai-stock-predict/server/internal/ws"
 )
 
 // Broker interface defines operations a broker execution channel must support.
@@ -519,25 +520,41 @@ func (b *MxMoniBroker) QueryOrders(account *model.TradingAccount) ([]BrokerOrder
 
 // ── Broker Service (facade) ──
 
-type BrokerService struct{}
+type BrokerService struct {
+	hub       *ws.Hub
+	commander *ws.Commander
+}
 
 func NewBrokerService() *BrokerService {
 	return &BrokerService{}
 }
 
-// getBroker returns a broker if credentials are available.
-// This is used for sync/query; does NOT require mx_moni broker_mode.
-func (s *BrokerService) getBroker(account *model.TradingAccount) (Broker, error) {
-	b := NewMxMoniBroker()
-	if b.apiKey(account) == "" {
-		return nil, fmt.Errorf("未配置妙想 API Key，请在环境变量或账户设置中绑定")
-	}
-	return b, nil
+// SetHubAndCommander injects the WebSocket hub and command tracker for lobster broker support.
+func (s *BrokerService) SetHubAndCommander(hub *ws.Hub, commander *ws.Commander) {
+	s.hub = hub
+	s.commander = commander
 }
 
-// getExecutionBroker returns a broker for automatic trade execution.
-// Only returns a broker when broker_mode == "mx_moni".
+// getBroker returns the appropriate Broker implementation for an account.
+// Routes by ExecChannel: API → direct broker, Agent → WS-based broker.
+func (s *BrokerService) getBroker(account *model.TradingAccount) (Broker, error) {
+	switch model.GetExecChannel(account.BrokerMode) {
+	case model.ChannelAPI:
+		return s.getAPIBroker(account)
+	case model.ChannelAgent:
+		return NewGeneralAgentBroker(s.hub, s.commander, account.BrokerMode), nil
+	default:
+		return nil, fmt.Errorf("账户为手动执行模式或未知 broker_mode: %s", account.BrokerMode)
+	}
+}
+
+// getExecutionBroker is an alias for getBroker (same routing logic).
 func (s *BrokerService) getExecutionBroker(account *model.TradingAccount) (Broker, error) {
+	return s.getBroker(account)
+}
+
+// getAPIBroker returns the API-direct broker for a given account.
+func (s *BrokerService) getAPIBroker(account *model.TradingAccount) (Broker, error) {
 	switch account.BrokerMode {
 	case "mx_moni":
 		b := NewMxMoniBroker()
@@ -545,12 +562,11 @@ func (s *BrokerService) getExecutionBroker(account *model.TradingAccount) (Broke
 			return nil, fmt.Errorf("未配置妙想 API Key")
 		}
 		return b, nil
-	case "lobster":
-		return NewLobsterBroker(), nil
 	default:
-		return nil, fmt.Errorf("账户为手动执行模式")
+		return nil, fmt.Errorf("不支持的 API broker: %s", account.BrokerMode)
 	}
 }
+
 
 func (s *BrokerService) SyncPositionsFromBroker(accountID uint, userID uint) (*BrokerPortfolio, error) {
 	var account model.TradingAccount
@@ -667,37 +683,99 @@ func isAllDigitsStr(s string) bool {
 	return true
 }
 
-// ── LobsterBroker (龙虾自动交易) ──
-// Lobster 是一家本地券商代理，通过本地客户端操作实际账户。
-// 信号状态设置为 pending_auto，由龙虾检查该状态后本地执行并回调。
-// 该 broker 实现了 Broker 接口的骨架，实际集成待龙虾 SDK 接入后完成。
+// ── GeneralAgentBroker (龙虾自动交易) ──
+// Implements Broker interface by dispatching commands via WebSocket to the local agent
+// and receiving responses via REST callback through the Commander.
 
-type LobsterBroker struct {
-	client *http.Client
+type GeneralAgentBroker struct {
+	hub       *ws.Hub
+	commander *ws.Commander
+	mode      string // broker_mode that this broker instance serves
 }
 
-func NewLobsterBroker() *LobsterBroker {
-	return &LobsterBroker{
-		client: &http.Client{Timeout: 30 * time.Second},
+func NewGeneralAgentBroker(hub *ws.Hub, commander *ws.Commander, mode string) *GeneralAgentBroker {
+	return &GeneralAgentBroker{hub: hub, commander: commander, mode: mode}
+}
+
+// dispatchCommand sends a command to the agent and waits for the response.
+func (b *GeneralAgentBroker) dispatchCommand(accountID uint, action string, payload interface{}) (*ws.CommandResponse, error) {
+	if b.commander == nil || b.hub == nil {
+		return nil, fmt.Errorf("龙虾代理未初始化")
+	}
+	req, err := b.commander.Dispatch(b.hub, accountID, action, payload, 30*time.Second)
+	if err != nil {
+		return nil, err
+	}
+	timer := time.NewTimer(30 * time.Second)
+	defer timer.Stop()
+	select {
+	case resp := <-req.ResultChan:
+		if resp.Status == "failed" {
+			return nil, fmt.Errorf("agent %s: %s", resp.Status, resp.Error)
+		}
+		return &resp, nil
+	case <-timer.C:
+		return nil, fmt.Errorf("agent timeout waiting for %s response", action)
 	}
 }
 
-func (b *LobsterBroker) SyncPositions(account *model.TradingAccount) (*BrokerPortfolio, error) {
-	return nil, fmt.Errorf("龙虾代理: 暂未实现")
+func (b *GeneralAgentBroker) SyncPositions(account *model.TradingAccount) (*BrokerPortfolio, error) {
+	resp, err := b.dispatchCommand(account.ID, "sync_positions", nil)
+	if err != nil {
+		return nil, err
+	}
+	// Parse result as BrokerPortfolio
+	data, _ := json.Marshal(resp.Result)
+	var portfolio BrokerPortfolio
+	if err := json.Unmarshal(data, &portfolio); err != nil {
+		return nil, fmt.Errorf("parse position data: %w", err)
+	}
+	return &portfolio, nil
 }
 
-func (b *LobsterBroker) GetBalance(account *model.TradingAccount) (*BrokerBalance, error) {
-	return nil, fmt.Errorf("龙虾代理: 暂未实现")
+func (b *GeneralAgentBroker) GetBalance(account *model.TradingAccount) (*BrokerBalance, error) {
+	resp, err := b.dispatchCommand(account.ID, "get_balance", nil)
+	if err != nil {
+		return nil, err
+	}
+	data, _ := json.Marshal(resp.Result)
+	var balance BrokerBalance
+	if err := json.Unmarshal(data, &balance); err != nil {
+		return nil, fmt.Errorf("parse balance data: %w", err)
+	}
+	return &balance, nil
 }
 
-func (b *LobsterBroker) PlaceOrder(account *model.TradingAccount, req *BrokerOrderRequest) (*BrokerOrderResult, error) {
-	return nil, fmt.Errorf("龙虾代理: 请通过本地客户端下单，信号已设为 pending_auto")
+func (b *GeneralAgentBroker) PlaceOrder(account *model.TradingAccount, req *BrokerOrderRequest) (*BrokerOrderResult, error) {
+	resp, err := b.dispatchCommand(account.ID, "place_order", req)
+	if err != nil {
+		return nil, err
+	}
+	data, _ := json.Marshal(resp.Result)
+	var result BrokerOrderResult
+	if err := json.Unmarshal(data, &result); err != nil {
+		return nil, fmt.Errorf("parse order result: %w", err)
+	}
+	return &result, nil
 }
 
-func (b *LobsterBroker) CancelOrder(account *model.TradingAccount, orderID string, stockCode string) error {
-	return fmt.Errorf("龙虾代理: 暂未实现")
+func (b *GeneralAgentBroker) CancelOrder(account *model.TradingAccount, orderID string, stockCode string) error {
+	_, err := b.dispatchCommand(account.ID, "cancel_order", map[string]string{
+		"orderId":   orderID,
+		"stockCode": stockCode,
+	})
+	return err
 }
 
-func (b *LobsterBroker) QueryOrders(account *model.TradingAccount) ([]BrokerOrder, error) {
-	return nil, fmt.Errorf("龙虾代理: 暂未实现")
+func (b *GeneralAgentBroker) QueryOrders(account *model.TradingAccount) ([]BrokerOrder, error) {
+	resp, err := b.dispatchCommand(account.ID, "query_orders", nil)
+	if err != nil {
+		return nil, err
+	}
+	data, _ := json.Marshal(resp.Result)
+	var orders []BrokerOrder
+	if err := json.Unmarshal(data, &orders); err != nil {
+		return nil, fmt.Errorf("parse orders: %w", err)
+	}
+	return orders, nil
 }

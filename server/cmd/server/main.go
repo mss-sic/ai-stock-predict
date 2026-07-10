@@ -11,6 +11,7 @@ import (
 	"github.com/ai-stock-predict/server/internal/db"
 	"github.com/ai-stock-predict/server/internal/handler"
 	schedv2 "github.com/ai-stock-predict/server/internal/scheduler/v2"
+	"github.com/ai-stock-predict/server/internal/ws"
 	"github.com/ai-stock-predict/server/internal/service"
 	"github.com/gin-gonic/gin"
 )
@@ -111,6 +112,27 @@ func main() {
 	industryH := handler.NewIndustryHandler()
 	r.GET("/api/v1/industries", industryH.List)
 	r.GET("/api/v1/industries/:name/stocks", industryH.Stocks)
+
+	// ── Agent auto-trading routes (public, agent_token auth) ──
+	agentHub := ws.NewHub()
+	testMgr := ws.NewTestManager(agentHub)
+	commander := ws.NewCommander()
+	r.GET("/api/v1/ws/signals", ws.HandleAgentWS(agentHub))
+
+	agentH := handler.NewAgentHandler(testMgr, commander)
+	agentGroup := r.Group("/api/v1/live")
+	agentGroup.GET("/pending-auto-signals", agentH.GetPendingAutoSignals)
+	agentGroup.POST("/signals/:id/claim", agentH.ClaimSignal)
+	agentGroup.POST("/signals/:id/report-result", agentH.ReportResult)
+	agentGroup.GET("/signals/:id/detail", agentH.GetSignalDetail)
+	agentGroup.GET("/agent/account-summary", agentH.GetAccountSummary)
+	agentGroup.POST("/test-agent", agentH.TestAgent)
+	agentGroup.POST("/agent-test-response", agentH.AgentTestResponse)
+	agentGroup.GET("/agent-status", agentH.CheckAgentStatus)
+	agentGroup.GET("/agent/account", agentH.GetAccount)
+	agentGroup.POST("/agent/commands/:requestId/response", agentH.PostCommandResponse)
+	agentGroup.POST("/agent/positions/sync", agentH.SyncPositions)
+	agentGroup.POST("/agent/orders/sync", agentH.SyncOrders)
 
 	// ── Protected routes ──
 	api := r.Group("/api/v1")
@@ -315,9 +337,17 @@ func main() {
 		api.POST("/strategies/:id/ai-review", strategyH.AIReview)
 		api.GET("/strategies/stock-pool", strategyH.StockPool)
 
-		// Live Trading (实盘交易)
-		liveH := handler.NewLiveTradingHandler()
+		// Agent WebSocket hub (local auto-trading)
+
+
+	// Live Trading (实盘交易)
+		liveH := handler.NewLiveTradingHandlerWithHub(agentHub)
 		handler.RegisterLiveTradingRoutes(api.Group("/live"), liveH)
+
+		// Inject hub+commander into BrokerService for lobster support
+		brokerSvc := service.NewBrokerService()
+		brokerSvc.SetHubAndCommander(agentHub, commander)
+		liveH.SetBrokerService(brokerSvc)
 
 		// Pre-Market Finalization (盘前决策) + Notifications
 		preMarketH := handler.NewPreMarketHandler(service.NewAIService())
@@ -331,6 +361,9 @@ func main() {
 		preMarketGroup.PUT("/notification-configs/:id", preMarketH.UpdateNotificationConfig)
 		preMarketGroup.DELETE("/notification-configs/:id", preMarketH.DeleteNotificationConfig)
 		preMarketGroup.POST("/notification-configs/:id/test", preMarketH.TestNotificationConfig)
+		// Agent auto-trading REST API (local agent polling endpoints)
+
+
 
 		// Collector
 		collectorH := handler.NewCollectorHandler()

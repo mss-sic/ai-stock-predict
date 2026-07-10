@@ -1,9 +1,9 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Card, Table, Tag, Button, Spin, Message, Tabs, Select, Divider, Alert, Progress, Modal, Drawer, Dropdown, Menu, TimePicker, Input, Switch, Popconfirm, Tooltip } from '@arco-design/web-react';
+import { Card, Table, Tag, Button, Spin, Message, Tabs, Select, Divider, Alert, Progress, Modal, Drawer, Dropdown, Menu, TimePicker, Input, AutoComplete, Switch, Popconfirm, Tooltip } from '@arco-design/web-react';
 import ReactECharts from 'echarts-for-react';
-import { ArrowLeft, TrendingUp, Wallet, Zap, Settings, Activity, Calendar, RefreshCw, Loader, XCircle, Bell, FileText, Building2, Cpu } from 'lucide-react';
-import { fetchLiveRun, fetchLiveSnapshots, runLiveDaily, fetchDailyRunTask, fetchLatestDailyRunTask, runTradeExec, executeLiveSignal, syncSignalOrder, syncOrders, reconcileFromBroker, fetchReconciliation, fetchTradeExecTask, fetchLatestTradeExecTask, updateLiveRunConfig, fetchNotificationConfigs, createNotificationConfig, deleteNotificationConfig, testNotification, sendLiveRunNotification, updateLiveSignal, deleteLiveSignal, clearLiveSignals, fetchRunLogs, cancelSignalOrder, cancelAllSignalOrders } from '../services/api';
+import { ArrowLeft, TrendingUp, Wallet, Zap, Settings, Activity, Calendar, RefreshCw, Loader, XCircle, Bell, FileText, Building2, Cpu, Search } from 'lucide-react';
+import { fetchLiveRun, fetchLiveSnapshots, runLiveDaily, fetchDailyRunTask, fetchLatestDailyRunTask, runTradeExec, executeLiveSignal, syncSignalOrder, syncOrders, reconcileFromBroker, fetchReconciliation, fetchTradeExecTask, fetchLatestTradeExecTask, updateLiveRunConfig, fetchNotificationConfigs, createNotificationConfig, deleteNotificationConfig, testNotification, sendLiveRunNotification, updateLiveSignal, deleteLiveSignal, clearLiveSignals, fetchRunLogs, cancelSignalOrder, cancelAllSignalOrders, createTestSignal, searchStock } from '../services/api';
 import ReactMarkdown from 'react-markdown';
 
 interface Run { id: number; strategyId: number; name: string; status: string; startDate: string; initialCapital: number; currentEquity: number; totalReturn: number; maxDrawdown: number; winRate: number; tradeCount: number; lastRunDate: string; autoDailyCron?: string; autoTradeExecCron?: string; notifyEnabled?: boolean; notifyChannels?: string; executionMode?: string; aiReviewEnabled?: boolean; }
@@ -126,6 +126,74 @@ export default function LiveRunDetailPage() {
   const [taskCompleted, setTaskCompleted] = useState(0);
   const [taskTotal, setTaskTotal] = useState(0);
   const [taskResult, setTaskResult] = useState<any>(null);
+
+  // ── 测试信号创建 ──
+  const [createSignalVisible, setCreateSignalVisible] = useState(false);
+  const [testSignal, setTestSignal] = useState({ stockCode: '', stockName: '', actionType: 'buy', price: 0, quantity: 100, execDate: new Date().toISOString().slice(0, 10) });
+  const [creatingSignal, setCreatingSignal] = useState(false);
+  const [stockOptions, setStockOptions] = useState<any[]>([]);
+  const [stockSearching, setStockSearching] = useState(false);
+  const stockDebounceRef = useRef<ReturnType<typeof setTimeout>>();
+
+  const handleStockSearch = useCallback((value: string) => {
+    if (stockDebounceRef.current) clearTimeout(stockDebounceRef.current);
+    const trimmed = value.trim();
+    if (!trimmed) { setStockOptions([]); setStockSearching(false); return; }
+    setStockSearching(true);
+    stockDebounceRef.current = setTimeout(async () => {
+      try {
+        const res = await searchStock(trimmed);
+        const stocks = res.data?.data || res.data || [];
+        if (!Array.isArray(stocks)) { setStockOptions([]); setStockSearching(false); return; }
+        setStockOptions(stocks.map((s: any) => ({
+          value: String(s.code || ''),
+          name: `${s.code || ''}  ${s.name || ''}`,
+          price: Number(s.close || 0),
+        } as any)));
+      } catch { setStockOptions([]); }
+      finally { setStockSearching(false); }
+    }, 250);
+  }, []);
+
+  const handleStockSelect = useCallback((value: string) => {
+    const stock = stockOptions.find(s => s.value === value);
+    if (stock) {
+      const name = ((stock as any).name || '').replace(value + '  ', '');
+      setTestSignal(prev => ({
+        ...prev,
+        stockCode: value,
+        stockName: name,
+        price: (stock as any).price || prev.price,
+      }));
+      setStockOptions([]);
+    }
+  }, [stockOptions]);
+
+  const handleStockEnter = useCallback((_e: any, activeOption?: { value: string }) => {
+    const code = activeOption?.value || stockOptions[0]?.value;
+    if (code) handleStockSelect(code);
+  }, [stockOptions, handleStockSelect]);
+
+
+  const handleCreateTestSignal = async () => {
+    if (!testSignal.stockCode || !parseFloat(String(testSignal.price)) || !testSignal.quantity) {
+      Message.warning('请填写完整信息'); return;
+    }
+    setCreatingSignal(true);
+    try {
+      await createTestSignal(Number(id), {
+        execDate: testSignal.execDate, stockCode: testSignal.stockCode,
+        stockName: testSignal.stockName, actionType: testSignal.actionType,
+        price: parseFloat(String(testSignal.price)) || 0, quantity: testSignal.quantity,
+      });
+      Message.success('测试信号已创建');
+      setCreateSignalVisible(false);
+      setTestSignal(prev => ({ ...prev, stockCode: '', stockName: '', price: 0, quantity: 100 }));
+      load();
+    } catch (e: any) {
+      Message.error(e?.response?.data?.message || e?.message || '创建失败');
+    } finally { setCreatingSignal(false); }
+  };
 
   const handleClearSignals = () => {
     if (!signalDate) return;
@@ -1094,7 +1162,9 @@ export default function LiveRunDetailPage() {
                 <span style={{ width: 4, height: 14, borderRadius: 2, background: '#165DFF', display: 'inline-block' }} />
                 交易信号 · AI 交易执行
                 <Tag size="small" color="arcoblue">{filteredSignals.length} 条</Tag>
-                {filteredSignals.some((s: Signal) => s.status === "pending") && <Button size="mini" type="text" status="danger" onClick={handleClearSignals} style={{ fontSize: 11, padding: "0 6px", height: 20 }}>清空待执行</Button>}{filteredSignals.some((s: Signal) => s.status === "pending_order" || s.status === "partial_filled") && <Button size="mini" type="text" status="warning" onClick={handleCancelAllOrders} style={{ fontSize: 11, padding: "0 6px", height: 20 }}>批量撤单</Button>}
+                {filteredSignals.some((s: Signal) => s.status === "pending") && <Button size="mini" type="text" status="danger" onClick={handleClearSignals} style={{ fontSize: 11, padding: "0 6px", height: 20 }}>清空待执行</Button>}
+                <Button size="mini" type="text" onClick={() => setCreateSignalVisible(true)} style={{ fontSize: 11, padding: "0 6px", height: 20 }}>+ 测试信号</Button>
+                {filteredSignals.some((s: Signal) => s.status === "pending_order" || s.status === "partial_filled") && <Button size="mini" type="text" status="warning" onClick={handleCancelAllOrders} style={{ fontSize: 11, padding: "0 6px", height: 20 }}>批量撤单</Button>}
                 <Tag size="small" color="purple">{decisions.filter((d: Decision) => filteredSignals.some((s: Signal) => s.id === d.signalId)).length} 已验证</Tag>
               </div>
 
@@ -1664,17 +1734,24 @@ export default function LiveRunDetailPage() {
                       ...(reconData.strategyOnly || []).map((r: any) => ({ ...r, _type: '策略独有' })),
                     ]} rowKey="stockCode" size="small" pagination={false}
                       columns={[
-                        { title: '股票', dataIndex: 'stockCode', width: 80 },
-                        { title: '类型', dataIndex: '_type', width: 90,
-                          render: (v: string) => <Tag color={v === '成本差异' ? 'red' : v === '手动交易' ? 'orange' : 'gray'}>{v}</Tag>
+                        { title: '股票', width: 140,
+                          render: (_: any, r: any) => (
+                            <span>
+                              <span style={{ fontWeight: 600 }}>{r.stockCode}</span>
+                              {r.stockName && <span style={{ fontSize: 11, color: 'var(--color-text-3)', marginLeft: 6 }}>{r.stockName}</span>}
+                            </span>
+                          )
                         },
-                        { title: '策略', width: 80,
-                          render: (_: any, r: any) => r.live ? <span>{r.live.quantity}股 @{r.live.avgCost}</span> : '-'
+                        { title: '类型', width: 90,
+                          render: (_: any, r: any) => <Tag color={r._type === '成本差异' ? 'red' : r._type === '手动交易' ? 'orange' : 'gray'}>{r._type}</Tag>
                         },
-                        { title: '券商', width: 80,
-                          render: (_: any, r: any) => r.holding ? <span>{r.holding.quantity}股 @{r.holding.costPrice}</span> : '-'
+                        { title: '策略', width: 110,
+                          render: (_: any, r: any) => r.live ? <span style={{ fontFamily: "'SF Mono', monospace", fontSize: 12 }}>{r.live.quantity}股 @{r.live.avgCost}</span> : '-'
                         },
-                        { title: '说明', dataIndex: 'diffCause', ellipsis: true },
+                        { title: '券商', width: 110,
+                          render: (_: any, r: any) => r.holding ? <span style={{ fontFamily: "'SF Mono', monospace", fontSize: 12 }}>{r.holding.quantity}股 @{r.holding.costPrice}</span> : '-'
+                        },
+                        { title: '说明', dataIndex: 'diffCause', ellipsis: true, width: 140 },
                       ]} />
                   )}
                 </>
@@ -2054,6 +2131,74 @@ export default function LiveRunDetailPage() {
       >
         <div style={{ padding: '8px 0' }}>
           确定撤销当日全部委托中的订单？撤单后信号将重置为待执行，可重新下单。
+        </div>
+      </Modal>
+
+      {/* 创建测试信号 Modal */}
+      <Modal
+        visible={createSignalVisible}
+        title="创建测试信号"
+        onCancel={() => setCreateSignalVisible(false)}
+        onOk={handleCreateTestSignal}
+        confirmLoading={creatingSignal}
+        okText="创建"
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14, padding: '8px 0' }}>
+          {/* 股票搜索 */}
+          <div>
+            <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 4 }}>股票</div>
+            <AutoComplete
+              data={stockOptions}
+              filterOption={false}
+              getPopupContainer={() => document.body}
+              onSearch={handleStockSearch}
+              onSelect={handleStockSelect}
+              onPressEnter={handleStockEnter}
+              placeholder="搜索股票代码/名称..."
+              style={{ width: '100%' }}
+              triggerElement={
+                <Input
+                  prefix={<Search size={14} style={{ color: 'var(--color-text-3)' }} />}
+                  style={{ borderRadius: 6 }}
+                  allowClear
+                />
+              }
+            />
+            {testSignal.stockCode && (
+              <div style={{ marginTop: 6, padding: '6px 10px', background: 'var(--color-fill-1)', borderRadius: 6, fontSize: 13 }}>
+                <Tag size="small" color={testSignal.actionType === 'buy' ? 'green' : 'red'}>{testSignal.actionType === 'buy' ? '买入' : '卖出'}</Tag>
+                <span style={{ fontWeight: 600, marginLeft: 6 }}>{testSignal.stockName}</span>
+                <span style={{ color: 'var(--color-text-3)', marginLeft: 4 }}>({testSignal.stockCode})</span>
+              </div>
+            )}
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div>
+              <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 4 }}>交易日期</div>
+              <Input value={testSignal.execDate} onChange={v => setTestSignal(prev => ({ ...prev, execDate: v }))} size="small" />
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 4 }}>操作</div>
+              <Select size="small" value={testSignal.actionType} onChange={v => setTestSignal(prev => ({ ...prev, actionType: v }))} style={{ width: '100%' }}
+                options={[{ value: 'buy', label: '买入' }, { value: 'sell', label: '卖出' }]} />
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 4 }}>价格</div>
+              <Input size="small" value={String(testSignal.price || '')} onChange={v => { const cleaned = v.replace(/[^\d.]/g, ''); setTestSignal(prev => ({ ...prev, price: cleaned as any })); }} placeholder="0.00" suffix="元" />
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 4 }}>数量（股）</div>
+              <Input size="small" value={String(testSignal.quantity)} onChange={v => setTestSignal(prev => ({ ...prev, quantity: parseInt(v) || 0 }))} placeholder="100" suffix="股" />
+            </div>
+          </div>
+
+          <div>
+            <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 4 }}>预估金额</div>
+            <div style={{ padding: '6px 10px', fontSize: 13, fontWeight: 600, color: 'var(--color-text-1)', background: 'var(--color-fill-1)', borderRadius: 6 }}>
+              ¥{((parseFloat(String(testSignal.price)) || 0) * (testSignal.quantity || 0)).toLocaleString()}
+            </div>
+          </div>
         </div>
       </Modal>
     </div>

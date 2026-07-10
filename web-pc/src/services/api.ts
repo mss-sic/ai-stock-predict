@@ -293,6 +293,13 @@ export const placeBrokerOrder = (accountId: number, data: { stockCode: string; o
 export const cancelBrokerOrder = (accountId: number, data: { orderId: string; stockCode: string }) => api.post(`/live/accounts/${accountId}/broker-cancel`, data);
 
 
+// Agent Token management (local auto-trading)
+export const generateAgentToken = (accountId: number) => api.post(`/live/accounts/${accountId}/generate-agent-token`);
+export const revokeAgentToken = (accountId: number) => api.delete(`/live/accounts/${accountId}/agent-token`);
+export const testAgentConnection = (accountId: number, token: string) => api.post(`/live/test-agent`, null, { params: { token } });
+export const getAgentStatus = (token: string) => api.get(`/live/agent-status`, { params: { token } });
+
+// Strategy runs
 // Strategy runs
 export const createLiveRun = (data: { strategyId: number; accountId?: number; name?: string; initialCapital?: number; pctOfAccount?: number; stockPool?: string; startDate?: string; notifyEnabled?: boolean; notifyConfigs?: { channel: string; name: string; webhookUrl: string }[] }) =>
   api.post('/live/runs', data);
@@ -349,6 +356,7 @@ export const fetchLiveSnapshots = (runId: number) => api.get(`/live/runs/${runId
 export const sendLiveRunNotification = (runId: number, tradeDate?: string) => api.post(`/live/runs/${runId}/notify`, { tradeDate });
 export const updateLiveSignal = (id: number, data: { plannedPrice?: number; plannedQty?: number; reason?: string }) => api.put(`/live/signals/${id}`, data);
 export const clearLiveSignals = (runId: number, date: string) => api.delete(`/live/runs/${runId}/signals?date=${encodeURIComponent(date)}`);
+export const createTestSignal = (runId: number, data: { execDate: string; stockCode: string; stockName: string; actionType: string; price: number; quantity: number }) => api.post(`/live/runs/${runId}/signals`, data);
 export const deleteLiveSignal = (id: number) => api.delete(`/live/signals/${id}`);
 
 // ── Holdings ──

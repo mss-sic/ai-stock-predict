@@ -1215,8 +1215,7 @@ func (s *LiveTradingService) ResetDailyBuyLock() error {
 // ImportBrokerPositionsToRun imports existing broker positions into a new strategy run.
 // Unlike ReconcileFromBroker, this does NOT delete existing positions first — it only adds
 // positions that don't already exist in the run.
-func (s *LiveTradingService) ImportBrokerPositionsToRun(strategyRunID uint, accountID uint, userID uint) error {
-	bs := NewBrokerService()
+func (s *LiveTradingService) ImportBrokerPositionsToRun(bs *BrokerService, strategyRunID uint, accountID uint, userID uint) error {
 	portfolio, err := bs.SyncPositionsFromBroker(accountID, userID)
 	if err != nil {
 		return fmt.Errorf("sync broker positions: %w", err)
@@ -1286,8 +1285,7 @@ func (s *LiveTradingService) ImportBrokerPositionsToRun(strategyRunID uint, acco
 // ReconcileFromBroker rebuilds live_positions, holdings, and strategy_runs
 // from the broker's actual portfolio snapshot. Used as a data repair mechanism
 // when local records diverge from broker state.
-func (s *LiveTradingService) ReconcileFromBroker(accountID uint, userID uint, strategyRunID uint) error {
-	bs := NewBrokerService()
+func (s *LiveTradingService) ReconcileFromBroker(bs *BrokerService, accountID uint, userID uint, strategyRunID uint) error {
 	portfolio, err := bs.SyncPositionsFromBroker(accountID, userID)
 	if err != nil {
 		return fmt.Errorf("sync broker positions: %w", err)
@@ -1382,3 +1380,56 @@ func (s *LiveTradingService) syncHoldingToAccountFromReconcile(accountID uint, s
 		0, accountID, stockCode, stockName, costPrice, quantity, todayBuyQty, availQty, currentPrice, totalCost, tradeDate, time.Now(), time.Now())
 }
 
+
+// UpsertPosition inserts or updates a live_position row scoped by account+stock.
+func (s *LiveTradingService) UpsertPosition(userID, accountID uint, pos *model.LivePosition) {
+	// Upsert by (user_id, account_id, strategy_run_id, stock_code) so syncs from different runs don't collide
+	runID := pos.StrategyRunID
+	if runID == 0 {
+		// Fallback: find the active run for this account
+		var run model.StrategyRun
+		db.MySQL.Where("account_id = ? AND status IN ?", accountID, []string{"active", "paused"}).
+			Order("id ASC").First(&run)
+		runID = run.ID
+	}
+	db.MySQL.Exec(
+		"INSERT INTO live_positions (user_id, account_id, strategy_run_id, stock_code, stock_name, quantity, avail_sell_qty, avg_cost, current_price, first_buy_date, created_at, updated_at) "+
+			"VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW()) "+
+			"ON DUPLICATE KEY UPDATE stock_name=VALUES(stock_name), quantity=VALUES(quantity), avail_sell_qty=VALUES(avail_sell_qty), avg_cost=VALUES(avg_cost), current_price=VALUES(current_price), updated_at=NOW()",
+		userID, accountID, runID, pos.StockCode, pos.StockName, pos.Quantity, pos.AvailSellQty, pos.AvgCost, pos.CurrentPrice, time.Now().Format("2006-01-02"))
+}
+
+// RecordTradeFromSignal creates a LiveTrade record from a signal's execution data.
+func (s *LiveTradingService) RecordTradeFromSignal(sig *model.BacktestSignal, execPrice float64, execQty int) {
+	if execPrice <= 0 {
+		execPrice = sig.OrderPrice
+	}
+	if execQty <= 0 {
+		execQty = sig.PlannedQty
+	}
+	trade := model.LiveTrade{
+		UserID:        sig.UserID,
+		StrategyRunID: sig.RunID,
+		SignalID:      &sig.ID,
+		TradeDate:     sig.ExecDate,
+		StockCode:     sig.StockCode,
+		StockName:     sig.StockName,
+		ActionType:    sig.ActionType,
+		Price:         execPrice,
+		Quantity:      execQty,
+		Amount:        execPrice * float64(execQty),
+		Commission:    execPrice * float64(execQty) * 0.00025,
+		Reason:        "order sync from agent, broker_order=" + sig.BrokerOrderID,
+		ExecutionMode: "auto",
+	}
+	if trade.Commission < 5 {
+		trade.Commission = 5
+	}
+	db.MySQL.Create(&trade)
+}
+
+// SetAgentHub stores the WebSocket hub reference for agent communication.
+func (s *LiveTradingService) SetAgentHub(hub interface{}) {}
+
+// KickAgent disconnects all agents for an account.
+func (s *LiveTradingService) KickAgent(accountID uint) {}

@@ -8,6 +8,7 @@ import (
 
 	"github.com/ai-stock-predict/server/internal/db"
 	"github.com/ai-stock-predict/server/internal/model"
+	"github.com/ai-stock-predict/server/internal/ws"
 )
 
 // TradeExecService handles the trade execution pipeline:
@@ -16,6 +17,7 @@ type TradeExecService struct {
 	aiSvc     *AIService
 	preMktSvc *PreMarketService
 	brokerSvc *BrokerService
+	hub       *ws.Hub
 }
 
 // NewTradeExecService creates a new trade execution service.
@@ -25,6 +27,11 @@ func NewTradeExecService(aiSvc *AIService) *TradeExecService {
 		preMktSvc: NewPreMarketService(aiSvc),
 		brokerSvc: NewBrokerService(),
 	}
+}
+
+// SetHub sets the WebSocket hub for agent signal broadcasting.
+func (s *TradeExecService) SetHub(hub *ws.Hub) {
+	s.hub = hub
 }
 
 // TradeExecResult summarizes the outcome of a trade execution run.
@@ -81,9 +88,9 @@ func (s *TradeExecService) ExecuteForRun(tradeDate string, runID uint, force boo
 	result.Logs = append(result.Logs, fmt.Sprintf("交易执行 run=%d account=%d mode=%s (run=%s account=%s)",
 		runID, account.ID, effectiveMode, run.ExecutionMode, account.BrokerMode))
 
-	// 1. Load pending signals for this run
+	// 1. Load pending + pending_manual + pending_auto signals (retry on mode switch)
 	var signals []model.BacktestSignal
-	db.MySQL.Where("exec_date = ? AND status = ? AND run_id = ?", tradeDate, "pending", runID).
+	db.MySQL.Where("exec_date = ? AND status IN ? AND run_id = ?", tradeDate, []string{"pending", "pending_manual", "pending_auto"}, runID).
 		Order("id ASC").Find(&signals)
 	result.TotalSignals = len(signals)
 
@@ -227,6 +234,23 @@ func (s *TradeExecService) executeSignal(sig *model.BacktestSignal, account *mod
 		sig.Status = "pending_auto"
 		sig.SkipReason = "龙虾自动模式，等待自动下单"
 		db.MySQL.Save(sig)
+
+		// Broadcast to connected agent via WebSocket
+		if s.hub != nil {
+			sigData := map[string]interface{}{
+				"signalId":   sig.ID,
+				"stockCode":  sig.StockCode,
+				"stockName":  sig.StockName,
+				"actionType": sig.ActionType,
+				"price":      sig.OrderPrice,
+				"quantity":   sig.PlannedQty,
+				"amount":     sig.PlannedAmount,
+				"execDate":   sig.ExecDate,
+				"reason":     sig.Reason,
+			}
+			s.hub.BroadcastSignal(account.ID, sigData)
+			log.Printf("[trade_exec] broadcast signal %d to account %d via WS hub", sig.ID, account.ID)
+		}
 		return "pending"
 
 	default:
