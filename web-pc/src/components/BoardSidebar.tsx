@@ -144,13 +144,13 @@ export default function BoardSidebar({ stockCode, stockName }: Props) {
       if (isWatched) {
         await removeFromWatchlist(stockCode);
         setWlItems(prev => prev.filter(i => i.stockCode !== stockCode));
-        showToast('已移出自选', 'success');
+        showToast('success', '已移出自选');
       } else {
         await addToWatchlist(stockCode, 0, 0);
-        showToast('已加入自选', 'success');
+        showToast('success', '已加入自选');
         loadWatchlist();
       }
-    } catch { showToast('操作失败', 'error'); }
+    } catch { showToast('error', '操作失败'); }
   };
 
   /* ═══════════ RENDER ═══════════ */

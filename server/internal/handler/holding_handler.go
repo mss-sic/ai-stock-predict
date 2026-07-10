@@ -51,6 +51,8 @@ type AccountOverview struct {
 	AvailableCash  float64 `json:"availableCash"`
 	PositionValue  float64 `json:"positionValue"`
 	TotalEquity    float64 `json:"totalEquity"`
+	CommittedToRuns float64 `json:"committedToRuns"`
+	FreeCash        float64 `json:"freeCash"`
 	TotalPnl       float64 `json:"totalPnl"`
 	TotalPnlPct    float64 `json:"totalPnlPct"`
 	DailyPnl       float64 `json:"dailyPnl"`
@@ -76,6 +78,12 @@ func (h *HoldingHandler) AccountsOverview(c *gin.Context) {
 			AccountType: acc.AccountType, InitialCapital: acc.InitialCapital,
 			AvailableCash: acc.AvailableCash,
 		}
+
+		// Compute committed capital from strategy runs
+		var committed float64
+		db.MySQL.Raw(`SELECT COALESCE(SUM(available_cash), 0) FROM strategy_runs WHERE account_id = ? AND status IN ("active", "paused")`, acc.ID).Scan(&committed)
+		ov.CommittedToRuns = math.Round(committed*100) / 100
+		ov.FreeCash = math.Round((acc.AvailableCash-committed)*100) / 100
 
 		var holdings []model.Holding
 		db.MySQL.Where("user_id = ? AND account_id = ?", uid, acc.ID).Find(&holdings)
@@ -147,27 +155,7 @@ func (h *HoldingHandler) Summary(c *gin.Context) {
 	}
 	q.Find(&accounts)
 
-	// If no accounts found but holdings exist (historical data), auto-create default account
-	if len(accounts) == 0 {
-		var hasHoldings int64
-		db.MySQL.Model(&model.Holding{}).Where("user_id = ?", uid).Count(&hasHoldings)
-		if hasHoldings > 0 {
-			acc := model.TradingAccount{
-				UserID: uid, Name: "历史真实账户", Broker: "默认券商", AccountType: "real",
-				InitialCapital: 200000, AvailableCash: 100000, TotalDeposit: 200000,
-			}
-			if err := db.MySQL.Create(&acc).Error; err != nil {
-				log.Printf("[holding] summary auto-create account failed: %v", err)
-			} else {
-				log.Printf("[holding] summary auto-created account id=%d for user %d", acc.ID, uid)
-			}
-			accounts = append(accounts, acc)
-			// Backfill
-			if acc.ID > 0 {
-				db.MySQL.Model(&model.Holding{}).Where("user_id = ? AND account_id = 0", uid).Update("account_id", acc.ID)
-			}
-		}
-	}
+
 
 	if len(accounts) == 0 {
 		response.Success(c, map[string]interface{}{
@@ -181,11 +169,16 @@ func (h *HoldingHandler) Summary(c *gin.Context) {
 
 	totalCash := 0.0
 	totalDeposit := 0.0
+	totalCommitted := 0.0
 	accountIDs := make([]uint, len(accounts))
 	for i, acc := range accounts {
 		totalCash += acc.AvailableCash
 		totalDeposit += acc.InitialCapital
 		accountIDs[i] = acc.ID
+		// Sum committed capital from active/paused strategy runs
+		var committed float64
+		db.MySQL.Raw(`SELECT COALESCE(SUM(available_cash), 0) FROM strategy_runs WHERE account_id = ? AND status IN ("active", "paused")`, acc.ID).Scan(&committed)
+		totalCommitted += committed
 	}
 
 	var holdings []model.Holding
@@ -216,9 +209,14 @@ func (h *HoldingHandler) Summary(c *gin.Context) {
 
 		for _, h := range holdings {
 			pi := infoMap[h.StockCode]
-			mv := pi.Close * float64(h.Quantity)
-			pnl := (pi.Close - h.CostPrice) * float64(h.Quantity)
-			dailyPnl := (pi.Close - pi.PrevClose) * float64(h.Quantity)
+			curPrice := h.CurrentPrice
+			if curPrice == 0 {
+				curPrice = pi.Close
+			}
+			// Round to fen (2dp) to eliminate float64 drift from (price * quantity) arithmetic.
+			mv := math.Round(curPrice*float64(h.Quantity)*100) / 100
+			pnl := math.Round((curPrice-h.CostPrice)*float64(h.Quantity)*100) / 100
+			dailyPnl := math.Round((pi.Close-pi.PrevClose)*float64(h.Quantity)*100) / 100
 			totalMV += mv
 			totalPnl += pnl
 			totalDailyPnl += dailyPnl
@@ -232,9 +230,12 @@ func (h *HoldingHandler) Summary(c *gin.Context) {
 		totalPnlPct = totalPnl / totalCost * 100
 	}
 
+	totalFreeCash := totalCash - totalCommitted
 	response.Success(c, map[string]interface{}{
 		"initialCapital":   math.Round(totalDeposit*100) / 100,
 		"availableCash":    math.Round(totalCash*100) / 100,
+		"freeCash":         math.Round(totalFreeCash*100) / 100,
+		"committedToRuns":  math.Round(totalCommitted*100) / 100,
 		"totalMarketValue": math.Round(totalMV*100) / 100,
 		"totalCost":        math.Round(totalCost*100) / 100,
 		"totalEquity":      math.Round(totalEquity*100) / 100,
@@ -304,7 +305,11 @@ func (h *HoldingHandler) List(c *gin.Context) {
 	now := time.Now()
 	for _, h := range holdings {
 		info := infoMap[h.StockCode]
-		curPrice := info.Close
+		// Use holding's broker-synced CurrentPrice if available; fallback to PG close.
+		curPrice := h.CurrentPrice
+		if curPrice == 0 {
+			curPrice = info.Close
+		}
 		mv := curPrice * float64(h.Quantity)
 		pnl := (curPrice - h.CostPrice) * float64(h.Quantity)
 		pnlPct := 0.0
@@ -447,6 +452,34 @@ func (h *HoldingHandler) Delete(c *gin.Context) {
 		if buyT, err := time.Parse("2006-01-02", holding.BuyDate); err == nil { holdDays = int(time.Since(buyT).Hours()/24) + 1 }
 	}
 
+	// Sync with strategy live_positions: reduce quantity for managed stocks
+	var affectedRuns []model.StrategyRun
+	db.MySQL.Where("account_id = ? AND status IN ?", holding.AccountID, []string{"active", "paused"}).Find(&affectedRuns)
+	for _, run := range affectedRuns {
+		var lp model.LivePosition
+		if err := db.MySQL.Where("strategy_run_id = ? AND stock_code = ? AND quantity > 0", run.ID, holding.StockCode).First(&lp).Error; err == nil {
+			sellQty := holding.Quantity
+			if sellQty > lp.Quantity {
+				sellQty = lp.Quantity
+			}
+			lp.Quantity -= sellQty
+			lp.AvailSellQty = lp.Quantity - lp.TodayBuyQty
+			if lp.AvailSellQty < 0 { lp.AvailSellQty = 0 }
+			run.AvailableCash += curPrice * float64(sellQty)
+			db.MySQL.Save(&lp)
+			db.MySQL.Save(&run)
+			// Record cash flow
+			db.MySQL.Create(&model.StrategyCashFlow{
+				StrategyRunID: run.ID, AccountID: run.AccountID, UserID: run.UserID,
+				FlowType: "manual_sell", Amount: curPrice * float64(sellQty),
+				BeforeCash: run.AvailableCash - curPrice*float64(sellQty),
+				AfterCash:  run.AvailableCash,
+				Reason:     fmt.Sprintf("手动卖出 %s(%s) %d股 @¥%.2f", holding.StockName, holding.StockCode, sellQty, curPrice),
+			})
+			log.Printf("[holding] manual sell synced to strategy run=%d code=%s qty=%d", run.ID, holding.StockCode, sellQty)
+		}
+	}
+
 	// Return cash to account
 	if holding.AccountID > 0 {
 		var acc model.TradingAccount
@@ -476,29 +509,6 @@ func (h *HoldingHandler) Account(c *gin.Context) {
 	uid := getUID(c)
 	var accounts []model.TradingAccount
 	db.MySQL.Where("user_id = ? AND status = ?", uid, "active").Find(&accounts)
-	if len(accounts) == 0 {
-		// Check for historical holdings
-		var hasHoldings int64
-		db.MySQL.Model(&model.Holding{}).Where("user_id = ?", uid).Count(&hasHoldings)
-		acctType := "simulated"
-		if hasHoldings > 0 {
-			acctType = "real"
-		}
-		acct := model.TradingAccount{
-			UserID: uid, Name: "默认账户", AccountType: acctType,
-			InitialCapital: 100000, AvailableCash: 100000, TotalDeposit: 100000,
-		}
-		if err := db.MySQL.Create(&acct).Error; err != nil {
-			log.Printf("[holding] auto-create account failed: %v", err)
-		} else {
-			log.Printf("[holding] auto-created account id=%d for user %d type=%s", acct.ID, uid, acctType)
-		}
-		accounts = append(accounts, acct)
-		// Backfill historical holdings
-		if hasHoldings > 0 && acct.ID > 0 {
-			db.MySQL.Model(&model.Holding{}).Where("user_id = ? AND account_id = 0", uid).Update("account_id", acct.ID)
-		}
-	}
 	response.Success(c, accounts)
 }
 
@@ -522,11 +532,8 @@ func (h *HoldingHandler) UpdateAccount(c *gin.Context) {
 		db.MySQL.Where("user_id = ? AND status = ?", uid, "active").First(&acc)
 	}
 	if acc.ID == 0 {
-		acc = model.TradingAccount{
-			UserID: uid, Name: "默认账户", AccountType: "simulated",
-			InitialCapital: 100000, AvailableCash: 100000, TotalDeposit: 100000,
-		}
-		db.MySQL.Create(&acc)
+		response.BadRequest(c, "未找到活跃账户，请先创建资金账户")
+		return
 	}
 
 	switch body.Action {
@@ -534,8 +541,12 @@ func (h *HoldingHandler) UpdateAccount(c *gin.Context) {
 		acc.AvailableCash += body.Amount
 		acc.TotalDeposit += body.Amount
 	case "withdraw":
-		if acc.AvailableCash < body.Amount {
-			response.BadRequest(c, fmt.Sprintf("可用余额不足: 需要 ¥%.2f, 当前 ¥%.2f", body.Amount, acc.AvailableCash))
+		// Check free cash (account cash - committed to runs)
+		var committed float64
+		db.MySQL.Raw("SELECT COALESCE(SUM(available_cash), 0) FROM strategy_runs WHERE account_id = ? AND status IN ('active', 'paused')", acc.ID).Scan(&committed)
+		freeCash := acc.AvailableCash - committed
+		if freeCash < body.Amount {
+			response.BadRequest(c, fmt.Sprintf("可用余额不足: 需要 ¥%.2f, 可用 ¥%.2f (总 ¥%.2f - 已分配 ¥%.2f)", body.Amount, freeCash, acc.AvailableCash, committed))
 			return
 		}
 		acc.AvailableCash -= body.Amount

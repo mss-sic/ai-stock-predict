@@ -38,7 +38,8 @@ func (s *NotificationService) SendToUser(uid uint, title, body string) error {
 	var configs []model.NotificationConfig
 	db.MySQL.Where("user_id = ? AND enabled = true", uid).Find(&configs)
 	if len(configs) == 0 {
-		return fmt.Errorf("no enabled notification channels for user %d", uid)
+		log.Printf("[notify] no enabled channels for user %d, skipping", uid)
+	return nil
 	}
 	var lastErr error
 	for _, cfg := range configs {

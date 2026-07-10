@@ -16,7 +16,7 @@ const routeLabels: Record<string, { label: string; parent?: string }> = {
   '/watchlist': { label: '自选股' },
   '/strategy': { label: '交易策略' },
   '/pk': { label: '策略PK' },
-  '/holdings': { label: '持股管理' },
+  '/holdings': { label: '资金账户' },
   '/risk': { label: '风险监控' },
   '/data': { label: '数据管理' },
   '/settings': { label: '系统设置' },

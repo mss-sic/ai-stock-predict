@@ -32,15 +32,15 @@ class Reporter:
         logger.info(f"Signal {signal_id} reported: executed @ {exec_price} x {exec_qty}")
 
     def report_submitted(self, signal_id, order_id, exec_price, exec_qty):
-        """回报委托已提交（委托中）。
+        """回报委托已提交（委托中/待成交）。
 
-        委托成功提交到券商但尚未成交（状态=委托中），携带券商委托编号回传。
-        服务端 report-result 目前枚举为 executed/order_failed，此处以 executed 上报
-        并附带券商委托编号(order_id)，用于后续按委托编号跟踪成交状态。
+        委托成功提交到券商但尚未成交，信号应流转为 pending_order（委托中），
+        而非 executed（已成交）。后续由 OrderSync 服务根据券商委托编号轮询
+        成交状态，成交后再 FinalizeSignalExecution 更新持仓/资金。
         """
         self.api.report_result(
             signal_id=signal_id,
-            status="executed",
+            status="submitted",
             order_id=order_id,
             exec_price=exec_price,
             exec_qty=exec_qty,

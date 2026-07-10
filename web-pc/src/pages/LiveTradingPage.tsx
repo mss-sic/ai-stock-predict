@@ -2,10 +2,10 @@ import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, Button, Table, Tag, Modal, InputNumber, Select, Input, Grid, Switch, TimePicker, Divider } from '@arco-design/web-react';
 import { showToast } from '../components/Toast';
-import { Play, Plus, Pause, Square, Wallet, TrendingUp, BarChart3, Target, RefreshCw, Building2, Trash2, Bell, Settings, Edit, Coins, DollarSign, Cpu, Key, Radio, Zap } from 'lucide-react';
+import { Play, Plus, Pause, Square, Wallet, TrendingUp, BarChart3, Target, RefreshCw, Building2, Trash2, Bell, Settings, Edit, Coins, DollarSign, Cpu, Key, Radio, Zap, Eye, Archive, RotateCcw, Activity } from 'lucide-react';
 import {
   fetchLiveRuns, createLiveRun, updateLiveRunStatus, updateLiveRunConfig,
-  fetchLiveAccounts, createLiveAccount, updateLiveAccount, deleteLiveAccount, fetchLiveAccount, syncFromBroker,
+  fetchLiveAccounts, createLiveAccount, updateLiveAccount, deleteLiveAccount, restoreLiveAccount, fetchLiveAccount, fetchAccountDetail, syncFromBroker,
   generateAgentToken, revokeAgentToken, testAgentConnection, getAgentStatus,
   fetchStrategies,
   fetchNotificationConfigs, createNotificationConfig, deleteNotificationConfig, testNotification,
@@ -14,7 +14,7 @@ import {
 interface StrategyRun {
   id: number; strategyId: number; name: string;
   status: string; startDate: string;
-  initialCapital: number; currentEquity: number;
+  initialCapital: number; availableCash?: number; positionValue?: number; currentEquity: number;
   totalReturn: number; maxDrawdown: number;
   winRate: number; tradeCount: number; lastRunDate: string;
   lastError?: string;
@@ -44,7 +44,8 @@ export default function LiveTradingPage() {
 
   // Create run modal
   const [createOpen, setCreateOpen] = useState(false);
-  const [newRun, setNewRun] = useState<{ strategyId: number; accountId: number; name: string; initialCapital: number; pctOfAccount: number; startDate: string; notifyEnabled: boolean; notifyConfigs: { channel: string; name: string; webhookUrl: string }[] }>({ strategyId: 0, accountId: 0, name: '', initialCapital: 100000, pctOfAccount: 100, startDate: '', notifyEnabled: false, notifyConfigs: [] });
+  const [newRun, setNewRun] = useState<{ strategyId: number; accountId: number; name: string; initialCapital: number; startDate: string; importPositions: boolean; notifyEnabled: boolean; notifyConfigs: { channel: string; name: string; webhookUrl: string }[] }>({ strategyId: 0, accountId: 0, name: '', initialCapital: 100000, startDate: '', importPositions: false, notifyEnabled: false, notifyConfigs: [] });
+  const [selectedAccountFreeCash, setSelectedAccountFreeCash] = useState(0);
 
   // Create account modal
   const [acctOpen, setAcctOpen] = useState(false);
@@ -59,6 +60,10 @@ export default function LiveTradingPage() {
   const [configNotifyChannels, setConfigNotifyChannels] = useState<{ id?: number; channel: string; name: string; webhookUrl: string }[]>([]);
   const [configNewNotify, setConfigNewNotify] = useState({ channel: 'dingtalk_bot', webhookUrl: '' });
   const [newAcct, setNewAcct] = useState({ name: '', broker: '', accountType: 'simulated', accountNumber: '', initialCapital: 100000, mxApiKey: '', mxAccountId: '', brokerMode: 'manual' as string });
+  const [archivedAccounts, setArchivedAccounts] = useState<any[]>([]);
+  const [showArchived, setShowArchived] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<any>(null);
+  const [deleteCheckMsg, setDeleteCheckMsg] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -66,6 +71,10 @@ export default function LiveTradingPage() {
     try { const { data: a } = await fetchLiveAccount(); setAccounts(a?.data || []); } catch (e) { console.error('load accounts', e); }
     try { const { data: s } = await fetchStrategies(); setStrategies(s?.data || []); } catch (e) { console.error('load strategies', e); }
     setLoading(false);
+  }, []);
+
+  const loadArchived = useCallback(async () => {
+    try { const { data: a } = await fetchLiveAccounts('archived'); setArchivedAccounts(a?.data || []); } catch (e) { console.error('load archived', e); }
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -95,9 +104,9 @@ export default function LiveTradingPage() {
       await createLiveRun(newRun);
       showToast('success', '实盘运行已创建');
       setCreateOpen(false);
-      setNewRun({ strategyId: 0, accountId: 0, name: '', initialCapital: 100000, pctOfAccount: 100, startDate: '', notifyEnabled: false, notifyConfigs: [] });
+      setNewRun({ strategyId: 0, accountId: 0, name: '', initialCapital: 100000, startDate: '', importPositions: false, notifyEnabled: false, notifyConfigs: [] });
       load();
-    } catch (e: any) { showToast('error', e?.response?.data?.message || '创建失败'); }
+    } catch (e: any) { /* toast handled by api interceptor */ }
   };
 
   const handleConfigSave = async () => {
@@ -147,15 +156,38 @@ export default function LiveTradingPage() {
       setAcctOpen(false);
       setNewAcct({ name: '', broker: '', accountType: 'simulated', accountNumber: '', initialCapital: 100000, mxApiKey: '', mxAccountId: '', brokerMode: 'manual' });
       load();
-    } catch (e: any) { showToast('error', e?.response?.data?.message || '创建失败'); }
+    } catch (e: any) { /* toast handled by api interceptor */ }
   };
 
-  const handleDeleteAccount = async (id: number) => {
+  const handleDeleteClick = (acct: any) => {
+    // Check if account is used
+    const usedBy = runs.filter(r => r.accountId === acct.id && (r.status === 'active' || r.status === 'paused'));
+    if (usedBy.length > 0) {
+      setDeleteCheckMsg(`该账户被 ${usedBy.length} 个运行中的策略使用：${usedBy.map(r => r.name).join('、')}。请先停止相关策略运行后再归档。`);
+    } else {
+      setDeleteCheckMsg('');
+    }
+    setDeleteTarget(acct);
+  };
+
+  const handleDeleteAccount = async () => {
+    if (!deleteTarget) return;
     try {
-      await deleteLiveAccount(id);
+      await deleteLiveAccount(deleteTarget.id);
       showToast('success', '账户已归档');
+      setDeleteTarget(null);
+      setDeleteCheckMsg('');
       load();
-    } catch (e: any) { showToast('error', '删除失败'); }
+    } catch (e: any) { showToast('error', e?.response?.data?.message || '删除失败'); }
+  };
+
+  const handleRestoreAccount = async (id: number) => {
+    try {
+      await restoreLiveAccount(id);
+      showToast('success', '账户已恢复');
+      setShowArchived(false);
+      load();
+    } catch (e: any) { showToast('error', '恢复失败'); }
   };
 
   const handleSyncAccount = async (acct: Account) => {
@@ -258,75 +290,53 @@ export default function LiveTradingPage() {
         </div>
       </div>
 
-      {/* Account Summary Cards */}
+      {/* Run Overview Panel */}
       <div style={{ marginBottom: 20 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
           <span style={{ fontSize: 14, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
-            <Building2 size={14} />交易账户
+            <Activity size={14} />实盘运行概览
           </span>
-          <Button size="mini" icon={<Plus size={12} />} onClick={() => setAcctOpen(true)}>添加账户</Button>
+          <Button size="mini" icon={<Plus size={12} />} onClick={() => navigate('/holdings')}>资金账户</Button>
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.min(accounts.length + 1, 4)}, 1fr)`, gap: 12 }}>
-          {accounts.map(a => (
-            <Card key={a.id} style={{ borderRadius: 10, position: 'relative' }}
-              bodyStyle={{ padding: '14px 16px' }}
-            >
-              <div style={{ position: 'absolute', top: 6, right: 6, display: 'flex', gap: 4 }}>
-                {(a.brokerMode === 'mx_moni' || a.mxApiKey) && (
-                  <span style={{ cursor: 'pointer', opacity: 0.5 }} onClick={() => handleSyncAccount(a)} title="从券商同步">
-                    <RefreshCw size={12} />
-                  </span>
-                )}
-                <span style={{ cursor: 'pointer', opacity: 0.4 }} onClick={() => handleEditAccount(a)}><Edit size={12} /></span>
-                <span style={{ cursor: 'pointer', opacity: 0.4 }} onClick={() => handleDeleteAccount(a.id)}><Trash2 size={12} /></span>
-              </div>
-              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 1 }}>
-                {a.name}
-                {a.accountType === 'real'
-                  ? <Tag size="small" color="red" style={{ marginLeft: 6, fontSize: 10 }}>实盘</Tag>
-                  : <Tag size="small" color="arcoblue" style={{ marginLeft: 6, fontSize: 10 }}>模拟</Tag>
-                }
-                {a.brokerMode === 'mx_moni' && <Tag size="small" color="green" style={{ marginLeft: 4, fontSize: 10 }}>妙想</Tag>}
-                {a.brokerMode === 'lobster' && <Tag size="small" color="purple" style={{ marginLeft: 4, fontSize: 10 }}>龙虾</Tag>}
-              </div>
-              <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 10 }}>
-                {a.broker || '—'}{a.accountNumber ? ` · ${a.accountNumber}` : ''}
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 12px' }}>
-                <div>
-                  <div style={{ fontSize: 10, color: 'var(--color-text-3)' }}>总资产</div>
-                  <div style={{ fontSize: 14, fontWeight: 700 }}>¥{((a.totalAssets || a.initialCapital || 0)).toLocaleString()}</div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12 }}>
+          <Card style={{ borderRadius: 10 }} bodyStyle={{ padding: '14px 16px' }}>
+            <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 4 }}>运行中 / 已暂停</div>
+            <div style={{ fontSize: 22, fontWeight: 700 }}>
+              {runs.filter(r => r.status === 'active').length}
+              <span style={{ fontSize: 14, color: 'var(--color-text-3)', margin: '0 4px' }}>/</span>
+              {runs.filter(r => r.status === 'paused').length}
+            </div>
+          </Card>
+          <Card style={{ borderRadius: 10 }} bodyStyle={{ padding: '14px 16px' }}>
+            <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 4 }}>已分配资金</div>
+            <div style={{ fontSize: 18, fontWeight: 700, fontFamily: "'SF Mono', monospace" }}>
+              ¥{runs.filter(r => r.status === 'active' || r.status === 'paused').reduce((s, r) => s + (r.initialCapital || 0), 0).toLocaleString()}
+            </div>
+          </Card>
+          <Card style={{ borderRadius: 10 }} bodyStyle={{ padding: '14px 16px' }}>
+            <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 4 }}>总权益</div>
+            <div style={{ fontSize: 18, fontWeight: 700, fontFamily: "'SF Mono', monospace" }}>
+              ¥{runs.filter(r => r.status === 'active' || r.status === 'paused').reduce((s, r) => s + ((r.availableCash || 0) + (r.positionValue || 0) || r.currentEquity || 0), 0).toLocaleString()}
+            </div>
+          </Card>
+          <Card style={{ borderRadius: 10 }} bodyStyle={{ padding: '14px 16px' }}>
+            <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 4 }}>累计盈亏</div>
+            {(() => {
+              const activeRuns = runs.filter(r => r.status === 'active' || r.status === 'paused');
+              const totalPnl = activeRuns.reduce((s, r) => s + ((r.initialCapital || 0) * (r.totalReturn || 0) / 100), 0);
+              return (
+                <div style={{ fontSize: 18, fontWeight: 700, fontFamily: "'SF Mono', monospace", color: totalPnl >= 0 ? '#F53F3F' : '#00B42A' }}>
+                  {totalPnl >= 0 ? '+' : ''}¥{Math.round(totalPnl).toLocaleString()}
                 </div>
-                <div>
-                  <div style={{ fontSize: 10, color: 'var(--color-text-3)' }}>净值</div>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: (a.nav || 1) >= 1 ? '#F53F3F' : '#00B42A' }}>{(a.nav || 1).toFixed(3)}</div>
-                </div>
-                <div>
-                  <div style={{ fontSize: 10, color: 'var(--color-text-3)' }}>可用资金</div>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: '#165DFF' }}>¥{(a.availableCash || 0).toLocaleString()}</div>
-                </div>
-                <div>
-                  <div style={{ fontSize: 10, color: 'var(--color-text-3)' }}>持仓市值</div>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: '#722ED1' }}>¥{(a.totalMarketValue || 0).toLocaleString()}</div>
-                </div>
-              </div>
-              <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--color-border-1)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <DollarSign size={11} style={{ color: 'var(--color-text-3)' }} />
-                  <span style={{ fontSize: 11, color: 'var(--color-text-3)' }}>累计盈亏</span>
-                </div>
-                <span style={{ fontSize: 13, fontWeight: 600, fontFamily: "'SF Mono', 'Inter', monospace",
-                  color: (a.totalProfit || 0) >= 0 ? '#F53F3F' : '#00B42A' }}>
-                  {(a.totalProfit || 0) >= 0 ? '+' : ''}¥{(a.totalProfit || 0).toLocaleString()}
-                </span>
-              </div>
-            </Card>
-          ))}
-          {accounts.length === 0 && (
-            <Card style={{ borderRadius: 10, borderStyle: 'dashed', display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 80 }}>
-              <span style={{ color: 'var(--color-text-3)', fontSize: 13 }}>暂无交易账户，点击「添加账户」</span>
-            </Card>
-          )}
+              );
+            })()}
+          </Card>
+          <Card style={{ borderRadius: 10 }} bodyStyle={{ padding: '14px 16px' }}>
+            <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 4 }}>今日交易</div>
+            <div style={{ fontSize: 22, fontWeight: 700 }}>
+              {runs.reduce((s, r) => s + (r.tradeCount || 0), 0)}
+            </div>
+          </Card>
         </div>
       </div>
 
@@ -359,7 +369,7 @@ export default function LiveTradingPage() {
               </div>
             )},
             { title: '初始资金', dataIndex: 'initialCapital', width: 110, render: (v: number) => `¥${v.toLocaleString()}` },
-            { title: '当前权益', dataIndex: 'currentEquity', width: 110, render: (v: number) => <span style={{ fontWeight: 600 }}>¥{v.toLocaleString()}</span> },
+            { title: '当前权益', dataIndex: 'currentEquity', width: 110, render: (_: number, r: StrategyRun) => { const eq = (r.availableCash || 0) + (r.positionValue || 0) || r.currentEquity || 0; return <span style={{ fontWeight: 600 }}>¥{eq.toLocaleString()}</span>; } },
             { title: '收益率', dataIndex: 'totalReturn', width: 80, render: (v: number) => <span style={{ color: v >= 0 ? '#F53F3F' : '#00B42A', fontWeight: 600 }}>{v?.toFixed(2)}%</span> },
             { title: '最大回撤', dataIndex: 'maxDrawdown', width: 80, render: (v: number) => <span style={{ color: '#F53F3F' }}>{v?.toFixed(2)}%</span> },
             { title: '交易', dataIndex: 'tradeCount', width: 60 },
@@ -402,27 +412,36 @@ export default function LiveTradingPage() {
           <div>
             <div style={{ marginBottom: 4, fontSize: 13, color: 'var(--color-text-2)' }}>绑定账户</div>
             <Select value={newRun.accountId || undefined} placeholder="选择账户（留空自动创建）" allowClear
-              onChange={(v) => {
+              onChange={async (v) => {
                 const aid = (v as number) || 0;
-                const acct = accounts.find(a => a.id === aid);
-                const availCash = acct?.availableCash || 100000;
-                setNewRun(prev => ({
-                  ...prev,
-                  accountId: aid,
-                  initialCapital: availCash,
-                  pctOfAccount: 100,
-                }));
+                if (aid > 0) {
+                  try {
+                    const res = await fetchAccountDetail(aid);
+                    const freeCash = res.data?.data?.freeCash ?? 0;
+                    setSelectedAccountFreeCash(freeCash);
+                    setNewRun(prev => ({
+                      ...prev,
+                      accountId: aid,
+                      initialCapital: Math.min(prev.initialCapital || freeCash, freeCash > 0 ? freeCash : 100000),
+                    }));
+                  } catch {
+                    const acct = accounts.find(a => a.id === aid);
+                    setSelectedAccountFreeCash(acct?.availableCash || 100000);
+                    setNewRun(prev => ({ ...prev, accountId: aid }));
+                  }
+                } else {
+                  setSelectedAccountFreeCash(0);
+                  setNewRun(prev => ({ ...prev, accountId: 0, initialCapital: 100000 }));
+                }
               }}
               options={accounts.map(a => ({ label: `${a.name} (${a.broker || '默认'}·¥${(a.availableCash || 0).toLocaleString()})`, value: a.id }))} style={{ width: '100%' }} />
             {newRun.accountId > 0 && (() => {
-              const acct = accounts.find(a => a.id === newRun.accountId);
-              const avail = acct?.availableCash || 0;
+              const avail = selectedAccountFreeCash;
               const pct = avail > 0 ? (newRun.initialCapital / avail * 100) : 0;
               const overLimit = newRun.initialCapital > avail;
               return (
                 <div style={{ marginTop: 6, fontSize: 12, color: overLimit ? '#F53F3F' : 'var(--color-text-3)' }}>
-                  账户可用: <b>¥{avail.toLocaleString()}</b>
-                  {newRun.initialCapital > 0 && <> · 占比: <b style={{ color: overLimit ? '#F53F3F' : 'var(--color-text-2)' }}>{pct.toFixed(1)}%</b></>}
+                  账户可用: <b>¥{avail.toLocaleString()}</b> · 已分配: <b>{pct.toFixed(1)}%</b>
                   {overLimit && <span style={{ marginLeft: 8, color: '#F53F3F', fontWeight: 600 }}>⚠ 超出可用资金</span>}
                 </div>
               );
@@ -435,32 +454,36 @@ export default function LiveTradingPage() {
           <div style={{ display: 'flex', gap: 12 }}>
             <div style={{ flex: 1 }}>
               <div style={{ marginBottom: 4, fontSize: 13, color: 'var(--color-text-2)' }}>分配资金</div>
-              <InputNumber value={newRun.initialCapital} onChange={v => {
-                const cap = v as number;
-                const acct = accounts.find(a => a.id === newRun.accountId);
-                const avail = acct?.availableCash || cap;
-                setNewRun(prev => ({
-                  ...prev,
-                  initialCapital: cap,
-                  pctOfAccount: avail > 0 ? Math.round(cap / avail * 10000) / 100 : 100,
-                }));
-              }} min={10000} style={{ width: '100%' }}
-                status={newRun.accountId > 0 && newRun.initialCapital > (accounts.find(a => a.id === newRun.accountId)?.availableCash || 0) ? 'error' : undefined} />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <InputNumber value={newRun.initialCapital} onChange={v => {
+                  const cap = v as number;
+                  setNewRun(prev => ({ ...prev, initialCapital: cap }));
+                }} min={10000} style={{ flex: 1 }}
+                  status={newRun.accountId > 0 && selectedAccountFreeCash > 0 && newRun.initialCapital > selectedAccountFreeCash ? 'error' : undefined} />
+                {selectedAccountFreeCash > 0 && (
+                  <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+                    {[1, 2, 3, 4].map(n => {
+                      const amount = +(n === 1 ? selectedAccountFreeCash : (selectedAccountFreeCash / n)).toFixed(2);
+                      const label = n === 1 ? '全部' : `1/${n}`;
+                      return (
+                        <Button key={n} size="mini" type="secondary"
+                          onClick={() => setNewRun(prev => ({ ...prev, initialCapital: amount }))}>
+                          {label}
+                        </Button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             </div>
-            <div style={{ flex: 1 }}>
-              <div style={{ marginBottom: 4, fontSize: 13, color: 'var(--color-text-2)' }}>占比 (%)</div>
-              <InputNumber value={newRun.pctOfAccount} onChange={v => {
-                const pct = v as number;
-                const acct = accounts.find(a => a.id === newRun.accountId);
-                const avail = acct?.availableCash || 100000;
-                setNewRun(prev => ({
-                  ...prev,
-                  pctOfAccount: pct,
-                  initialCapital: Math.round(avail * pct / 100),
-                }));
-              }} min={1} max={100} style={{ width: '100%' }} />
-            </div>
+
           </div>
+          {newRun.accountId > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 10px', background: 'var(--color-fill-1)', borderRadius: 6 }}>
+              <span style={{ fontSize: 12, color: 'var(--color-text-2)' }}>从券商导入当前持仓到策略</span>
+              <Switch size="small" checked={newRun.importPositions} onChange={v => setNewRun(prev => ({ ...prev, importPositions: v }))} />
+            </div>
+          )}
           <div>
             <div style={{ marginBottom: 4, fontSize: 13, color: 'var(--color-text-2)' }}>起始日期 (可选)</div>
             <Input value={newRun.startDate} onChange={v => setNewRun({ ...newRun, startDate: v })} placeholder="YYYY-MM-DD，留空=今天" />
@@ -758,6 +781,36 @@ export default function LiveTradingPage() {
               <Input value={editingAcct.mxAccountId || ''} onChange={v => setEditingAcct({ ...editingAcct, mxAccountId: v })} />
             </div>
             </>)}
+          </div>
+        )}
+      </Modal>
+
+      {/* Delete Account Confirm Modal */}
+      <Modal
+        title="归档交易账户"
+        visible={!!deleteTarget}
+        onOk={deleteCheckMsg ? undefined : handleDeleteAccount}
+        onCancel={() => { setDeleteTarget(null); setDeleteCheckMsg(''); }}
+        okText={deleteCheckMsg ? '知道了' : '确认归档'}
+        okButtonProps={deleteCheckMsg ? { type: 'default' as const } : { status: 'danger' as const }}
+      >
+        {deleteCheckMsg ? (
+          <div style={{ padding: '8px 0' }}>
+            <div style={{ fontSize: 13, color: '#f53f3f', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontSize: 18 }}>⚠️</span> 无法归档
+            </div>
+            <div style={{ fontSize: 13, color: 'var(--color-text-2)', lineHeight: 1.6 }}>
+              {deleteCheckMsg}
+            </div>
+          </div>
+        ) : (
+          <div style={{ padding: '8px 0' }}>
+            <div style={{ fontSize: 13, color: 'var(--color-text-1)', marginBottom: 8 }}>
+              确认归档账户「{deleteTarget?.name}」？
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--color-text-3)', lineHeight: 1.6 }}>
+              归档后可随时恢复。归档后该账户将不在账户列表中显示，但历史交易记录和持仓数据仍会保留。
+            </div>
           </div>
         )}
       </Modal>

@@ -404,11 +404,11 @@ func (r *PositionOverlimitRule) Evaluate(ctx context.Context, _ []string, holdin
 		if posVal <= 0 {
 			continue
 		}
-		// Get strategy fund allocation
-		var alloc model.StrategyFundAllocation
+		// Get strategy run available cash
+		var run model.StrategyRun
 		db.MySQL.Where("user_id = ? AND strategy_id = ? AND status = 'active'", key.UserID, key.StrategyID).
-			Order("created_at DESC").First(&alloc)
-		totalCapital := alloc.CurrentCash + posVal
+			Order("created_at DESC").First(&run)
+		totalCapital := run.AvailableCash + posVal
 		if totalCapital <= 0 {
 			continue
 		}

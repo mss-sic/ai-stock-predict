@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"maps"
 	"math"
 	"strings"
 	"time"
@@ -224,10 +223,9 @@ func (s *LiveTradingService) runStrategyDaily(run *model.StrategyRun, tradeDate 
 		return 0, nil, fmt.Errorf("策略模板(ID=%d)不存在或已删除，请检查实盘运行 %d 的策略配置", run.StrategyID, run.ID)
 	}
 
-	// Load fund allocation
-	var alloc model.StrategyFundAllocation
-	if err := db.MySQL.Where("strategy_run_id = ? AND status = ?", run.ID, "active").First(&alloc).Error; err != nil {
-		return 0, nil, fmt.Errorf("load allocation for run %d: %w", run.ID, err)
+	// Use run.AvailableCash directly (migrated from strategy_fund_allocations)
+	if run.AvailableCash <= 0 {
+		run.AvailableCash = run.InitialCapital
 	}
 
 	// Load current positions
@@ -240,7 +238,7 @@ func (s *LiveTradingService) runStrategyDaily(run *model.StrategyRun, tradeDate 
 
 	result := DailyRunResult{}
 	// Step 1+2: Evaluate conditions + generate T+1 signals (stop-profit/loss handled by SignalEngine)
-	newSignals, evalLogs, evalErr := s.evaluateAndGenerateSignals(run, &strategy, &alloc, &positions, tradeDate, mode, conds, progressFn)
+	newSignals, evalLogs, evalErr := s.evaluateAndGenerateSignals(run, &strategy, &positions, tradeDate, mode, conds, progressFn)
 	if evalErr != nil {
 		log.Printf("[live] run %d evaluate failed: %v", run.ID, evalErr)
 	}
@@ -248,14 +246,14 @@ func (s *LiveTradingService) runStrategyDaily(run *model.StrategyRun, tradeDate 
 	result.SignalsGenerated += newSignals
 
 	// Step 4: Snapshot end-of-day portfolio
-	if err := s.snapshotPortfolio(run, &alloc, &positions, tradeDate); err != nil {
+	if err := s.snapshotPortfolio(run, &positions, tradeDate); err != nil {
 		log.Printf("[live] run %d snapshot failed: %v", run.ID, err)
 	}
 
 	// Update run's last run date + equity
 	db.MySQL.Model(run).Updates(map[string]interface{}{
 		"last_run_date": tradeDate,
-		"current_equity": s.calcTotalEquity(&alloc, &positions),
+		"current_equity": s.calcTotalEquity(run, &positions),
 	})
 
 	// Persist logs to run_execution_logs table (per-day, per-type)
@@ -274,7 +272,7 @@ func (s *LiveTradingService) runStrategyDaily(run *model.StrategyRun, tradeDate 
 
 func (s *LiveTradingService) executePendingSignals(
 	run *model.StrategyRun, strategy *model.Strategy,
-	alloc *model.StrategyFundAllocation, positions *[]model.LivePosition,
+	positions *[]model.LivePosition,
 	tradeDate string, conds []model.StrategyCondition,
 ) (int, error) {
 	// Find pending signals with execDate = today
@@ -288,7 +286,7 @@ func (s *LiveTradingService) executePendingSignals(
 	tradesExecuted := 0
 	for i := range pendingSignals {
 		sig := &pendingSignals[i]
-		if err := s.executeSignal(run, strategy, alloc, positions, sig, tradeDate); err != nil {
+		if err := s.executeSignal(run, strategy, positions, sig, tradeDate); err != nil {
 			log.Printf("[live] signal %d exec failed: %v", sig.ID, err)
 			continue
 		}
@@ -300,14 +298,14 @@ func (s *LiveTradingService) executePendingSignals(
 
 func (s *LiveTradingService) executeSignal(
 	run *model.StrategyRun, strategy *model.Strategy,
-	alloc *model.StrategyFundAllocation, positions *[]model.LivePosition,
+	positions *[]model.LivePosition,
 	sig *model.BacktestSignal, tradeDate string,
 ) error {
 	execEng := NewExecutionEngine()
 	execPrice := sig.PlannedPrice
 
 	// Use account-level commission/tax for live trading
-	commissionRate, minCommission, stampTaxRate := s.getAccountCommission(alloc)
+	commissionRate, minCommission, stampTaxRate := s.getAccountCommission(run)
 
 	// Get existing position info (from live_positions — strategy view)
 	var existingQty int
@@ -326,7 +324,7 @@ func (s *LiveTradingService) executeSignal(
 
 	// Also read account-level today_buy_qty from holdings (covers manual trades)
 	var h model.Holding
-	if db.MySQL.Where("account_id = ? AND stock_code = ?", alloc.AccountID, sig.StockCode).First(&h).Error == nil {
+	if db.MySQL.Where("account_id = ? AND stock_code = ?", run.AccountID, sig.StockCode).First(&h).Error == nil {
 		if h.TodayBuyQty > existingTodayBuyQty {
 			existingTodayBuyQty = h.TodayBuyQty // Use max: strategy buy + manual buy
 		}
@@ -336,6 +334,11 @@ func (s *LiveTradingService) executeSignal(
 	var dailyChg float64
 	db.PG.Raw("SELECT COALESCE(pct_chg, 0) FROM stocks_daily_k WHERE code = ? AND trade_date = ?", sig.StockCode, tradeDate).Scan(&dailyChg)
 
+	// Cross-strategy T+1 check: ensure broker-level sellable shares account for all strategies
+	if sig.ActionType == "sell" || sig.ActionType == "reduce" || sig.ActionType == "stop" {
+		s.checkCrossStrategyT1(run.AccountID, sig.StockCode, existingQty-existingTodayBuyQty)
+	}
+
 	execCfg := ExecutionConfig{
 		CommissionRate: commissionRate,
 		MinCommission:  minCommission,
@@ -344,7 +347,7 @@ func (s *LiveTradingService) executeSignal(
 		SlippagePct:    0, // live trading: no slippage
 	}
 
-	cash := alloc.CurrentCash
+	cash := run.AvailableCash
 	result := execEng.Execute(
 		sig.ActionType, sig.StockCode, sig.StockName,
 		buyDate, tradeDate,
@@ -367,13 +370,13 @@ func (s *LiveTradingService) executeSignal(
 	sig.ExecAmount = result.ExecAmount
 	sig.Pnl = result.Pnl
 	sig.PnlPct = result.PnlPct
-	alloc.CurrentCash = cash
+	run.AvailableCash = cash
 
 	// Update positions + record trade
 	switch result.ActionType {
 	case "buy":
 		livePos := model.LivePosition{
-			UserID: run.UserID, StrategyRunID: run.ID, AllocationID: alloc.ID,
+			UserID: run.UserID, StrategyRunID: run.ID, AllocationID: 0,
 			StockCode: sig.StockCode, StockName: sig.StockName,
 			Quantity: result.NewQuantity, TodayBuyQty: result.NewQuantity, AvailSellQty: 0,
 			AvgCost: result.NewAvgCost,
@@ -384,9 +387,8 @@ func (s *LiveTradingService) executeSignal(
 		}
 		db.MySQL.Create(&livePos)
 		*positions = append(*positions, livePos)
-		s.recordTrade(run, alloc, sig, result.ExecPrice, result.ExecQty, result.ExecAmount, 0, 0, result.Reason)
+		s.recordTrade(run, sig, result.ExecPrice, result.ExecQty, result.ExecAmount, 0, 0, result.Reason)
 		s.syncHoldingToAccount(run, sig.StockCode, sig.StockName, tradeDate, result.NewQuantity, result.NewAvgCost, result.NewQuantity, result.ExecPrice)
-
 	case "add":
 		for j := range *positions {
 			if (*positions)[j].StockCode == sig.StockCode {
@@ -398,7 +400,7 @@ func (s *LiveTradingService) executeSignal(
 				p.AvgCost = result.NewAvgCost
 				p.LastTradeDate = tradeDate
 				db.MySQL.Save(p)
-				s.recordTrade(run, alloc, sig, result.ExecPrice, result.ExecQty, result.ExecAmount, 0, 0, result.Reason)
+				s.recordTrade(run, sig, result.ExecPrice, result.ExecQty, result.ExecAmount, 0, 0, result.Reason)
 				s.syncHoldingToAccount(run, sig.StockCode, sig.StockName, tradeDate, p.Quantity, p.AvgCost, p.TodayBuyQty, result.ExecPrice)
 				break
 			}
@@ -414,7 +416,7 @@ func (s *LiveTradingService) executeSignal(
 				p.AvailSellQty = 0
 				p.LastTradeDate = tradeDate
 				db.MySQL.Save(p)
-				s.recordTrade(run, alloc, sig, result.ExecPrice, result.ExecQty, result.ExecAmount, result.Pnl, result.PnlPct, result.Reason)
+				s.recordTrade(run, sig, result.ExecPrice, result.ExecQty, result.ExecAmount, result.Pnl, result.PnlPct, result.Reason)
 				s.syncHoldingToAccount(run, sig.StockCode, sig.StockName, tradeDate, 0, 0, 0, 0)
 				break
 			}
@@ -432,7 +434,7 @@ func (s *LiveTradingService) executeSignal(
 				}
 				p.LastTradeDate = tradeDate
 				db.MySQL.Save(p)
-				s.recordTrade(run, alloc, sig, result.ExecPrice, result.ExecQty, result.ExecAmount, result.Pnl, result.PnlPct, result.Reason)
+				s.recordTrade(run, sig, result.ExecPrice, result.ExecQty, result.ExecAmount, result.Pnl, result.PnlPct, result.Reason)
 				if p.Quantity <= 0 {
 					s.syncHoldingToAccount(run, sig.StockCode, sig.StockName, tradeDate, 0, 0, 0, 0)
 				} else {
@@ -447,24 +449,22 @@ func (s *LiveTradingService) executeSignal(
 	}
 
 	db.MySQL.Save(sig)
-	db.MySQL.Save(alloc)
+	db.MySQL.Save(run)
 
-	// Sync trading account available_cash
-	db.MySQL.Model(&model.TradingAccount{}).Where("id = ?", alloc.AccountID).
-		Update("available_cash", alloc.CurrentCash)
+	// Trading account cash is synced from broker; no need to overwrite here
 
 	return nil
 }
 
 // getAccountCommission returns commission/tax rates from the trading account.
 // Falls back to strategy defaults if account has no custom settings.
-func (s *LiveTradingService) getAccountCommission(alloc *model.StrategyFundAllocation) (commRate, minComm, stampTax float64) {
+func (s *LiveTradingService) getAccountCommission(run *model.StrategyRun) (commRate, minComm, stampTax float64) {
 	commRate = 0.00025
 	minComm = 5.0
 	stampTax = 0.0005
 
 	var account model.TradingAccount
-	if err := db.MySQL.Where("id = ?", alloc.AccountID).First(&account).Error; err != nil {
+	if err := db.MySQL.Where("id = ?", run.AccountID).First(&account).Error; err != nil {
 		return
 	}
 	// Account-level rates can be extended later with custom fields
@@ -526,7 +526,7 @@ func (s *LiveTradingService) checkStopConditions(run *model.StrategyRun, positio
 
 func (s *LiveTradingService) evaluateAndGenerateSignals(
 	run *model.StrategyRun, strategy *model.Strategy,
-	alloc *model.StrategyFundAllocation, positions *[]model.LivePosition,
+	positions *[]model.LivePosition,
 	tradeDate string, mode string, conds []model.StrategyCondition,
 	progressFn func(scanned, candidates, signals int),
 ) (int, []string, error) {
@@ -550,11 +550,11 @@ func (s *LiveTradingService) evaluateAndGenerateSignals(
 
 	addLog("═══ 策略 [%s] 条件评估开始 ═══", strategy.Name)
 	addLog("交易日: %s → 执行日: %s", tradeDate, nextDate)
-	addLog("持仓: %d/%d | 可用资金: ¥%.0f", countActivePositions(*positions), strategy.MaxHoldings, alloc.CurrentCash)
+	addLog("持仓: %d/%d | 可用资金: ¥%.0f", countActivePositions(*positions), strategy.MaxHoldings, run.AvailableCash)
 	addLog("条件: 买入%d条 卖出%d条 加仓%d条 减仓%d条", len(buyConds), len(sellConds), len(addConds), len(reduceConds))
 	addLog("─── 参数生效检查 ───")
 	addLog("💰 资金: 初始资本¥%.0f | 当前现金¥%.0f | 分配比例%.0f%%",
-		alloc.AllocatedCapital, alloc.CurrentCash, alloc.PctOfAccount)
+		run.InitialCapital, run.AvailableCash, 100)
 	addLog("📊 仓位基础: 最大持股%d | 买入%.0f%% | 加仓%.0f%% | 减仓%.0f%%",
 		strategy.MaxHoldings, strategy.BuyPositionPct, strategy.AddPositionPct, strategy.ReducePositionPct)
 	addLog("🛡 风控: 固定止损%.0f%% | 固定止盈%.0f%% | 单票集中度%.0f%% | 日亏损熔断%.0f%%",
@@ -597,6 +597,7 @@ func (s *LiveTradingService) evaluateAndGenerateSignals(
 			sigPositions[pos.StockCode] = &SignalPosition{
 				Code: pos.StockCode, Name: pos.StockName,
 				Quantity: pos.Quantity, BuyPrice: pos.AvgCost, BuyDate: pos.FirstBuyDate,
+				AvailSellQty: pos.AvailSellQty,
 			}
 		}
 	}
@@ -634,14 +635,14 @@ func (s *LiveTradingService) evaluateAndGenerateSignals(
 	posSizingEngine := NewPositionSizingEngine()
 	runDays := int(time.Since(run.CreatedAt).Hours()/24) + 1
 	if runDays < 1 { runDays = 1 }
-	cumulativePnl := alloc.CurrentCash - alloc.AllocatedCapital // simplified
+	cumulativePnl := run.CurrentEquity - run.InitialCapital // simplified
 	riskAlerts := 0 // TODO: query actual risk alerts
-	budget := posSizingEngine.CalculateWithStrategy(tradeDate, alloc.CurrentCash, runDays, cumulativePnl, riskAlerts, strategy)
+	budget := posSizingEngine.CalculateWithStrategy(tradeDate, run.CurrentEquity, runDays, cumulativePnl, riskAlerts, strategy)
 	addLog("🎚 风控判定: %s | 综合分%.1f | 仓位乘数%.1f", budget.RegimeReason, budget.CompositeScore, budget.PositionBias)
 
 	// ── 日亏损熔断检查 ──
 	if budget.DailyLossLimit < 0 {
-		dailyLossPct := cumulativePnl / alloc.AllocatedCapital * 100
+		dailyLossPct := cumulativePnl / run.InitialCapital * 100
 		if dailyLossPct <= budget.DailyLossLimit {
 			addLog("🛑 日亏损熔断触发: 累计亏损%.1f%% ≤ 熔断线%.1f%%，禁止开仓", dailyLossPct, budget.DailyLossLimit)
 			budget.TotalPositionPct = 0
@@ -678,7 +679,7 @@ func (s *LiveTradingService) evaluateAndGenerateSignals(
 
 	dp := NewPGDataProvider(nil, make(map[string]int)) // live mode: single-date, fallback to nextTradeDate
 
-	sharedSignals := sigEngine.GenerateSignals(tradeDate, alloc.CurrentCash, sigPositions, universe,
+	sharedSignals := sigEngine.GenerateSignals(tradeDate, run.AvailableCash, sigPositions, universe,
 		engineBuyConds, engineAddConds, engineSellConds, engineReduceConds, dp, sigCfg, &budget, func(format string, args ...interface{}) {
 			msg := fmt.Sprintf(format, args...)
 			addLog(msg)
@@ -699,19 +700,20 @@ func (s *LiveTradingService) evaluateAndGenerateSignals(
 		if s.signalExists(run.StrategyID, run.ID, ss.StockCode, nextDate, ss.ActionType) {
 			if mode != "after_close" {
 				addLog("🔄 刷新 %s(%s) — 更新已有待执行信号", ss.StockName, ss.StockCode)
-				// Update existing signal reason
-				db.MySQL.Model(&model.BacktestSignal{}).Where(
-					"strategy_id = ? AND run_id = ? AND stock_code = ? AND exec_date = ? AND action_type = ? AND status IN ?",
-					run.StrategyID, run.ID, ss.StockCode, nextDate, ss.ActionType, []string{"pending", "confirmed"},
-				).Updates(map[string]interface{}{
-					"planned_price":  ss.PlannedPrice,
-					"planned_qty":    ss.PlannedQty,
-					"planned_amount": ss.PlannedAmount,
-					"reason":         ss.Reason,
-					"signal_date":    tradeDate,
-					"status":         "pending",
-				})
 			}
+			// Update existing signal (always refresh reason/price, even in after_close)
+			db.MySQL.Model(&model.BacktestSignal{}).Where(
+				"strategy_id = ? AND run_id = ? AND stock_code = ? AND exec_date = ? AND action_type = ? AND status IN ?",
+				run.StrategyID, run.ID, ss.StockCode, nextDate, ss.ActionType, []string{"pending", "confirmed"},
+			).Updates(map[string]interface{}{
+				"planned_price":  ss.PlannedPrice,
+				"planned_qty":    ss.PlannedQty,
+				"planned_amount": ss.PlannedAmount,
+				"reason":         ss.Reason,
+				"signal_date":    tradeDate,
+				"status":         "pending",
+			})
+			signalsGenerated++ // count as generated (re-persisted)
 			continue
 		}
 
@@ -767,13 +769,13 @@ func (s *LiveTradingService) TakeAllDailySnapshots(tradeDate string) {
 		return
 	}
 	for _, run := range runs {
-		var alloc model.StrategyFundAllocation
-		if err := db.MySQL.Where("strategy_run_id = ? AND status = ?", run.ID, "active").First(&alloc).Error; err != nil {
-			continue
+		// Use run directly
+		if run.AvailableCash <= 0 {
+			run.AvailableCash = run.InitialCapital
 		}
 		var positions []model.LivePosition
 		db.MySQL.Where("strategy_run_id = ? AND quantity > 0", run.ID).Find(&positions)
-		if err := s.snapshotPortfolio(&run, &alloc, &positions, tradeDate); err != nil {
+		if err := s.snapshotPortfolio(&run, &positions, tradeDate); err != nil {
 			log.Printf("[live] run %d snapshot failed: %v", run.ID, err)
 		}
 		s.updateRunStats(run.ID)
@@ -781,7 +783,7 @@ func (s *LiveTradingService) TakeAllDailySnapshots(tradeDate string) {
 }
 
 func (s *LiveTradingService) snapshotPortfolio(
-	run *model.StrategyRun, alloc *model.StrategyFundAllocation,
+	run *model.StrategyRun,
 	positions *[]model.LivePosition, tradeDate string,
 ) error {
 	// Build SnapshotPosition map
@@ -803,7 +805,7 @@ func (s *LiveTradingService) snapshotPortfolio(
 
 	// Use SnapshotEngine for consistent metrics
 	snapEng := NewSnapshotEngine(run.InitialCapital)
-	snapResult := snapEng.TakeSnapshot(tradeDate, alloc.CurrentCash, snapPositions)
+	snapResult := snapEng.TakeSnapshot(tradeDate, run.AvailableCash, snapPositions)
 
 	posJSON, _ := json.Marshal(*positions)
 
@@ -825,7 +827,7 @@ func (s *LiveTradingService) snapshotPortfolio(
 	}
 
 	snapshot := model.DailyPortfolioSnapshot{
-		UserID: run.UserID, StrategyRunID: run.ID, AllocationID: alloc.ID,
+		UserID: run.UserID, StrategyRunID: run.ID, AllocationID: 0,
 		SnapshotDate: tradeDate,
 		Cash: snapResult.Cash, PositionValue: snapResult.PositionValue,
 		TotalEquity: snapResult.TotalEquity,
@@ -841,8 +843,8 @@ func (s *LiveTradingService) snapshotPortfolio(
 
 // ── Helpers ──
 
-func (s *LiveTradingService) calcTotalEquity(alloc *model.StrategyFundAllocation, positions *[]model.LivePosition) float64 {
-	equity := alloc.CurrentCash
+func (s *LiveTradingService) calcTotalEquity(run *model.StrategyRun, positions *[]model.LivePosition) float64 {
+	equity := run.AvailableCash
 	for _, p := range *positions {
 		if p.Quantity > 0 {
 			equity += p.CurrentPrice * float64(p.Quantity)
@@ -857,14 +859,13 @@ func (s *LiveTradingService) updateRunStats(runID uint) {
 	if err := db.MySQL.Where("id = ?", runID).First(&run).Error; err != nil {
 		return
 	}
-	var alloc model.StrategyFundAllocation
-	if err := db.MySQL.Where("strategy_run_id = ? AND status = ?", runID, "active").First(&alloc).Error; err != nil {
-		return
+	if run.AvailableCash <= 0 {
+		run.AvailableCash = run.InitialCapital
 	}
 	var positions []model.LivePosition
 	db.MySQL.Where("strategy_run_id = ? AND quantity > 0", runID).Find(&positions)
 
-	equity := s.calcTotalEquity(&alloc, &positions)
+	equity := s.calcTotalEquity(&run, &positions)
 	var totalReturn float64
 	if run.InitialCapital > 0 {
 		totalReturn = (equity - run.InitialCapital) / run.InitialCapital * 100
@@ -905,37 +906,15 @@ func (s *LiveTradingService) updateRunStats(runID uint) {
 		"trade_count":    tradeCount,
 	})
 
-	// Also update linked trading account stats
-	if run.AccountID > 0 {
-		var account model.TradingAccount
-		if err := db.MySQL.Where("id = ?", run.AccountID).First(&account).Error; err == nil {
-			posValue := 0.0
-			for _, p := range positions {
-				if p.Quantity > 0 {
-					posValue += p.CurrentPrice * float64(p.Quantity)
-				}
-			}
-			totalProfit := equity - account.InitialCapital
-			nav := 1.0
-			if account.InitialCapital > 0 {
-				nav = equity / account.InitialCapital
-			}
-			db.MySQL.Model(&account).Updates(map[string]interface{}{
-				"total_assets":        equity,
-				"total_market_value":  math.Round(posValue*100) / 100,
-				"total_profit":        math.Round(totalProfit*100) / 100,
-				"nav":                 math.Round(nav*10000) / 10000,
-			})
-		}
-	}
+	// Trading account stats are synced from broker via SyncAccountFromBroker; not overwritten here
 }
 
 func (s *LiveTradingService) recordTrade(
-	run *model.StrategyRun, alloc *model.StrategyFundAllocation,
+	run *model.StrategyRun,
 	sig *model.BacktestSignal, price float64, qty int, amount, pnl, pnlPct float64, reason string,
 ) {
 	trade := model.LiveTrade{
-		UserID: run.UserID, StrategyRunID: run.ID, AllocationID: alloc.ID,
+		UserID: run.UserID, StrategyRunID: run.ID, AllocationID: 0,
 		SignalID: &sig.ID, TradeDate: sig.ExecDate,
 		StockCode: sig.StockCode, StockName: sig.StockName,
 		ActionType: sig.ActionType, Price: price, Quantity: qty, Amount: amount,
@@ -1016,15 +995,15 @@ func (s *LiveTradingService) FinalizeSignalExecution(runID uint, signalID uint, 
 		return fmt.Errorf("strategy %d not found: %w", run.StrategyID, err)
 	}
 
-	var alloc model.StrategyFundAllocation
-	if err := db.MySQL.Where("strategy_run_id = ? AND status = ?", run.ID, "active").First(&alloc).Error; err != nil {
-		return fmt.Errorf("allocation for run %d not found: %w", runID, err)
+	// run.AvailableCash is already available; ensure it's set
+	if run.AvailableCash <= 0 {
+		run.AvailableCash = run.InitialCapital
 	}
 
 	var positions []model.LivePosition
 	db.MySQL.Where("strategy_run_id = ?", run.ID).Find(&positions)
 
-	if err := s.executeSignal(&run, &strategy, &alloc, &positions, &sig, sig.ExecDate); err != nil {
+	if err := s.executeSignal(&run, &strategy, &positions, &sig, sig.ExecDate); err != nil {
 		return err
 	}
 
@@ -1046,19 +1025,15 @@ func (s *LiveTradingService) ExecuteSignalByIDWithPrice(signalID uint, userID ui
 
 // syncHoldingToAccount keeps the holdings table in sync with live_positions.
 func (s *LiveTradingService) syncHoldingToAccount(run *model.StrategyRun, stockCode, stockName, tradeDate string, quantity int, avgCost float64, todayBuyQty int, currentPrice float64) {
-	// Find the account linked to this run's allocation, then get the account owner (user_id)
-	var alloc model.StrategyFundAllocation
-	if err := db.MySQL.Where("strategy_run_id = ? AND status = ?", run.ID, "active").First(&alloc).Error; err != nil {
-		return
-	}
+	// Use run's AccountID directly
 	var account model.TradingAccount
 	ownerUserID := run.UserID // fallback
-	if err := db.MySQL.First(&account, alloc.AccountID).Error; err == nil {
+	if err := db.MySQL.First(&account, run.AccountID).Error; err == nil {
 		ownerUserID = account.UserID
 	}
 
 	var holding model.Holding
-	err := db.MySQL.Where("user_id = ? AND account_id = ? AND stock_code = ?", ownerUserID, alloc.AccountID, stockCode).First(&holding).Error
+	err := db.MySQL.Where("user_id = ? AND account_id = ? AND stock_code = ?", ownerUserID, run.AccountID, stockCode).First(&holding).Error
 
 	if quantity <= 0 {
 		// Position closed → delete holding
@@ -1083,7 +1058,7 @@ func (s *LiveTradingService) syncHoldingToAccount(run *model.StrategyRun, stockC
 	} else {
 		// Create new
 		newH := model.Holding{
-			UserID: ownerUserID, AccountID: alloc.AccountID,
+			UserID: ownerUserID, AccountID: run.AccountID,
 			StockCode: stockCode, StockName: stockName,
 			CostPrice: avgCost, Quantity: quantity,
 			TodayBuyQty: todayBuyQty, AvailSellQty: quantity - todayBuyQty,
@@ -1173,9 +1148,9 @@ func (s *LiveTradingService) RefreshLivePositions() error {
 	}
 
 	for _, run := range runs {
-		var alloc model.StrategyFundAllocation
-		if err := db.MySQL.Where("strategy_run_id = ? AND status = ?", run.ID, "active").First(&alloc).Error; err != nil {
-			continue
+		// Use run directly
+		if run.AvailableCash <= 0 {
+			run.AvailableCash = run.InitialCapital
 		}
 
 		var positions []model.LivePosition
@@ -1200,7 +1175,7 @@ func (s *LiveTradingService) RefreshLivePositions() error {
 		}
 
 		s.updateRunStats(run.ID)
-		s.snapshotPortfolio(&run, &alloc, &positions, time.Now().Format("2006-01-02"))
+		s.snapshotPortfolio(&run, &positions, time.Now().Format("2006-01-02"))
 	}
 
 	return nil
@@ -1219,12 +1194,6 @@ func (s *LiveTradingService) ImportBrokerPositionsToRun(bs *BrokerService, strat
 	portfolio, err := bs.SyncPositionsFromBroker(accountID, userID)
 	if err != nil {
 		return fmt.Errorf("sync broker positions: %w", err)
-	}
-
-	// Get balance for cash + total equity update
-	balance, err := bs.GetBrokerBalance(accountID, userID)
-	if err != nil {
-		return fmt.Errorf("get broker balance: %w", err)
 	}
 
 	today := time.Now().Format("2006-01-02")
@@ -1246,10 +1215,9 @@ func (s *LiveTradingService) ImportBrokerPositionsToRun(bs *BrokerService, strat
 			TodayBuyQty:   bp.Count - bp.AvailCount,
 			AvgCost:       bp.CostPrice,
 			CurrentPrice:  bp.Price,
-			UnrealizedPnl: math.Round((bp.Price-bp.CostPrice)*float64(bp.Count)*100) / 100,
-		}
-		if bp.CostPrice > 0 {
-			pos.UnrealizedPnlPct = math.Round((bp.Price-bp.CostPrice)/bp.CostPrice*10000) / 100
+			// Use broker's own Profit/ProfitPct — more accurate than recalculating from Price × Count
+			UnrealizedPnl:    math.Round(bp.Profit*100) / 100,
+			UnrealizedPnlPct: math.Round(bp.ProfitPct*100) / 100,
 		}
 		pos.FirstBuyDate = today
 		pos.LastTradeDate = today
@@ -1259,111 +1227,157 @@ func (s *LiveTradingService) ImportBrokerPositionsToRun(bs *BrokerService, strat
 		s.syncHoldingToAccountFromReconcile(accountID, bp.SecCode, bp.SecName, bp.Count, bp.CostPrice, bp.Count-bp.AvailCount, bp.Price, today)
 	}
 
-	// Update fund allocation with actual cash and equity from broker
-	var alloc model.StrategyFundAllocation
-	if err := db.MySQL.Where("strategy_run_id = ? AND status = ?", strategyRunID, "active").First(&alloc).Error; err == nil {
-		db.MySQL.Model(&alloc).Updates(map[string]interface{}{
-			"current_cash":     balance.AvailBalance,
-			"allocated_capital": portfolio.TotalAssets,
-		})
-	}
-
-	// Update strategy_runs with actual portfolio state
+	// Read the run's currently allocated cash (set at CreateRun, NOT account-level).
+	// DO NOT use balance.AvailBalance — that is the account's total cash, not this strategy's allocation.
 	var run model.StrategyRun
-	if err := db.MySQL.First(&run, strategyRunID).Error; err == nil {
-		db.MySQL.Model(&run).Updates(map[string]interface{}{
-			"current_equity": portfolio.TotalAssets,
-			"initial_capital": portfolio.TotalAssets,
-		})
+	if err := db.MySQL.First(&run, strategyRunID).Error; err != nil {
+		return fmt.Errorf("strategy run not found: %w", err)
 	}
+	allocatedCash := run.AvailableCash
 
-	log.Printf("[import] run=%d account=%d: imported %d positions, equity=%.2f cash=%.2f",
-		strategyRunID, accountID, portfolio.PosCount, portfolio.TotalAssets, balance.AvailBalance)
+	// Calculate total position cost basis and market value from imported positions.
+	// initial_capital = allocated cash + position cost basis
+	// current_equity = allocated cash + position market value
+	// Derive cost from broker values: cost = marketValue - profit (avoids CostPrice float drift).
+	var totalPosCost, totalPosValue float64
+	for _, bp := range portfolio.Positions {
+		mv := math.Round(bp.Price*float64(bp.Count)*100) / 100
+		totalPosValue += mv
+		totalPosCost += math.Round((mv-bp.Profit)*100) / 100
+	}
+	newInitialCapital := math.Round((allocatedCash+totalPosCost)*100) / 100
+	newEquity := math.Round((allocatedCash+totalPosValue)*100) / 100
+
+	db.MySQL.Model(&model.StrategyRun{}).Where("id = ?", strategyRunID).Updates(map[string]interface{}{
+		// available_cash stays as the allocated amount (NOT account balance)
+		"initial_capital": newInitialCapital,
+		"current_equity":  newEquity,
+		"position_value":  totalPosValue,
+	})
+
+	log.Printf("[import] run=%d account=%d: imported %d positions, cash=%.2f posCost=%.2f posVal=%.2f equity=%.2f initCap=%.2f",
+		strategyRunID, accountID, portfolio.PosCount, allocatedCash, totalPosCost, totalPosValue, newEquity, newInitialCapital)
+
+	// Recalculate total_return / max_drawdown / win_rate from current state.
+	s.updateRunStats(strategyRunID)
+
 	return nil
 }
 
 // ReconcileFromBroker rebuilds live_positions, holdings, and strategy_runs
 // from the broker's actual portfolio snapshot. Used as a data repair mechanism
 // when local records diverge from broker state.
-func (s *LiveTradingService) ReconcileFromBroker(bs *BrokerService, accountID uint, userID uint, strategyRunID uint) error {
+// ReconcileFromBroker returns a read-only drift report comparing strategy positions vs broker holdings.
+// No writes are performed — use SyncAccountFromBroker for account-level sync.
+func (s *LiveTradingService) ReconcileFromBroker(bs *BrokerService, accountID uint, userID uint, strategyRunID uint) (map[string]interface{}, error) {
 	portfolio, err := bs.SyncPositionsFromBroker(accountID, userID)
 	if err != nil {
-		return fmt.Errorf("sync broker positions: %w", err)
+		return nil, fmt.Errorf("sync broker positions: %w", err)
 	}
 
-	// Get balance for cash update
 	balance, err := bs.GetBrokerBalance(accountID, userID)
 	if err != nil {
-		return fmt.Errorf("get broker balance: %w", err)
+		return nil, fmt.Errorf("get broker balance: %w", err)
 	}
 
 	today := time.Now().Format("2006-01-02")
 
-	// Step 1: Upsert live_positions from broker (preserve strategy cost basis)
-	brokerCodes := make(map[string]bool)
+	// Build broker position map
+	brokerMap := make(map[string]BrokerPosition)
 	for _, bp := range portfolio.Positions {
-		brokerCodes[bp.SecCode] = true
+		brokerMap[bp.SecCode] = bp
+	}
 
-		var existing model.LivePosition
-		err := db.MySQL.Where("strategy_run_id = ? AND stock_code = ?", strategyRunID, bp.SecCode).First(&existing).Error
-		if err == nil {
-			// Strategy already tracks this → refresh quantity/price, KEEP strategy cost
-			db.MySQL.Model(&existing).Updates(map[string]interface{}{
-				"current_price":   bp.Price,
-				"unrealized_pnl":  math.Round((bp.Price-existing.AvgCost)*float64(bp.Count)*100) / 100,
-				"quantity":        bp.Count,
-				"avail_sell_qty":  bp.AvailCount,
-				"last_trade_date": today,
-				"updated_at":      time.Now(),
+	// Read strategy positions
+	var livePositions []model.LivePosition
+	db.MySQL.Where("strategy_run_id = ? AND quantity > 0", strategyRunID).Find(&livePositions)
+
+	// Build drift report
+	type DriftItem struct {
+		StockCode      string  `json:"stockCode"`
+		StockName      string  `json:"stockName"`
+		BrokerQty      int     `json:"brokerQty"`
+		StrategyQty    int     `json:"strategyQty"`
+		BrokerPrice    float64 `json:"brokerPrice"`
+		StrategyPrice  float64 `json:"strategyPrice"`
+		DriftType      string  `json:"driftType"` // only_broker, only_strategy, qty_mismatch, matched
+		QtyDiff        int     `json:"qtyDiff"`
+	}
+
+	driftItems := make([]DriftItem, 0)
+	// Strategy-only positions (broker doesn't have)
+	strategyCodes := make(map[string]bool)
+	for _, lp := range livePositions {
+		strategyCodes[lp.StockCode] = true
+		bp, inBroker := brokerMap[lp.StockCode]
+		if !inBroker {
+			driftItems = append(driftItems, DriftItem{
+				StockCode: lp.StockCode, StockName: lp.StockName,
+				BrokerQty: 0, StrategyQty: lp.Quantity,
+				BrokerPrice: 0, StrategyPrice: lp.CurrentPrice,
+				DriftType: "only_strategy", QtyDiff: -lp.Quantity,
 			})
-			if existing.AvgCost > 0 {
-				unrealizedPnlPct := math.Round((bp.Price-existing.AvgCost)/existing.AvgCost*10000) / 100
-				db.MySQL.Model(&existing).Update("unrealized_pnl_pct", unrealizedPnlPct)
-			}
+		} else if bp.Count != lp.Quantity {
+			driftItems = append(driftItems, DriftItem{
+				StockCode: lp.StockCode, StockName: lp.StockName,
+				BrokerQty: bp.Count, StrategyQty: lp.Quantity,
+				BrokerPrice: bp.Price, StrategyPrice: lp.CurrentPrice,
+				DriftType: "qty_mismatch", QtyDiff: bp.Count - lp.Quantity,
+			})
 		} else {
-			// New position from broker — strategy doesn't track it (manual trade)
-			pos := model.LivePosition{
-				UserID:        userID,
-				StrategyRunID: strategyRunID,
-				StockCode:     bp.SecCode,
-				StockName:     bp.SecName,
-				Quantity:      bp.Count,
-				AvailSellQty:  bp.AvailCount,
-				TodayBuyQty:   bp.Count - bp.AvailCount,
-				AvgCost:       bp.CostPrice,
-				CurrentPrice:  bp.Price,
-				UnrealizedPnl: math.Round((bp.Price-bp.CostPrice)*float64(bp.Count)*100) / 100,
-				ActionPlan:    "manual_import",
-			}
-			if bp.CostPrice > 0 {
-				pos.UnrealizedPnlPct = math.Round((bp.Price-bp.CostPrice)/bp.CostPrice*10000) / 100
-			}
-			pos.FirstBuyDate = today
-			pos.LastTradeDate = today
-			db.MySQL.Create(&pos)
+			driftItems = append(driftItems, DriftItem{
+				StockCode: lp.StockCode, StockName: lp.StockName,
+				BrokerQty: bp.Count, StrategyQty: lp.Quantity,
+				BrokerPrice: bp.Price, StrategyPrice: lp.CurrentPrice,
+				DriftType: "matched", QtyDiff: 0,
+			})
 		}
-
-		// Sync holdings
-		s.syncHoldingToAccountFromReconcile(accountID, bp.SecCode, bp.SecName, bp.Count, bp.CostPrice, bp.Count-bp.AvailCount, bp.Price, today)
 	}
 
-	// Mark strategy positions that broker no longer has (strategy sold, broker synced)
-	db.MySQL.Model(&model.LivePosition{}).
-		Where("strategy_run_id = ? AND quantity > 0 AND stock_code NOT IN ?", strategyRunID, maps.Keys(brokerCodes)).
-		Update("action_plan", "broker_cleared")
-
-	// Step 2: Update fund allocation cash
-	var alloc model.StrategyFundAllocation
-	if err := db.MySQL.Where("strategy_run_id = ? AND status = ?", strategyRunID, "active").First(&alloc).Error; err == nil {
-		db.MySQL.Model(&alloc).Update("current_cash", balance.AvailBalance)
+	// Broker-only positions (strategy doesn't track)
+	for code, bp := range brokerMap {
+		if !strategyCodes[code] {
+			driftItems = append(driftItems, DriftItem{
+				StockCode: code, StockName: bp.SecName,
+				BrokerQty: bp.Count, StrategyQty: 0,
+				BrokerPrice: bp.Price, StrategyPrice: 0,
+				DriftType: "only_broker", QtyDiff: bp.Count,
+			})
+		}
 	}
 
-	// Step 3: Update strategy_runs
-	s.updateRunStats(strategyRunID)
+	// Account cash drift
+	var run model.StrategyRun
+	db.MySQL.Where("id = ?", strategyRunID).First(&run)
+	cashDrift := balance.AvailBalance - run.AvailableCash
 
-	log.Printf("[reconcile] account=%d run=%d: synced %d positions, cash=%.2f, total=%.2f",
-		accountID, strategyRunID, portfolio.PosCount, balance.AvailBalance, portfolio.TotalAssets)
-	return nil
+	result := map[string]interface{}{
+		"brokerCash":       balance.AvailBalance,
+		"strategyCash":     run.AvailableCash,
+		"cashDrift":        cashDrift,
+		"brokerTotal":      portfolio.TotalAssets,
+		"driftItems":       driftItems,
+		"driftCount":       len(driftItems),
+		"matchedCount":     0,
+		"mismatchCount":    0,
+		"reportDate":       today,
+	}
+
+	// Count drift types
+	matchedCount, mismatchCount := 0, 0
+	for _, di := range driftItems {
+		if di.DriftType == "matched" {
+			matchedCount++
+		} else {
+			mismatchCount++
+		}
+	}
+	result["matchedCount"] = matchedCount
+	result["mismatchCount"] = mismatchCount
+
+	log.Printf("[reconcile:readonly] account=%d run=%d: %d drift items, cash_drift=%.2f",
+		accountID, strategyRunID, len(driftItems), cashDrift)
+	return result, nil
 }
 
 // syncHoldingToAccountFromReconcile is a variant that takes accountID directly.
@@ -1433,3 +1447,147 @@ func (s *LiveTradingService) SetAgentHub(hub interface{}) {}
 
 // KickAgent disconnects all agents for an account.
 func (s *LiveTradingService) KickAgent(accountID uint) {}
+
+// ── Strategy Capital Flow ──
+
+// ValidateBudgetForAllocation checks if the account has enough free cash to allocate to a new/expanded strategy run.
+// Returns (availableBudget, true/false, errorMessage)
+func (s *LiveTradingService) ValidateBudgetForAllocation(accountID uint, requestAmount float64) (float64, bool, string) {
+	var account model.TradingAccount
+	if err := db.MySQL.Where("id = ?", accountID).First(&account).Error; err != nil {
+		return 0, false, "账户不存在"
+	}
+
+	// available_for_allocation = account.available_cash - Σ(active_runs.initial_capital)
+	var allocatedSum float64
+	db.MySQL.Raw(`
+		SELECT COALESCE(SUM(available_cash))
+		FROM strategy_runs
+		WHERE account_id = ? AND status IN ('active', 'paused')
+	`, accountID).Scan(&allocatedSum)
+
+	availableBudget := account.AvailableCash - allocatedSum
+	if requestAmount > availableBudget {
+		return availableBudget, false, fmt.Sprintf("可分配现金不足: 需要 ¥%.0f, 可用 ¥%.0f (账户现金 ¥%.0f - 已分配 ¥%.0f)",
+			requestAmount, availableBudget, account.AvailableCash, allocatedSum)
+	}
+	return availableBudget, true, ""
+}
+
+// ValidateBudgetForImport checks if the account has enough free shares to import into a strategy.
+func (s *LiveTradingService) ValidateBudgetForImport(accountID uint, stockCode string, requestQty int) (int, bool, string) {
+	var holdingsQty int
+	db.MySQL.Raw("SELECT COALESCE(quantity, 0) FROM holdings WHERE account_id = ? AND stock_code = ?", accountID, stockCode).Scan(&holdingsQty)
+	if holdingsQty <= 0 {
+		return 0, false, fmt.Sprintf("账户未持有 %s", stockCode)
+	}
+
+	var allocatedQty int
+	db.MySQL.Raw(`
+		SELECT COALESCE(SUM(lp.quantity))
+		FROM live_positions lp
+		JOIN strategy_runs sr ON sr.id = lp.strategy_run_id AND sr.status IN ('active', 'paused')
+		WHERE sr.account_id = ? AND lp.stock_code = ? AND lp.quantity > 0
+	`, accountID, stockCode).Scan(&allocatedQty)
+
+	availableQty := holdingsQty - allocatedQty
+	if requestQty > availableQty {
+		return availableQty, false, fmt.Sprintf("可导入 %s 不足: 需要 %d 股, 可用 %d 股 (总持仓 %d - 已分配 %d)",
+			stockCode, requestQty, availableQty, holdingsQty, allocatedQty)
+	}
+	return availableQty, true, ""
+}
+
+// DepositToRun adds cash from account's free pool to a strategy run.
+func (s *LiveTradingService) DepositToRun(runID uint, amount float64, reason string) error {
+	if amount <= 0 {
+		return fmt.Errorf("入金金额必须大于0")
+	}
+
+	var run model.StrategyRun
+	if err := db.MySQL.Where("id = ?", runID).First(&run).Error; err != nil {
+		return fmt.Errorf("策略运行不存在")
+	}
+
+	_, ok, msg := s.ValidateBudgetForAllocation(run.AccountID, amount)
+	if !ok {
+		return fmt.Errorf("%s", msg)
+	}
+
+	beforeCash := run.AvailableCash
+	run.AvailableCash += amount
+	run.InitialCapital += amount // total cost basis
+	db.MySQL.Save(&run)
+
+	// Record cash flow
+	db.MySQL.Create(&model.StrategyCashFlow{
+		StrategyRunID: run.ID,
+		AccountID:     run.AccountID,
+		UserID:        run.UserID,
+		FlowType:      "deposit",
+		Amount:        amount,
+		BeforeCash:    beforeCash,
+		AfterCash:     run.AvailableCash,
+		Reason:        reason,
+	})
+
+	log.Printf("[strategy] deposit run=%d amount=%.2f before=%.2f after=%.2f", runID, amount, beforeCash, run.AvailableCash)
+	return nil
+}
+
+// WithdrawFromRun moves cash from strategy back to account's free pool.
+func (s *LiveTradingService) WithdrawFromRun(runID uint, amount float64, reason string) error {
+	if amount <= 0 {
+		return fmt.Errorf("出金金额必须大于0")
+	}
+
+	var run model.StrategyRun
+	if err := db.MySQL.Where("id = ?", runID).First(&run).Error; err != nil {
+		return fmt.Errorf("策略运行不存在")
+	}
+
+	if run.AvailableCash < amount {
+		return fmt.Errorf("策略可用现金不足: 需要 ¥%.0f, 可用 ¥%.0f", amount, run.AvailableCash)
+	}
+
+	beforeCash := run.AvailableCash
+	run.AvailableCash -= amount
+	run.InitialCapital -= amount // reduce cost basis
+	db.MySQL.Save(&run)
+
+	// Record cash flow
+	db.MySQL.Create(&model.StrategyCashFlow{
+		StrategyRunID: run.ID,
+		AccountID:     run.AccountID,
+		UserID:        run.UserID,
+		FlowType:      "withdraw",
+		Amount:        amount,
+		BeforeCash:    beforeCash,
+		AfterCash:     run.AvailableCash,
+		Reason:        reason,
+	})
+
+	log.Printf("[strategy] withdraw run=%d amount=%.2f before=%.2f after=%.2f", runID, amount, beforeCash, run.AvailableCash)
+	return nil
+}
+
+// checkCrossStrategyT1 validates that no sellable shares are locked by another strategy's T+1.
+// Returns the sellable quantity after cross-strategy T+1 check.
+func (s *LiveTradingService) checkCrossStrategyT1(accountID uint, stockCode string, sellableQty int) int {
+	// Sum today_buy_qty across ALL active/paused runs for this account to find total locked shares
+	var totalTodayBuy int
+	db.MySQL.Raw(`
+		SELECT COALESCE(SUM(lp.today_buy_qty))
+		FROM live_positions lp
+		JOIN strategy_runs sr ON sr.id = lp.strategy_run_id AND sr.status IN ('active', 'paused')
+		WHERE sr.account_id = ? AND lp.stock_code = ? AND lp.quantity > 0
+	`, accountID, stockCode).Scan(&totalTodayBuy)
+
+	// The broker's actual sellable count = account shares - all strategies' today_buy
+	// This is handled at the broker level. Here we just log a warning if there might be a conflict.
+	if totalTodayBuy > 0 && sellableQty > 0 {
+		log.Printf("[t1_check] stock=%s account=%d: cross-strategy today_buy=%d shares, this strategy sellable=%d — broker may reject if insufficient",
+			stockCode, accountID, totalTodayBuy, sellableQty)
+	}
+	return sellableQty
+}

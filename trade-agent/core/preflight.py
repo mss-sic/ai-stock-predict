@@ -201,13 +201,13 @@ def _check_account(trader, api) -> bool:
 
 
 def _check_login_status(trader) -> bool:
-    """步骤 6（仅实盘）：检查交易账户登录状态，未登录时尝试自动登录。
+    """步骤 6（仅实盘）：检查交易账户登录状态，未登录/已锁定时尝试自动登录。
 
-    实盘账户有约 180 分钟在线时长，超时后「登录状态」变为未登录。
+    实盘账户有约 180 分钟在线时长，超时后「登录状态」变为「未登录」或「已锁定」。
     处理策略：
       - 已登录 / 模拟盘（无登录状态标签）→ 放行
-      - 未登录且配置了交易密码 → 自动登录（OCR 识别验证码），成功放行
-      - 未登录且未配置密码 或 自动登录失败 → 阻断并弹窗引导手动登录
+      - 未登录/已锁定 且配置了交易密码 → 自动登录（OCR 识别验证码），成功放行
+      - 未登录/已锁定 且未配置密码 或 自动登录失败 → 阻断并弹窗引导手动登录
     """
     status = trader.get_login_status() if hasattr(trader, "get_login_status") else None
     if status is None:
@@ -217,8 +217,30 @@ def _check_login_status(trader) -> bool:
         logger.info(f"[preflight] ⑥ 交易账户已登录：{status}")
         return True
 
-    # 未登录：若配置了交易密码，尝试自动登录
     has_pwd = bool(getattr(trader, "trade_password", ""))
+
+    # 「已锁定」：会话锁定，仅需交易密码解锁（无验证码），优先走 unlock()
+    if "已锁定" in status or "锁定" in status:
+        if has_pwd and hasattr(trader, "unlock"):
+            logger.warning(f"[preflight] ⑥ 交易账户已锁定，尝试自动解锁…")
+            send_notification("🔓 自动解锁中", "检测到交易账户已锁定，正在输入密码解锁…")
+            try:
+                if trader.unlock():
+                    logger.info("[preflight] ⑥ 自动解锁成功")
+                    send_notification("✅ 自动解锁成功", "交易账户已解锁")
+                    return True
+            except Exception as e:
+                logger.error(f"[preflight] ⑥ 自动解锁异常: {e}", exc_info=True)
+            logger.error("[preflight] ⑥ 自动解锁失败")
+        return _fail(
+            f"实盘交易账户已锁定：{status}",
+            f"⚠️ 实盘交易账户当前【{status}】，无法下单！\\n\\n"
+            + ("自动解锁失败（密码错误或界面异常）。\\n" if has_pwd else "未配置交易密码，无法自动解锁。\\n")
+            + f"请在东方财富点击「解锁证券账户」，输入交易密码完成解锁，\\n"
+            f"然后重启交易代理。",
+        )
+
+    # 「未登录」：完全登出，需账号+密码+验证码，走 login()
     if has_pwd and hasattr(trader, "login"):
         logger.warning(f"[preflight] ⑥ 交易账户未登录（{status}），尝试自动登录…")
         send_notification("🔐 自动登录中", "检测到交易账户未登录，正在自动登录…")

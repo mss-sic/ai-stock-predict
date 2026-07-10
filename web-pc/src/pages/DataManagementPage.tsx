@@ -1,3 +1,4 @@
+import { showToast } from '../components/Toast';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Upload, Button, Table, Tag, Progress, Modal, Tooltip, Switch, Popconfirm, Message, Statistic, Badge, Descriptions } from '@arco-design/web-react';
 import {
@@ -121,19 +122,6 @@ interface SSELine { type: string; phase?: string; message?: string; level?: stri
 interface PhaseResult { phase: string; total: number; new: number; skipped: number; errors: number; durationMs: number; }
 interface DataStat { key: string; label: string; count: number; updatedAt?: string; }
 
-function Toast({ type, msg, onClose }: { type: 'success' | 'error' | 'info'; msg: string; onClose: () => void }) {
-  const colors = { success: 'var(--color-success-bg)', error: 'var(--color-danger-bg)', info: 'var(--color-info-bg)' };
-  const borders = { success: 'var(--color-success)', error: 'var(--color-danger)', info: 'var(--color-primary)' };
-  const icons = { success: <CheckCircle size={14} color="var(--color-success)" />, error: <XCircle size={14} color="var(--color-danger)" />, info: <Activity size={14} color="var(--color-primary)" /> };
-  useEffect(() => { const t = setTimeout(onClose, 3000); return () => clearTimeout(t); }, [onClose]);
-  return (
-    <div style={{ position: 'fixed', top: 20, right: 20, zIndex: 9999, padding: '10px 16px', borderRadius: 6, fontSize: 13, background: colors[type], border: `1px solid ${borders[type]}`, display: 'flex', alignItems: 'center', gap: 8, boxShadow: '0 2px 8px rgba(0,0,0,0.1)', maxWidth: 400 }}>
-      {icons[type]}<span style={{ flex: 1, color: 'var(--color-text-1)' }}>{msg}</span>
-      <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: 'var(--color-text-3)' }}><X size={12} /></button>
-    </div>
-  );
-}
-
 function cronToText(expr: string): string {
   if (!expr) return '';
   const parts = expr.trim().split(/\s+/);
@@ -168,7 +156,6 @@ function cronToText(expr: string): string {
   return expr;
 }
 
-
 export default function DataManagementPage() {
   const [tab, setTab] = useState<'overview' | 'tasks' | 'import' | 'collect' | 'history' | 'logs'>('overview');
   const [loading, setLoading] = useState(false);
@@ -184,7 +171,6 @@ export default function DataManagementPage() {
   const [phaseResults, setPhaseResults] = useState<PhaseResult[]>([]);
   const [phaseProgress, setPhaseProgress] = useState({ current: 0, total: 0 });
   const [totalDuration, setTotalDuration] = useState(0);
-  const [toast, setToast] = useState<{ type: 'success' | 'error' | 'info'; msg: string } | null>(null);
   const [dataStats, setDataStats] = useState<DataStat[]>([]);
   const [statsLoading, setStatsLoading] = useState(false);
   const [tasksLoading, setTasksLoading] = useState(false);
@@ -251,7 +237,6 @@ export default function DataManagementPage() {
     }
   };
 
-
   const pollRef = useRef<any>(null);
   const consoleRef = useRef<HTMLDivElement>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
@@ -260,8 +245,6 @@ export default function DataManagementPage() {
   const reconnectTimerRef = useRef<any>(null);
   const collectingRef = useRef(false);
   const MAX_RECONNECT = 10;
-
-  const showToast = useCallback((type: 'success' | 'error' | 'info', msg: string) => { setToast({ type, msg }); }, []);
 
   const addConsoleLine = useCallback((text: string, level: string = 'info', phase?: string) => {
     const time = new Date().toLocaleTimeString('zh-CN', { hour12: false });
@@ -618,7 +601,6 @@ export default function DataManagementPage() {
           50% { background-color: var(--color-warning-text); }
         }
       `}</style>
-      {toast && <Toast type={toast.type} msg={toast.msg} onClose={() => setToast(null)} />}
       {/* Repair Modal */}
       <Modal
         title={`修复历史数据 — ${PHASE_LABELS[repairPhase] || repairPhase}`}
@@ -1259,7 +1241,6 @@ export default function DataManagementPage() {
                   { title: '时间', dataIndex: 'importedAt', width: 180, render: (v: string) => <span style={{ color: 'var(--color-text-3)', fontSize: 12 }}>{v ? new Date(v).toLocaleString('zh-CN') : '-'}</span> },
                 ]} pagination={false} border={false} stripe />
 
-
               )}
             </div>
           </div>
@@ -1295,7 +1276,6 @@ export default function DataManagementPage() {
                   { title: '状态', dataIndex: 'status', width: 100, render: (v: string) => v === 'success' ? <Tag color="green">成功</Tag> : v === 'partial' ? <Tag color="orange">部分</Tag> : <Tag color="red">失败</Tag> },
                   { title: '时间', dataIndex: 'importedAt', width: 180, render: (v: string) => <span style={{ color: 'var(--color-text-3)', fontSize: 12 }}>{v ? new Date(v).toLocaleString('zh-CN') : '-'}</span> },
                 ]} pagination={false} border={false} stripe />
-
 
               )}
             </div>

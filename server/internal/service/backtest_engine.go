@@ -354,6 +354,7 @@ func (e *BacktestEngine) generateSignals(
 		sigPositions[pos.Code] = &SignalPosition{
 			Code: pos.Code, Name: pos.Name,
 			Quantity: pos.Quantity, BuyPrice: pos.BuyPrice, BuyDate: pos.BuyDate,
+			AvailSellQty: pos.Quantity,
 		}
 	}
 

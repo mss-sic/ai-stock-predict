@@ -434,8 +434,8 @@ func (h *AgentHandler) ReportResult(c *gin.Context) {
 		return
 	}
 
-	if body.Status != "executed" && body.Status != "order_failed" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "status must be 'executed' or 'order_failed'"})
+	if body.Status != "executed" && body.Status != "order_failed" && body.Status != "submitted" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "status must be 'executed', 'order_failed' or 'submitted'"})
 		return
 	}
 
@@ -456,57 +456,77 @@ func (h *AgentHandler) ReportResult(c *gin.Context) {
 		return
 	}
 
-	updates := map[string]interface{}{
-		"status":     body.Status,
-		"updated_at": time.Now(),
+	if body.Status == "executed" && (body.ExecPrice <= 0 || body.ExecQty <= 0) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "executed status requires execPrice > 0 and execQty > 0"})
+		return
 	}
-	if body.OrderID != "" {
-		updates["broker_order_id"] = body.OrderID
+	if body.Status == "submitted" && (body.ExecPrice <= 0 || body.ExecQty <= 0) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "submitted status requires execPrice > 0 and execQty > 0"})
+		return
 	}
-	if body.ExecPrice > 0 {
-		updates["exec_price"] = body.ExecPrice
-	}
-	if body.ExecQty > 0 {
-		updates["exec_qty"] = body.ExecQty
-	}
-	if body.ErrorMsg != "" {
-		updates["skip_reason"] = body.ErrorMsg
-	}
-
-	db.MySQL.Model(&sig).Updates(updates)
 
 	log.Printf("[agent] signal %d result: %s, order=%s, price=%.2f, qty=%d, error=%s",
 		sig.ID, body.Status, body.OrderID, body.ExecPrice, body.ExecQty, body.ErrorMsg)
 
-	// order_failed: reset back to pending_auto so agent can retry
-	if body.Status == "order_failed" {
-		db.MySQL.Model(&sig).Updates(map[string]interface{}{
-			"status": "pending_auto",
-		})
-		log.Printf("[agent] signal %d order_failed, reset to pending_auto for retry: %s", sig.ID, body.ErrorMsg)
+	// submitted: 委托已提交但尚未成交，信号流转为 pending_order（委托中）。
+	// 不调用 FinalizeSignalExecution（不更新持仓/资金），后续由 OrderSync 或
+	// agent 轮询成交状态后再上报 executed 完成结算。
+	if body.Status == "submitted" {
+		updates := map[string]interface{}{
+			"status":           "pending_order",
+			"exec_price":       body.ExecPrice,
+			"exec_qty":         body.ExecQty,
+			"skip_reason":      "委托已提交，等待成交",
+			"updated_at":       time.Now(),
+		}
+		if body.OrderID != "" {
+			updates["broker_order_id"] = body.OrderID
+		}
+		db.MySQL.Model(&sig).Updates(updates)
+		log.Printf("[agent] signal %d submitted, pending_order: %s x %d @ %.2f order=%s",
+			sig.ID, sig.StockCode, int(body.ExecQty), body.ExecPrice, body.OrderID)
 	}
 
-	// If executed, record a live trade
+	// order_failed: agent 内部已按 max_retries 重试仍失败，此处置为终态 order_failed。
+	// 不再重置为 pending_auto，避免信号被反复下发导致无限重试/重复下单。
+	if body.Status == "order_failed" {
+		updates := map[string]interface{}{
+			"status":       "order_failed",
+			"skip_reason":  body.ErrorMsg,
+			"exec_price":   0,
+			"exec_qty":     0,
+			"updated_at":   time.Now(),
+		}
+		if body.OrderID != "" {
+			updates["broker_order_id"] = body.OrderID
+		}
+		db.MySQL.Model(&sig).Updates(updates)
+		log.Printf("[agent] signal %d order_failed (terminal, no retry): %s", sig.ID, body.ErrorMsg)
+	}
+
+	// executed: delegate entirely to FinalizeSignalExecution for complete balance update.
+	// This single call handles: signal status→executed, exec_price/qty, LiveTrade record,
+	// run.AvailableCash, run.PositionValue, live_positions, holdings sync.
+	// We skip the initial DB write to avoid double-updating the signal.
 	if body.Status == "executed" && body.ExecPrice > 0 && body.ExecQty > 0 {
-		trade := model.LiveTrade{
-			UserID:        sig.UserID,
-			StrategyRunID: sig.RunID,
-			SignalID:      &sig.ID,
-			TradeDate:     sig.ExecDate,
-			StockCode:     sig.StockCode,
-			StockName:     sig.StockName,
-			ActionType:    sig.ActionType,
-			Price:         body.ExecPrice,
-			Quantity:      body.ExecQty,
-			Amount:        body.ExecPrice * float64(body.ExecQty),
-			Commission:    body.ExecPrice * float64(body.ExecQty) * 0.00025,
-			Reason:        "agent auto-executed, broker_order=" + body.OrderID,
-			ExecutionMode: "auto",
+		liveSvc := service.NewLiveTradingService()
+		if err := liveSvc.FinalizeSignalExecution(sig.RunID, sig.ID, body.ExecPrice, body.ExecQty); err != nil {
+			log.Printf("[agent] FinalizeSignalExecution failed for signal %d: %v, resetting to order_failed", sig.ID, err)
+			db.MySQL.Model(&sig).Updates(map[string]interface{}{
+				"status":      "order_failed",
+				"skip_reason": "balance update failed: " + err.Error(),
+				"exec_price":  0,
+				"exec_qty":    0,
+				"updated_at":  time.Now(),
+			})
+			response.InternalError(c, "资金更新失败: "+err.Error())
+			return
 		}
-		if trade.Commission < 5 {
-			trade.Commission = 5
+		// Update broker_order_id after FinalizeSignalExecution completes
+		if body.OrderID != "" {
+			db.MySQL.Model(&sig).Update("broker_order_id", body.OrderID)
 		}
-		db.MySQL.Create(&trade)
+		log.Printf("[agent] signal %d finalized: run=%d availableCash updated, positions synced", sig.ID, sig.RunID)
 	}
 
 	response.Success(c, map[string]interface{}{
@@ -538,8 +558,10 @@ func (h *AgentHandler) GetAccountSummary(c *gin.Context) {
 	}
 
 	var positions []model.LivePosition
-	db.MySQL.Where("user_id = ?", account.UserID).
-		Order("stock_code ASC").Find(&positions)
+	if len(runIDs) > 0 {
+		db.MySQL.Where("strategy_run_id IN ?", runIDs).
+			Order("stock_code ASC").Find(&positions)
+	}
 
 	type PositionSummary struct {
 		StockCode string  `json:"stockCode"`

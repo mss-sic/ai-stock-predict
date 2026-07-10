@@ -163,6 +163,28 @@ func (s *TradeExecService) ExecuteForRun(tradeDate string, runID uint, force boo
 			continue
 		}
 
+		// Apply AI-adjusted price/qty from the decision to the in-memory signal.
+		// The decision was persisted to DB by preMktSvc, but the in-memory signal
+		// was loaded before AI review ran, so it still has the original values.
+		if dec.OrderPrice > 0 {
+			sig.OrderPrice = dec.OrderPrice
+		}
+		if dec.OrderPriceLimit > 0 {
+			sig.OrderPriceLimit = dec.OrderPriceLimit
+		}
+		if dec.SuggestedQty > 0 {
+			sig.SuggestedQty = dec.SuggestedQty
+		}
+		if dec.FinalPrice > 0 {
+			sig.PlannedPrice = dec.FinalPrice
+		}
+		if dec.FinalQty > 0 {
+			sig.PlannedQty = dec.FinalQty
+		}
+		if dec.FinalAmount > 0 {
+			sig.PlannedAmount = dec.FinalAmount
+		}
+
 		execStatus := s.executeSignal(sig, &account, &run, tradeDate, force)
 		priceStr := fmt.Sprintf("%.2f", sig.OrderPrice)
 		if sig.OrderPrice <= 0 {

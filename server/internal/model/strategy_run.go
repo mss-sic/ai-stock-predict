@@ -15,6 +15,8 @@ type StrategyRun struct {
 	StartDate      string     `gorm:"type:varchar(10)" json:"startDate"`
 	EndDate        string     `gorm:"type:varchar(10)" json:"endDate"`     // empty = indefinite
 	InitialCapital float64    `gorm:"type:numeric(16,2)" json:"initialCapital"`
+	AvailableCash  float64    `gorm:"type:numeric(16,2);default:0" json:"availableCash"`
+	PositionValue  float64    `gorm:"type:numeric(16,2);default:0" json:"positionValue"`
 	CurrentEquity  float64    `gorm:"type:numeric(16,2)" json:"currentEquity"`
 	TotalReturn    float64    `gorm:"type:numeric(10,4)" json:"totalReturn"`
 	SharpeRatio    float64    `gorm:"type:numeric(8,4)" json:"sharpeRatio"`

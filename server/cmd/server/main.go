@@ -347,6 +347,7 @@ func main() {
 		// Inject hub+commander into BrokerService for lobster support
 		brokerSvc := service.NewBrokerService()
 		brokerSvc.SetHubAndCommander(agentHub, commander)
+		service.SetGlobalBrokerService(brokerSvc)
 		liveH.SetBrokerService(brokerSvc)
 
 		// Pre-Market Finalization (盘前决策) + Notifications

@@ -40,7 +40,7 @@ type BacktestSignal struct {
 	ExecAmount float64 `gorm:"type:numeric(16,2)" json:"execAmount"`
 
 	// Result
-	Status     string `gorm:"size:10;default:pending" json:"status"` // pending / executed / skipped
+	Status     string `gorm:"size:30;default:pending" json:"status"` // pending / executed / skipped
 	SkipReason    string `gorm:"size:200" json:"skipReason"`
 	BrokerOrderID string `gorm:"size:30;default:''" json:"brokerOrderId"` // 券商委托单号, 用于状态同步
 	Pnl        float64 `gorm:"type:numeric(16,2)" json:"pnl"`

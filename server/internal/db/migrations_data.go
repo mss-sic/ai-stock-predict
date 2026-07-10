@@ -1922,5 +1922,63 @@ Register(Migration{
 			return nil
 		},
 	})
+	// v088: Drop legacy strategy_fund_allocations table (data migrated to strategy_runs in v086)
+	Register(Migration{
+		Version:     88,
+		Description: "MySQL: drop strategy_fund_allocations table (data migrated to strategy_runs)",
+		Up: func() error {
+			if MySQL == nil {
+				return nil
+			}
+			var tableExists int64
+			MySQL.Raw("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'strategy_fund_allocations'").Scan(&tableExists)
+			if tableExists > 0 {
+				if err := MySQL.Exec("DROP TABLE IF EXISTS strategy_fund_allocations").Error; err != nil {
+					log.Printf("[migrate:v088] drop strategy_fund_allocations: %v", err)
+					return err
+				}
+				log.Printf("[migrate:v088] dropped legacy strategy_fund_allocations table")
+			}
+			return nil
+		},
+	})
+	// v089: Fix corrupted strategy_runs data from old ReconcileFromBroker bug.
+	// Old ReconcileFromBroker overwrote available_cash from broker without adjusting initial_capital.
+	// This left runs with initial_capital > available_cash + position_value (phantom gap).
+	// Fix: for runs with no cash flow history (never had real deposits/withdrawals),
+	// reset initial_capital = available_cash + position_value (current real equity).
+	Register(Migration{
+		Version:     89,
+		Description: "MySQL: fix corrupted strategy_runs initial_capital (old ReconcileFromBroker bug)",
+		Up: func() error {
+			if MySQL == nil {
+				return nil
+			}
+			// Fix runs where initial_capital > available_cash + position_value
+			// and no strategy_cash_flows exist (never had real deposit/withdraw history)
+			result := MySQL.Exec(`
+				UPDATE strategy_runs sr
+				SET sr.initial_capital = sr.available_cash + COALESCE(sr.position_value, 0)
+				WHERE sr.initial_capital > sr.available_cash + COALESCE(sr.position_value, 0)
+				  AND sr.initial_capital > 0
+				  AND sr.available_cash > 0
+				  AND NOT EXISTS (
+					SELECT 1 FROM strategy_cash_flows scf
+					WHERE scf.strategy_run_id = sr.id
+					AND scf.flow_type IN ('deposit', 'withdraw')
+				  )
+			`)
+			if result.Error != nil {
+				log.Printf("[migrate:v089] fix corrupted initial_capital: %v", result.Error)
+				return result.Error
+			}
+			if result.RowsAffected > 0 {
+				log.Printf("[migrate:v089] fixed %d corrupted strategy_runs (initial_capital reset to equity)", result.RowsAffected)
+			}
+			return nil
+		},
+	})
+
+
 
 }

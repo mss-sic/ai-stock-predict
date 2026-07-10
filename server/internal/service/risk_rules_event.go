@@ -48,7 +48,7 @@ func (r *MajorReductionRule) Evaluate(ctx context.Context, codes []string, _ []m
 		SELECT code, title, ann_date::text
 		FROM cninfo_announcements
 		WHERE code IN (%s) AND ann_date >= CURRENT_DATE - INTERVAL '%d days'
-	`, inClause), lookback).Scan(&rows)
+	`, inClause, lookback)).Scan(&rows)
 
 	now := time.Now()
 	seen := make(map[string]bool)
@@ -116,7 +116,7 @@ func (r *LitigationViolationRule) Evaluate(ctx context.Context, codes []string, 
 		SELECT code, title, ann_date::text
 		FROM cninfo_announcements
 		WHERE code IN (%s) AND ann_date >= CURRENT_DATE - INTERVAL '%d days'
-	`, inClause), lookback).Scan(&rows)
+	`, inClause, lookback)).Scan(&rows)
 
 	now := time.Now()
 	seen := make(map[string]bool)
@@ -180,7 +180,7 @@ func (r *DividendExNearRule) Evaluate(ctx context.Context, codes []string, _ []m
 		FROM dividend_history
 		WHERE code IN (%s)
 		  AND ex_dividend_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '%d days'
-	`, inClause), lookahead).Scan(&rows)
+	`, inClause, lookahead)).Scan(&rows)
 
 	now := time.Now()
 	var alerts []model.RiskAlert

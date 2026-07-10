@@ -274,6 +274,14 @@ log.Printf("[module] action for %s: %v", code, err)   // 统一格式
 - 禁止在循环内打印高频日志
 
 ---
+### 7.4 破坏性操作确认 (Destructive Actions)
+
+- **所有删除、归档、恢复、清空等修改类快捷操作必须有二次确认**（Modal.confirm 或 Popconfirm），禁止点击即执行
+- 确认弹窗需显示操作对象名称和影响说明
+- 批量操作需显示受影响数量
+- 后端也需要校验操作合法性（如删除前检查关联数据）
+
+---
 
 ## 8. 功能完成确认 & 变更日志
 
@@ -341,6 +349,10 @@ cd /opt/ai-stock-predict/docker && docker compose up -d
 - 行 hover：`background: var(--color-fill-1)`
 - 行分隔：`borderBottom: 1px solid var(--color-border-1)`
 - Badge 标签：`borderRadius: 10` + 半透明彩色背景(`color + '15'`)
+- **列宽**：每列必须设置合理的 `width`，避免内容挤压或留白过大。优先用固定宽度（如 80/120/160），内容不确定的列用 `ellipsis: true` + 最小宽度兜底
+- **内容溢出**：长文本列必须设置 `ellipsis: true`，配合 `Tooltip` 展示完整内容。禁止出现换行撑高行高或横向溢出
+- **内容密度**：`size="small"` 用于数据密集场景，列数 > 6 或行数 > 20 时优先小尺寸；`pagination` 默认 `pageSize: 20`
+- **滚动**：`scroll={{ x: 'max-content' }}` 保证窄屏时可横向滚动，禁止表格溢出容器
 
 ### 8.5 字体规范
 
@@ -348,6 +360,14 @@ cd /opt/ai-stock-predict/docker && docker compose up -d
 - 页面标题：18px / 700
 - 卡片标签：11-12px
 - 表格内容：11-12px
+
+### 8.6 通知与消息
+
+- **统一使用 Arco Design 的 `Message` / `Notification` 组件**，禁止使用浏览器原生 `alert()` / `confirm()` / `prompt()`
+- 项目中已封装 `showToast(type, message)`（基于 Arco Message），所有用户反馈必须通过它
+- 操作成功用 `success`，失败用 `error`，提示用 `info`，警告用 `warning`
+- 错误消息必须包含具体原因（后端返回的错误信息或明确的失败描述），禁止只写「操作失败」
+- 删除/归档等破坏性操作用 Arco `Modal.confirm` 或自定义 Modal 确认，禁止用原生 `window.confirm()`
 
 ### 常用命令速查
 

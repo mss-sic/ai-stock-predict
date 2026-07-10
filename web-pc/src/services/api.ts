@@ -279,11 +279,12 @@ export const fetchStockPool = () => api.get('/strategies/stock-pool');
 
 // ── Live Trading (实盘交易) ──
 // Multi-account
-export const fetchLiveAccounts = () => api.get('/live/accounts');
 export const createLiveAccount = (data: { name: string; broker?: string; accountType?: string; accountNumber?: string; initialCapital?: number }) =>
   api.post('/live/accounts', data);
 export const updateLiveAccount = (id: number, data: Record<string, any>) => api.put(`/live/accounts/${id}`, data);
+export const fetchLiveAccounts = (status?: string) => api.get('/live/accounts', { params: status ? { status } : undefined });
 export const deleteLiveAccount = (id: number) => api.delete(`/live/accounts/${id}`);
+export const restoreLiveAccount = (id: number) => api.post(`/live/accounts/${id}/restore`);
 export const fetchLiveAccount = () => api.get('/live/account');
 // Broker integration
 export const syncFromBroker = (accountId: number) => api.post(`/live/accounts/${accountId}/sync`);
@@ -301,7 +302,7 @@ export const getAgentStatus = (token: string) => api.get(`/live/agent-status`, {
 
 // Strategy runs
 // Strategy runs
-export const createLiveRun = (data: { strategyId: number; accountId?: number; name?: string; initialCapital?: number; pctOfAccount?: number; stockPool?: string; startDate?: string; notifyEnabled?: boolean; notifyConfigs?: { channel: string; name: string; webhookUrl: string }[] }) =>
+export const createLiveRun = (data: { strategyId: number; accountId?: number; name?: string; initialCapital?: number; stockPool?: string; startDate?: string; notifyEnabled?: boolean; notifyConfigs?: { channel: string; name: string; webhookUrl: string }[] }) =>
   api.post('/live/runs', data);
 export const fetchLiveRuns = (strategyId?: number) => {
   const params = strategyId ? '?strategy_id=' + strategyId : '';
@@ -337,6 +338,16 @@ export const fetchTradeExecDecisions = (tradeDate?: string) => api.get('/live/tr
 
 // Execution logs
 export const fetchRunLogs = (id: number, date?: string) => api.get(`/live/runs/${id}/logs`, { params: date ? { date } : {} });
+
+
+// Strategy cash flow
+export const depositToRun = (runId: number, data: { amount: number; reason: string }) => api.post(`/live/runs/${runId}/deposit`, data);
+export const withdrawFromRun = (runId: number, data: { amount: number; reason: string }) => api.post(`/live/runs/${runId}/withdraw`, data);
+export const fetchCashFlows = (runId: number) => api.get(`/live/runs/${runId}/cash-flows`);
+
+// Account detail
+export const fetchAccountDetail = (accountId: number) => api.get(`/live/accounts/${accountId}/detail`);
+export const syncAccountFromBroker = (accountId: number) => api.post(`/live/accounts/${accountId}/sync-account`);
 
 // Notification configs
 export const fetchNotificationConfigs = () => api.get('/live/notification-configs');

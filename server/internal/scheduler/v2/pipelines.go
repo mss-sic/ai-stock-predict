@@ -497,7 +497,7 @@ func makeLiveSnapshotHandler() TaskHandler {
 func makeOrderSyncHandler() TaskHandler {
 	return func(ctx context.Context, inst *TaskInstance, logger *StructuredLogger) error {
 		logger.Phase("order_sync_start", map[string]any{"label": "订单状态同步"})
-		svc := service.NewOrderSyncService()
+		svc := service.NewOrderSyncService(service.GetGlobalBrokerService())
 		result, err := svc.SyncAllPendingOrders(0)
 		if err != nil {
 			logger.Error("order_sync_failed", err, nil)
