@@ -5,7 +5,8 @@ import {
   Database, Upload as UploadIcon, RefreshCw, FileSpreadsheet, FileJson,
   CheckCircle, XCircle, Clock, Play, Terminal, Square, History, Activity, X,
   BarChart3, TrendingUp, Newspaper, FileText, PieChart, Users, Banknote,
-  Timer, Bot, Sparkles, TrendingDown, AlertTriangle, Gift, Zap, Globe, Shield, Layers, ListOrdered
+  Timer, Bot, Sparkles, TrendingDown, AlertTriangle, Gift, Zap, Globe, Shield, Layers, ListOrdered,
+  Key
 } from 'lucide-react';
 import {
   uploadExcel, uploadKline, uploadPrediction, uploadProfile, triggerCollection, fetchCollectorProgress,
@@ -16,6 +17,7 @@ import {
   triggerSchedulerTask,
 } from '../services/api';
 import TaskLogPage from './TaskLogPage';
+import ApiKeyManagement from '../components/ApiKeyManagement';
 
 const PHASE_LABELS: Record<string, string> = {
   full_sync: '股票列表同步', kline: '日K线数据', tushare_kline: '日K采集-Tushare', tushare_indicator: '技术指标-Tushare',
@@ -157,7 +159,7 @@ function cronToText(expr: string): string {
 }
 
 export default function DataManagementPage() {
-  const [tab, setTab] = useState<'overview' | 'tasks' | 'import' | 'collect' | 'history' | 'logs'>('overview');
+  const [tab, setTab] = useState<'overview' | 'tasks' | 'import' | 'collect' | 'history' | 'logs' | 'apikeys'>('overview');
   const [loading, setLoading] = useState(false);
   const [predLoading, setPredLoading] = useState(false);
   const [profileLoading, setProfileLoading] = useState(false);
@@ -642,6 +644,7 @@ export default function DataManagementPage() {
           { key: 'collect', label: '采集控制台', icon: <Terminal size={14} /> },
           { key: 'history', label: '采集记录', icon: <History size={14} /> },
           { key: 'logs', label: '执行历史', icon: <ListOrdered size={14} /> },
+          { key: 'apikeys', label: 'API密钥', icon: <Key size={14} /> },
         ].map(t => (
           <button key={t.key} onClick={() => setTab(t.key as any)} style={{ padding: '10px 20px', border: 'none', cursor: 'pointer', fontSize: 13, background: tab === t.key ? 'var(--color-info-bg)' : 'transparent', color: tab === t.key ? 'var(--color-primary)' : 'var(--color-text-2)', fontWeight: tab === t.key ? 500 : 400, display: 'flex', alignItems: 'center', gap: 6, borderRight: '1px solid var(--color-border-1)' }}>{t.icon}{t.label}</button>
         ))}
@@ -1284,6 +1287,9 @@ export default function DataManagementPage() {
       )}
       {tab === 'logs' && (
         <TaskLogPage embedded />
+      )}
+      {tab === 'apikeys' && (
+        <ApiKeyManagement />
       )}
     </div>
   );

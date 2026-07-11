@@ -62,6 +62,8 @@ func main() {
 	internalH := handler.NewInternalHandler()
 	r.POST("/api/v1/internal/predictions/sync", internalH.SyncPredictions)
 
+	// Public data import API for external teams (API key auth)
+	r.POST("/api/v1/data/import", handler.APIKeyAuth(), handler.DataImport)
 
 	r.POST("/api/v1/auth/login", authH.Login)
 	r.POST("/api/v1/auth/refresh", authH.Refresh)
@@ -166,7 +168,13 @@ func main() {
 			admin.GET("/cost-summary", costH.GetCostSummary)
 			admin.GET("/model-prices", costH.GetModelPrices)
 			admin.PUT("/model-prices/:model_name", costH.UpdateModelPrice)
-			admin.GET("/data-stats", handler.GetDataStats)
+			// API Key management
+		admin.GET("/api-keys", handler.ListAPIKeys)
+		admin.POST("/api-keys", handler.CreateAPIKey)
+		admin.PUT("/api-keys/:id", handler.UpdateAPIKey)
+		admin.DELETE("/api-keys/:id", handler.DeleteAPIKey)
+
+		admin.GET("/data-stats", handler.GetDataStats)
 			admin.GET("/data-stats/:type/detail", handler.GetDataDetail)
 			admin.POST("/risks/scan", handler.NewRiskHandler().Scan)
 

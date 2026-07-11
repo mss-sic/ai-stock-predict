@@ -144,6 +144,14 @@ export const resetUserPassword = (userId: number, newPassword: string) =>
 
 export const toggleUser = (userId: number, isActive: boolean) =>
   api.post('/admin/users/toggle', { userId, isActive });
+// API Key management
+export const fetchApiKeys = () => api.get('/admin/api-keys');
+export const createApiKey = (teamName: string, description: string, permissions: string[]) =>
+  api.post('/admin/api-keys', { teamName, description, permissions });
+export const updateApiKey = (id: number, data: { isActive?: boolean; permissions?: string[]; description?: string }) =>
+  api.put(`/admin/api-keys/${id}`, data);
+export const deleteApiKey = (id: number) => api.delete(`/admin/api-keys/${id}`);
+
 
 // ── Stock APIs ──
 // Market snapshot (public)

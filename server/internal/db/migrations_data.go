@@ -1981,4 +1981,31 @@ Register(Migration{
 
 
 
+
+	// v090: API keys for external team data import
+	Register(Migration{
+		Version:     90,
+		Description: "MySQL: api_keys table for external team data import authentication",
+		Up: func() error {
+			if MySQL == nil {
+				return nil
+			}
+			safeExecMysql(`CREATE TABLE IF NOT EXISTS api_keys (
+				id INT AUTO_INCREMENT PRIMARY KEY,
+				key_hash VARCHAR(64) NOT NULL UNIQUE,
+				key_prefix VARCHAR(12) NOT NULL DEFAULT '',
+				team_name VARCHAR(100) NOT NULL DEFAULT '',
+				description VARCHAR(255) NOT NULL DEFAULT '',
+				permissions TEXT,
+				is_active TINYINT(1) DEFAULT 1,
+				last_used_at DATETIME NULL,
+				created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+				updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+				INDEX idx_api_keys_key_prefix (key_prefix),
+				INDEX idx_api_keys_is_active (is_active)
+			) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`)
+			return nil
+		},
+	})
+
 }
