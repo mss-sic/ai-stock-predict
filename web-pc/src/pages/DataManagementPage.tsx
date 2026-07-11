@@ -691,7 +691,7 @@ export default function DataManagementPage() {
                         onMouseEnter={e => { if (!isSelected) { (e.currentTarget as HTMLElement).style.borderColor = def.color; (e.currentTarget as HTMLElement).style.boxShadow = '0 2px 8px rgba(0,0,0,0.08)'; } }}
                         onMouseLeave={e => { if (!isSelected) { (e.currentTarget as HTMLElement).style.borderColor = 'var(--color-border-1)'; (e.currentTarget as HTMLElement).style.boxShadow = 'none'; } }}>
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}><span style={{ fontSize: 13, color: 'var(--color-text-2)', fontWeight: 500 }}>{stat.label}</span><span style={{ color: def.color }}>{def.icon}</span></div>
-                        <div style={{ fontSize: 28, fontWeight: 700, color: def.color, lineHeight: 1.2 }}>{stat.count.toLocaleString()}</div>
+                        <div style={{ fontSize: 28, fontWeight: 700, color: def.color, lineHeight: 1.2 }}>{(stat.count ?? 0).toLocaleString()}</div>
                         {stat.updatedAt && <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginTop: 8 }}>最近更新: {new Date(stat.updatedAt).toLocaleDateString('zh-CN')}</div>}
                       </div>
                     );
@@ -704,7 +704,7 @@ export default function DataManagementPage() {
             <div className="card">
               <div className="card-header">
                 <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Database size={16} color="var(--color-primary)" /><span style={{ fontSize: 15, fontWeight: 600 }}>{dataStats.find(s => s.key === selectedStat)?.label || selectedStat} 明细</span>
-                  <span className="muted" style={{ marginLeft: 8 }}>{detailData.length.toLocaleString()} 条{detailData.filter((d: any) => d.count === 0).length > 0 && `（${detailData.filter((d: any) => d.count === 0).length} 条缺失）`}</span>
+                  <span className="muted" style={{ marginLeft: 8 }}>{(detailData.length ?? 0).toLocaleString()} 条{detailData.filter((d: any) => d.count === 0).length > 0 && `（${detailData.filter((d: any) => d.count === 0).length} 条缺失）`}</span>
                 </span>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <input placeholder="搜索代码或名称..." value={detailSearch} onChange={e => setDetailSearch(e.target.value)} style={{ padding: '4px 10px', border: '1px solid var(--color-border-1)', borderRadius: 4, fontSize: 12, width: 160, outline: 'none' }} />
@@ -718,7 +718,7 @@ export default function DataManagementPage() {
                     columns={[
                       { title: '代码', dataIndex: 'code', width: 90, render: (v: string) => <span style={{ fontFamily: 'monospace', fontSize: 12 }}>{v || '-'}</span> },
                       { title: '名称', dataIndex: 'name', width: 120, ellipsis: true },
-                      { title: '记录数', dataIndex: 'count', width: 80, render: (v: number) => <span style={{ fontWeight: 600, color: v === 0 ? '#f53f3f' : v > 0 ? '#00b42a' : 'var(--color-text-3)' }}>{v.toLocaleString()}</span> },
+                      { title: '记录数', dataIndex: 'count', width: 80, render: (v: number) => <span style={{ fontWeight: 600, color: (v ?? 0) === 0 ? '#f53f3f' : (v ?? 0) > 0 ? '#00b42a' : 'var(--color-text-3)' }}>{(v ?? 0).toLocaleString()}</span> },
                       { title: '最早', dataIndex: 'firstDate', width: 100, render: (v: string) => v ? <span style={{ fontSize: 12, color: 'var(--color-text-2)' }}>{new Date(v).toLocaleDateString('zh-CN')}</span> : <span style={{ color: 'var(--color-text-3)' }}>-</span> },
                       { title: '最晚', dataIndex: 'lastDate', width: 100, render: (v: string) => v ? <span style={{ fontSize: 12, color: 'var(--color-text-2)' }}>{new Date(v).toLocaleDateString('zh-CN')}</span> : <span style={{ color: 'var(--color-text-3)' }}>-</span> },
                     ]} border={false} stripe />

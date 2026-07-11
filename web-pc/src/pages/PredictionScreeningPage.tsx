@@ -186,7 +186,7 @@ export default function PredictionScreeningPage() {
           <div style={cardStyle}>
             <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 6 }}>覆盖标的</div>
             <div style={{ fontSize: 24, fontWeight: 700, color: 'var(--color-text-1)', fontFamily: "'SF Mono', monospace" }}>
-              {summary.totalStocks.toLocaleString()}
+              {(summary.totalStocks ?? 0).toLocaleString()}
             </div>
             <div style={{ fontSize: 11, color: 'var(--color-text-3)' }}>只个股</div>
           </div>
@@ -210,7 +210,7 @@ export default function PredictionScreeningPage() {
           <div style={cardStyle}>
             <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 6 }}>强共识标的</div>
             <div style={{ fontSize: 24, fontWeight: 700, color: '#165DFF', fontFamily: "'SF Mono', monospace" }}>
-              {summary.strongConsensus.toLocaleString()}
+              {(summary.strongConsensus ?? 0).toLocaleString()}
             </div>
             <div style={{ fontSize: 11, color: 'var(--color-text-3)' }}>≥5/7 算法一致看多</div>
           </div>

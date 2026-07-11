@@ -102,7 +102,33 @@ export default function ApiKeyManagement() {
   };
 
   const handleCopy = (text: string, id: number) => {
-    navigator.clipboard.writeText(text);
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text);
+      } else {
+        // Fallback for HTTP / insecure contexts
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+      }
+    } catch {
+      // Last resort: try execCommand
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+      } catch { /* copy not supported */ }
+    }
     setCopiedId(id);
     setTimeout(() => setCopiedId(null), 2000);
   };

@@ -67,7 +67,15 @@ func PredictionScreening(c *gin.Context) {
 	db.PG.Raw("SELECT code, kd_data FROM prediction_kdist WHERE kd_data IS NOT NULL").Scan(&kdRows)
 
 	if len(kdRows) == 0 {
-		response.Success(c, gin.H{"list": []ScreeningRow{}, "total": 0, "industries": []string{}, "industryAnalysis": []IndustryStat{}})
+		response.Success(c, gin.H{
+			"list": []ScreeningRow{}, "total": 0, "industries": []string{},
+			"industryAnalysis": []IndustryStat{}, "boardAnalysis": []BoardStat{},
+			"consensusDistribution": make([]int, 8),
+			"summary": gin.H{
+				"totalStocks": 0, "avgReturn": 0, "strongConsensus": 0,
+				"predictionDate": "", "bullRatio": 0, "avgMomentum": 0,
+			},
+		})
 		return
 	}
 
