@@ -2,11 +2,14 @@ package db
 
 import (
 	"log"
+	"os"
 
 	"github.com/ai-stock-predict/server/internal/model"
 )
 
 // AutoMigrate runs all pending versioned migrations in order.
+// Set SKIP_AUTO_MIGRATE=true to disable (use standalone migrate command instead).
+//
 // Safe for production: each migration is idempotent (IF NOT EXISTS / IF EXISTS),
 // and previously applied versions are tracked in schema_migrations.
 //
@@ -16,8 +19,14 @@ import (
 //  3. Always use safeExec/safeExecMysql for raw SQL (handles nil DB)
 //  4. Always write idempotent SQL (CREATE IF NOT EXISTS, ALTER with IF NOT EXISTS, etc.)
 func AutoMigrate() {
+	if os.Getenv("SKIP_AUTO_MIGRATE") == "true" {
+		log.Println("[migrate] SKIP_AUTO_MIGRATE=true, 跳过自动迁移（请使用 migrate 命令）")
+		return
+	}
+
 	if err := RunMigrations(); err != nil {
 		log.Printf("[migrate] FATAL: %v", err)
+		log.Println("[migrate] 迁移失败！请使用 migrate 命令排查修复。")
 	}
 }
 

@@ -432,6 +432,7 @@ func importPredictionJSON(req dataImportRequest) (gin.H, error) {
 	}
 
 	// Batch upsert kdist
+	now := time.Now()
 	for i := 0; i < len(kds); i += batchSize {
 		end := i + batchSize
 		if end > len(kds) {
@@ -443,8 +444,8 @@ func importPredictionJSON(req dataImportRequest) (gin.H, error) {
 		for j, k := range batch {
 			base := j * 3
 			valueStrings = append(valueStrings,
-				fmt.Sprintf("($%d,$%d,NOW())", base+1, base+2))
-			valueArgs = append(valueArgs, k.Code, k.KDData)
+				fmt.Sprintf("($%d,$%d,$%d)", base+1, base+2, base+3))
+			valueArgs = append(valueArgs, k.Code, k.KDData, now)
 		}
 		query := fmt.Sprintf(`
 			INSERT INTO prediction_kdist (code, kd_data, updated_at)

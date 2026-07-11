@@ -36,6 +36,7 @@ import MacroNewsPage from "./pages/MacroNewsPage";
 import IndustryComparePage from "./pages/IndustryComparePage";
 import FearGreedPage from "./pages/FearGreedPage";
 import CapitalFlowPage from "./pages/CapitalFlowPage";
+import PredictionScreeningPage from './pages/PredictionScreeningPage';
 import AnnouncementsPage from "./pages/AnnouncementsPage";
 import LiveTradingPage from './pages/LiveTradingPage';
 import LiveRunDetailPage from './pages/LiveRunDetailPage';
@@ -118,6 +119,7 @@ const router = createBrowserRouter([
           { path: "limit-stats", element: <LimitStatsPage /> },
           { path: "fear-greed", element: <FearGreedPage /> },
           { path: "capital-flow", element: <CapitalFlowPage /> },
+          { path: "prediction-screening", element: <PredictionScreeningPage /> },
           { path: "market-style", element: <MarketStylePage /> },
           { path: "industries", element: <IndustryComparePage /> },
 

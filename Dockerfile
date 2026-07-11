@@ -15,6 +15,7 @@ RUN go mod download
 
 COPY server/ ./
 RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o /app/server ./cmd/server/
+RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o /app/migrate ./cmd/migrate/
 
 # ═══ 阶段 2: Python 运行时 ═══
 FROM python:3.12-slim
@@ -36,13 +37,20 @@ RUN pip install --no-cache-dir \
 
 # 复制 Go 二进制
 COPY --from=builder /app/server /app/server
+COPY --from=builder /app/migrate /app/migrate
 
 # 复制 Python 脚本
 COPY scripts/ /app/scripts/
 
+# 入口脚本：支持 server / migrate 两个命令
+COPY entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+
 # 设置工作目录
 WORKDIR /app
 ENV APP_ROOT=/app
+ENV SKIP_AUTO_MIGRATE=true
 
 EXPOSE 8080
-CMD ["./server"]
+ENTRYPOINT ["/app/entrypoint.sh"]
+CMD ["server"]

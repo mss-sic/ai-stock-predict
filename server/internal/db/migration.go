@@ -196,3 +196,57 @@ func seedRiskRules(db *gorm.DB) {
 	}
 	log.Printf("[migrate] seeded %d risk rules", len(rules))
 }
+
+// PendingMigrations returns all unapplied migrations (for dry-run display).
+func PendingMigrations() []Migration {
+	if PG == nil {
+		return nil
+	}
+
+	// Read applied versions
+	var applied []int
+	PG.Raw("SELECT version FROM schema_migrations ORDER BY version").Scan(&applied)
+	appliedSet := make(map[int]bool, len(applied))
+	for _, v := range applied {
+		appliedSet[v] = true
+	}
+
+	var pending []Migration
+	// Sort migrations by version before filtering
+	sorted := make([]Migration, len(migrations))
+	copy(sorted, migrations)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Version < sorted[j].Version })
+
+	for _, m := range sorted {
+		if !appliedSet[m.Version] {
+			pending = append(pending, m)
+		}
+	}
+	return pending
+}
+
+// ForceMigration re-runs a specific migration version (repair mode).
+// It deletes the tracking record first, then executes the migration.
+func ForceMigration(version int) error {
+	if PG == nil {
+		return fmt.Errorf("PostgreSQL not available")
+	}
+
+	PG.Exec("DELETE FROM schema_migrations WHERE version = ?", version)
+
+	// Find and run the migration
+	for _, m := range migrations {
+		if m.Version == version {
+			log.Printf("[migrate] force re-run v%d %s ...", m.Version, m.Description)
+			if err := m.Up(); err != nil {
+				return fmt.Errorf("migration v%d %s: %w", m.Version, m.Description, err)
+			}
+			// Record success
+			PG.Exec("INSERT INTO schema_migrations (version, description, applied_at) VALUES (?, ?, ?)",
+				m.Version, m.Description, time.Now())
+			log.Printf("[migrate] v%d %s ✓ (force)", m.Version, m.Description)
+			return nil
+		}
+	}
+	return fmt.Errorf("migration v%d not found", version)
+}

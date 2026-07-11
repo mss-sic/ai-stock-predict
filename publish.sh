@@ -11,7 +11,17 @@ echo "============================================"
 
 cd "$(dirname "$0")"
 
-# 跨平台构建：本地 arm64 Mac → 目标 amd64 服务器
 docker buildx build --platform linux/amd64 -t "$IMAGE" --push .
 
+echo ""
 echo "推送完成: $IMAGE"
+echo ""
+echo "服务器端执行:"
+echo "  scp deploy.sh root@your-server:/opt/ai-stock-predict/"
+echo "  ssh root@your-server 'cd /opt/ai-stock-predict && ./deploy.sh'"
+echo ""
+echo "或手动逐步执行:"
+echo "  docker pull $IMAGE"
+echo "  cd /opt/ai-stock-predict/docker"
+echo "  docker compose run --rm server migrate"
+echo "  docker compose up -d"

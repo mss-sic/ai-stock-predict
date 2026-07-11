@@ -2008,4 +2008,16 @@ Register(Migration{
 		},
 	})
 
+	// ============================================================
+	// v091: GORM AutoMigrate ApiKey model (ensure api_keys table)
+	// ============================================================
+	Register(Migration{
+		Version:     91,
+		Description: "MySQL: GORM AutoMigrate ApiKey model for api_keys reliability",
+		Up: func() error {
+			gormAutoMigrate(MySQL, &model.ApiKey{})
+			return nil
+		},
+	})
+
 }

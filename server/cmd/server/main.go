@@ -424,6 +424,9 @@ func main() {
 
 		// Predictions
 		predH := handler.NewPredictionHandler()
+		// Prediction screening (cross-sectional ranking)
+		api.GET("/prediction/screening", handler.PredictionScreening)
+
 		api.POST("/prediction/:code", predH.RunAll)
 		api.POST("/prediction/batch", predH.Batch)
 		api.GET("/prediction/:code/hitrate", predH.HitRate)

@@ -205,11 +205,12 @@ func (h *InternalHandler) SyncPredictions(c *gin.Context) {
 		batch := kds[i:end]
 		valueStrings := make([]string, 0, len(batch))
 		valueArgs := make([]interface{}, 0, len(batch)*3)
+		now := time.Now()
 		for j, k := range batch {
 			base := j * 3
 			valueStrings = append(valueStrings,
-				fmt.Sprintf("($%d,$%d,NOW())", base+1, base+2))
-			valueArgs = append(valueArgs, k.Code, k.KDData)
+				fmt.Sprintf("($%d,$%d,$%d)", base+1, base+2, base+3))
+			valueArgs = append(valueArgs, k.Code, k.KDData, now)
 		}
 		query := fmt.Sprintf(`
 			INSERT INTO prediction_kdist (code, kd_data, updated_at)
