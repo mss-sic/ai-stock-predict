@@ -200,7 +200,7 @@ X-API-Key: <your-api-key>
 
 {
   "type": "prediction",       // 必填: prediction | kline | indicator | profile | signal
-  "data": [ ... ],            // 必填: 数据数组，结构因 type 而异（见下方）
+  "data": { ... },            // 必填: 对象或数组，结构因 type 而异（prediction为对象，其他为数组）
   "source": "my-system-v2"    // 可选: 自定义来源标识
 }`}</pre>
             </div>
@@ -238,23 +238,32 @@ X-API-Key: <your-api-key>
               background: '#1e1e2e', borderRadius: 8, padding: '14px 16px',
               fontSize: 11, fontFamily: "'SF Mono', monospace", color: '#cdd6f4',
               lineHeight: 1.7, margin: 0, overflow: 'auto',
-            }}>{`# 导入预测数据
+            }}>{`# 导入预测数据 (与数据管理→文件导入→导入预测数据JSON 格式完全一致)
 curl -X POST ${API_BASE}/data/import \\
   -H "Content-Type: application/json" \\
   -H "X-API-Key: ak-xxx..." \\
   -d '{
     "type": "prediction",
-    "data": [{
-      "stockCode": "000001",
-      "models": [{
-        "modelName": "lstm",
-        "prices": [{"day":1,"price":12.5,"upper":12.8,"lower":12.2}]
+    "data": {
+      "total_units_number": 100,
+      "kdis": 6,
+      "max_predict_day": 20,
+      "data_units": [{
+        "index": 1,
+        "stock_code": "601279",
+        "stock_name": "英利汽车",
+        "confidence": "1.00",
+        "today_wave": "0.85",
+        "today_trade_money": "0.38",
+        "today_trade_rate": "0.67",
+        "real_wave": [0.0, ...],
+        "kdistributed_data": [[-0.43, -0.72, ...], [...]]
       }]
-    }]
+    }
   }'
 
 # 返回示例
-# {"code":0,"data":{"imported":1,"stocks":1,"source":"api:算法团队"},"message":"ok"}`}</pre>
+# {"code":0,"data":{"imported":600,"skipped":5,"total":100},"message":"ok"}`}</pre>
 
             <div style={{
               marginTop: 12, padding: '8px 14px', borderRadius: 8,
@@ -523,16 +532,27 @@ function getExample(dt: string): string {
     case 'prediction':
       return `{
   "type": "prediction",
-  "data": [{
-    "stockCode": "000001",
-    "models": [{
-      "modelName": "lstm",
-      "prices": [
-        {"day": 1, "price": 12.50, "upper": 12.80, "lower": 12.20},
-        {"day": 2, "price": 12.65, "upper": 13.00, "lower": 12.30}
-      ]
+  "data": {
+    "total_units_number": 100,
+    "kdis": 6,
+    "max_predict_day": 20,
+    "data_units": [{
+      "index": 1,
+      "stock_code": "601279",
+      "stock_name": "英利汽车",
+      "confidence": "1.00",
+      "today_wave": "0.85",
+      "today_trade_money": "0.38",
+      "today_trade_rate": "0.67",
+      "real_wave": [0.0, 0.0, 0.0, ...],
+      "kdistributed_data": [[
+        -0.43, -0.72, -0.43, -0.07, 0.69, 0.94,
+        1.23, 1.96, 2.33, 2.88, 3.35, 4.00,
+        4.27, 4.30, 3.05, 2.85, 3.07, 3.26,
+        3.95, 4.10
+      ], [...], ...]
     }]
-  }]
+  }
 }`;
     case 'kline':
       return `{
@@ -564,8 +584,13 @@ function getExample(dt: string): string {
       return `{
   "type": "profile",
   "data": [{
-    "code": "000001",
-    "profileMarkdown": "## 平安银行\\n\\n核心业务...\\n\\n### 财务表现\\n..."
+    "stock_code": "301176.SZ",
+    "raw_code": "301176",
+    "company_name": "逸豪新材",
+    "raw_name": "逸豪新材",
+    "market": "在深圳证券交易所创业板上市",
+    "analysis_date": "2026-06-12 18:54:55",
+    "analysis_content": "### 一、核心特征总结\\n**逸豪新材是一家专注于电子电路铜箔...**"
   }]
 }`;
     case 'signal':

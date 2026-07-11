@@ -277,55 +277,146 @@ func DataImport(c *gin.Context) {
 
 // ── Type-specific import handlers ──
 
-// predictionEntry is the JSON structure for prediction data import.
-type predictionEntry struct {
-	StockCode string      `json:"stockCode"`
-	Models    []predModel `json:"models"`
-}
-
-type predModel struct {
-	ModelName string          `json:"modelName"`
-	Prices    []predPriceDay  `json:"prices"`
-}
-
-type predPriceDay struct {
-	Day   int     `json:"day"`
-	Price float64 `json:"price"`
-	Upper float64 `json:"upper"`
-	Lower float64 `json:"lower"`
+// predictionImportUnit matches the algorithm team JSON format (same as /internal/predictions/sync).
+type predictionImportUnit struct {
+	Index            int         `json:"index"`
+	StockCode        string      `json:"stock_code"`
+	StockName        string      `json:"stock_name"`
+	Confidence       json.Number `json:"confidence"`
+	TodayWave        json.Number `json:"today_wave"`
+	TodayTradeMoney  json.Number `json:"today_trade_money"`
+	TodayTradeRate   json.Number `json:"today_trade_rate"`
+	RealWave         []float64   `json:"real_wave"`
+	KdistributedData [][]float64 `json:"kdistributed_data"`
 }
 
 func importPredictionJSON(req dataImportRequest) (gin.H, error) {
-	var entries []predictionEntry
-	if err := json.Unmarshal(req.Data, &entries); err != nil {
+	var input struct {
+		TotalUnitsNumber int                    `json:"total_units_number"`
+		Kdis             int                    `json:"kdis"`
+		MaxPredictDay    int                    `json:"max_predict_day"`
+		DataUnits        []predictionImportUnit `json:"data_units"`
+	}
+	if err := json.Unmarshal(req.Data, &input); err != nil {
 		return nil, fmt.Errorf("预测数据 JSON 格式错误: %w", err)
 	}
 
-	if len(entries) == 0 {
-		return nil, fmt.Errorf("预测数据为空")
+	if len(input.DataUnits) == 0 {
+		return nil, fmt.Errorf("data_units 为空")
 	}
 
-	now := time.Now()
-	imported := 0
-	batchSize := 500
+	today := time.Now().Truncate(24 * time.Hour)
 
-	type rec struct {
-		Code, Model, Date string
-		Price, Upper, Lower float64
-	}
-	var batch []rec
-
-	flush := func() error {
-		if len(batch) == 0 {
-			return nil
+	// Batch load lastClose for all codes
+	codes := make([]string, 0, len(input.DataUnits))
+	codeSet := make(map[string]bool)
+	for _, u := range input.DataUnits {
+		if u.StockCode != "" && !codeSet[u.StockCode] {
+			codes = append(codes, u.StockCode)
+			codeSet[u.StockCode] = true
 		}
+	}
+
+	closeMap := make(map[string]float64, len(codes))
+	if len(codes) > 0 {
+		codesStr := strings.Join(codes, ",")
+		rows, err := db.PG.Raw(`
+			SELECT code, close FROM (
+				SELECT DISTINCT ON (code) code, close
+				FROM stocks_daily_k
+				WHERE code IN (SELECT unnest(string_to_array(?, ',')))
+				ORDER BY code, trade_date DESC
+			) sub
+		`, codesStr).Rows()
+		if err == nil {
+			defer rows.Close()
+			for rows.Next() {
+				var code string
+				var close float64
+				rows.Scan(&code, &close)
+				closeMap[code] = close
+			}
+		}
+	}
+
+	type predRec struct {
+		Code, ModelName, PredictDate string
+		PredictedPrice, Upper, Lower float64
+	}
+	var preds []predRec
+	type kdRec struct {
+		Code, KDData string
+	}
+	var kds []kdRec
+	type sigRec struct {
+		Code        string
+		SignalValue float64
+	}
+	var sigs []sigRec
+
+	skipped := 0
+
+	for _, unit := range input.DataUnits {
+		code := unit.StockCode
+		if code == "" {
+			skipped++
+			continue
+		}
+
+		lastClose, ok := closeMap[code]
+		if !ok || lastClose <= 0 {
+			skipped++
+			continue
+		}
+
+		if len(unit.KdistributedData) < 1 {
+			skipped++
+			continue
+		}
+
+		// Build prediction records from kdistributed_data
+		for ki, kdCurve := range unit.KdistributedData {
+			modelName := fmt.Sprintf("model%d", ki+1)
+			for day, kdVal := range kdCurve {
+				predPrice := lastClose * (1 + kdVal/100)
+				predictDate := today.AddDate(0, 0, day+1).Format("2006-01-02")
+				preds = append(preds, predRec{
+					Code: code, ModelName: modelName, PredictDate: predictDate,
+					PredictedPrice: predPrice, Upper: predPrice * 1.02, Lower: predPrice * 0.98,
+				})
+			}
+		}
+
+		// KD data for chart overlay
+		kdJSON, _ := json.Marshal(unit.KdistributedData)
+		kds = append(kds, kdRec{Code: code, KDData: string(kdJSON)})
+
+		// Signal from confidence + wave + trade data
+		conf, _ := unit.Confidence.Float64()
+		tw, _ := unit.TodayWave.Float64()
+		tm, _ := unit.TodayTradeMoney.Float64()
+		tr, _ := unit.TodayTradeRate.Float64()
+		sigs = append(sigs, sigRec{Code: code, SignalValue: conf + tw + tm + tr})
+	}
+
+	imported := len(preds)
+
+	// Batch insert predictions
+	batchSize := 2000
+	for i := 0; i < len(preds); i += batchSize {
+		end := i + batchSize
+		if end > len(preds) {
+			end = len(preds)
+		}
+		batch := preds[i:end]
 		valueStrings := make([]string, 0, len(batch))
 		valueArgs := make([]interface{}, 0, len(batch)*6)
-		for j, r := range batch {
+		for j, p := range batch {
 			base := j * 6
 			valueStrings = append(valueStrings,
 				fmt.Sprintf("($%d,$%d,$%d,$%d,$%d,$%d)", base+1, base+2, base+3, base+4, base+5, base+6))
-			valueArgs = append(valueArgs, r.Code, r.Model, r.Date, r.Price, r.Upper, r.Lower)
+			valueArgs = append(valueArgs, p.Code, p.ModelName, p.PredictDate,
+				p.PredictedPrice, p.Upper, p.Lower)
 		}
 		query := fmt.Sprintf(`
 			INSERT INTO predictions (code, model_name, predict_date, predicted_price, upper_bound, lower_bound)
@@ -335,36 +426,64 @@ func importPredictionJSON(req dataImportRequest) (gin.H, error) {
 				upper_bound = EXCLUDED.upper_bound,
 				lower_bound = EXCLUDED.lower_bound
 		`, strings.Join(valueStrings, ","))
-		return db.PG.Exec(query, valueArgs...).Error
-	}
-
-	for _, entry := range entries {
-		code := strings.TrimSpace(entry.StockCode)
-		if len(code) != 6 {
-			continue
-		}
-		for _, m := range entry.Models {
-			for _, p := range m.Prices {
-				date := now.AddDate(0, 0, p.Day).Format("2006-01-02")
-				batch = append(batch, rec{code, m.ModelName, date, p.Price, p.Upper, p.Lower})
-				imported++
-				if len(batch) >= batchSize {
-					if err := flush(); err != nil {
-						return nil, fmt.Errorf("批量写入预测数据失败: %w", err)
-					}
-					batch = batch[:0]
-				}
-			}
+		if err := db.PG.Exec(query, valueArgs...).Error; err != nil {
+			log.Printf("[data-import] batch insert predictions failed at batch %d: %v", i/batchSize, err)
 		}
 	}
 
-	if len(batch) > 0 {
-		if err := flush(); err != nil {
-			return nil, fmt.Errorf("批量写入预测数据失败: %w", err)
+	// Batch upsert kdist
+	for i := 0; i < len(kds); i += batchSize {
+		end := i + batchSize
+		if end > len(kds) {
+			end = len(kds)
+		}
+		batch := kds[i:end]
+		valueStrings := make([]string, 0, len(batch))
+		valueArgs := make([]interface{}, 0, len(batch)*3)
+		for j, k := range batch {
+			base := j * 3
+			valueStrings = append(valueStrings,
+				fmt.Sprintf("($%d,$%d,NOW())", base+1, base+2))
+			valueArgs = append(valueArgs, k.Code, k.KDData)
+		}
+		query := fmt.Sprintf(`
+			INSERT INTO prediction_kdist (code, kd_data, updated_at)
+			VALUES %s
+			ON CONFLICT (code) DO UPDATE SET kd_data = EXCLUDED.kd_data, updated_at = NOW()
+		`, strings.Join(valueStrings, ","))
+		if err := db.PG.Exec(query, valueArgs...).Error; err != nil {
+			log.Printf("[data-import] batch insert kdist failed at batch %d: %v", i/batchSize, err)
 		}
 	}
 
-	return gin.H{"imported": imported, "stocks": len(entries)}, nil
+	// Batch upsert signals
+	for i := 0; i < len(sigs); i += batchSize {
+		end := i + batchSize
+		if end > len(sigs) {
+			end = len(sigs)
+		}
+		batch := sigs[i:end]
+		valueStrings := make([]string, 0, len(batch))
+		valueArgs := make([]interface{}, 0, len(batch)*2)
+		for j, s := range batch {
+			base := j * 4
+			valueStrings = append(valueStrings,
+				fmt.Sprintf("($%d,$%d,$%d,$%d)", base+1, base+2, base+3, base+4))
+			valueArgs = append(valueArgs, s.Code, s.SignalValue, req.Source, time.Now())
+		}
+		query := fmt.Sprintf(`
+			INSERT INTO stock_signals (code, signal_value, source, updated_at)
+			VALUES %s
+			ON CONFLICT (code) DO UPDATE SET signal_value = EXCLUDED.signal_value, source = EXCLUDED.source, updated_at = NOW()
+		`, strings.Join(valueStrings, ","))
+		if err := db.PG.Exec(query, valueArgs...).Error; err != nil {
+			log.Printf("[data-import] batch insert signals failed at batch %d: %v", i/batchSize, err)
+		}
+	}
+
+	log.Printf("[data-import] prediction done: %d preds, %d kdist, %d signals (%d skipped)", imported, len(kds), len(sigs), skipped)
+
+	return gin.H{"imported": imported, "skipped": skipped, "total": len(input.DataUnits)}, nil
 }
 
 // klineEntry is the JSON structure for K-line data import.
@@ -518,10 +637,15 @@ func importIndicatorJSON(req dataImportRequest) (gin.H, error) {
 	return gin.H{"imported": imported, "stocks": len(entries)}, nil
 }
 
-// apiProfileEntry for stock profile import via API.
+// apiProfileEntry matches the console file-import JSON format (same as /import/profile endpoint).
 type apiProfileEntry struct {
-	Code            string `json:"code"`
-	ProfileMarkdown string `json:"profileMarkdown"`
+	StockCode       string `json:"stock_code"`
+	RawCode         string `json:"raw_code"`
+	CompanyName     string `json:"company_name"`
+	RawName         string `json:"raw_name"`
+	Market          string `json:"market"`
+	AnalysisDate    string `json:"analysis_date"`
+	AnalysisContent string `json:"analysis_content"`
 }
 
 func importProfileJSON(req dataImportRequest) (gin.H, error) {
@@ -530,28 +654,47 @@ func importProfileJSON(req dataImportRequest) (gin.H, error) {
 		return nil, fmt.Errorf("研报数据 JSON 格式错误: %w", err)
 	}
 
+	if len(entries) == 0 {
+		return nil, fmt.Errorf("数据为空")
+	}
+
 	imported := 0
 	updated := 0
+	errors := 0
 
 	for _, e := range entries {
-		code := strings.TrimSpace(e.Code)
+		code := strings.TrimSpace(e.RawCode)
+		if code == "" && e.StockCode != "" {
+			code = strings.Split(e.StockCode, ".")[0]
+		}
+		code = strings.TrimLeft(code, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
 		if len(code) != 6 {
+			errors++
 			continue
+		}
+
+		analyzedAt := time.Now()
+		if e.AnalysisDate != "" {
+			if t, err := time.Parse("2006-01-02 15:04:05", e.AnalysisDate); err == nil {
+				analyzedAt = t
+			} else if t, err := time.Parse("2006-01-02", e.AnalysisDate); err == nil {
+				analyzedAt = t
+			}
 		}
 
 		profile := model.StockProfile{
 			Code:            code,
-			ProfileMarkdown: e.ProfileMarkdown,
+			ProfileMarkdown: e.AnalysisContent,
 			Source:          req.Source,
-			AnalyzedAt:      time.Now(),
+			AnalyzedAt:      analyzedAt,
 		}
 
 		var existing model.StockProfile
 		if err := db.PG.Where("code = ?", code).First(&existing).Error; err == nil {
 			db.PG.Model(&existing).Updates(map[string]interface{}{
-				"profile_markdown": e.ProfileMarkdown,
+				"profile_markdown": e.AnalysisContent,
 				"source":           req.Source,
-				"analyzed_at":      time.Now(),
+				"analyzed_at":      analyzedAt,
 				"updated_at":       time.Now(),
 			})
 			updated++
@@ -561,7 +704,7 @@ func importProfileJSON(req dataImportRequest) (gin.H, error) {
 		}
 	}
 
-	return gin.H{"imported": imported, "updated": updated, "total": len(entries)}, nil
+	return gin.H{"imported": imported, "updated": updated, "errors": errors, "total": len(entries)}, nil
 }
 
 // signalEntry for stock signal import.
