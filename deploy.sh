@@ -5,14 +5,21 @@ set -euo pipefail
 # 与 docker-compose.yml 中 server.image 保持一致
 IMAGE="crpi-t3tis8f2l2fb8jc9-vpc.cn-hangzhou.personal.cr.aliyuncs.com/lijiangbo/ai-stock-predict:latest"
 COMPOSE_DIR="/opt/ai-stock-predict/docker"
+DEPLOY_DIR="/opt/ai-stock-predict"
 WEB_ROOT="/www/wwwroot/ai-stock-predict"
-
-cd "$COMPOSE_DIR"
 
 echo "═══════════════════════════════════════"
 echo "  智策投研 — 服务器部署"
 echo "═══════════════════════════════════════"
 echo ""
+
+cd "$DEPLOY_DIR"
+
+echo "▸ 拉取最新代码..."
+git pull
+
+# 切换到 docker 目录
+cd "$COMPOSE_DIR"
 
 # 1. 拉取最新 server 镜像
 echo "▸ 拉取 server 镜像..."
@@ -44,7 +51,7 @@ echo ""
 
 # 4. 重启服务
 echo "▸ 重启服务..."
-docker compose up -d server
+docker compose up -d --force-recreate server && cd ..
 echo "✓ 服务已重启"
 echo ""
 
@@ -57,6 +64,7 @@ for i in $(seq 1 15); do
     fi
     sleep 2
 done
+
 
 echo "▸ 构建前端..."
 cd web-pc && npm install && npm run build && cd ..
