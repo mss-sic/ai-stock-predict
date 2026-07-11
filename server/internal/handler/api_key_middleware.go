@@ -2,6 +2,7 @@ package handler
 
 import (
 	"crypto/rand"
+	"path/filepath"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -15,6 +16,7 @@ import (
 	"github.com/ai-stock-predict/server/internal/db"
 	"github.com/ai-stock-predict/server/internal/model"
 	"github.com/ai-stock-predict/server/pkg/response"
+	"github.com/ai-stock-predict/server/internal/collector"
 	"github.com/gin-gonic/gin"
 )
 
@@ -201,84 +203,95 @@ func DataImport(c *gin.Context) {
 	perms, _ := c.Get("apiPermissions")
 
 	var req dataImportRequest
+	var logFileName string
 	contentType := c.GetHeader("Content-Type")
 
 	if strings.HasPrefix(contentType, "multipart/form-data") {
 		// ── File upload mode ──
 		dataType := c.PostForm("type")
-		if dataType == "" {
-			response.BadRequest(c, "请提供 type 表单字段（prediction/kline/indicator/profile/signal）")
-			return
-		}
 		file, err := c.FormFile("file")
 		if err != nil {
 			response.BadRequest(c, "请上传文件（form field: file）")
 			return
 		}
+		logFileName = fmt.Sprintf("api:%s:%s", teamName, file.Filename)
+		ext := strings.ToLower(filepath.Ext(file.Filename))
 		f, err := file.Open()
-		if err != nil {
-			response.InternalError(c, "无法读取上传文件")
-			return
-		}
+		if err != nil { response.InternalError(c, "无法读取上传文件"); return }
 		defer f.Close()
-		fileData, err := io.ReadAll(f)
-		if err != nil {
-			response.InternalError(c, "读取文件内容失败")
+
+		// Excel: 榜单数据 → use existing collector parser (data management compatible)
+		if ext == ".xlsx" || ext == ".xlsm" {
+			result, err := collector.ParseAndImportExcel(f, file.Filename)
+			if err != nil { response.InternalError(c, fmt.Sprintf("Excel导入失败: %v", err)); return }
+			logImport(teamName, logFileName, result.PicksImported+result.SignalsImported, true)
+			response.Success(c, gin.H{
+				"datesImported": result.DatesImported, "picksImported": result.PicksImported,
+				"signalsImported": result.SignalsImported, "stocksCreated": result.StocksCreated,
+				"source": fmt.Sprintf("api:%v", teamName), "team": teamName,
+			})
 			return
 		}
+
+		// CSV: K线数据 → use existing CSV parser (data management compatible)
+		if ext == ".csv" {
+			result, err := parseKlineCSV(f, file.Filename)
+			if err != nil { response.InternalError(c, fmt.Sprintf("CSV导入失败: %v", err)); return }
+			logImport(teamName, logFileName, result.ImportedKline+result.ImportedIndic, true)
+			response.Success(c, gin.H{
+				"imported": result.ImportedKline + result.ImportedIndic,
+				"importedKline": result.ImportedKline, "importedIndic": result.ImportedIndic,
+				"skipped": result.Skipped, "totalRows": result.TotalRows,
+				"tradeDate": result.TradeDate, "source": fmt.Sprintf("api:%v", teamName), "team": teamName,
+			})
+			return
+		}
+
+		// JSON: 预测/指标/研报/信号
+		if dataType == "" {
+			response.BadRequest(c, "JSON文件请提供 type 表单字段（prediction/kline/indicator/profile/signal）")
+			return
+		}
+		fileData, err := io.ReadAll(f)
+		if err != nil { response.InternalError(c, "读取文件内容失败"); return }
 		req.Type = dataType
 		req.Data = json.RawMessage(fileData)
 		req.Source = c.PostForm("source")
 		log.Printf("[data-import] team=%v type=%s file=%s size=%d", teamName, dataType, file.Filename, len(fileData))
 	} else {
-		// ── JSON body mode (existing) ──
+		// ── JSON body mode ──
 		if err := c.ShouldBindJSON(&req); err != nil {
 			response.BadRequest(c, "请求格式错误: type 和 data 为必填字段。也支持 multipart/form-data 文件上传模式。")
 			return
 		}
+		logFileName = fmt.Sprintf("api:%s:%s", teamName, req.Type)
 		log.Printf("[data-import] team=%v type=%s size=%d", teamName, req.Type, len(req.Data))
 	}
 
-	// Check permission: team must have access to this data type
+	// Check permission
 	if perms != nil {
 		allowed := false
 		for _, p := range perms.([]string) {
-			if p == req.Type || p == "*" {
-				allowed = true
-				break
-			}
+			if p == req.Type || p == "*" { allowed = true; break }
 		}
 		if !allowed {
-			c.JSON(http.StatusForbidden, gin.H{
-				"code":    403,
-				"message": fmt.Sprintf("该 API Key 没有导入 %s 类型数据的权限", req.Type),
-			})
+			c.JSON(http.StatusForbidden, gin.H{"code": 403, "message": fmt.Sprintf("该 API Key 没有导入 %s 类型数据的权限", req.Type)})
 			return
 		}
 	}
 
-	// Auto-set source from API key team name
-	if req.Source == "" {
-		req.Source = fmt.Sprintf("api:%v", teamName)
-	}
-
-	log.Printf("[data-import] team=%v type=%s size=%d", teamName, req.Type, len(req.Data))
+	if req.Source == "" { req.Source = fmt.Sprintf("api:%v", teamName) }
 
 	var result gin.H
 	var err error
 	switch req.Type {
-	case "prediction":
-		result, err = importPredictionJSON(req)
-	case "kline":
-		result, err = importKlineJSON(req)
-	case "indicator":
-		result, err = importIndicatorJSON(req)
-	case "profile":
-		result, err = importProfileJSON(req)
-	case "signal":
-		result, err = importSignalJSON(req)
+	case "prediction": result, err = importPredictionJSON(req)
+	case "kline":       result, err = importKlineJSON(req)
+	case "indicator":   result, err = importIndicatorJSON(req)
+	case "profile":     result, err = importProfileJSON(req)
+	case "signal":      result, err = importSignalJSON(req)
 	default:
-		response.BadRequest(c, fmt.Sprintf("不支持的数据类型: %s，支持的类型: prediction, kline, indicator, profile, signal", req.Type))
+		response.BadRequest(c, fmt.Sprintf("不支持的数据类型: %s，支持: prediction, kline, indicator, profile, signal", req.Type))
 		return
 	}
 
@@ -288,24 +301,7 @@ func DataImport(c *gin.Context) {
 		return
 	}
 
-	// Record import log
-	status := "success"
-	importLog := model.ImportLog{
-		FileName:     fmt.Sprintf("api:%s:%s", teamName, req.Type),
-		RowsImported: 0,
-		Status:       status,
-		ImportedAt:   time.Now(),
-	}
-	if v, ok := result["imported"]; ok {
-		if n, ok := v.(int); ok {
-			importLog.RowsImported = n
-		}
-	}
-	if db.MySQL != nil {
-		db.MySQL.Create(&importLog)
-	} else {
-		db.PG.Create(&importLog)
-	}
+	logImport(teamName, logFileName, getImported(result), false)
 
 	result["source"] = req.Source
 	result["team"] = teamName
@@ -777,3 +773,25 @@ func importSignalJSON(req dataImportRequest) (gin.H, error) {
 
 	return gin.H{"imported": imported, "total": len(entries)}, nil
 }
+
+// logImport records an import event to the import history.
+func logImport(teamName interface{}, fileName string, rows int, success bool) {
+	status := "success"
+	if !success { status = "failed" }
+	importLog := model.ImportLog{
+		FileName:     fileName,
+		RowsImported: rows,
+		Status:       status,
+		ImportedAt:   time.Now(),
+	}
+	if db.MySQL != nil { db.MySQL.Create(&importLog) } else { db.PG.Create(&importLog) }
+}
+
+// getImported extracts the imported count from a result map.
+func getImported(result gin.H) int {
+	if v, ok := result["imported"]; ok {
+		if n, ok := v.(int); ok { return n }
+	}
+	return 0
+}
+

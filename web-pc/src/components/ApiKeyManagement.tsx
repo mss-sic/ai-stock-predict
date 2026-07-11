@@ -20,7 +20,7 @@ interface ApiKeyRecord {
   updatedAt: string;
 }
 
-const DATA_TYPES = ['prediction', 'kline', 'indicator', 'profile', 'signal'] as const;
+const DATA_TYPES = ['prediction', 'kline', 'indicator', 'profile', 'signal', 'excel'] as const;
 
 const DATA_TYPE_LABELS: Record<string, string> = {
   prediction: '预测数据',
@@ -28,6 +28,7 @@ const DATA_TYPE_LABELS: Record<string, string> = {
   indicator: '技术指标',
   profile: '个股研报',
   signal: '交易信号',
+  excel: '榜单数据',
 };
 
 const DATA_TYPE_DESC: Record<string, string> = {
@@ -36,6 +37,7 @@ const DATA_TYPE_DESC: Record<string, string> = {
   indicator: '技术指标值（PE/PB/ROE 等），写入 stocks_daily_indicator 表',
   profile: '个股研报 / 分析 Markdown，写入 stock_profiles 表',
   signal: '交易信号评分，写入 stock_signals 表',
+  excel: '榜单 Excel 数据（.xlsx/.xlsm），写入 algorithm_pick_details + stock_signals 表。仅支持文件上传模式，自动识别',
 };
 
 export default function ApiKeyManagement() {
@@ -181,7 +183,8 @@ export default function ApiKeyManagement() {
               </div>
               <div style={{ fontSize: 12, color: 'var(--color-text-2)', lineHeight: 1.8 }}>
                 统一数据导入入口，通过 <code style={codeInline}>X-API-Key</code> 请求头认证。
-                支持 5 种数据类型，兼容 <b>JSON Body</b> 和 <b>文件上传</b> 两种模式。
+                支持 <b>JSON Body</b> 和 <b>文件上传</b> 两种模式，兼容 JSON / CSV / Excel 格式。
+                CSV 和 Excel 文件自动识别类型，无需额外指定 <code style={codeInline}>type</code>。
               </div>
             </div>
 
@@ -221,16 +224,16 @@ X-API-Key: <your-api-key>
 Content-Type: multipart/form-data
 X-API-Key: <your-api-key>
 
-type: prediction               // 表单字段: 数据类型
-file: @20260605.json            // 表单字段: JSON 文件
-source: my-system               // 可选表单字段: 来源标识`}</pre>
+file: @data.json                 // JSON / CSV / Excel，自动识别
+type: prediction                 // 仅 JSON 时需要；CSV/Excel 自动识别
+source: my-system                // 可选`}</pre>
             </div>
 
             {/* 数据类型说明 */}
             <h4 style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-1)', margin: '0 0 10px' }}>
               数据类型结构
             </h4>
-            {(['prediction', 'kline', 'indicator', 'profile', 'signal'] as const).map(dt => (
+            {(['prediction', 'kline', 'indicator', 'profile', 'signal', 'excel'] as const).map(dt => (
               <details key={dt} style={{ marginBottom: 10 }}>
                 <summary style={{
                   cursor: 'pointer', fontSize: 12, fontWeight: 600,
@@ -259,27 +262,25 @@ source: my-system               // 可选表单字段: 来源标识`}</pre>
               background: '#1e1e2e', borderRadius: 8, padding: '14px 16px',
               fontSize: 11, fontFamily: "'SF Mono', monospace", color: '#cdd6f4',
               lineHeight: 1.7, margin: 0, overflow: 'auto',
-            }}>{`# ── 方式一：JSON Body ──
+            }}>{`# ── JSON Body ──
 curl -X POST ${API_BASE}/data/import \\
   -H "Content-Type: application/json" \\
   -H "X-API-Key: ak-xxx..." \\
   -d '{"type":"signal","data":[{"code":"000001","signalValue":0.85}]}'
 
-# ── 方式二：文件上传（推荐，与数据管理页面导入格式一致）──
+# ── 文件上传：JSON/CSV/Excel 自动识别 ──
+# 预测数据 JSON：  -F "type=prediction" -F "file=@prediction.json"
+# AI股票简介 JSON： -F "type=profile"    -F "file=@stock_analysis.json"
+# 交易信号 JSON：   -F "type=signal"     -F "file=@signal.json"
+# 榜单数据 Excel：  -F "file=@MSS20260603.xlsm"              ← 无需 type
+# K线数据 CSV：     -F "file=@kline.csv"                     ← 无需 type
+
 curl -X POST ${API_BASE}/data/import \\
   -H "X-API-Key: ak-xxx..." \\
-  -F "type=prediction" \\
-  -F "file=@20260605.json"
-
-# 文件上传更多类型
-# 预测数据:  -F "type=prediction" -F "file=@prediction.json"
-# K线数据:   -F "type=kline"      -F "file=@kline.json"
-# 技术指标:  -F "type=indicator"  -F "file=@indicator.json"
-# AI股票简介: -F "type=profile"    -F "file=@stock_analysis.json"
-# 交易信号:  -F "type=signal"     -F "file=@signal.json"
+  -F "file=@MSS20260603.xlsm"
 
 # 返回示例
-# {"code":0,"data":{"imported":600,"total":5129},"message":"ok"}`}</pre>
+# {"code":0,"data":{"datesImported":1,"picksImported":156,...},"message":"ok"}`}</pre>
 
             <div style={{
               marginTop: 12, padding: '8px 14px', borderRadius: 8,
@@ -617,6 +618,17 @@ function getExample(dt: string): string {
     {"code": "000002", "signalValue": -0.32}
   ]
 }`;
+    case 'excel':
+      return `榜单数据仅支持文件上传模式（与数据管理页面格式完全一致）：
+
+# .xlsx / .xlsm 文件，无需指定 type 字段
+curl -X POST /api/v1/data/import \\
+  -H "X-API-Key: ak-xxx..." \\
+  -F "file=@MSS20260603.xlsm"
+
+导入来源: 同花顺/东财榜单 Excel
+写入目标: algorithm_pick_details + stock_signals 表
+返回: {"datesImported": 1, "picksImported": 156, "signalsImported": 156, "stocksCreated": 5}`;
     default:
       return '';
   }
