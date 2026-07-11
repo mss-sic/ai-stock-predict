@@ -1954,27 +1954,10 @@ Register(Migration{
 			if MySQL == nil {
 				return nil
 			}
-			// Fix runs where initial_capital > available_cash + position_value
-			// and no strategy_cash_flows exist (never had real deposit/withdraw history)
-			result := MySQL.Exec(`
-				UPDATE strategy_runs sr
-				SET sr.initial_capital = sr.available_cash + COALESCE(sr.position_value, 0)
-				WHERE sr.initial_capital > sr.available_cash + COALESCE(sr.position_value, 0)
-				  AND sr.initial_capital > 0
-				  AND sr.available_cash > 0
-				  AND NOT EXISTS (
-					SELECT 1 FROM strategy_cash_flows scf
-					WHERE scf.strategy_run_id = sr.id
-					AND scf.flow_type IN ('deposit', 'withdraw')
-				  )
-			`)
-			if result.Error != nil {
-				log.Printf("[migrate:v089] fix corrupted initial_capital: %v", result.Error)
-				return result.Error
-			}
-			if result.RowsAffected > 0 {
-				log.Printf("[migrate:v089] fixed %d corrupted strategy_runs (initial_capital reset to equity)", result.RowsAffected)
-			}
+			// DEPRECATED: This migration was written for columns (available_cash, position_value)
+			// that never existed in strategy_runs (they belong to trading_accounts).
+			// Marked as no-op to avoid blocking the migration pipeline.
+			log.Printf("[migrate:v089] skipped: columns available_cash/position_value do not exist in strategy_runs")
 			return nil
 		},
 	})
