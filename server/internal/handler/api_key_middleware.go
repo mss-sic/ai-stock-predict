@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"io"
 	"fmt"
 	"log"
 	"net/http"
@@ -191,15 +192,51 @@ type dataImportRequest struct {
 	Options json.RawMessage `json:"options"`
 }
 
-// DataImport handles generic JSON data import authenticated by API key.
+// DataImport handles data import authenticated by API key.
+// Supports two modes:
+//   1. JSON body:   Content-Type: application/json  → {"type":"prediction","data":[...]}
+//   2. File upload: Content-Type: multipart/form-data → form field "type" + file field "file"
 func DataImport(c *gin.Context) {
 	teamName, _ := c.Get("apiTeamName")
 	perms, _ := c.Get("apiPermissions")
 
 	var req dataImportRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "请求格式错误: type 和 data 为必填字段")
-		return
+	contentType := c.GetHeader("Content-Type")
+
+	if strings.HasPrefix(contentType, "multipart/form-data") {
+		// ── File upload mode ──
+		dataType := c.PostForm("type")
+		if dataType == "" {
+			response.BadRequest(c, "请提供 type 表单字段（prediction/kline/indicator/profile/signal）")
+			return
+		}
+		file, err := c.FormFile("file")
+		if err != nil {
+			response.BadRequest(c, "请上传文件（form field: file）")
+			return
+		}
+		f, err := file.Open()
+		if err != nil {
+			response.InternalError(c, "无法读取上传文件")
+			return
+		}
+		defer f.Close()
+		fileData, err := io.ReadAll(f)
+		if err != nil {
+			response.InternalError(c, "读取文件内容失败")
+			return
+		}
+		req.Type = dataType
+		req.Data = json.RawMessage(fileData)
+		req.Source = c.PostForm("source")
+		log.Printf("[data-import] team=%v type=%s file=%s size=%d", teamName, dataType, file.Filename, len(fileData))
+	} else {
+		// ── JSON body mode (existing) ──
+		if err := c.ShouldBindJSON(&req); err != nil {
+			response.BadRequest(c, "请求格式错误: type 和 data 为必填字段。也支持 multipart/form-data 文件上传模式。")
+			return
+		}
+		log.Printf("[data-import] team=%v type=%s size=%d", teamName, req.Type, len(req.Data))
 	}
 
 	// Check permission: team must have access to this data type

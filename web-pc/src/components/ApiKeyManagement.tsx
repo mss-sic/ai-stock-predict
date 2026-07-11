@@ -181,7 +181,7 @@ export default function ApiKeyManagement() {
               </div>
               <div style={{ fontSize: 12, color: 'var(--color-text-2)', lineHeight: 1.8 }}>
                 统一数据导入入口，通过 <code style={codeInline}>X-API-Key</code> 请求头认证。
-                支持 5 种数据类型，由请求体 <code style={codeInline}>type</code> 字段区分。
+                支持 5 种数据类型，兼容 <b>JSON Body</b> 和 <b>文件上传</b> 两种模式。
               </div>
             </div>
 
@@ -190,6 +190,11 @@ export default function ApiKeyManagement() {
               <h4 style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-1)', margin: '0 0 10px' }}>
                 通用请求格式
               </h4>
+              <div style={{ marginBottom: 10 }}>
+                <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-2)', background: 'var(--color-fill-2)', padding: '2px 8px', borderRadius: 4 }}>
+                  方式一：JSON Body
+                </span>
+              </div>
               <pre style={{
                 background: 'var(--color-fill-1)', borderRadius: 8, padding: '14px 16px',
                 fontSize: 12, fontFamily: "'SF Mono', monospace", color: 'var(--color-text-2)',
@@ -200,9 +205,25 @@ X-API-Key: <your-api-key>
 
 {
   "type": "prediction",       // 必填: prediction | kline | indicator | profile | signal
-  "data": { ... },            // 必填: 对象或数组，结构因 type 而异（prediction为对象，其他为数组）
+  "data": { ... },            // 必填: 对象或数组，结构因 type 而异
   "source": "my-system-v2"    // 可选: 自定义来源标识
 }`}</pre>
+              <div style={{ marginTop: 14, marginBottom: 10 }}>
+                <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-2)', background: 'var(--color-fill-2)', padding: '2px 8px', borderRadius: 4 }}>
+                  方式二：文件上传 <span style={{ fontWeight: 400, color: 'var(--color-text-3)' }}>（与数据管理→文件导入格式完全一致）</span>
+                </span>
+              </div>
+              <pre style={{
+                background: 'var(--color-fill-1)', borderRadius: 8, padding: '14px 16px',
+                fontSize: 12, fontFamily: "'SF Mono', monospace", color: 'var(--color-text-2)',
+                lineHeight: 1.7, margin: 0, overflow: 'auto',
+              }}>{`POST /api/v1/data/import
+Content-Type: multipart/form-data
+X-API-Key: <your-api-key>
+
+type: prediction               // 表单字段: 数据类型
+file: @20260605.json            // 表单字段: JSON 文件
+source: my-system               // 可选表单字段: 来源标识`}</pre>
             </div>
 
             {/* 数据类型说明 */}
@@ -238,32 +259,27 @@ X-API-Key: <your-api-key>
               background: '#1e1e2e', borderRadius: 8, padding: '14px 16px',
               fontSize: 11, fontFamily: "'SF Mono', monospace", color: '#cdd6f4',
               lineHeight: 1.7, margin: 0, overflow: 'auto',
-            }}>{`# 导入预测数据 (与数据管理→文件导入→导入预测数据JSON 格式完全一致)
+            }}>{`# ── 方式一：JSON Body ──
 curl -X POST ${API_BASE}/data/import \\
   -H "Content-Type: application/json" \\
   -H "X-API-Key: ak-xxx..." \\
-  -d '{
-    "type": "prediction",
-    "data": {
-      "total_units_number": 100,
-      "kdis": 6,
-      "max_predict_day": 20,
-      "data_units": [{
-        "index": 1,
-        "stock_code": "601279",
-        "stock_name": "英利汽车",
-        "confidence": "1.00",
-        "today_wave": "0.85",
-        "today_trade_money": "0.38",
-        "today_trade_rate": "0.67",
-        "real_wave": [0.0, ...],
-        "kdistributed_data": [[-0.43, -0.72, ...], [...]]
-      }]
-    }
-  }'
+  -d '{"type":"signal","data":[{"code":"000001","signalValue":0.85}]}'
+
+# ── 方式二：文件上传（推荐，与数据管理页面导入格式一致）──
+curl -X POST ${API_BASE}/data/import \\
+  -H "X-API-Key: ak-xxx..." \\
+  -F "type=prediction" \\
+  -F "file=@20260605.json"
+
+# 文件上传更多类型
+# 预测数据:  -F "type=prediction" -F "file=@prediction.json"
+# K线数据:   -F "type=kline"      -F "file=@kline.json"
+# 技术指标:  -F "type=indicator"  -F "file=@indicator.json"
+# AI股票简介: -F "type=profile"    -F "file=@stock_analysis.json"
+# 交易信号:  -F "type=signal"     -F "file=@signal.json"
 
 # 返回示例
-# {"code":0,"data":{"imported":600,"skipped":5,"total":100},"message":"ok"}`}</pre>
+# {"code":0,"data":{"imported":600,"total":5129},"message":"ok"}`}</pre>
 
             <div style={{
               marginTop: 12, padding: '8px 14px', borderRadius: 8,
