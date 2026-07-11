@@ -2,7 +2,8 @@
 # 服务器端部署脚本
 set -euo pipefail
 
-IMAGE="crpi-t3tis8f2l2fb8jc9.cn-hangzhou.personal.cr.aliyuncs.com/lijiangbo/ai-stock-predict:latest"
+# 与 docker-compose.yml 中 server.image 保持一致
+IMAGE="crpi-t3tis8f2l2fb8jc9-vpc.cn-hangzhou.personal.cr.aliyuncs.com/lijiangbo/ai-stock-predict:latest"
 COMPOSE_DIR="/opt/ai-stock-predict/docker"
 
 cd "$COMPOSE_DIR"
@@ -27,7 +28,7 @@ fi
 echo "✓ migrate 二进制存在"
 echo ""
 
-# 3. 执行数据库迁移（不 pull 依赖镜像，避免 timescaledb 等标签失效）
+# 3. 执行数据库迁移
 echo "▸ 执行数据库迁移..."
 if docker compose run --rm --no-deps server migrate; then
     echo "✓ 迁移完成"
