@@ -5,6 +5,7 @@ set -euo pipefail
 # 与 docker-compose.yml 中 server.image 保持一致
 IMAGE="crpi-t3tis8f2l2fb8jc9-vpc.cn-hangzhou.personal.cr.aliyuncs.com/lijiangbo/ai-stock-predict:latest"
 COMPOSE_DIR="/opt/ai-stock-predict/docker"
+WEB_ROOT="/www/wwwroot/ai-stock-predict"
 
 cd "$COMPOSE_DIR"
 
@@ -56,6 +57,13 @@ for i in $(seq 1 15); do
     fi
     sleep 2
 done
+
+echo "▸ 构建前端..."
+cd web-pc && npm install && npm run build && cd ..
+
+echo "▸ 部署前端到生产目录..."
+mkdir -p "$WEB_ROOT"
+rsync -a --delete --exclude=".user.ini" web-pc/dist/ "$WEB_ROOT/"
 
 echo ""
 echo "═══════════════════════════════════════"
