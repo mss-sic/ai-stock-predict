@@ -13,40 +13,59 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// kdFactors holds multi-horizon factors extracted from KD curves.
+type kdFactors struct {
+	ConsensusD5  int
+	ExpReturnD5  float64
+	MomentumD5   float64
+	ConsensusD10 int
+	ExpReturnD10 float64
+	MomentumD10  float64
+	ConsensusD20 int
+	ExpReturnD20 float64
+	MomentumD20  float64
+	StddevD20    float64 // 20-day stddev across curves (for risk ratio)
+}
+
 type ScreeningRow struct {
 	Code              string  `json:"code"`
 	Name              string  `json:"name"`
 	Industry          string  `json:"industry"`
+	IndustryL2        string  `json:"industryL2"`
 	BoardType         string  `json:"boardType"`
 	LatestPrice       float64 `json:"latestPrice"`
-	DirectionConsensus int    `json:"directionConsensus"`
-	ExpectedReturn    float64 `json:"expectedReturn"`
-	ReturnStddev      float64 `json:"returnStddev"`
-	Divergence        float64 `json:"divergence"`
-	Momentum          float64 `json:"momentum"`
+	DirectionConsensus int    `json:"directionConsensus"` // dynamic: based on selected horizon
+	ExpectedReturn    float64 `json:"expectedReturn"`      // dynamic
+	Momentum          float64 `json:"momentum"`            // dynamic
 	RiskRatio         float64 `json:"riskRatio"`
-	SignalValue       float64 `json:"signalValue"`
-	SignalSource      string  `json:"signalSource"`
+	// Fixed multi-horizon fields
+	RetD5           float64 `json:"retD5"`
+	ConsensusD5     int     `json:"consensusD5"`
+	RetD10          float64 `json:"retD10"`
+	ConsensusD10    int     `json:"consensusD10"`
+	RetD20          float64 `json:"retD20"`
+	ConsensusD20    int     `json:"consensusD20"`
+	SignalValue     float64 `json:"signalValue"`
+	SignalSource    string  `json:"signalSource"`
 }
 
 type IndustryStat struct {
-	Industry      string  `json:"industry"`
-	Count         int     `json:"count"`
-	AvgReturn     float64 `json:"avgReturn"`
-	AvgConsensus  float64 `json:"avgConsensus"`
-	AvgMomentum   float64 `json:"avgMomentum"`
-	AvgRiskRatio  float64 `json:"avgRiskRatio"`
-	BullCount     int     `json:"bullCount"`
-	TopStock      string  `json:"topStock"`
-	TopStockName  string  `json:"topStockName"`
-	TopReturn     float64 `json:"topReturn"`
+	Industry     string  `json:"industry"`
+	Count        int     `json:"count"`
+	AvgReturn    float64 `json:"avgReturn"`
+	AvgConsensus float64 `json:"avgConsensus"`
+	AvgMomentum  float64 `json:"avgMomentum"`
+	BullCount    int     `json:"bullCount"`
+	TopStock     string  `json:"topStock"`
+	TopStockName string  `json:"topStockName"`
+	TopReturn    float64 `json:"topReturn"`
 }
 
 type BoardStat struct {
-	BoardType     string  `json:"boardType"`
-	Count         int     `json:"count"`
-	AvgReturn     float64 `json:"avgReturn"`
-	AvgConsensus  float64 `json:"avgConsensus"`
+	BoardType    string  `json:"boardType"`
+	Count        int     `json:"count"`
+	AvgReturn    float64 `json:"avgReturn"`
+	AvgConsensus float64 `json:"avgConsensus"`
 }
 
 func PredictionScreening(c *gin.Context) {
@@ -58,6 +77,9 @@ func PredictionScreening(c *gin.Context) {
 	board := c.Query("board")
 	minConsensus, _ := strconv.Atoi(c.DefaultQuery("minConsensus", "0"))
 	keyword := c.Query("keyword")
+	horizon := c.DefaultQuery("horizon", "10") // 5, 10, or 20
+	excludeStBj := c.DefaultQuery("excludeStBj", "true") // default: exclude ST + 北交所
+	industryLevel := c.DefaultQuery("industryLevel", "l1") // l1 or l2
 
 	if page < 1 { page = 1 }
 	if pageSize < 1 || pageSize > 100 { pageSize = 20 }
@@ -83,16 +105,22 @@ func PredictionScreening(c *gin.Context) {
 	for _, r := range kdRows { kdCodes = append(kdCodes, r.Code) }
 	codesStr := "'" + strings.Join(kdCodes, "','") + "'"
 
-	// Stock basic info
+	// Stock basic info (with L2 industry)
 	nameMap := make(map[string]string)
-	industryMap := make(map[string]string)
+	indL1Map := make(map[string]string)
+	indL2Map := make(map[string]string)
 	boardMap := make(map[string]string)
-	var basicRows []struct{ Code, Name, SwL1, BoardType string }
-	db.PG.Raw(fmt.Sprintf(`SELECT code, COALESCE(name,code) AS name, COALESCE(sw_l1,'') AS sw_l1, COALESCE(board_type,'') AS board_type FROM stocks_basic WHERE code IN (%s)`, codesStr)).Scan(&basicRows)
+	var basicRows []struct{ Code, Name, SwL1, SwL2Dc, BoardType string; IsSt bool }
+	db.PG.Raw(fmt.Sprintf(
+		`SELECT code, COALESCE(name,code) AS name, COALESCE(sw_l1,'') AS sw_l1, COALESCE(sw_l2_dc,'') AS sw_l2_dc, COALESCE(board_type,'') AS board_type, COALESCE(is_st,false) AS is_st FROM stocks_basic WHERE code IN (%s)`, codesStr)).
+		Scan(&basicRows)
+	isStMap := make(map[string]bool)
 	for _, b := range basicRows {
 		nameMap[b.Code] = b.Name
-		industryMap[b.Code] = b.SwL1
+		indL1Map[b.Code] = b.SwL1
+		indL2Map[b.Code] = b.SwL2Dc
 		boardMap[b.Code] = b.BoardType
+		isStMap[b.Code] = b.IsSt
 	}
 
 	// Signals
@@ -113,88 +141,85 @@ func PredictionScreening(c *gin.Context) {
 	db.PG.Raw("SELECT to_char(MAX(updated_at), 'YYYY-MM-DD') FROM prediction_kdist").Scan(&predDate)
 
 	// Compute all stock factors
-	type stockFactor struct {
-		Code              string
-		Name              string
-		Industry          string
-		BoardType         string
-		Consensus         int
-		ExpReturn         float64
-		RetStddev         float64
-		Momentum          float64
-		SignalValue       float64
-		SignalSource      string
+	type stockData struct {
+		Code, Name, IndL1, IndL2, Board string
+		F                                kdFactors
+		Signal                           float64
+		SigSrc                           string
 	}
-	var allStocks []stockFactor
+	var allStocks []stockData
 
 	for _, r := range kdRows {
-		consensus, expRet, retStd, momentum := parseKDFactors(r.KDData)
-		allStocks = append(allStocks, stockFactor{
+		if excludeStBj == "true" {
+			if isStMap[r.Code] { continue }
+			if boardMap[r.Code] == "bj" { continue }
+		}
+		f := parseKDFactors(r.KDData)
+		allStocks = append(allStocks, stockData{
 			Code: r.Code, Name: nameMap[r.Code],
-			Industry: industryMap[r.Code], BoardType: boardMap[r.Code],
-			Consensus: consensus, ExpReturn: expRet, RetStddev: retStd,
-			Momentum: momentum,
-			SignalValue: signalMap[r.Code], SignalSource: sourceMap[r.Code],
+			IndL1: indL1Map[r.Code], IndL2: indL2Map[r.Code],
+			Board: boardMap[r.Code],
+			F: f, Signal: signalMap[r.Code], SigSrc: sourceMap[r.Code],
 		})
 	}
 
-	// ── Industry Analysis (on full dataset) ──
+	// Helper: get effective industry based on level
+	getInd := func(s stockData) string {
+		if industryLevel == "l2" && s.IndL2 != "" { return s.IndL2 }
+		if s.IndL1 != "" { return s.IndL1 }
+		return "其他"
+	}
+
+	// Helper: get horizon-specific values
+	getRet := func(f kdFactors) float64 {
+		switch horizon { case "5": return f.ExpReturnD5; case "20": return f.ExpReturnD20; default: return f.ExpReturnD10 }
+	}
+	getConsensus := func(f kdFactors) int {
+		switch horizon { case "5": return f.ConsensusD5; case "20": return f.ConsensusD20; default: return f.ConsensusD10 }
+	}
+	getMom := func(f kdFactors) float64 {
+		switch horizon { case "5": return f.MomentumD5; case "20": return f.MomentumD20; default: return f.MomentumD10 }
+	}
+
+	// ── Industry Analysis (full dataset) ──
 	indStatsMap := make(map[string]*IndustryStat)
 	boardStatsMap := make(map[string]*BoardStat)
 	consensusDist := make([]int, 8)
 
 	for _, s := range allStocks {
-		ind := s.Industry
-		if ind == "" { ind = "其他" }
-		if _, ok := indStatsMap[ind]; !ok {
-			indStatsMap[ind] = &IndustryStat{Industry: ind}
-		}
+		ind := getInd(s)
+		ret := getRet(s.F)
+		con := getConsensus(s.F)
+
+		if _, ok := indStatsMap[ind]; !ok { indStatsMap[ind] = &IndustryStat{Industry: ind} }
 		st := indStatsMap[ind]
 		st.Count++
-		st.AvgReturn += s.ExpReturn
-		st.AvgConsensus += float64(s.Consensus)
-		st.AvgMomentum += s.Momentum
-		if s.ExpReturn > 0 { st.BullCount++ }
-		if s.ExpReturn > st.TopReturn {
-			st.TopReturn = s.ExpReturn
-			st.TopStock = s.Code
-			st.TopStockName = s.Name
-		}
+		st.AvgReturn += ret
+		st.AvgConsensus += float64(con)
+		st.AvgMomentum += getMom(s.F)
+		if ret > 0 { st.BullCount++ }
+		if ret > st.TopReturn { st.TopReturn = ret; st.TopStock = s.Code; st.TopStockName = s.Name }
 
-		// Board stats
-		bt := s.BoardType
-		if bt == "" { bt = "其他" }
-		if _, ok := boardStatsMap[bt]; !ok {
-			boardStatsMap[bt] = &BoardStat{BoardType: bt}
-		}
+		bt := s.Board; if bt == "" { bt = "其他" }
+		if _, ok := boardStatsMap[bt]; !ok { boardStatsMap[bt] = &BoardStat{BoardType: bt} }
 		bs := boardStatsMap[bt]
 		bs.Count++
-		bs.AvgReturn += s.ExpReturn
-		bs.AvgConsensus += float64(s.Consensus)
+		bs.AvgReturn += ret
+		bs.AvgConsensus += float64(con)
 
-		// Consensus distribution
-		if s.Consensus >= 0 && s.Consensus <= 7 {
-			consensusDist[s.Consensus]++
-		}
+		if con >= 0 && con <= 7 { consensusDist[con]++ }
 	}
 
-	// Finalize industry stats
 	industryList := make([]IndustryStat, 0, len(indStatsMap))
 	for _, v := range indStatsMap {
 		n := float64(v.Count)
 		v.AvgReturn = math.Round(v.AvgReturn/n*100) / 100
 		v.AvgConsensus = math.Round(v.AvgConsensus/n*100) / 100
 		v.AvgMomentum = math.Round(v.AvgMomentum/n*100) / 100
-		div := 0.0
-		if math.Abs(v.AvgReturn) > 0.001 { div = 0.0 }
-		if v.AvgReturn > 0.001 {
-			v.AvgRiskRatio = math.Round(v.AvgReturn/(div+0.01)*100) / 100
-		}
 		industryList = append(industryList, *v)
 	}
 	sort.Slice(industryList, func(i, j int) bool { return industryList[i].AvgReturn > industryList[j].AvgReturn })
 
-	// Finalize board stats
 	boardList := make([]BoardStat, 0, len(boardStatsMap))
 	for _, v := range boardStatsMap {
 		n := float64(v.Count)
@@ -204,63 +229,61 @@ func PredictionScreening(c *gin.Context) {
 	}
 	sort.Slice(boardList, func(i, j int) bool { return boardList[i].AvgReturn > boardList[j].AvgReturn })
 
-	// ── Summary (full dataset) ──
+	// ── Summary ──
 	totalAll := len(allStocks)
-	summary := struct {
-		TotalStocks      int     `json:"totalStocks"`
-		AvgReturn        float64 `json:"avgReturn"`
-		StrongConsensus  int     `json:"strongConsensus"`
-		PredictionDate   string  `json:"predictionDate"`
-		BullRatio        float64 `json:"bullRatio"`
-		AvgMomentum      float64 `json:"avgMomentum"`
-	}{TotalStocks: totalAll, PredictionDate: predDate}
-
 	sumRet, sumMom := 0.0, 0.0
+	strongCount := 0
+	bullCount := 0
 	for _, s := range allStocks {
-		sumRet += s.ExpReturn
-		sumMom += s.Momentum
-		if s.Consensus >= 5 { summary.StrongConsensus++ }
+		ret := getRet(s.F)
+		sumRet += ret
+		sumMom += getMom(s.F)
+		if getConsensus(s.F) >= 5 { strongCount++ }
+		if ret > 0 { bullCount++ }
 	}
-	if totalAll > 0 {
-		summary.AvgReturn = math.Round(sumRet/float64(totalAll)*100) / 100
-		summary.AvgMomentum = math.Round(sumMom/float64(totalAll)*100) / 100
-		bull := 0
-		for _, s := range allStocks { if s.ExpReturn > 0 { bull++ } }
-		summary.BullRatio = math.Round(float64(bull)/float64(totalAll)*10000) / 100
+	summary := gin.H{
+		"totalStocks":     totalAll,
+		"avgReturn":       math.Round(sumRet/float64(totalAll)*100) / 100,
+		"strongConsensus": strongCount,
+		"predictionDate":  predDate,
+		"bullRatio":       math.Round(float64(bullCount)/float64(totalAll)*10000) / 100,
+		"avgMomentum":     math.Round(sumMom/float64(totalAll)*100) / 100,
+		"horizon":         horizon,
 	}
 
-	// ── Filter for list ──
-	var filtered []stockFactor
+	// ── Filter ──
+	var filtered []stockData
 	for _, s := range allStocks {
-		if industry != "" && s.Industry != industry { continue }
-		if board != "" && s.BoardType != board { continue }
-		if minConsensus > 0 && s.Consensus < minConsensus { continue }
+		ind := getInd(s)
+		if industry != "" && ind != industry { continue }
+		if board != "" && s.Board != board { continue }
+		con := getConsensus(s.F)
+		if minConsensus > 0 && con < minConsensus { continue }
 		if keyword != "" {
 			kw := strings.ToLower(keyword)
-			if !strings.Contains(strings.ToLower(s.Code), kw) && !strings.Contains(strings.ToLower(s.Name), kw) {
-				continue
-			}
+			if !strings.Contains(strings.ToLower(s.Code), kw) && !strings.Contains(strings.ToLower(s.Name), kw) { continue }
 		}
 		filtered = append(filtered, s)
 	}
 
-	// Sort filtered
+	// Sort
 	sort.Slice(filtered, func(i, j int) bool {
 		a, b := filtered[i], filtered[j]
-		var cmp int
+		var cmp float64
 		switch sortBy {
-		case "consensus": cmp = a.Consensus - b.Consensus
-		case "signal":
-			if a.SignalValue < b.SignalValue { cmp = -1 } else if a.SignalValue > b.SignalValue { cmp = 1 }
-		case "momentum":
-			if a.Momentum < b.Momentum { cmp = -1 } else if a.Momentum > b.Momentum { cmp = 1 }
+		case "consensus": cmp = float64(getConsensus(a.F) - getConsensus(b.F))
+		case "signal": cmp = a.Signal - b.Signal
+		case "momentum": cmp = getMom(a.F) - getMom(b.F)
 		case "risk_ratio":
-			ra := 0.0; if a.RetStddev > 0.001 { ra = a.ExpReturn / a.RetStddev }
-			rb := 0.0; if b.RetStddev > 0.001 { rb = b.ExpReturn / b.RetStddev }
-			if ra < rb { cmp = -1 } else if ra > rb { cmp = 1 }
-		case "code": cmp = strings.Compare(a.Code, b.Code)
-		default:
-			if a.ExpReturn < b.ExpReturn { cmp = -1 } else if a.ExpReturn > b.ExpReturn { cmp = 1 }
+			ra, rb := 0.0, 0.0
+			if a.F.StddevD20 > 0.001 { ra = getRet(a.F) / a.F.StddevD20 }
+			if b.F.StddevD20 > 0.001 { rb = getRet(b.F) / b.F.StddevD20 }
+			cmp = ra - rb
+		case "ret_d5": cmp = a.F.ExpReturnD5 - b.F.ExpReturnD5
+		case "ret_d10": cmp = a.F.ExpReturnD10 - b.F.ExpReturnD10
+		case "ret_d20": cmp = a.F.ExpReturnD20 - b.F.ExpReturnD20
+		case "code": cmp = float64(strings.Compare(a.Code, b.Code))
+		default: cmp = getRet(a.F) - getRet(b.F)
 		}
 		if order == "desc" { cmp = -cmp }
 		return cmp < 0
@@ -273,27 +296,30 @@ func PredictionScreening(c *gin.Context) {
 	if end > total { end = total }
 	paged := filtered[start:end]
 
-	// Convert to response rows
+	// Convert to response
 	list := make([]ScreeningRow, 0, len(paged))
 	for _, s := range paged {
-		div := 0.0
-		if math.Abs(s.ExpReturn) > 0.001 { div = s.RetStddev / math.Abs(s.ExpReturn) }
 		rr := 0.0
-		if s.RetStddev > 0.001 { rr = s.ExpReturn / s.RetStddev }
+		if s.F.StddevD20 > 0.001 { rr = getRet(s.F) / s.F.StddevD20 }
 		list = append(list, ScreeningRow{
-			Code: s.Code, Name: s.Name, Industry: s.Industry, BoardType: s.BoardType,
-			LatestPrice: 0, DirectionConsensus: s.Consensus,
-			ExpectedReturn: math.Round(s.ExpReturn*100)/100,
-			ReturnStddev: math.Round(s.RetStddev*100)/100,
-			Divergence: math.Round(div*100)/100,
-			Momentum: math.Round(s.Momentum*100)/100,
-			RiskRatio: math.Round(rr*100)/100,
-			SignalValue: math.Round(s.SignalValue*10000)/10000,
-			SignalSource: s.SignalSource,
+			Code: s.Code, Name: s.Name,
+			Industry: s.IndL1, IndustryL2: s.IndL2,
+			BoardType: s.Board,
+			DirectionConsensus: getConsensus(s.F),
+			ExpectedReturn:     math.Round(getRet(s.F)*100) / 100,
+			Momentum:           math.Round(getMom(s.F)*100) / 100,
+			RiskRatio:          math.Round(rr*100) / 100,
+			RetD5: math.Round(s.F.ExpReturnD5*100) / 100,
+			ConsensusD5: s.F.ConsensusD5,
+			RetD10: math.Round(s.F.ExpReturnD10*100) / 100,
+			ConsensusD10: s.F.ConsensusD10,
+			RetD20: math.Round(s.F.ExpReturnD20*100) / 100,
+			ConsensusD20: s.F.ConsensusD20,
+			SignalValue: math.Round(s.Signal*10000) / 10000,
+			SignalSource: s.SigSrc,
 		})
 	}
 
-	// Industry names list (for filter dropdown)
 	indNames := make([]string, 0, len(indStatsMap))
 	for k := range indStatsMap { indNames = append(indNames, k) }
 	sort.Strings(indNames)
@@ -301,31 +327,44 @@ func PredictionScreening(c *gin.Context) {
 	response.Success(c, gin.H{
 		"list": list, "total": total, "page": page, "pageSize": pageSize,
 		"industries": indNames, "summary": summary,
-		"industryAnalysis": industryList,
-		"boardAnalysis": boardList,
-		"consensusDistribution": consensusDist,
+		"industryAnalysis": industryList, "boardAnalysis": boardList,
+		"consensusDistribution": consensusDist, "horizon": horizon,
 	})
 }
 
-func parseKDFactors(kdJSON []byte) (consensus int, expReturn, retStddev, momentum float64) {
+// parseKDFactors extracts D5/D10/D20 return/consensus/momentum from KD curves.
+func parseKDFactors(kdJSON []byte) (f kdFactors) {
 	var curves [][]float64
 	if err := json.Unmarshal(kdJSON, &curves); err != nil || len(curves) == 0 { return }
-	day20 := make([]float64, 0, len(curves))
+
+	d5, d10, d20 := make([]float64, 0, len(curves)), make([]float64, 0, len(curves)), make([]float64, 0, len(curves))
 	moms := make([]float64, 0, len(curves))
+
 	for _, c := range curves {
-		if len(c) < 3 { continue }
-		lv := 0.0
-		for i := len(c) - 1; i >= 0; i-- { if c[i] != 0 || i == 0 { lv = c[i]; break } }
-		day20 = append(day20, lv)
-		if lv > 0 { consensus++ }
-		n := 5; if len(c) < n { n = len(c) }
-		first5 := avgFloat(c[:n])
-		ls := len(c) - 5; if ls < 0 { ls = 0 }
-		last5 := avgFloat(c[ls:])
-		moms = append(moms, last5-first5)
+		if len(c) < 20 { continue }
+
+		// Endpoint at each horizon (last non-zero value)
+		d5v := c[4]
+		d10v := c[9]
+		d20v := c[19]
+		if d5v > 0 { f.ConsensusD5++ }
+		if d10v > 0 { f.ConsensusD10++ }
+		if d20v > 0 { f.ConsensusD20++ }
+		d5 = append(d5, d5v)
+		d10 = append(d10, d10v)
+		d20 = append(d20, d20v)
+
+		// Momentum: last5 avg - first5 avg
+		moms = append(moms, avgFloat(c[15:20])-avgFloat(c[0:5]))
 	}
-	if len(day20) > 0 { expReturn = avgFloat(day20); retStddev = stddevFloat(day20, expReturn) }
-	if len(moms) > 0 { momentum = avgFloat(moms) }
+
+	if len(d5) > 0 {
+		f.ExpReturnD5 = avgFloat(d5)
+		f.ExpReturnD10 = avgFloat(d10)
+		f.ExpReturnD20 = avgFloat(d20)
+		f.StddevD20 = stddevFloat(d20, f.ExpReturnD20)
+	}
+	if len(moms) > 0 { f.MomentumD5 = avgFloat(moms); f.MomentumD10 = avgFloat(moms); f.MomentumD20 = avgFloat(moms) }
 	return
 }
 
