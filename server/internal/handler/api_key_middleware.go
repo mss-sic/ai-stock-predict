@@ -301,7 +301,7 @@ func DataImport(c *gin.Context) {
 		return
 	}
 
-	logImport(teamName, logFileName, getImported(result), false)
+	logImport(teamName, logFileName, getImported(result), true)
 
 	result["source"] = req.Source
 	result["team"] = teamName
