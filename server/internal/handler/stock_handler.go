@@ -261,13 +261,17 @@ func (h *StockHandler) AppearanceStats(c *gin.Context) {
 	response.Success(c, rows)
 }
 // RepairKLine triggers full data repair for a stock (async).
+// Returns immediately; actual repair runs in background goroutine.
 func (h *StockHandler) RepairKLine(c *gin.Context) {
 	code := c.Param("code")
 	if code == "" {
 		response.BadRequest(c, "缺少股票代码")
 		return
 	}
-	// Run repair in background (can take ~1-5 seconds)
+	log.Printf("[repair] triggered for %s", code)
+
+	// Run repair in background to avoid blocking the HTTP request
+	// and exhausting PostgreSQL shared memory under concurrent calls.
 	go func() {
 		log.Printf("[repair] starting for %s", code)
 		if err := collector.RepairStock(code); err != nil {
@@ -276,7 +280,8 @@ func (h *StockHandler) RepairKLine(c *gin.Context) {
 			log.Printf("[repair] completed for %s", code)
 		}
 	}()
-	response.Success(c, gin.H{"message": "数据修复已触发", "stockCode": code})
+
+	response.Success(c, gin.H{"message": "数据修复已触发，请稍后刷新查看", "stockCode": code})
 }
 
 func (h *StockHandler) GetDragonTigerList(c *gin.Context) {

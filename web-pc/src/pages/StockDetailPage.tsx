@@ -501,7 +501,7 @@ export default function StockDetailPage() {
     setProfileData(null);
     fetchStockDetail(code).then((r: any) => setStock(r.data?.data ?? r.data));
     fetchKLine(code).then((r: any) => setKlines(r.data?.data || []));
-    fetchProfile(code).then((r: any) => { if (r.data?.data) setProfileData(r.data.data); }).catch(() => {});
+    fetchProfile(code).then((r: any) => { if (r.data?.data) setProfileData(r.data.data); }).catch((e: any) => { console.error(e); });
     fetchHoldings().then((r: any) => {
       const items = r.data?.data || [];
       const found = items.find((h: any) => h.stockCode === code);
@@ -511,24 +511,24 @@ export default function StockDetailPage() {
         setHoldingCost(null);
       }
     }).catch(() => setHoldingCost(null));
-    fetchIndicator(code).then((r: any) => setIndicator(r.data?.data ?? r.data)).catch(() => {});
-    fetchFinancials(code).then((r: any) => setFinancials(r.data?.data || [])).catch(() => {});
-    fetchShareholders(code).then((r: any) => setShareholders(r.data?.data || [])).catch(() => {});
-    fetchStockNews(code, 20).then((r: any) => setStockNews(r.data?.data || [])).catch(() => {});
-    fetchReports(code, 20).then((r: any) => setReports(r.data?.data || [])).catch(() => {});
+    fetchIndicator(code).then((r: any) => setIndicator(r.data?.data ?? r.data)).catch((e: any) => { console.error(e); });
+    fetchFinancials(code).then((r: any) => setFinancials(r.data?.data || [])).catch((e: any) => { console.error(e); });
+    fetchShareholders(code).then((r: any) => setShareholders(r.data?.data || [])).catch((e: any) => { console.error(e); });
+    fetchStockNews(code, 20).then((r: any) => setStockNews(r.data?.data || [])).catch((e: any) => { console.error(e); });
+    fetchReports(code, 20).then((r: any) => setReports(r.data?.data || [])).catch((e: any) => { console.error(e); });
 fetchPredictionResult(code).then((r: any) => {
       const preds = r.data?.data?.predictions || r.data?.data || [];
       setPredictions(Array.isArray(preds) ? preds : []);
-    }).catch(() => {});
+    }).catch((e: any) => { console.error(e); });
     fetchPredictionHitRate(code).then((r: any) => {
       const rates = r.data?.data?.hitRates || [];
       if (rates.length > 0) setRealHitRates(rates);
-    }).catch(() => {});
+    }).catch((e: any) => { console.error(e); });
     fetchWatchlist().then((r: any) => {
       const list: any[] = r.data?.data || [];
       setIsWatched(list.some((w: any) => w.stockCode === code));
-    }).catch(() => {});
-    fetchWatchlistGroups().then((r: any) => setWlGroups(r.data?.data || [])).catch(() => {});
+    }).catch((e: any) => { console.error(e); });
+    fetchWatchlistGroups().then((r: any) => setWlGroups(r.data?.data || [])).catch((e: any) => { console.error(e); });
     fetchStockHeatmap(code).then((r: any) => {
       const items: any[] = r.data?.data || [];
       const map: Record<string, number> = {};
@@ -537,9 +537,9 @@ fetchPredictionResult(code).then((r: any) => {
         if (dateKey && d.rank != null) map[dateKey] = d.rank;
       });
       setBoardRanks(map);
-    }).catch(() => {});
-    fetchSignal(code).then((r: any) => setSignal(r.data?.data?.signalValue ?? r.data?.signalValue ?? null)).catch(() => {});
-    fetchStockConceptTags(code).then((r: any) => setConceptTags(r.data?.data || [])).catch(() => {});
+    }).catch((e: any) => { console.error(e); });
+    fetchSignal(code).then((r: any) => setSignal(r.data?.data?.signalValue ?? r.data?.signalValue ?? null)).catch((e: any) => { console.error(e); });
+    fetchStockConceptTags(code).then((r: any) => setConceptTags(r.data?.data || [])).catch((e: any) => { console.error(e); });
     fetchConceptHeatmap().then((r: any) => {
       const map: Record<string, any> = {};
       (r.data?.data || []).forEach((item: any) => {
@@ -551,7 +551,7 @@ fetchPredictionResult(code).then((r: any) => {
         };
       });
       setConceptQuotes(map);
-    }).catch(() => {});
+    }).catch((e: any) => { console.error(e); });
     fetchIndustryHeatmap().then((r: any) => {
       const map: Record<string, any> = {};
       (r.data?.data || []).forEach((item: any) => {
@@ -564,13 +564,13 @@ fetchPredictionResult(code).then((r: any) => {
         };
       });
       setIndustryQuotes(map);
-    }).catch(() => {});
-    fetchDragonTiger(code).then((r: any) => setDragonTiger(r.data?.data || [])).catch(() => {});
-    fetchBlockTrades(code).then((r: any) => setBlockTradesState(r.data?.data || [])).catch(() => {});
-    fetchAnnouncements(code).then((r: any) => setAnnouncements(r.data?.data || [])).catch(() => {});
-    fetchUnlocks(code).then((r: any) => setUnlocks(r.data?.data || [])).catch(() => {});
-    fetchEpsForecast(code).then((r: any) => setEpsData(r.data?.data || [])).catch(() => {});
-    fetchFundFlow(code).then((r: any) => { const d = r.data?.data || {}; setFundFlow(Array.isArray(d) ? d : (d.buySellFlow || [])); }).catch(() => {});
+    }).catch((e: any) => { console.error(e); });
+    fetchDragonTiger(code).then((r: any) => setDragonTiger(r.data?.data || [])).catch((e: any) => { console.error(e); });
+    fetchBlockTrades(code).then((r: any) => setBlockTradesState(r.data?.data || [])).catch((e: any) => { console.error(e); });
+    fetchAnnouncements(code).then((r: any) => setAnnouncements(r.data?.data || [])).catch((e: any) => { console.error(e); });
+    fetchUnlocks(code).then((r: any) => setUnlocks(r.data?.data || [])).catch((e: any) => { console.error(e); });
+    fetchEpsForecast(code).then((r: any) => setEpsData(r.data?.data || [])).catch((e: any) => { console.error(e); });
+    fetchFundFlow(code).then((r: any) => { const d = r.data?.data || {}; setFundFlow(Array.isArray(d) ? d : (d.buySellFlow || [])); }).catch((e: any) => { console.error(e); });
 
     (async () => {
       try {
@@ -690,7 +690,7 @@ fetchPredictionResult(code).then((r: any) => {
         const picks: any[] = json.data || [];
         const match = picks.find((p: any) => p.stockCode === code);
         setTodayBoardRank(match ? match.rank : null);
-      }).catch(() => {});
+      }).catch((e: any) => { console.error(e); });
   }, [code, safeKlines]);
 
   // Board markers
@@ -854,9 +854,9 @@ const handleChatSend = async (text?: string) => {
   };
   const toggleWL = () => {
     if (isWatched) {
-      removeFromWatchlist(code!).then(() => { setIsWatched(false); showToast('success', '已取消自选'); }).catch(() => {});
+      removeFromWatchlist(code!).then(() => { setIsWatched(false); showToast('success', '已取消自选'); }).catch((e: any) => { console.error('[toggleWL] removeFromWatchlist failed:', e); });
     } else {
-      fetchWatchlistGroups().then((r: any) => setWlGroups(r.data?.data || [])).catch(() => {});
+      fetchWatchlistGroups().then((r: any) => setWlGroups(r.data?.data || [])).catch((e: any) => { console.error(e); });
       setWlGroupId(0); setWlNewGroup(''); setShowWLModal(true);
     }
   };
@@ -867,7 +867,7 @@ const handleChatSend = async (text?: string) => {
       if (wlNewGroup.trim()) {
         const { data: rd } = await createWatchlistGroup(wlNewGroup.trim());
         gid = rd.data?.id || 0;
-        fetchWatchlistGroups().then((r: any) => setWlGroups(r.data?.data || [])).catch(() => {});
+        fetchWatchlistGroups().then((r: any) => setWlGroups(r.data?.data || [])).catch((e: any) => { console.error(e); });
       }
       const latestPrice = safeKlines.length > 0 ? safeKlines[safeKlines.length - 1]?.close : 0;
       await addToWatchlist(code, gid, latestPrice);
@@ -1119,20 +1119,26 @@ const handleChatSend = async (text?: string) => {
                     </a>
                   ));
                 })()}
-                <Tooltip content="删除历史K线+指标，重新采集前复权数据（含换手率/成交量/成交额）">
+                <Tooltip content="增量更新K线+指标，保留已有历史数据，仅同步最新数据">
                   <button
-                    onClick={async () => {
+                    onClick={() => {
                       if (!code) return;
-                      if (!window.confirm('确认修复数据？将删除该股票所有历史K线和指标，重新采集前复权数据。')) return;
-                      setRepairLoading(true);
-                      try {
-                        await repairStock(code);
-                        showToast('数据修复已触发，约5秒后刷新查看', 'success');
-                        setTimeout(() => window.location.reload(), 5000);
-                      } catch {
-                        showToast('修复失败', 'error');
-                        setRepairLoading(false);
-                      }
+                      Modal.confirm({
+                        title: '确认修复数据',
+                        content: '将增量更新该股票K线和指标，已有历史数据不受影响。',
+                        okButtonProps: { status: 'warning' },
+                        onOk: async () => {
+                          setRepairLoading(true);
+                          try {
+                            await repairStock(code);
+                            showToast('success', '数据修复已触发，约5秒后刷新查看');
+                            setTimeout(() => window.location.reload(), 5000);
+                          } catch {
+                            showToast('error', '修复失败');
+                            setRepairLoading(false);
+                          }
+                        },
+                      });
                     }}
                     disabled={repairLoading}
                     style={{
@@ -1226,10 +1232,10 @@ const handleChatSend = async (text?: string) => {
                     const r = await runProfile(code);
                     if (r.data?.data) {
                       setProfileData(r.data.data);
-                      showToast('简介更新成功', 'success');
+                      showToast('success', '简介更新成功');
                     }
                   } catch {
-                    showToast('简介更新失败', 'error');
+                    showToast('error', '简介更新失败');
                   }
                   finally { setProfileLoading(false); }
                 }}

@@ -17,6 +17,30 @@ import (
 
 var boardDataCache = cache.NewBoardCache(30 * time.Second)
 
+// latestTradeDateCache avoids repeated hypertable chunk enumeration (1814 chunks → 2.5s planning).
+var (
+	latestTradeDateCache   string
+	latestTradeDateCacheAt time.Time
+	latestTradeDateMu      sync.Mutex
+)
+
+func getLatestTradeDate() string {
+	latestTradeDateMu.Lock()
+	defer latestTradeDateMu.Unlock()
+	if time.Since(latestTradeDateCacheAt) < 5*time.Minute && latestTradeDateCache != "" {
+		return latestTradeDateCache
+	}
+	// Cached to avoid repeated hypertable chunk enumeration (1814 chunks → ~2s planning per query).
+	var dt string
+	if err := db.PG.Raw("SELECT TO_CHAR(MAX(trade_date), 'YYYY-MM-DD') FROM stocks_daily_k").Scan(&dt).Error; err != nil {
+		log.Printf("[board] getLatestTradeDate failed: %v", err)
+		return time.Now().Format("2006-01-02")
+	}
+	latestTradeDateCache = dt
+	latestTradeDateCacheAt = time.Now()
+	return dt
+}
+
 type BoardHandler struct {
 	repo         *repository.BoardRepo
 	conceptCache *cache.BoardCache
@@ -208,9 +232,9 @@ func (h *BoardHandler) getEnrichedBoard(dateStr string) ([]EnrichedBoardItem, st
 
 	go func() {
 		defer wg.Done()
+		maxDate := getLatestTradeDate()
 		var latestCloses []LatestCloseRow
-		if err := db.PG.Raw(fmt.Sprintf(`WITH ld AS (SELECT MAX(trade_date) as max_d FROM stocks_daily_k)
-			SELECT code, close FROM stocks_daily_k WHERE code IN (%s) AND trade_date = (SELECT max_d FROM ld)`, inClause)).Scan(&latestCloses).Error; err != nil {
+		if err := db.PG.Raw(fmt.Sprintf(`SELECT code, close FROM stocks_daily_k WHERE code IN (%s) AND trade_date = ?`, inClause), maxDate).Scan(&latestCloses).Error; err != nil {
 			log.Printf("[board] latest_closes query failed: %v", err)
 			return
 		}

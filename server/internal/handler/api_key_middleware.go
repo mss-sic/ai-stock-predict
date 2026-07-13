@@ -787,11 +787,15 @@ func logImport(teamName interface{}, fileName string, rows int, success bool) {
 	if db.MySQL != nil { db.MySQL.Create(&importLog) } else { db.PG.Create(&importLog) }
 }
 
-// getImported extracts the imported count from a result map.
+// getImported extracts the total affected count (imported + updated) from a result map.
 func getImported(result gin.H) int {
+	total := 0
 	if v, ok := result["imported"]; ok {
-		if n, ok := v.(int); ok { return n }
+		if n, ok := v.(int); ok { total += n }
 	}
-	return 0
+	if v, ok := result["updated"]; ok {
+		if n, ok := v.(int); ok { total += n }
+	}
+	return total
 }
 

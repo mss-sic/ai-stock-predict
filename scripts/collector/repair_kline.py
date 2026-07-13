@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-修复单只股票历史数据 — 删除后重新采集（前复权）
+修复单只股票历史数据 — 增量更新（前复权），保留已有历史数据
 - K线: 腾讯财经 API (前复权 qfq)
 - 换手率: 从腾讯实时行情获取流通市值÷股价=流通股本，再计算换手率
 - 成交额: close × volume
@@ -78,44 +78,64 @@ def main():
         circ_shares = 0
         log(f"[{code}] 无法获取股本，换手率将为0")
 
-    # ── Step 2: 删除现有数据 ──
-    cur.execute("SELECT COUNT(*) FROM stocks_daily_k WHERE code = %s", (code,))
-    old_k_count = cur.fetchone()[0]
+    # ── Step 2: 保留现有历史数据，仅增量更新 ──
+    cur.execute("SELECT COUNT(*), MIN(trade_date), MAX(trade_date) FROM stocks_daily_k WHERE code = %s", (code,))
+    old_k_count, old_min, old_max = cur.fetchone()
     cur.execute("SELECT COUNT(*) FROM stocks_daily_indicator WHERE code = %s", (code,))
     old_i_count = cur.fetchone()[0]
-    log(f"[{code}] 现有K线: {old_k_count} 条 | 指标: {old_i_count} 条")
+    log(f"[{code}] 现有K线: {old_k_count} 条 ({old_min} ~ {old_max}) | 指标: {old_i_count} 条 | 增量模式，不删除历史")
 
-    cur.execute("DELETE FROM stocks_daily_k WHERE code = %s", (code,))
-    cur.execute("DELETE FROM stocks_daily_indicator WHERE code = %s", (code,))
-    conn.commit()
-    log(f"[{code}] 已清除历史数据")
-
-    # ── Step 3: 从腾讯API拉取全量前复权K线 ──
-    url = f"https://ifzq.gtimg.cn/appstock/app/fqkline/get?param={prefix}{code},day,,,1100,qfq"
-    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    # ── Step 3: 分页拉取全量前复权K线（腾讯API每批~640条）──
     ctx = ssl.create_default_context()
-    try:
-        with urllib.request.urlopen(req, timeout=30, context=ctx) as resp:
-            data = json.loads(resp.read().decode())
-    except Exception as e:
-        log(json.dumps({"error": f"API请求失败: {e}"}))
-        cur.close(); conn.close()
-        sys.exit(1)
+    all_klines = []
+    seen_dates = set()
+    end_date = ""
+    batch = 0
 
-    stock_data = data.get("data", {})
-    klines = []
-    for pfx in [prefix, "sh", "sz", "nq"]:
-        sd = stock_data.get(f"{pfx}{code}", {})
-        klines = sd.get("qfqday", []) or sd.get("day", [])
-        if klines:
+    while True:
+        batch += 1
+        if end_date:
+            url = f"https://ifzq.gtimg.cn/appstock/app/fqkline/get?param={prefix}{code},day,,{end_date},1100,qfq"
+        else:
+            url = f"https://ifzq.gtimg.cn/appstock/app/fqkline/get?param={prefix}{code},day,,,1100,qfq"
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=30, context=ctx) as resp:
+                data = json.loads(resp.read().decode())
+        except Exception as e:
+            log(f"[{code}] 第{batch}批API请求失败: {e}")
             break
 
-    if not klines:
+        stock_data = data.get("data", {})
+        klines = []
+        for pfx in [prefix, "sh", "sz", "nq"]:
+            sd = stock_data.get(f"{pfx}{code}", {})
+            klines = sd.get("qfqday", []) or sd.get("day", [])
+            if klines:
+                break
+        if not klines:
+            break
+
+        new_klines = [k for k in klines if k[0] not in seen_dates]
+        if not new_klines:
+            break
+        for k in new_klines:
+            seen_dates.add(k[0])
+        all_klines = new_klines + all_klines  # prepend older batches
+        earliest = new_klines[0][0]
+        log(f"[{code}] 第{batch}批: {len(new_klines)} 条, 最早 {earliest}")
+        end_date = earliest
+        if batch > 50:
+            log(f"[{code}] 已达最大批次(50), 停止分页")
+            break
+
+    if not all_klines:
         log(json.dumps({"error": "API返回空数据"}))
         cur.close(); conn.close()
         sys.exit(1)
 
-    log(f"[{code}] API返回: {len(klines)} 条K线")
+    klines = all_klines
+    log(f"[{code}] 分页完成: {batch}批, 共{len(klines)}条K线")
 
     # ── Step 4: 解析并计算成交量/成交额/换手率 ──
     rows = []
@@ -141,17 +161,33 @@ def main():
             volume, amount, turnover,
         ))
 
-    execute_values(cur, """
-        INSERT INTO stocks_daily_k (code, trade_date, open, high, low, close, volume, amount, turnover_rate, updated_at)
-        VALUES %s
-        ON CONFLICT (code, trade_date) DO UPDATE SET
-            open = EXCLUDED.open, high = EXCLUDED.high, low = EXCLUDED.low,
-            close = EXCLUDED.close, volume = EXCLUDED.volume, amount = EXCLUDED.amount,
-            turnover_rate = EXCLUDED.turnover_rate, updated_at = NOW()
-    """, rows)
+    # Batch insert (chunked to avoid oversized queries)
+    chunk = 500
+    for i in range(0, len(rows), chunk):
+        batch_rows = rows[i:i+chunk]
+        execute_values(cur, """
+            INSERT INTO stocks_daily_k (code, trade_date, open, high, low, close, volume, amount, turnover_rate)
+            VALUES %s
+            ON CONFLICT (code, trade_date) DO UPDATE SET
+                open = EXCLUDED.open, high = EXCLUDED.high, low = EXCLUDED.low,
+                close = EXCLUDED.close, volume = EXCLUDED.volume, amount = EXCLUDED.amount,
+                turnover_rate = EXCLUDED.turnover_rate, updated_at = NOW()
+        """, batch_rows)
     conn.commit()
     log(f"[{code}] 入库: {len(rows)} 条 (含成交量+成交额+换手率)")
 
+    # ── Step 4.5: 清理日期范围内的脏数据（周末非交易日）──
+    min_d, max_d = klines[-1][0], klines[0][0]
+    cur.execute("""
+        DELETE FROM stocks_daily_k
+        WHERE code = %s AND trade_date BETWEEN %s AND %s
+          AND EXTRACT(DOW FROM trade_date) IN (0, 6)
+    """, (code, min_d, max_d))
+    deleted = cur.rowcount
+    if deleted > 0:
+        conn.commit()
+        log(f"[{code}] 清理周末脏数据: {deleted} 条 ({min_d} ~ {max_d})")
+    
     # ── Step 5: 用腾讯实时行情补充最新交易日的准确换手率/PE ──
     try:
         quote_url = f"http://qt.gtimg.cn/q={prefix}{code}"
