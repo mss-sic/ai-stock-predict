@@ -112,6 +112,24 @@ func safeExec(sql string, args ...interface{}) {
 }
 
 // safeExecMysql runs SQL on MySQL only if the MySQL connection is available.
+
+// addColumnIfMissing adds a column only if it doesn't already exist (idempotent, single-statement safe).
+func addColumnIfMissing(db *gorm.DB, table, column, colDef string) {
+	if db == nil {
+		return
+	}
+	var count int64
+	db.Raw("SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND COLUMN_NAME = ?",
+		db.Migrator().CurrentDatabase(), table, column).Scan(&count)
+	if count == 0 {
+		sql := fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", table, column, colDef)
+		if err := db.Exec(sql).Error; err != nil {
+			log.Printf("[migrate] WARN addColumnIfMissing %s.%s: %v", table, column, err)
+		} else {
+			log.Printf("[migrate] added column %s.%s %s", table, column, colDef)
+		}
+	}
+}
 func safeExecMysql(sql string, args ...interface{}) {
 	if MySQL != nil {
 		if err := MySQL.Exec(sql, args...).Error; err != nil {

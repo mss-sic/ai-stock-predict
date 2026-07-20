@@ -301,25 +301,10 @@ func init() {
 		Description: "MySQL: trading_accounts, trade_records, holding buy_date/total_cost",
 		Up: func() error {
 			gormAutoMigrate(MySQL, &model.TradingAccount{}, &model.TradeRecord{})
-			// Add columns to holdings — idempotent via information_schema check
-			safeExecMysql(`
-				SET @col_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS
-					WHERE TABLE_SCHEMA = 'stock_predict' AND TABLE_NAME = 'holdings' AND COLUMN_NAME = 'total_cost');
-				SET @sql = IF(@col_exists = 0, 'ALTER TABLE holdings ADD COLUMN total_cost DECIMAL(16,2) DEFAULT 0', 'SELECT 1');
-				PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
-			`)
-			safeExecMysql(`
-				SET @col_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS
-					WHERE TABLE_SCHEMA = 'stock_predict' AND TABLE_NAME = 'holdings' AND COLUMN_NAME = 'buy_date');
-				SET @sql = IF(@col_exists = 0, "ALTER TABLE holdings ADD COLUMN buy_date VARCHAR(10) DEFAULT ''", 'SELECT 1');
-				PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
-			`)
-			safeExecMysql(`
-				SET @col_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS
-					WHERE TABLE_SCHEMA = 'stock_predict' AND TABLE_NAME = 'holdings' AND COLUMN_NAME = 'updated_at');
-				SET @sql = IF(@col_exists = 0, 'ALTER TABLE holdings ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP', 'SELECT 1');
-				PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
-			`)
+			// Add columns to holdings — idempotent via Go-level existence check
+			addColumnIfMissing(MySQL, "holdings", "total_cost", "DECIMAL(16,2) DEFAULT 0")
+			addColumnIfMissing(MySQL, "holdings", "buy_date", "VARCHAR(10) DEFAULT ''")
+			addColumnIfMissing(MySQL, "holdings", "updated_at", "DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP")
 			return nil
 		},
 	})
@@ -1999,6 +1984,20 @@ Register(Migration{
 		Description: "MySQL: GORM AutoMigrate ApiKey model for api_keys reliability",
 		Up: func() error {
 			gormAutoMigrate(MySQL, &model.ApiKey{})
+			return nil
+		},
+	})
+
+	// ============================================================
+	// v092: Fix holdings missing columns (v011 PREPARE/EXECUTE silently failed)
+	// ============================================================
+	Register(Migration{
+		Version:     92,
+		Description: "MySQL: ensure holdings has total_cost, buy_date, updated_at columns",
+		Up: func() error {
+			addColumnIfMissing(MySQL, "holdings", "total_cost", "DECIMAL(16,2) DEFAULT 0")
+			addColumnIfMissing(MySQL, "holdings", "buy_date", "VARCHAR(10) DEFAULT ''")
+			addColumnIfMissing(MySQL, "holdings", "updated_at", "DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP")
 			return nil
 		},
 	})

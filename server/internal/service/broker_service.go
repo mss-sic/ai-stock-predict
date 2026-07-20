@@ -319,7 +319,7 @@ func (b *MxMoniBroker) syncLocalHolding(account *model.TradingAccount, stockCode
 		todayBuyQty := quantity - availCount
 		if todayBuyQty < 0 { todayBuyQty = 0 }
 		availQty := availCount
-		db.MySQL.Model(&holding).Updates(map[string]interface{}{
+		if err := db.MySQL.Model(&holding).Updates(map[string]interface{}{
 			"quantity":       quantity,
 			"cost_price":     costPrice,
 			"total_cost":     totalCost,
@@ -328,7 +328,9 @@ func (b *MxMoniBroker) syncLocalHolding(account *model.TradingAccount, stockCode
 			"avail_sell_qty": availQty,
 			"stock_name":     stockName,
 			"current_price":  currentPrice,
-		})
+		}); err != nil {
+			log.Printf("[broker] syncLocalHolding UPDATE failed for %s: %v", stockCode, err)
+		}
 	} else {
 		todayBuyQty := quantity - availCount
 		if todayBuyQty < 0 { todayBuyQty = 0 }
@@ -345,7 +347,9 @@ func (b *MxMoniBroker) syncLocalHolding(account *model.TradingAccount, stockCode
 			TotalCost:    totalCost,
 			BuyDate:      tradeDate,
 		}
-		db.MySQL.Create(&newH)
+		if err := db.MySQL.Create(&newH).Error; err != nil {
+			log.Printf("[broker] syncLocalHolding CREATE failed for %s: %v", stockCode, err)
+		}
 	}
 }
 
