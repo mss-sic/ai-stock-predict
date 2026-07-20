@@ -214,7 +214,18 @@ func (b *MxMoniBroker) SyncPositions(account *model.TradingAccount) (*BrokerPort
 
 	var raw mxPositionsData
 	if err := json.Unmarshal(apiResp.Data, &raw); err != nil {
-		return nil, fmt.Errorf("unmarshal positions data: %w", err)
+		return nil, fmt.Errorf("unmarshal positions data: %w (raw len=%d)", err, len(apiResp.Data))
+	}
+	// Diagnostic: log raw data length and parsed position count for debugging empty sync
+	log.Printf("[broker] positions API: rawDataLen=%d posListLen=%d posCount=%d totalAssets=%.2f",
+		len(apiResp.Data), len(raw.PosList), raw.PosCount, raw.TotalAssets)
+	if len(raw.PosList) == 0 && len(apiResp.Data) > 50 {
+		// Positions came back empty but API returned data — dump first 500 chars for diagnosis
+		rawStr := string(apiResp.Data)
+		if len(rawStr) > 500 {
+			rawStr = rawStr[:500]
+		}
+		log.Printf("[broker] positions API raw (first 500 chars): %s", rawStr)
 	}
 
 	portfolio := &BrokerPortfolio{
