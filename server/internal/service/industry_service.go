@@ -38,14 +38,18 @@ type IndustryStock struct {
 
 func getLatestDate() (string, error) {
 	var latest time.Time
-	if err := db.PG.Raw(`SELECT MAX(trade_date) FROM market_daily_agg`).Scan(&latest).Error; err != nil {
+	// Use stocks_daily_k which always has data (vs market_daily_agg which may be empty)
+	if err := db.PG.Raw(`SELECT MAX(trade_date) FROM stocks_daily_k`).Scan(&latest).Error; err != nil {
 		return "", fmt.Errorf("get latest date: %w", err)
+	}
+	if latest.IsZero() {
+		return time.Now().Format("2006-01-02"), nil
 	}
 	return latest.Format("2006-01-02"), nil
 }
 
 // GetIndustryList returns industry-level aggregate comparisons for a given date.
-// industryType: "sw_l1" (申万一级), "sw_l2_dc" (东财二级), "tdx" (传统TDX, 默认)
+// industryType: "sw_l1" (申万一级), "sw_l2" (申万二级), "tdx" (传统, 默认)
 func GetIndustryList(date string, industryType string) ([]IndustrySummary, error) {
 	if date == "" {
 		var err error
@@ -63,16 +67,29 @@ func GetIndustryList(date string, industryType string) ([]IndustrySummary, error
 	case "sw_l1":
 		col = "sb.sw_l1"
 		filter = "sb.sw_l1 IS NOT NULL AND sb.sw_l1 != ''"
-	case "sw_l2_dc":
-		col = "sb.sw_l2_dc"
-		filter = "sb.sw_l2_dc IS NOT NULL AND sb.sw_l2_dc != ''"
+	case "sw_l2":
+		col = "sb.sw_l2"
+		filter = "sb.sw_l2 IS NOT NULL AND sb.sw_l2 != ''"
 	default: // tdx
 		col = "sb.industry"
 		filter = "sb.industry IS NOT NULL AND sb.industry != '' AND sb.industry !~ '^[0-9]' AND sb.industry !~ '^行业[0-9]'"
 	}
 
 	sql := fmt.Sprintf(`
-		WITH stock_metrics AS (
+		WITH price_snapshot AS (
+			SELECT code, close,
+				LAG(close, 0) OVER (PARTITION BY code ORDER BY trade_date) as prev_close,
+				LAG(close, 4) OVER (PARTITION BY code ORDER BY trade_date) as week_close,
+				LAG(close, 19) OVER (PARTITION BY code ORDER BY trade_date) as month_close,
+				ROW_NUMBER() OVER (PARTITION BY code ORDER BY trade_date DESC) as rn
+			FROM stocks_daily_k
+			WHERE trade_date <= ? AND trade_date >= (?::date - INTERVAL '60 days')
+		),
+		latest_prices AS (
+			SELECT code, close, prev_close, week_close, month_close
+			FROM price_snapshot WHERE rn = 1
+		),
+		stock_metrics AS (
 			SELECT sb.code, sb.name, %s as industry,
 				COALESCE(di.pe, 0) as pe,
 				COALESCE(di.pb, 0) as pb,
@@ -80,26 +97,12 @@ func GetIndustryList(date string, industryType string) ([]IndustrySummary, error
 				COALESCE(di.total_market_cap, 0) as mcap,
 				COALESCE(k.close, 0) as close,
 				COALESCE(k.change_pct, 0) as change_pct,
-				COALESCE((k.close - kw.close) / NULLIF(kw.close, 0) * 100, 0) as week_return,
-				COALESCE((k.close - km.close) / NULLIF(km.close, 0) * 100, 0) as month_return
+				COALESCE((k.close - lp.week_close) / NULLIF(lp.week_close, 0) * 100, 0) as week_return,
+				COALESCE((k.close - lp.month_close) / NULLIF(lp.month_close, 0) * 100, 0) as month_return
 			FROM stocks_basic sb
 			LEFT JOIN stocks_daily_indicator di ON di.code = sb.code AND di.trade_date = ?
 			LEFT JOIN stocks_daily_k k ON k.code = sb.code AND k.trade_date = ?
-			LEFT JOIN LATERAL (
-				SELECT kp2.close FROM stocks_daily_k kp2
-				WHERE kp2.code = sb.code AND kp2.trade_date < ?
-				ORDER BY kp2.trade_date DESC LIMIT 1 OFFSET 0
-			) kp ON TRUE
-			LEFT JOIN LATERAL (
-				SELECT kw2.close FROM stocks_daily_k kw2
-				WHERE kw2.code = sb.code AND kw2.trade_date < ?
-				ORDER BY kw2.trade_date DESC LIMIT 1 OFFSET 4
-			) kw ON TRUE
-			LEFT JOIN LATERAL (
-				SELECT km2.close FROM stocks_daily_k km2
-				WHERE km2.code = sb.code AND km2.trade_date < ?
-				ORDER BY km2.trade_date DESC LIMIT 1 OFFSET 19
-			) km ON TRUE
+			LEFT JOIN latest_prices lp ON lp.code = sb.code
 			WHERE %s
 		)
 		SELECT industry,
@@ -119,7 +122,7 @@ func GetIndustryList(date string, industryType string) ([]IndustrySummary, error
 	`, col, filter)
 
 	var list []IndustrySummary
-	if err := db.PG.Raw(sql, date, date, date, date, date).Scan(&list).Error; err != nil {
+	if err := db.PG.Raw(sql, date, date, date, date).Scan(&list).Error; err != nil {
 		log.Printf("[industry] GetIndustryList query failed: %v", err)
 		return nil, fmt.Errorf("query industry list: %w", err)
 	}
@@ -128,7 +131,7 @@ func GetIndustryList(date string, industryType string) ([]IndustrySummary, error
 }
 
 // GetIndustryStocks returns all stocks in a given industry, ranked by PE ascending (default).
-// industryType: "sw_l1", "sw_l2_dc", "tdx"
+// industryType: "sw_l1", "sw_l2", "tdx"
 func GetIndustryStocks(industry, date, sortBy, industryType string) ([]IndustryStock, error) {
 	if date == "" {
 		var err error
@@ -149,8 +152,8 @@ func GetIndustryStocks(industry, date, sortBy, industryType string) ([]IndustryS
 	switch industryType {
 	case "sw_l1":
 		filterCol = "sb.sw_l1"
-	case "sw_l2_dc":
-		filterCol = "sb.sw_l2_dc"
+	case "sw_l2":
+		filterCol = "sb.sw_l2"
 	default:
 		filterCol = "sb.industry"
 	}
@@ -164,7 +167,16 @@ func GetIndustryStocks(industry, date, sortBy, industryType string) ([]IndustryS
 	}
 
 	sql := fmt.Sprintf(`
-		WITH ranked AS (
+		WITH price_snapshot AS (
+			SELECT code,
+				LAG(close, 4) OVER (PARTITION BY code ORDER BY trade_date) as week_close,
+				ROW_NUMBER() OVER (PARTITION BY code ORDER BY trade_date DESC) as rn
+			FROM stocks_daily_k WHERE trade_date <= $1 AND trade_date >= ($1::date - INTERVAL '30 days')
+		),
+		latest_prices AS (
+			SELECT code, week_close FROM price_snapshot WHERE rn = 1
+		),
+		ranked AS (
 			SELECT sb.code, sb.name,
 				COALESCE(di.pe, 0) as pe,
 				COALESCE(di.pb, 0) as pb,
@@ -172,22 +184,13 @@ func GetIndustryStocks(industry, date, sortBy, industryType string) ([]IndustryS
 				COALESCE(di.total_market_cap, 0) as market_cap,
 				COALESCE(k.close, 0) as close,
 				COALESCE(k.change_pct, 0) as change_pct,
-				COALESCE((k.close - kw.close) / NULLIF(kw.close, 0) * 100, 0) as week_return,
+				COALESCE((k.close - lp.week_close) / NULLIF(lp.week_close, 0) * 100, 0) as week_return,
 				ROW_NUMBER() OVER (ORDER BY CASE WHEN di.pe > 0 THEN di.pe ELSE 999999 END ASC) as pe_rank
 			FROM stocks_basic sb
-			LEFT JOIN stocks_daily_indicator di ON di.code = sb.code AND di.trade_date = $1
-			LEFT JOIN stocks_daily_k k ON k.code = sb.code AND k.trade_date = $2
-			LEFT JOIN LATERAL (
-				SELECT kp2.close FROM stocks_daily_k kp2
-				WHERE kp2.code = sb.code AND kp2.trade_date < $3
-				ORDER BY kp2.trade_date DESC LIMIT 1 OFFSET 0
-			) kp ON TRUE
-			LEFT JOIN LATERAL (
-				SELECT kw2.close FROM stocks_daily_k kw2
-				WHERE kw2.code = sb.code AND kw2.trade_date < $4
-				ORDER BY kw2.trade_date DESC LIMIT 1 OFFSET 4
-			) kw ON TRUE
-			WHERE %s = $5
+			LEFT JOIN stocks_daily_indicator di ON di.code = sb.code AND di.trade_date = $2
+			LEFT JOIN stocks_daily_k k ON k.code = sb.code AND k.trade_date = $3
+			LEFT JOIN latest_prices lp ON lp.code = sb.code
+			WHERE %s = $4
 		)
 		SELECT code, name, pe, pb, ps, market_cap, week_return, close, change_pct, pe_rank
 		FROM ranked
@@ -195,7 +198,7 @@ func GetIndustryStocks(industry, date, sortBy, industryType string) ([]IndustryS
 	`, filterCol, orderClause)
 
 	var list []IndustryStock
-	if err := db.PG.Raw(sql, date, date, date, date, industry).Scan(&list).Error; err != nil {
+	if err := db.PG.Raw(sql, date, date, date, industry).Scan(&list).Error; err != nil {
 		log.Printf("[industry] GetIndustryStocks query failed: %v", err)
 		return nil, fmt.Errorf("query industry stocks: %w", err)
 	}

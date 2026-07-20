@@ -112,7 +112,7 @@ func PredictionScreening(c *gin.Context) {
 	boardMap := make(map[string]string)
 	var basicRows []struct{ Code, Name, SwL1, SwL2Dc, BoardType string; IsSt bool }
 	db.PG.Raw(fmt.Sprintf(
-		`SELECT code, COALESCE(name,code) AS name, COALESCE(sw_l1,'') AS sw_l1, COALESCE(sw_l2_dc,'') AS sw_l2_dc, COALESCE(board_type,'') AS board_type, COALESCE(is_st,false) AS is_st FROM stocks_basic WHERE code IN (%s)`, codesStr)).
+		`SELECT code, COALESCE(name,code) AS name, COALESCE(sw_l1,'') AS sw_l1, COALESCE(sw_l2,'') AS sw_l2, COALESCE(board_type,'') AS board_type, COALESCE(is_st,false) AS is_st FROM stocks_basic WHERE code IN (%s)`, codesStr)).
 		Scan(&basicRows)
 	isStMap := make(map[string]bool)
 	for _, b := range basicRows {

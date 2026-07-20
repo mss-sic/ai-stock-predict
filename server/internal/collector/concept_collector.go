@@ -360,10 +360,10 @@ func fetchEMBoardStocks(boardCode, boardName, boardType string) ([]model.StockCo
 	return stocks, nil
 }
 
-// seedFromStocksBasic falls back to seeding concept data from stocks_basic.industry
-// when the EastMoney API is unavailable (e.g. overseas or blocked).
+// seedFromStocksBasic seeds industry data from stocks_basic.sw_l1/sw_l2
+// when the external API is unavailable.
 func seedFromStocksBasic() error {
-	log.Println("[概念采集] 东方财富API不可用，从stocks_basic.industry种子化...")
+	log.Println("[概念采集] 外部API不可用，从stocks_basic行业字段种子化...")
 
 	type industryRow struct {
 		Industry string

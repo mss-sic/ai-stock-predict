@@ -17,6 +17,7 @@ import BoardSidebar from '../components/BoardSidebar';
 import StockFundFlowTab from '../components/StockFundFlowTab';
 
 type TabKey = 'forecast' | 'analysis' | 'strategy' | 'kline' | 'pan_kou' | 'financial' | 'event' | 'info';
+import { useConfirm } from '../components/ConfirmModal';
 
 interface ToolStatus { tool: string; label: string; index: number; total: number; turn: number; done?: boolean; startTime?: number }
 interface Message { role: 'user' | 'ai'; text: string; status?: { phase: string; label: string }; toolStatuses?: ToolStatus[]; startTime?: number }
@@ -495,6 +496,7 @@ export default function StockDetailPage() {
   const [wlGroups, setWlGroups] = useState<any[]>([]);
   const [wlNewGroup, setWlNewGroup] = useState('');
   const [holdingCost, setHoldingCost] = useState<number | null>(null);
+  const { confirm, ConfirmModal } = useConfirm();
 
   useEffect(() => {
     if (!code) return;
@@ -1123,7 +1125,7 @@ const handleChatSend = async (text?: string) => {
                   <button
                     onClick={() => {
                       if (!code) return;
-                      Modal.confirm({
+                      confirm({
                         title: '确认修复数据',
                         content: '将增量更新该股票K线和指标，已有历史数据不受影响。',
                         okButtonProps: { status: 'warning' },
@@ -3258,6 +3260,7 @@ const handleChatSend = async (text?: string) => {
           </div>
         </div>
       </Modal>
+      <ConfirmModal />
     </div>
   );
 }

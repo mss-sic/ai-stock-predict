@@ -367,7 +367,7 @@ export default function PredictionScreeningPage() {
                   onMouseLeave={e => { e.currentTarget.style.background = i % 2 === 0 ? 'transparent' : 'var(--color-fill-1)'; }}>
                   <td style={{ padding: '9px 8px', color: 'var(--color-text-2)', fontSize: 11, fontFamily: "'SF Mono', monospace" }}>{row.code}</td>
                   <td style={{ padding: '9px 8px', fontWeight: 600, color: 'var(--color-text-1)' }}>{row.name || row.code}</td>
-                  <td style={{ padding: '9px 8px', fontSize: 10, color: 'var(--color-text-3)' }}>{industryLevel === 'l2' ? (row.industryL2 || row.industry || '—') : (row.industry || '—')}</td>
+                  <td style={{ padding: '9px 8px', fontSize: 10, color: 'var(--color-text-3)' }}>{industryLevel === 'l2' ? (row.industryL2 || '—') : (row.industry || '—')}</td>
                   <td style={{ padding: '9px 8px', textAlign: 'right' }}>
                     <span style={{ fontSize: 12, fontWeight: 700, fontFamily: "'SF Mono', monospace", color: retColor(row.retD5) }}>{fmtPct(row.retD5)}</span>
                   </td>
