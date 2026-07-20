@@ -461,28 +461,10 @@ func generateSignalsV2(
 			scoringUniverse := make([]dcStockInfo, 0)
 			for _, si := range universe {
 				if pos, held := positions[si.Code]; held && pos.Quantity > 0 { continue }
-				// P0-2: Skip limit-up stocks (daily_change >= 9.8% ≈涨停)
-				// P0: Concept filter — only include stocks in top concepts
-				if conceptCache != nil && conceptTopPct < 1.0 {
-					mult := conceptCache.GetMultiplier(si.Code, date)
-					// Dynamic threshold: conceptTopPct maps to multiplier cutoff
-					// topPct≤0.20→mult≥1.30, ≤0.50→mult≥1.0, ≤0.80→mult≥0.70
-					multThreshold := 0.0
-					switch {
-					case conceptTopPct <= 0.20: multThreshold = 1.30
-					case conceptTopPct <= 0.50: multThreshold = 1.00
-					case conceptTopPct <= 0.80: multThreshold = 0.70
-					default: multThreshold = 0.0
-					}
-					if mult < multThreshold { continue }
-				}
-				if chg := kcache.GetDailyChange(si.Code, date); chg >= 9.8 {
-					continue
-				}
-				// Skip ST/suspended stocks (basic name check)
-				if isSTStock(si.Name) {
-					continue
-				}
+				// Skip ST/suspended stocks
+				if isSTStock(si.Name) { continue }
+				// Skip 北交所 (8xxxxx)
+				if strings.HasPrefix(si.Code, "8") { continue }
 				scoringUniverse = append(scoringUniverse, dcStockInfo{Code: si.Code, Name: si.Name})
 			}
 			if len(scoringUniverse) > 0 {
@@ -593,8 +575,8 @@ func generateSignalsV2(
 			for _, si := range universe {
 				if boughtThisRound >= slotCount { break }
 				if pos, held := positions[si.Code]; held && pos.Quantity > 0 { continue }
-				if kcache.GetDailyChange(si.Code, date) >= 9.8 { continue }
 				if isSTStock(si.Name) { continue }
+				if strings.HasPrefix(si.Code, "8") { continue }
 				triggered, reason := decisionTreeBuy.Evaluate(si.Code, date)
 				if triggered {
 					candidates = append(candidates, buyCandidate{si.Code, si.Name, reason, kcache.GetClose(si.Code, date), 0})
@@ -605,8 +587,8 @@ func generateSignalsV2(
 			for _, si := range universe {
 				if boughtThisRound >= slotCount { break }
 				if pos, held := positions[si.Code]; held && pos.Quantity > 0 { continue }
-				if kcache.GetDailyChange(si.Code, date) >= 9.8 { continue }
 				if isSTStock(si.Name) { continue }
+				if strings.HasPrefix(si.Code, "8") { continue }
 				// Policy-aware buy logic (style overrides default, policy overrides style)
 				buyLogic := styleBuyLogic
 				if policy != nil && policy.BuyLogic != "" {
