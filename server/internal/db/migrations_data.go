@@ -2002,4 +2002,16 @@ Register(Migration{
 		},
 	})
 
+	// ============================================================
+	// v093: AutoMigrate Strategy to add missing columns (added after v33)
+	// ============================================================
+	Register(Migration{
+		Version:     93,
+		Description: "MySQL: AutoMigrate Strategy model to catch up on new columns",
+		Up: func() error {
+			gormAutoMigrate(MySQL, &model.Strategy{})
+			return nil
+		},
+	})
+
 }

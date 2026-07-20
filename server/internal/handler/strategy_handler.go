@@ -96,7 +96,7 @@ func (h *StrategyHandler) Create(c *gin.Context) {
 	}
 	if err := db.MySQL.Create(&s).Error; err != nil {
 		log.Printf("[strategy] create error: %v", err)
-		response.InternalError(c, "创建失败")
+		response.InternalError(c, "创建失败: " + err.Error())
 		return
 	}
 	log.Printf("[strategy] created id=%d name=%s uid=%d", s.ID, s.Name, uid)
