@@ -285,9 +285,16 @@ func (b *MxMoniBroker) SyncPositions(account *model.TradingAccount) (*BrokerPort
 	})
 
 	today := time.Now().Format("2006-01-02")
-	for _, pos := range portfolio.Positions {
+	log.Printf("[broker] syncing %d positions to holdings for account %d (today=%s)", len(portfolio.Positions), account.ID, today)
+	for i, pos := range portfolio.Positions {
+		log.Printf("[broker]   [%d/%d] %s %s qty=%d cost=%.2f avail=%d price=%.2f",
+			i+1, len(portfolio.Positions), pos.SecCode, pos.SecName, pos.Count, pos.CostPrice, pos.AvailCount, pos.Price)
 		b.syncLocalHolding(account, pos.SecCode, pos.SecName, pos.Count, pos.CostPrice, pos.AvailCount, pos.Price, today)
 	}
+	// Verify holdings were written
+	var holdingCount int64
+	db.MySQL.Model(&model.Holding{}).Where("account_id = ? AND quantity > 0", account.ID).Count(&holdingCount)
+	log.Printf("[broker] after sync: holdings count for account %d = %d", account.ID, holdingCount)
 
 	log.Printf("[broker] Synced %d positions for account %d, total=%.2f avail=%.2f",
 		portfolio.PosCount, account.ID, portfolio.TotalAssets, portfolio.AvailBalance)
