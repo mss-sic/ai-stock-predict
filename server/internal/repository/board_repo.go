@@ -69,7 +69,7 @@ func (r *BoardRepo) GetEnrichedHeatmap(from, to string) ([]model.HeatmapEnriched
 		LEFT JOIN stocks_basic s ON s.code = a.stock_code
 		LEFT JOIN stocks_daily_k k ON k.code = a.stock_code AND k.trade_date = a.pick_date
 		LEFT JOIN LATERAL (
-			SELECT ROUND(((close - open) / NULLIF(open, 0) * 100)::numeric, 2) AS chg_pct
+			SELECT change_pct AS chg_pct
 			FROM stocks_daily_k
 			WHERE code = a.stock_code
 			ORDER BY trade_date DESC LIMIT 1
