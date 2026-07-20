@@ -66,9 +66,12 @@ export default function StrategyPage() {
   const [aiOptimizing, setAiOptimizing] = useState(false);
 
   // Backtest state
-  const [btStart, setBtStart] = useState('2025-01-01');
+  const toDateStr = (d: Date) => d.toISOString().slice(0, 10);
+  const now = new Date();
+  const d30 = new Date(now); d30.setDate(now.getDate() - 30);
+  const [btStart, setBtStart] = useState(toDateStr(d30));
   const [btStocks, setBtStocks] = useState("");
-  const [btEnd, setBtEnd] = useState('2026-06-05');
+  const [btEnd, setBtEnd] = useState(toDateStr(now));
   const [btRunning, setBtRunning] = useState(false);
   const [btResult, setBtResult] = useState<any>(null);
   const [btHistory, setBtHistory] = useState<any[]>([]);

@@ -526,6 +526,30 @@ func generateSignalsV2(
 							if ma2 < 1 { ma2 = 20 }
 							val := checkMACrossFast(kcache, code, date, ma1, ma2)
 							return val != 0, val
+						case "boll_position":
+							upper, ok1 := icache.get("boll_upper", code, date)
+							lower, ok2 := icache.get("boll_lower", code, date)
+							if ok1 && ok2 && upper-lower > 0 {
+								v := (kcache.GetClose(code, date) - lower) / (upper - lower) * 100
+								return checkOp(v, cond.Operator, cond.Value), v
+							}
+							return false, 0
+						case "boll_width":
+							upper, ok1 := icache.get("boll_upper", code, date)
+							lower, ok2 := icache.get("boll_lower", code, date)
+							middle, ok3 := icache.get("boll_middle", code, date)
+							if ok1 && ok2 && ok3 && middle > 0 {
+								v := (upper - lower) / middle * 100
+								return checkOp(v, cond.Operator, cond.Value), v
+							}
+							return false, 0
+						case "ma_deviation":
+							ma20, ok := icache.get("ma_20", code, date)
+							if ok && ma20 > 0 {
+								v := (kcache.GetClose(code, date) - ma20) / ma20 * 100
+								return checkOp(v, cond.Operator, cond.Value), v
+							}
+							return false, 0
 	case "macd":
 							// Fast path: compute MACD from kcache close prices in-memory
 							val := checkMACDFast(kcache, code, date)

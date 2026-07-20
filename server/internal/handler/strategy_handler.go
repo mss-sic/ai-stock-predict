@@ -2176,7 +2176,7 @@ func preloadIndicators(conds []model.StrategyCondition, codes []string, startDat
 	}
 
 	// Batch preload: Bollinger Bands (upper/middle/lower)
-	if needPreload["boll_upper"] || needPreload["boll_middle"] || needPreload["boll_lower"] {
+	if needPreload["boll_upper"] || needPreload["boll_middle"] || needPreload["boll_lower"] || needPreload["boll_position"] || needPreload["boll_width"] {
 		log.Printf("[backtest] batch preloading Bollinger Bands for %d stocks...", len(codes))
 		inClause := db.CodesToInClause(codes)
 		query := fmt.Sprintf(`
@@ -2212,6 +2212,8 @@ func preloadIndicators(conds []model.StrategyCondition, codes []string, startDat
 		delete(needPreload, "boll_upper")
 		delete(needPreload, "boll_middle")
 		delete(needPreload, "boll_lower")
+	delete(needPreload, "boll_position")
+	delete(needPreload, "boll_width")
 	}
 
 	// Batch preload: PSY/PSYMA psychological line
@@ -2301,7 +2303,7 @@ func preloadIndicators(conds []model.StrategyCondition, codes []string, startDat
 	}
 
 	// Batch preload: MA lines (ma_5/10/20/30/60)
-	if needPreload["ma_5"] || needPreload["ma_10"] || needPreload["ma_20"] || needPreload["ma_30"] || needPreload["ma_60"] {
+	if needPreload["ma_5"] || needPreload["ma_10"] || needPreload["ma_20"] || needPreload["ma_30"] || needPreload["ma_60"] || needPreload["ma_deviation"] {
 		log.Printf("[backtest] batch preloading MA lines for %d stocks...", len(codes))
 		inClause := db.CodesToInClause(codes)
 		query := fmt.Sprintf(`
@@ -2339,6 +2341,7 @@ func preloadIndicators(conds []model.StrategyCondition, codes []string, startDat
 		delete(needPreload, "ma_20")
 		delete(needPreload, "ma_30")
 		delete(needPreload, "ma_60")
+	delete(needPreload, "ma_deviation")
 	}
 
 	if len(needPreload) > 0 {
@@ -3336,6 +3339,24 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 				cur := kcache.GetClose(code, date)
 				prev := getCloseNDaysAgo(kcache, code, date, 20)
 				if prev > 0 { val = (cur - prev) / prev * 100 }
+			case "boll_position":
+				upper, ok1 := icache.get("boll_upper", code, date)
+				lower, ok2 := icache.get("boll_lower", code, date)
+				if ok1 && ok2 && upper-lower > 0 {
+					val = (kcache.GetClose(code, date) - lower) / (upper - lower) * 100
+				}
+			case "boll_width":
+				upper, ok1 := icache.get("boll_upper", code, date)
+				lower, ok2 := icache.get("boll_lower", code, date)
+				middle, ok3 := icache.get("boll_middle", code, date)
+				if ok1 && ok2 && ok3 && middle > 0 {
+					val = (upper - lower) / middle * 100
+				}
+			case "ma_deviation":
+				ma20, ok := icache.get("ma_20", code, date)
+				if ok && ma20 > 0 {
+					val = (kcache.GetClose(code, date) - ma20) / ma20 * 100
+				}
 			default:
 				val = getIndicatorValue(cond, code, date)
 			}
