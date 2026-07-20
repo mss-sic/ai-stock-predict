@@ -6,7 +6,9 @@ import (
 	"time"
 
 	"github.com/ai-stock-predict/server/internal/collector"
+	"log"
 	"github.com/ai-stock-predict/server/internal/service"
+	"github.com/ai-stock-predict/server/internal/db"
 )
 
 // ── System Pipeline Definitions ──
@@ -50,7 +52,7 @@ var AfterCloseDataPipeline = Pipeline{
 			Name:      "market_style",
 			DependsOn: []string{"market_sentiment"},
 			Timeout:   5 * time.Minute,
-			Handler:   wrapCollectorPhase("market_style", "市场风格计算"),
+			Handler:   wrapMarketStylePhase("市场风格计算"),
 		},
 		{
 			Name:      "risk_full_scan",
@@ -293,6 +295,72 @@ func wrapCollectorPhase(phase, label string) func(ctx context.Context, logger *S
 			return nil
 		}
 		logger.Phase("collector_done", map[string]any{"phase": phase})
+		return nil
+	}
+}
+
+// wrapMarketStylePhase directly computes market style via Go service (no Python/HTTP roundtrip).
+func wrapMarketStylePhase(label string) func(ctx context.Context, logger *StructuredLogger) error {
+	return func(ctx context.Context, logger *StructuredLogger) error {
+		logger.Phase("market_style_start", map[string]any{"label": label})
+
+		svc := service.NewMarketStyleService()
+
+		// Get latest market_sentiment date (just computed by previous pipeline stage)
+		var date string
+		if err := db.PG.Raw("SELECT trade_date::text FROM market_sentiment ORDER BY trade_date DESC LIMIT 1").Scan(&date).Error; err != nil {
+			logger.Error("market_style_no_sentiment", err, nil)
+			return err
+		}
+		if date == "" {
+			logger.Warn("market_style_no_date", map[string]any{"reason": "market_sentiment is empty"})
+			return nil
+		}
+
+		// Check if already computed
+		var latestStyleDate string
+		db.PG.Raw("SELECT trade_date::text FROM market_style_daily ORDER BY trade_date DESC LIMIT 1").Scan(&latestStyleDate)
+		if date == latestStyleDate {
+			log.Printf("[market_style] pipeline: already up-to-date (%s), skipping", date)
+			logger.Info("market_style_skip", map[string]any{"date": date, "reason": "already computed"})
+			return nil
+		}
+
+		// Compute latest + any missing dates
+		var dates []string
+		db.PG.Raw("SELECT trade_date::text FROM market_sentiment WHERE trade_date NOT IN (SELECT trade_date FROM market_style_daily) ORDER BY trade_date").Pluck("trade_date", &dates)
+
+		// Always include latest for recompute
+		hasLatest := false
+		for _, d := range dates {
+			if d == date {
+				hasLatest = true
+				break
+			}
+		}
+		if !hasLatest {
+			dates = append(dates, date)
+		}
+
+		log.Printf("[market_style] pipeline: computing %d dates (latest=%s)", len(dates), date)
+		success, fail := 0, 0
+		for _, d := range dates {
+			if err := svc.ComputeAndStore(d); err != nil {
+				fail++
+				log.Printf("[market_style] pipeline FAIL %s: %v", d, err)
+				logger.Error("market_style_compute_failed", err, map[string]any{"date": d})
+			} else {
+				success++
+			}
+		}
+
+		logger.Info("market_style_done", map[string]any{
+			"success": success, "fail": fail, "total": len(dates), "latest": date,
+		})
+
+		if fail > 0 {
+			return fmt.Errorf("market style: %d/%d failed", fail, success+fail)
+		}
 		return nil
 	}
 }

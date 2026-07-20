@@ -24,14 +24,16 @@ type AlgorithmPickDetail struct {
 
 func (AlgorithmPickDetail) TableName() string { return "algorithm_pick_details" }
 
-// HeatmapEnriched combines board data with stock name and K-line change
+// HeatmapEnriched combines board data with stock name and K-line changes
+// ChgPct=上榜日涨跌幅, TodayChgPct=今日涨跌幅（取最新K线）
 type HeatmapEnriched struct {
-	PickDate  time.Time `json:"pickDate"`
-	StockCode string    `json:"stockCode"`
-	StockName string    `json:"stockName"`
-	Rank      int       `json:"rank"`
-	Score     float64   `json:"score"`
-	Open      float64   `json:"open"`
-	Close     float64   `json:"close"`
-	ChgPct    float64   `json:"chgPct"`
+	PickDate    time.Time `json:"pickDate"`
+	StockCode   string    `json:"stockCode"`
+	StockName   string    `json:"stockName"`
+	Rank        int       `json:"rank"`
+	Score       float64   `json:"score"`
+	Open        float64   `json:"open"`
+	Close       float64   `json:"close"`
+	ChgPct      float64   `json:"chgPct"`
+	TodayChgPct float64   `json:"todayChgPct"`
 }

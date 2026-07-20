@@ -63,10 +63,17 @@ func (r *BoardRepo) GetEnrichedHeatmap(from, to string) ([]model.HeatmapEnriched
 			COALESCE(a.score, 0) AS score,
 			COALESCE(k.open, 0) AS open,
 			COALESCE(k.close, 0) AS close,
-			CASE WHEN k.open > 0 THEN ROUND(((k.close - k.open) / k.open * 100)::numeric, 2) ELSE 0 END AS chg_pct
+			CASE WHEN k.open > 0 THEN ROUND(((k.close - k.open) / k.open * 100)::numeric, 2) ELSE 0 END AS chg_pct,
+			COALESCE(today.chg_pct, 0) AS today_chg_pct
 		FROM algorithm_pick_details a
 		LEFT JOIN stocks_basic s ON s.code = a.stock_code
 		LEFT JOIN stocks_daily_k k ON k.code = a.stock_code AND k.trade_date = a.pick_date
+		LEFT JOIN LATERAL (
+			SELECT ROUND(((close - open) / NULLIF(open, 0) * 100)::numeric, 2) AS chg_pct
+			FROM stocks_daily_k
+			WHERE code = a.stock_code
+			ORDER BY trade_date DESC LIMIT 1
+		) today ON true
 		WHERE a.pick_date >= ? AND a.pick_date <= ?
 		ORDER BY a.pick_date ASC, a.rank ASC
 	`, from, to).Scan(&rows).Error

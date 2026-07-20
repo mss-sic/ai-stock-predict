@@ -6,7 +6,7 @@ import { Flame } from 'lucide-react';
 /* types for enriched data */
 interface EnrichedCell {
   pickDate: string; stockCode: string; stockName: string;
-  rank: number; score: number; open: number; close: number; chgPct: number;
+  rank: number; score: number; open: number; close: number; chgPct: number; todayChgPct: number;
 }
 
 interface StockRow {
@@ -40,6 +40,7 @@ export default function HeatmapPage() {
   const [raw, setRaw] = useState<EnrichedCell[]>([]);
     const [view, setView] = useState<'calendar' | 'matrix'>('calendar');
   const [colorBy, setColorBy] = useState<'chg' | 'score'>('chg');
+  const [chgMode, setChgMode] = useState<'pickDay' | 'today'>('pickDay');
   const [sortKey, setSortKey] = useState<'appearances' | 'streak' | 'score'>('appearances');
   const [hover, setHover] = useState<{ cell: EnrichedCell; row: StockRow; colIdx: number } | null>(null);
   const navigate = useNavigate();
@@ -102,12 +103,13 @@ export default function HeatmapPage() {
      Calendar View — date columns, chg% colored
      ═══════════════════════════════════════════ */
   if (view === 'calendar') {
+    const getChg = (m: EnrichedCell) => chgMode === 'pickDay' ? m.chgPct : (m.todayChgPct || 0);
     const cols = dates.map((d, di) => {
       const members = sortedStocks
         .filter(s => s.cells[di])
         .map(s => s.cells[di]!);
-      members.sort((a, b) => b.chgPct - a.chgPct);
-      const upN = members.filter(m => m.chgPct > 0).length;
+      members.sort((a, b) => getChg(b) - getChg(a));
+      const upN = members.filter(m => getChg(m) > 0).length;
       return { date: d, di, members, upN };
     });
 
@@ -121,7 +123,19 @@ export default function HeatmapPage() {
           background: 'var(--color-bg-1)', borderRadius: 6, border: '1px solid var(--color-border-1)',
         }}>
           <span style={{ fontSize: 16, fontWeight: 600, color: 'var(--color-text-1)' }}>20 交易日上榜热力图</span>
-          <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>按日成列 · 单元格颜色 = 当日涨跌幅</span>
+          <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>按日成列 · 单元格颜色 = {chgMode === 'pickDay' ? '上榜日涨跌幅' : '今日涨跌幅'}</span>
+          <div style={{ display: 'flex', borderRadius: 4, overflow: 'hidden', border: '1px solid var(--color-border-1)' }}>
+            <button onClick={() => setChgMode('pickDay')} style={{
+              padding: '4px 10px', fontSize: 11, border: 'none', cursor: 'pointer',
+              background: chgMode === 'pickDay' ? '#e8f3ff' : 'var(--color-bg-1)',
+              color: chgMode === 'pickDay' ? '#165dff' : 'var(--color-text-2)', fontWeight: chgMode === 'pickDay' ? 500 : 400,
+            }}>上榜日</button>
+            <button onClick={() => setChgMode('today')} style={{
+              padding: '4px 10px', fontSize: 11, border: 'none', cursor: 'pointer',
+              background: chgMode === 'today' ? '#e8f3ff' : 'var(--color-bg-1)',
+              color: chgMode === 'today' ? '#165dff' : 'var(--color-text-2)', fontWeight: chgMode === 'today' ? 500 : 400,
+            }}>今日</button>
+          </div>
           <div style={{ flex: 1 }} />
           <div style={{ display: 'flex', borderRadius: 4, overflow: 'hidden', border: '1px solid var(--color-border-1)' }}>
             <button onClick={() => setView('calendar')} style={{
@@ -169,7 +183,8 @@ export default function HeatmapPage() {
                     {/* cells */}
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                       {c.members.map((m, mi) => {
-                        const colors = chgCell(m.chgPct);
+                        const chgVal = getChg(m);
+                        const colors = chgCell(chgVal);
                         return (
                           <div
                             key={m.stockCode}
@@ -186,7 +201,7 @@ export default function HeatmapPage() {
                           >
                             <span style={{ fontWeight: 600, lineHeight: 1.1, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.stockName}</span>
                             <span style={{ fontSize: 11, opacity: 0.95, fontFamily: 'var(--font-family-mono, monospace)', whiteSpace: 'nowrap' }}>
-                              {m.chgPct >= 0 ? '+' : ''}{m.chgPct.toFixed(1)}%
+                              {chgVal >= 0 ? '+' : ''}{chgVal.toFixed(1)}%
                             </span>
                           </div>
                         );
@@ -259,7 +274,7 @@ export default function HeatmapPage() {
       }}>
         <span style={{ fontSize: 16, fontWeight: 600, color: 'var(--color-text-1)' }}>20 交易日上榜热力图</span>
         <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>
-          {colorBy === 'chg' ? '单元格颜色 = 当日涨跌幅' : '单元格颜色 = 当日算法评分'}
+          {colorBy === 'chg' ? chgMode === 'pickDay' ? '单元格颜色 = 上榜日涨跌幅' : '单元格颜色 = 今日涨跌幅' : '单元格颜色 = 当日算法评分'}
         </span>
         <div style={{ flex: 1 }} />
         <div style={{ display: 'flex', borderRadius: 4, overflow: 'hidden', border: '1px solid var(--color-border-1)' }}>
@@ -388,9 +403,10 @@ export default function HeatmapPage() {
                     );
                   }
 
-                  const colors = colorBy === 'chg' ? chgCell(cell.chgPct) : scoreBg(cell.score || (100 - (cell.rank - 1) * 2));
+                  const chgVal2 = chgMode === 'pickDay' ? cell.chgPct : (cell.todayChgPct || 0);
+                  const colors = colorBy === 'chg' ? chgCell(chgVal2) : scoreBg(cell.score || (100 - (cell.rank - 1) * 2));
                   const val = colorBy === 'chg'
-                    ? `${cell.chgPct >= 0 ? '+' : ''}${cell.chgPct.toFixed(1)}%`
+                    ? `${chgVal2 >= 0 ? '+' : ''}${chgVal2.toFixed(1)}%`
                     : `${(cell.score || (100 - (cell.rank - 1) * 2)).toFixed(0)}`;
 
                   return (
@@ -445,6 +461,14 @@ export default function HeatmapPage() {
                   }}>
                     {hover.cell.chgPct >= 0 ? '+' : ''}{hover.cell.chgPct.toFixed(2)}%
                   </span>
+                  {hover.cell.todayChgPct != null && hover.cell.todayChgPct !== 0 && (
+                    <span style={{
+                      fontFamily: 'var(--font-family-mono, monospace)',
+                      color: hover.cell.todayChgPct >= 0 ? '#f53f3f' : '#00b42a', fontWeight: 500, fontSize: 12,
+                    }}>
+                      今日 {hover.cell.todayChgPct >= 0 ? '+' : ''}{hover.cell.todayChgPct.toFixed(2)}%
+                    </span>
+                  )}
                   <span style={{ color: 'var(--color-text-3)' }}>评分</span>
                   <span style={{ fontFamily: 'var(--font-family-mono, monospace)', color: 'var(--color-text-1)' }}>
                     {(hover.cell.score || (100 - (hover.cell.rank - 1) * 2)).toFixed(0)}

@@ -1172,6 +1172,7 @@ export default function DataManagementPage() {
                         { title: '新增', dataIndex: 'totalNew', width: 60, render: (v: number) => <span style={{ fontWeight: 600, color: '#165dff' }}>{v}</span> },
                         { title: '跳过', dataIndex: 'totalSkipped', width: 60, render: (v: number) => <span style={{ color: 'var(--color-text-3)' }}>{v}</span> },
                         { title: '错误', dataIndex: 'totalErrors', width: 55, render: (v: number) => v > 0 ? <span style={{ color: '#f53f3f', fontWeight: 600 }}>{v}</span> : <span style={{ color: 'var(--color-text-3)' }}>0</span> },
+                        { title: '失败原因', dataIndex: 'errorMsg', width: 160, ellipsis: true, render: (v: string) => v ? <span style={{ color: '#f53f3f', fontSize: 11 }} title={v}>{v}</span> : <span style={{ color: 'var(--color-text-3)', fontSize: 12 }}>-</span> },
                         { title: '耗时', dataIndex: 'durationMs', width: 70, render: (v: number) => <span style={{ color: 'var(--color-text-2)', fontSize: 12 }}>{formatDuration(v)}</span> },
                         { title: '时间', dataIndex: 'startedAt', width: 140, render: (v: string) => <span style={{ fontSize: 11, color: 'var(--color-text-3)' }}>{v ? new Date(v).toLocaleString('zh-CN') : '-'}</span> },
                       ]} pagination={false} border={false} stripe />
@@ -1264,6 +1265,7 @@ export default function DataManagementPage() {
                     { title: '新增', dataIndex: 'totalNew', width: 60, render: (v: number) => <span style={{ fontWeight: 600, color: '#165dff' }}>{v}</span> },
                     { title: '跳过', dataIndex: 'totalSkipped', width: 60, render: (v: number) => <span style={{ color: 'var(--color-text-3)' }}>{v}</span> },
                     { title: '错误', dataIndex: 'totalErrors', width: 55, render: (v: number) => v > 0 ? <span style={{ color: '#f53f3f', fontWeight: 600 }}>{v}</span> : <span style={{ color: 'var(--color-text-3)' }}>0</span> },
+                    { title: '失败原因', dataIndex: 'errorMsg', width: 160, ellipsis: true, render: (v: string) => v ? <span style={{ color: '#f53f3f', fontSize: 11 }} title={v}>{v}</span> : <span style={{ color: 'var(--color-text-3)', fontSize: 12 }}>-</span> },
                     { title: '耗时', dataIndex: 'durationMs', width: 70, render: (v: number) => <span style={{ color: 'var(--color-text-2)', fontSize: 12 }}>{formatDuration(v)}</span> },
                     { title: '时间', dataIndex: 'startedAt', width: 140, render: (v: string) => <span style={{ fontSize: 11 }}>{v ? new Date(v).toLocaleString('zh-CN') : '-'}</span> },
                   ]} pagination={false} border={false} stripe />

@@ -13,7 +13,7 @@ def main():
     url = f"{API_BASE}/market/compute-style?date={date}"
 
     try:
-        req = urllib.request.Request(url)
+        req = urllib.request.Request(url, method='POST')
         with urllib.request.urlopen(req, timeout=30) as resp:
             data = json.loads(resp.read().decode())
             if data.get("code") == 0:
