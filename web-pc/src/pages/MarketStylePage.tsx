@@ -1,8 +1,9 @@
 import { useEffect, useState, useMemo } from 'react';
+import ReactMarkdown from 'react-markdown';
 import { useNavigate } from 'react-router-dom';
 import { DatePicker, Spin, Tag, Tooltip, Select } from '@arco-design/web-react';
 import { Activity, TrendingUp, DollarSign, Shield, Zap, Info, ChevronRight, BarChart3, GanttChart, Target, RefreshCw, Building2 } from 'lucide-react';
-import { fetchMarketStyleCurve, fetchMarketDailyReview } from '../services/api';
+import { fetchMarketStyleCurve, fetchMarketDailyReview, fetchMarketAIInterpretation } from '../services/api';
 
 const STYLE_COLORS: Record<string, string> = {
   broad_rally: '#F7BA1E', trend_up: '#00B42A', structural: '#FF7D00',
@@ -52,6 +53,8 @@ export default function MarketStylePage() {
   const [curveData, setCurveData] = useState<any[]>([]);
   const [review, setReview] = useState<any>(null);
   const [reviewLoading, setReviewLoading] = useState(false);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiInterpretation, setAiInterpretation] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState<string>('');
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const navigate = useNavigate();
@@ -79,6 +82,20 @@ export default function MarketStylePage() {
       setReview(res.data?.data || null);
     } catch (e) { console.error(e); setReview(null); }
     setReviewLoading(false);
+  };
+
+  const triggerAIInterpretation = async () => {
+    if (!selectedDate || aiLoading) return;
+    setAiLoading(true);
+    setAiInterpretation(null);
+    try {
+      const res: any = await fetchMarketAIInterpretation({ date: selectedDate });
+      const text = res.data?.data?.text || '';
+      setAiInterpretation(text);
+    } catch (e) {
+      console.error('[AI] interpretation failed:', e);
+    }
+    setAiLoading(false);
   };
 
   useEffect(() => { loadCurve(); }, []);
@@ -450,17 +467,58 @@ export default function MarketStylePage() {
             </div>
 
             {/* AI Analysis Summary */}
-            {review.analysisSummary && (
-              <div style={{ background: 'linear-gradient(135deg, #165DFF10, #722ED110)', borderRadius: 10, border: '1px solid var(--color-border-2)', padding: '14px 18px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+            <div style={{ background: 'linear-gradient(135deg, #165DFF10, #722ED110)', borderRadius: 10, border: '1px solid var(--color-border-2)', padding: '14px 18px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   <Zap size={14} style={{ color: '#722ED1' }} />
                   <span style={{ fontSize: 13, fontWeight: 600, color: '#722ED1' }}>AI 市场解读</span>
+                  {selectedDate && (
+                    <span style={{ fontSize: 10, color: 'var(--color-text-4)', marginLeft: 4 }}>{selectedDate}</span>
+                  )}
                 </div>
-                <div style={{ fontSize: 13, lineHeight: 1.7, color: 'var(--color-text-2)' }}>
-                  {review.analysisSummary}
-                </div>
+                <button
+                  onClick={triggerAIInterpretation}
+                  disabled={aiLoading || !selectedDate}
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 4,
+                    padding: '4px 10px', borderRadius: 6, border: '1px solid #722ED140',
+                    background: aiLoading ? 'var(--color-fill-2)' : '#722ED110',
+                    color: aiLoading ? 'var(--color-text-3)' : '#722ED1',
+                    fontSize: 11, fontWeight: 500, cursor: aiLoading ? 'not-allowed' : 'pointer',
+                  }}
+                >
+                  <RefreshCw size={12} style={{ animation: aiLoading ? 'spin 1s linear infinite' : 'none' }} />
+                  {aiLoading ? '生成中...' : '刷新 AI 分析'}
+                </button>
               </div>
-            )}
+              {(aiInterpretation || review.analysisSummary) ? (
+                <div style={{ fontSize: 13, lineHeight: 1.8, color: 'var(--color-text-2)' }}>
+                  <ReactMarkdown
+                    components={{
+                      h2: ({ children }: any) => <div style={{ fontSize: 14, fontWeight: 700, color: '#722ED1', marginTop: 12, marginBottom: 6, paddingBottom: 4, borderBottom: '1px solid var(--color-border-1)' }}>{children}</div>,
+                      h3: ({ children }: any) => <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-1)', marginTop: 8, marginBottom: 4 }}>{children}</div>,
+                      p: ({ children }: any) => <p style={{ margin: '4px 0', fontSize: 13 }}>{children}</p>,
+                      ul: ({ children }: any) => <ul style={{ margin: '4px 0', paddingLeft: 18 }}>{children}</ul>,
+                      ol: ({ children }: any) => <ol style={{ margin: '4px 0', paddingLeft: 18 }}>{children}</ol>,
+                      li: ({ children }: any) => <li style={{ margin: '2px 0', fontSize: 13 }}>{children}</li>,
+                      strong: ({ children }: any) => <strong style={{ color: 'var(--color-text-1)', fontWeight: 700 }}>{children}</strong>,
+                      code: ({ children }: any) => <code style={{ background: 'var(--color-fill-2)', padding: '1px 5px', borderRadius: 3, fontSize: 12 }}>{children}</code>,
+                    }}
+                  >
+                    {aiInterpretation || review.analysisSummary || ''}
+                  </ReactMarkdown>
+                </div>
+              ) : aiLoading ? (
+                <div style={{ fontSize: 12, color: 'var(--color-text-3)', padding: '12px 0', textAlign: 'center' }}>
+                  <Spin size={14} style={{ marginRight: 8 }} />
+                  AI 正在分析市场数据，请稍候...
+                </div>
+              ) : (
+                <div style={{ fontSize: 12, color: 'var(--color-text-4)', padding: '8px 0', textAlign: 'center' }}>
+                  暂无 AI 分析，点击「刷新 AI 分析」按钮生成
+                </div>
+              )}
+            </div>
 
             {/* Top Concepts */}
             {review.topConcepts && Array.isArray(review.topConcepts) && review.topConcepts.length > 0 && (

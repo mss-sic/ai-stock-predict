@@ -114,3 +114,18 @@ func (h *MarketStyleHandler) BulkCompute(c *gin.Context) {
 		"fail":    fail,
 	})
 }
+
+// GenerateAIInterpretation triggers a full AI market interpretation for a date.
+func (h *MarketStyleHandler) GenerateAIInterpretation(c *gin.Context) {
+	date := c.DefaultQuery("date", "")
+	if date == "" {
+		response.BadRequest(c, "date 参数必填")
+		return
+	}
+	text, err := h.svc.GenerateFullAIInterpretation(date)
+	if err != nil {
+		response.InternalError(c, "AI 解读生成失败: "+err.Error())
+		return
+	}
+	response.Success(c, gin.H{"date": date, "text": text})
+}

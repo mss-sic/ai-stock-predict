@@ -425,6 +425,8 @@ export const toggleTask = (id: number) => api.post(`/admin/scheduled-tasks/${id}
 export const resetTaskStatus = (id: number) => api.post(`/admin/scheduled-tasks/${id}/reset`);
 export const initDefaultTasks = () => api.post('/admin/scheduled-tasks/init-defaults');
 export const bulkComputeMarketStyle = () => api.post('/market/bulk-compute');
+export const fetchMarketAIInterpretation = (params?: any) => api.post("/market/ai-interpretation", null, { params });
+
 export const fetchTaskLogs = (taskId?: number, limit?: number) => api.get('/admin/task-logs', { params: { taskId, limit } });
 
 // ── Scheduler Execution History ──

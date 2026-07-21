@@ -73,6 +73,7 @@ func main() {
 	marketPubH := handler.NewMarketStyleHandler()
 	r.POST("/api/v1/market/compute-style", marketPubH.ComputeStyle)
 	r.POST("/api/v1/market/bulk-compute", marketPubH.BulkCompute)
+	r.POST("/api/v1/market/ai-interpretation", marketPubH.GenerateAIInterpretation)
 
 	// Market sentiment (public)
 	sentimentH := &handler.SentimentHandler{}

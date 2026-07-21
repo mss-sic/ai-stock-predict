@@ -2014,4 +2014,25 @@ Register(Migration{
 		},
 	})
 
+	// v094: Add available_cash and position_value columns to strategy_runs
+	// These were added to the Go model in commit c1804a7 but no migration was created.
+	Register(Migration{
+		Version:     94,
+		Description: "MySQL: add available_cash, position_value to strategy_runs",
+		Up: func() error {
+			if MySQL == nil {
+				return nil
+			}
+			var count int64
+			MySQL.Raw("SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = 'stock_predict' AND TABLE_NAME = 'strategy_runs' AND COLUMN_NAME = 'available_cash'").Scan(&count)
+			if count == 0 {
+				MySQL.Exec("ALTER TABLE strategy_runs ADD COLUMN available_cash DECIMAL(16,2) DEFAULT 0 AFTER initial_capital")
+			}
+			MySQL.Raw("SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = 'stock_predict' AND TABLE_NAME = 'strategy_runs' AND COLUMN_NAME = 'position_value'").Scan(&count)
+			if count == 0 {
+				MySQL.Exec("ALTER TABLE strategy_runs ADD COLUMN position_value DECIMAL(16,2) DEFAULT 0 AFTER available_cash")
+			}
+			return nil
+		},
+	})
 }

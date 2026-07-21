@@ -616,6 +616,7 @@ func confidenceScore(s20, u20, d20, v20, trend, disp, scoreChange, u5, drawdown5
 func clampConfidence(v float64) float64 { return math.Max(0, math.Min(100, v)) }
 
 func (s *MarketStyleService) ComputeAndStore(date string) error {
+
 	style := s.DetectStyle(date)
 
 	var ms struct {
@@ -672,11 +673,20 @@ func (s *MarketStyleService) ComputeAndStore(date string) error {
 	var daysAhead int
 	db.PG.Raw(`SELECT COUNT(*) FROM market_sentiment WHERE trade_date > ?`, date).Scan(&daysAhead)
 	log.Printf("[market_style] %s daysAhead=%d → leadership/flow: %v", date, daysAhead, daysAhead <= 2)
+	// Wrap leadership/flow in recovery: these do complex JOINs that may fail if concept data is missing
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("[market_style] %s leadership/flow recovery: %v", date, r)
+			}
+		}()
+
 	if daysAhead <= 2 {
 		leadership, leadConcept, leadIndustry = s.detectLeadership(date)
 		growthDefenseFlow = s.computeGrowthDefenseFlow(date)
 		log.Printf("[market_style] %s leadership=%s leadConcept=%s leadIndustry=%s flow=%.2f", date, leadership, leadConcept, leadIndustry, growthDefenseFlow)
 	}
+	}()
 	topSectorsJSON, _ := json.Marshal(topSectors)
 
 	return db.PG.Exec(`
@@ -1315,4 +1325,191 @@ func (s *MarketStyleService) generateFallbackSummary(date, style string,
 	if breakRate > 0.3 { parts = append(parts, fmt.Sprintf("炸板率%.0f%%", breakRate*100)) }
 	if rotationSpeed > 0.6 { parts = append(parts, "轮动加速") }
 	return strings.Join(parts, "；")
+}
+
+// ── Full AI Market Interpretation ──────────────────────────────────
+
+// GenerateFullAIInterpretation produces a comprehensive AI market analysis
+// covering: recent market summary, future trend prediction, and professional advice.
+func (s *MarketStyleService) GenerateFullAIInterpretation(date string) (string, error) {
+	// Fetch the full style row for the date
+	var row StyleRow
+	err := db.PG.Raw(`
+		SELECT trade_date::text, style, style_confidence, composite_score,
+			up_ratio, sector_diffusion, sector_dispersion, volatility, score_trend,
+			score_change, break_rate, concentration, rotation_speed,
+			COALESCE(northbound_net,0), COALESCE(total_amount,0),
+			limit_up_count, limit_down_count, ma20_above, n52_high, n60_low,
+			style_duration, COALESCE(transition_signal,'none'),
+			COALESCE(top_sectors::text,'[]'), COALESCE(top_concepts::text,'[]'),
+			COALESCE(market_regime,'neutral'), COALESCE(lead_concept,''), COALESCE(lead_industry,''),
+			COALESCE(growth_defense_flow,0)
+		FROM market_style_daily WHERE trade_date = ?
+	`, date).Scan(&row).Error
+	if err != nil {
+		return "", fmt.Errorf("获取风格数据失败: %w", err)
+	}
+
+	// Fetch sentiment for the date
+	var ms struct {
+		CompositeScore, Volatility, NorthboundNet float64
+		UpCount, DownCount, TotalStocks, LimitUpCount, LimitDownCount int
+	}
+	db.PG.Raw(`SELECT composite_score, volatility, COALESCE(northbound_net,0),
+		up_count, down_count, total_stocks, limit_up_count, limit_down_count
+		FROM market_sentiment WHERE trade_date = ?`, date).Scan(&ms)
+
+	// Fetch fear-greed index
+	fg, _ := ComputeFearGreedLatest()
+
+	// Fetch recent 5-day market style history for trend context
+	type recentStyle struct {
+		Date  string
+		Style string
+		Score float64
+	}
+	var recentStyles []recentStyle
+	db.PG.Raw(`SELECT trade_date::text, style, composite_score
+		FROM market_style_daily WHERE trade_date <= ?
+		ORDER BY trade_date DESC LIMIT 6`, date).Scan(&recentStyles)
+
+	// Build sector summary
+	sectorSummary := ""
+	var topSectors []map[string]interface{}
+	if row.TopSectors != nil {
+		_ = json.Unmarshal(row.TopSectors, &topSectors)
+	}
+	for i, sec := range topSectors {
+		if i >= 5 { break }
+		name, _ := sec["name"].(string)
+		chg, _ := sec["chgPct"].(float64)
+		days, _ := sec["consecutiveDays"].(float64)
+		sectorSummary += fmt.Sprintf("%s %+.1f%%(%d天) ", name, chg, int(days))
+	}
+
+	// Build concept summary
+	conceptSummary := ""
+	var topConcepts []map[string]interface{}
+	if row.TopConcepts != nil {
+		_ = json.Unmarshal(row.TopConcepts, &topConcepts)
+	}
+	for i, c := range topConcepts {
+		if i >= 5 { break }
+		name, _ := c["name"].(string)
+		chg, _ := c["chgPct"].(float64)
+		days, _ := c["consecutiveDays"].(float64)
+		conceptSummary += fmt.Sprintf("%s %+.1f%%(%d天) ", name, chg, int(days))
+	}
+
+	// Build style transition history
+	styleHistory := ""
+	for i, rs := range recentStyles {
+		if i == 0 { continue } // skip today
+		styleName := formatStyleDisplay(rs.Style)
+		styleHistory += fmt.Sprintf("%s: %s(%.0f分) ", rs.Date[5:10], styleName, rs.Score)
+	}
+
+	// Fear-greed context
+	fgCtx := ""
+	if fg != nil {
+		fgCtx = fmt.Sprintf("恐惧贪婪指数: %.0f (%s)", fg.Score, fg.Zone)
+	}
+
+	// Growth/Defense flow
+	gdFlow := ""
+	if row.GDFlow > 0.5 {
+		gdFlow = "资金偏好进攻型(成长/科技)"
+	} else if row.GDFlow < -0.5 {
+		gdFlow = "资金偏好防御型(消费/公用)"
+	} else {
+		gdFlow = "攻防均衡"
+	}
+
+	// Sector dispersion interpretation
+	dispInterp := ""
+	if row.SectorDispersion > 0.025 {
+		dispInterp = "板块高度分化，资金抱团严重"
+	} else if row.SectorDispersion > 0.012 {
+		dispInterp = "板块有所分化"
+	} else {
+		dispInterp = "板块表现相对均衡"
+	}
+
+	systemPrompt := `你是一位资深A股市场策略分析师，拥有20年从业经验。
+请基于提供的市场数据，输出一份专业的市场解读报告。
+要求：
+1. 使用 Markdown 格式输出，包含以下三个章节
+2. 语言专业、准确，避免模糊表述
+3. 每个观点都要有数据支撑
+
+输出格式：
+
+## 📊 市场总结
+- 当前风格诊断（含置信度和持续天数）
+- 核心数据速览（涨跌比、成交量、北向资金、涨停跌停）
+- 领涨行业和概念板块
+- 资金偏好方向（进攻/防御）
+- 与近期走势的对比变化
+
+## 🔮 趋势预测
+- 短期（1-3天）走势判断及概率
+- 中期（1-2周）风格演变方向
+- 关键观察指标和阈值（如 up_ratio 跌破/突破多少意味着风格切换）
+- 潜在风险因素
+
+## 💡 操作建议
+- 仓位策略（建议总仓位百分比）
+- 重点关注方向（2-3个板块）
+- 具体操作纪律（止盈止损位、加减仓条件）
+- 需要规避的风险类型
+
+注意：操作建议中不要使用具体的股票代码或名称，只给板块级别的方向建议。`
+
+	userPrompt := fmt.Sprintf(`【市场数据 - %s】
+
+风格诊断：%s（置信度 %.0f%%）| 持续 %d 天 | 格局: %s
+市场情绪：%.1f 分（Δ%.1f）| %s
+涨跌比：%d:%d（%.0f%% vs %.0f%%）| 涨停 %d / 跌停 %d
+成交量：%.0f 亿 | 北向：%.1f 亿
+板块离散度：%.3f (%s) | 炸板率：%.0f%%
+集中度：%.0f%% | 轮动速度：%.0f%%
+攻防流向：%s
+
+领涨行业：%s
+热门概念：%s
+风格变化：%s
+
+转势信号：%s | 领涨概念：%s | 领涨行业：%s`,
+		date,
+		formatStyleDisplay(row.Style), row.StyleConfidence, row.StyleDuration, row.MarketRegime,
+		ms.CompositeScore, row.ScoreChange, fgCtx,
+		ms.UpCount, ms.DownCount, float64(ms.UpCount)/float64(max(ms.TotalStocks,1))*100,
+		float64(ms.DownCount)/float64(max(ms.TotalStocks,1))*100,
+		ms.LimitUpCount, ms.LimitDownCount,
+		row.TotalAmount/1e8, row.NorthboundNet/1e8,
+		row.SectorDispersion, dispInterp, row.BreakRate*100,
+		row.Concentration*100, row.RotationSpeed*100,
+		gdFlow,
+		sectorSummary, conceptSummary,
+		styleHistory,
+		row.TransitionSignal, row.LeadConcept, row.LeadIndustry,
+	)
+
+	aiText, err := s.callSystemAI(userPrompt, systemPrompt)
+	if err != nil {
+		log.Printf("[market_style] Full AI interpretation failed for %s: %v", date, err)
+		// Fallback: use the existing generateAdvice + generateFallbackSummary
+		advice := s.generateAdvice(date, row.Style, row)
+		fallback := s.generateFallbackSummary(date, row.Style, ms.CompositeScore,
+			ms.UpCount, ms.DownCount, ms.TotalStocks, ms.LimitUpCount, ms.LimitDownCount,
+			float64(ms.UpCount)/float64(max(ms.TotalStocks,1)),
+			row.SectorDispersion, row.ScoreChange, row.BreakRate, row.RotationSpeed)
+		return fmt.Sprintf("## 📊 市场总结\n\n%s\n\n## 💡 操作建议\n\n%s",
+			fallback, strings.Join(advice, "\n")), nil
+	}
+
+	// Store the interpretation back to DB for caching
+	db.PG.Exec(`UPDATE market_style_daily SET analysis_summary = $1 WHERE trade_date = $2`, aiText, date)
+
+	return aiText, nil
 }
