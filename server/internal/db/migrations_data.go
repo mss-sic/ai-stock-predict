@@ -2014,6 +2014,22 @@ Register(Migration{
 		},
 	})
 
+	
+	// v095: Add market_style AI system config for AI market interpretation
+	Register(Migration{
+		Version:     95,
+		Description: "PG: add market_style scene to ai_system_configs",
+		Up: func() error {
+			var count int64
+			PG.Raw("SELECT COUNT(*) FROM ai_system_configs WHERE scene = 'market_style'").Scan(&count)
+			if count == 0 {
+				PG.Exec("INSERT INTO ai_system_configs (scene, name, system_prompt, temperature, max_tokens, enable_search, enable_tools, created_at, updated_at) VALUES ('market_style', 'AI市场解读', '', 0.7, 2048, false, false, now(), now())")
+			}
+			return nil
+		},
+	})
+
+
 	// v094: Add available_cash and position_value columns to strategy_runs
 	// These were added to the Go model in commit c1804a7 but no migration was created.
 	Register(Migration{

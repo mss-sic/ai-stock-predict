@@ -418,7 +418,8 @@ func classifyStyle(s20, u20, d20, v20, trend, disp, scoreChange, u5, s5, u5Vol, 
 	}
 
 	// ── PRIORITY 1: Crash (panic) ──
-	if s20 < 15 || (s5 < 22 && v20 > 0.20) {
+	// Require both historical collapse AND today confirming (up_ratio < 35%)
+	if (s20 < 15 || (s5 < 22 && v20 > 0.20)) && todayUpRatio < 0.35 {
 		return StyleCrash
 	}
 
@@ -1329,14 +1330,23 @@ func (s *MarketStyleService) generateFallbackSummary(date, style string,
 
 // ── Full AI Market Interpretation ──────────────────────────────────
 
+// sector3DayTrend holds multi-day sector momentum analysis for narrative context.
+type sector3DayTrend struct {
+	ReboundSectors string // 前两日下跌、今日反弹
+	ContinuedDown  string // 连续多日下跌
+	ContinuedUp    string // 连续多日走强
+	TurnDown       string // 连续上涨后今日转跌
+	Narrative      string // 综合轮动叙事
+}
+
 // GenerateFullAIInterpretation produces a comprehensive AI market analysis
 // covering: recent market summary, future trend prediction, and professional advice.
 func (s *MarketStyleService) GenerateFullAIInterpretation(date string) (string, error) {
-	// Fetch the full style row for the date
+	// ── Step 1: Fetch all data sources ──
 	var row StyleRow
 	err := db.PG.Raw(`
 		SELECT trade_date::text, style, style_confidence, composite_score,
-			up_ratio, sector_diffusion, sector_dispersion, volatility, score_trend,
+			up_ratio, sector_diffusion, COALESCE(sector_dispersion,0) as sector_dispersion, volatility, score_trend,
 			score_change, break_rate, concentration, rotation_speed,
 			COALESCE(northbound_net,0), COALESCE(total_amount,0),
 			limit_up_count, limit_down_count, ma20_above, n52_high, n60_low,
@@ -1350,7 +1360,6 @@ func (s *MarketStyleService) GenerateFullAIInterpretation(date string) (string, 
 		return "", fmt.Errorf("获取风格数据失败: %w", err)
 	}
 
-	// Fetch sentiment for the date
 	var ms struct {
 		CompositeScore, Volatility, NorthboundNet float64
 		UpCount, DownCount, TotalStocks, LimitUpCount, LimitDownCount int
@@ -1359,10 +1368,15 @@ func (s *MarketStyleService) GenerateFullAIInterpretation(date string) (string, 
 		up_count, down_count, total_stocks, limit_up_count, limit_down_count
 		FROM market_sentiment WHERE trade_date = ?`, date).Scan(&ms)
 
-	// Fetch fear-greed index
 	fg, _ := ComputeFearGreedLatest()
 
-	// Fetch recent 5-day market style history for trend context
+	// Fetch 3-day sector history to compute trends (momentum/reversal context)
+	sector3Day := s.computeSector3DayTrend(date)
+
+	// Fetch daily amount for volume calculation
+	var dailyAmt float64
+	db.PG.Raw(`SELECT COALESCE(total_amount,0) FROM market_daily_agg WHERE trade_date = ?`, date).Scan(&dailyAmt)
+
 	type recentStyle struct {
 		Date  string
 		Style string
@@ -1370,170 +1384,366 @@ func (s *MarketStyleService) GenerateFullAIInterpretation(date string) (string, 
 	}
 	var recentStyles []recentStyle
 	db.PG.Raw(`SELECT trade_date::text, style, composite_score
-		FROM market_style_daily WHERE trade_date <= ?
-		ORDER BY trade_date DESC LIMIT 6`, date).Scan(&recentStyles)
+		FROM market_style_daily WHERE trade_date < ?
+		ORDER BY trade_date DESC LIMIT 5`, date).Scan(&recentStyles)
 
-	// Build sector summary
+	// ── Step 2: Build rich data context ──
 	sectorSummary := ""
-	var topSectors []map[string]interface{}
-	if row.TopSectors != nil {
-		_ = json.Unmarshal(row.TopSectors, &topSectors)
-	}
+	sectorDetail := ""
+	var topSectors, topConcepts []map[string]interface{}
+	if row.TopSectors != nil { _ = json.Unmarshal(row.TopSectors, &topSectors) }
+	if row.TopConcepts != nil { _ = json.Unmarshal(row.TopConcepts, &topConcepts) }
+
 	for i, sec := range topSectors {
-		if i >= 5 { break }
+		if i >= 8 { break }
 		name, _ := sec["name"].(string)
 		chg, _ := sec["chgPct"].(float64)
 		days, _ := sec["consecutiveDays"].(float64)
-		sectorSummary += fmt.Sprintf("%s %+.1f%%(%d天) ", name, chg, int(days))
+		if i < 5 { sectorSummary += fmt.Sprintf("%s%+.1f%% ", name, chg) }
+		sectorDetail += fmt.Sprintf("%s %+.1f%%(%d天) ", name, chg, int(days))
 	}
 
-	// Build concept summary
 	conceptSummary := ""
-	var topConcepts []map[string]interface{}
-	if row.TopConcepts != nil {
-		_ = json.Unmarshal(row.TopConcepts, &topConcepts)
-	}
 	for i, c := range topConcepts {
-		if i >= 5 { break }
+		if i >= 8 { break }
 		name, _ := c["name"].(string)
 		chg, _ := c["chgPct"].(float64)
-		days, _ := c["consecutiveDays"].(float64)
-		conceptSummary += fmt.Sprintf("%s %+.1f%%(%d天) ", name, chg, int(days))
+		if i < 5 { conceptSummary += fmt.Sprintf("%s%+.1f%% ", name, chg) }
 	}
 
-	// Build style transition history
 	styleHistory := ""
-	for i, rs := range recentStyles {
+	for _, rs := range recentStyles {
+		if rs.Date == "" { continue }
 		dateDisplay := rs.Date
-		if len(rs.Date) >= 10 {
-			dateDisplay = rs.Date[5:10]
-		}
-
-		if i == 0 || rs.Date == "" { continue } // skip today
+		if len(rs.Date) >= 10 { dateDisplay = rs.Date[5:10] }
 		styleName := formatStyleDisplay(rs.Style)
-		styleHistory += fmt.Sprintf("%s: %s(%.0f分) ", dateDisplay, styleName, rs.Score)
+		styleHistory += fmt.Sprintf("%s %s(%.0f) ", dateDisplay, styleName, rs.Score)
 	}
 
-	// Fear-greed context
 	fgCtx := ""
-	if fg != nil {
-		fgCtx = fmt.Sprintf("恐惧贪婪指数: %.0f (%s)", fg.Score, fg.Zone)
-	}
+	if fg != nil { fgCtx = fmt.Sprintf("恐惧贪婪指数: %.0f (%s)", fg.Score, fg.Zone) }
 
-	// Growth/Defense flow
 	gdFlow := ""
 	if row.GDFlow > 0.5 {
 		gdFlow = "资金偏好进攻型(成长/科技)"
 	} else if row.GDFlow < -0.5 {
-		gdFlow = "资金偏好防御型(消费/公用)"
+		gdFlow = "资金偏好防御型(消费/公用/银行)"
 	} else {
-		gdFlow = "攻防均衡"
+		gdFlow = "资金偏好均衡，攻防无明显偏向"
 	}
 
-	// Sector dispersion interpretation
 	dispInterp := ""
 	if row.SectorDispersion > 0.025 {
-		dispInterp = "板块高度分化，资金抱团严重"
+		dispInterp = "板块极度分化，资金高度集中抱团，非主线板块赚钱效应差"
 	} else if row.SectorDispersion > 0.012 {
-		dispInterp = "板块有所分化"
+		dispInterp = "板块有所分化，结构性行情明显"
 	} else {
-		dispInterp = "板块表现相对均衡"
+		dispInterp = "板块表现较均衡，普涨/普跌格局"
 	}
 
-	systemPrompt := `你是一位资深A股市场策略分析师，拥有20年从业经验。
-请基于提供的市场数据，输出一份专业的市场解读报告。
-要求：
-1. 使用 Markdown 格式输出，包含以下三个章节
-2. 语言专业、准确，避免模糊表述
-3. 每个观点都要有数据支撑
+	// Total amount fallback
+	totalAmt := row.TotalAmount
+	if totalAmt <= 0 && dailyAmt > 0 { totalAmt = dailyAmt }
 
-输出格式：
+	upPct := float64(ms.UpCount) / float64(max(ms.TotalStocks, 1)) * 100
+	dnPct := float64(ms.DownCount) / float64(max(ms.TotalStocks, 1)) * 100
 
-## 📊 市场总结
-- 当前风格诊断（含置信度和持续天数）
-- 核心数据速览（涨跌比、成交量、北向资金、涨停跌停）
-- 领涨行业和概念板块
-- 资金偏好方向（进攻/防御）
-- 与近期走势的对比变化
+	// ── Step 3: System Prompt ──
+	systemPrompt := s.buildAISystemPrompt()
 
-## 🔮 趋势预测
-- 短期（1-3天）走势判断及概率
-- 中期（1-2周）风格演变方向
-- 关键观察指标和阈值（如 up_ratio 跌破/突破多少意味着风格切换）
-- 潜在风险因素
-
-## 💡 操作建议
-- 仓位策略（建议总仓位百分比）
-- 重点关注方向（2-3个板块）
-- 具体操作纪律（止盈止损位、加减仓条件）
-- 需要规避的风险类型
-
-注意：操作建议中不要使用具体的股票代码或名称，只给板块级别的方向建议。`
-
-	userPrompt := fmt.Sprintf(`【市场数据 - %s】
-
-风格诊断：%s（置信度 %.0f%%）| 持续 %d 天 | 格局: %s
-市场情绪：%.1f 分（Δ%.1f）| %s
-涨跌比：%d:%d（%.0f%% vs %.0f%%）| 涨停 %d / 跌停 %d
-成交量：%.0f 亿 | 北向：%.1f 亿
-板块离散度：%.3f (%s) | 炸板率：%.0f%%
-集中度：%.0f%% | 轮动速度：%.0f%%
-攻防流向：%s
-
-领涨行业：%s
-热门概念：%s
-风格变化：%s
-
-转势信号：%s | 领涨概念：%s | 领涨行业：%s`,
-		date,
-		formatStyleDisplay(row.Style), row.StyleConfidence, row.StyleDuration, row.MarketRegime,
-		ms.CompositeScore, row.ScoreChange, fgCtx,
-		ms.UpCount, ms.DownCount, float64(ms.UpCount)/float64(max(ms.TotalStocks,1))*100,
-		float64(ms.DownCount)/float64(max(ms.TotalStocks,1))*100,
-		ms.LimitUpCount, ms.LimitDownCount,
-		row.TotalAmount/1e8, row.NorthboundNet/1e8,
-		row.SectorDispersion, dispInterp, row.BreakRate*100,
-		row.Concentration*100, row.RotationSpeed*100,
-		gdFlow,
-		sectorSummary, conceptSummary,
-		styleHistory,
-		row.TransitionSignal, row.LeadConcept, row.LeadIndustry,
-	)
+	// ── Step 4: User Prompt with rich context ──
+	userPrompt := s.buildAIUserPrompt(date, row, ms, fg, fgCtx, gdFlow, dispInterp,
+		sectorSummary, sectorDetail, conceptSummary, styleHistory,
+		totalAmt, upPct, dnPct, sector3Day)
 
 	aiText, err := s.callSystemAI(userPrompt, systemPrompt)
 	if err != nil {
 		log.Printf("[market_style] Full AI interpretation failed for %s: %v", date, err)
-		return s.generateRichFallback(date, row, ms, fg, topConcepts, topSectors), nil
+		return s.generateEnhancedFallback(date, row, ms, fg, topConcepts, topSectors, sector3Day), nil
 	}
 
-	// Store the interpretation back to DB for caching
 	db.PG.Exec(`UPDATE market_style_daily SET analysis_summary = $1 WHERE trade_date = $2`, aiText, date)
-
 	return aiText, nil
 }
 
-// generateRichFallback produces a comprehensive multi-section market analysis
-// when the AI API is unavailable, using all available structured data.
-func (s *MarketStyleService) generateRichFallback(date string, row StyleRow, ms struct {
+// ── Sector 3-Day Trend Analysis ──
+
+// computeSector3DayTrend analyzes which sectors are rebounding, continuing decline,
+// continuing strength, or turning down over the last 3 trading days.
+// computeSector3DayTrend analyzes sector momentum over 3 days using pre-aggregated top_sectors data.
+// Since top_sectors stores only top 10 per day, we build a narrative from available data:
+// - New entries (sectors that appeared today but not in previous days)
+// - Exit entries (sectors that were top previously but dropped out)
+// - Consistent leaders (sectors appearing across multiple days)
+func (s *MarketStyleService) computeSector3DayTrend(date string) sector3DayTrend {
+	var t sector3DayTrend
+
+	// Fetch last 3 trading dates
+	var dates []string
+	db.PG.Raw(`SELECT trade_date::text FROM market_style_daily WHERE trade_date <= ? ORDER BY trade_date DESC LIMIT 3`, date).Scan(&dates)
+	if len(dates) < 2 { return t }
+
+	// Load sector data per day
+	type dayData struct {
+		sectors []map[string]interface{}
+		names   map[string]float64 // name -> chgPct
+	}
+	days := make([]dayData, len(dates))
+	for di, dt := range dates {
+		var topSecJSON string
+		db.PG.Raw(`SELECT COALESCE(top_sectors::text,'[]') FROM market_style_daily WHERE trade_date = ?`, dt).Scan(&topSecJSON)
+		if topSecJSON == "" || topSecJSON == "[]" { continue }
+		var sectors []map[string]interface{}
+		if err := json.Unmarshal([]byte(topSecJSON), &sectors); err != nil { continue }
+		days[di].sectors = sectors
+		days[di].names = make(map[string]float64)
+		for _, sec := range sectors {
+			name, _ := sec["name"].(string)
+			chg, _ := sec["chgPct"].(float64)
+			days[di].names[name] = chg
+		}
+	}
+
+	// Today = days[0], Yesterday = days[1], DayBefore = days[2]
+	if len(days[0].names) == 0 { return t }
+
+	// Find new entries (in top10 today but NOT yesterday)
+	var newEntries []string
+	for name, chg := range days[0].names {
+		if _, existed := days[1].names[name]; !existed {
+			arrow := "🔺"
+			if chg < 0 { arrow = "🔻" }
+			newEntries = append(newEntries, fmt.Sprintf("%s%s%+.1f%%", arrow, name, chg))
+		}
+	}
+	if len(newEntries) > 5 { newEntries = newEntries[:5] }
+
+	// Find exit entries (in top10 yesterday but NOT today)
+	var exitEntries []string
+	for name, chg := range days[1].names {
+		if _, kept := days[0].names[name]; !kept {
+			exitEntries = append(exitEntries, fmt.Sprintf("%s(%+.1f%%→退潮)", name, chg))
+		}
+	}
+	if len(exitEntries) > 5 { exitEntries = exitEntries[:5] }
+
+	// Find consistent entries (in top10 across all available days)
+	consistent := make(map[string]bool)
+	for name := range days[0].names {
+		if _, ok := days[1].names[name]; ok {
+			consistent[name] = true
+		}
+	}
+	// Filter for 3-day consistent if we have 3 days
+	if len(dates) >= 3 && len(days[2].names) > 0 {
+		for name := range consistent {
+			if _, ok := days[2].names[name]; !ok {
+				delete(consistent, name)
+			}
+		}
+	}
+
+	// Build narrative
+	var parts []string
+	if len(newEntries) > 0 {
+		parts = append(parts, fmt.Sprintf("🆕 新进领涨：%s", strings.Join(newEntries, "、")))
+	}
+	if len(exitEntries) > 0 {
+		parts = append(parts, fmt.Sprintf("📉 退潮板块：%s", strings.Join(exitEntries, "、")))
+	}
+	if len(consistent) > 0 {
+		var names []string
+		for name := range consistent {
+			chg := days[0].names[name]
+			names = append(names, fmt.Sprintf("%s(%+.1f%%)", name, chg))
+		}
+		if len(names) > 5 { names = names[:5] }
+		parts = append(parts, fmt.Sprintf("🔄 持续活跃：%s", strings.Join(names, "、")))
+	}
+
+	// Populate sector3DayTrend fields
+	if len(newEntries) > 0 { t.ReboundSectors = strings.Join(newEntries, "；") }
+	if len(exitEntries) > 0 { t.TurnDown = strings.Join(exitEntries, "；") }
+	if len(consistent) > 0 { t.ContinuedUp = strings.Join(consistentKeys(consistent, days[0].names), "、") }
+	t.Narrative = strings.Join(parts, "\n")
+
+	return t
+}
+
+func consistentKeys(m map[string]bool, chgs map[string]float64) []string {
+	var keys []string
+	for k := range m { keys = append(keys, k) }
+	return keys
+}
+
+
+
+
+func (s *MarketStyleService) buildAISystemPrompt() string {
+	return `你是一位拥有20年从业经验的A股市场首席策略分析师。你需要基于提供的多维市场数据，输出一份专业、深入、有洞察力的市场解读报告。
+
+【分析要求】
+1. **深度分析**：不能仅罗列数据，要找出数据背后的市场逻辑。例如：
+   - 哪些板块经历了连续调整后触底反弹？反弹的力度和持续性如何？
+   - 资金从哪些板块流出、流入哪些板块？背后的逻辑是什么（避险/进攻/政策驱动）？
+   - 风格切换是否在发生？从哪个风格转向哪个风格？
+2. **板块轮动洞察**：重点分析行业和概念板块之间的轮动节奏，判断当前处于轮动的哪个阶段
+3. **风险提示**：明确指出当前市场最大的风险点（系统性风险/行业风险/流动性风险）
+4. **可操作建议**：给出具体、可执行的仓位策略和板块方向，而非空泛的建议
+
+【输出格式 - 严格使用 Markdown】
+
+## 📊 市场总结
+
+**一句话概览**：用1-2句话总结今日市场本质特征（如：科技板块经历连续调整后触底反弹，金融保险银行等传统权重板块护盘拉升）
+
+**风格诊断**：当前风格 + 置信度 + 持续时间 + 格局判断
+
+**核心数据速览**：
+- 涨跌比、涨停跌停家数及其含义
+- 成交额变化（放量/缩量，说明市场参与热度）
+- 北向资金动向（流入/流出方向及规模）
+- 恐惧贪婪指数位置及含义
+
+**板块表现**：
+- 领涨行业及概念（涨幅 + 持续性 + 驱动因素判断）
+- 领跌行业（跌幅 + 下跌原因分析）
+- 板块轮动节奏判断（加速/放缓/切换中）
+
+**资金面**：进攻/防御偏好 + 资金流向分析
+
+## 🔮 趋势预测
+
+**短期（1-3天）**：走势判断 + 概率评估 + 关键观察点
+
+**中期（1-2周）**：风格演变方向 + 判断依据（数据支撑）
+
+**关键阈值监控**：
+- 需要关注哪些指标的变化（如 up_ratio、轮动速度、北向资金方向变化）
+- 什么条件下风格可能切换或升级
+
+**风险预警**：当前最大的1-2个风险点
+
+## 💡 操作建议
+
+**仓位策略**：建议总仓位（如 30%%/50%%/70%%/空仓）+ 理由
+
+**关注方向**：
+- 重点板块（2-3个，说明原因：超跌反弹/趋势延续/政策利好）
+- 规避板块（1-2个，说明原因：高位见顶/利空压制/资金流出）
+
+**操作纪律**：
+- 入场条件是什么
+- 止盈/止损参考
+- 仓位管理原则
+
+注意：不推荐具体股票代码，只给板块级别方向。`
+}
+
+func (s *MarketStyleService) buildAIUserPrompt(date string, row StyleRow, ms struct {
 	CompositeScore, Volatility, NorthboundNet float64
 	UpCount, DownCount, TotalStocks, LimitUpCount, LimitDownCount int
-}, fg *FearGreedData, topConcepts, topSectors []map[string]interface{}) string {
+}, fg *FearGreedData, fgCtx, gdFlow, dispInterp, sectorSummary, sectorDetail, conceptSummary, styleHistory string, totalAmt, upPct, dnPct float64, sector3Day sector3DayTrend) string {
+
+	fgDetail := ""
+	if fg != nil && len(fg.Factors) > 0 {
+		for _, fa := range fg.Factors {
+			fgDetail += fmt.Sprintf("%s:%.1f(%s) ", fa.Name, fa.Score, fa.Label)
+		}
+	}
+
+	return fmt.Sprintf(`【市场数据 - %s】
+
+=== 风格诊断 ===
+当前风格：%s | 置信度：%.0f%% | 已持续：%d天
+市场格局：%s | 转势信号：%s
+情绪评分：%.1f分（日变化Δ%+.1f）
+近5日风格演变：%s
+
+=== 涨跌结构 ===
+上涨：%d家(%.0f%%) | 下跌：%d家(%.0f%%) | 涨停：%d | 跌停：%d
+新高/新低比：%d / %d
+
+=== 资金与量能 ===
+成交额：%.0f亿 | 北向资金：%+.1f亿
+%s
+板块离散度：%.3f（%s）
+资金集中度：%.0f%% | 板块轮动速度：%.0f%%
+攻防资金流向：%s
+
+=== 板块表现（今日TOP8） ===
+领涨行业：%s
+热门概念：%s
+
+=== 板块3日趋势（核心分析依据） ===
+%s
+
+=== 恐惧贪婪因子 ===
+%s
+因子细节：%s`,
+		date,
+		formatStyleDisplay(row.Style), row.StyleConfidence, row.StyleDuration,
+		row.MarketRegime, row.TransitionSignal,
+		ms.CompositeScore, row.ScoreChange,
+		styleHistory,
+		ms.UpCount, upPct, ms.DownCount, dnPct,
+		ms.LimitUpCount, ms.LimitDownCount,
+		row.N52High, row.N60Low,
+		totalAmt/1e8, row.NorthboundNet/1e8,
+		fgCtx,
+		row.SectorDispersion, dispInterp,
+		row.Concentration*100, row.RotationSpeed*100,
+		gdFlow,
+		sectorDetail,
+		conceptSummary,
+		sector3Day.Narrative,
+		fgCtx, fgDetail,
+	)
+}
+
+// generateEnhancedFallback is the fallback when AI API is unavailable
+func (s *MarketStyleService) generateEnhancedFallback(date string, row StyleRow, ms struct {
+	CompositeScore, Volatility, NorthboundNet float64
+	UpCount, DownCount, TotalStocks, LimitUpCount, LimitDownCount int
+}, fg *FearGreedData, topConcepts, topSectors []map[string]interface{}, sector3Day sector3DayTrend) string {
+	return s.generateRichFallbackV2(date, row, ms, fg, topConcepts, topSectors, sector3Day)
+}
+
+// generateRichFallbackV2 produces a comprehensive multi-section market analysis
+// when the AI API is unavailable, using all available structured data.
+func (s *MarketStyleService) generateRichFallbackV2(date string, row StyleRow, ms struct {
+	CompositeScore, Volatility, NorthboundNet float64
+	UpCount, DownCount, TotalStocks, LimitUpCount, LimitDownCount int
+}, fg *FearGreedData, topConcepts, topSectors []map[string]interface{}, sector3Day sector3DayTrend) string {
 
 	var b strings.Builder
 	styleName := formatStyleDisplay(row.Style)
 
-
-	// Query recent style history for context
-	type recentStyle struct {
-		Date  string
-		Style string
-		Score float64
-	}
-	var recentStyles []recentStyle
-	db.PG.Raw(`SELECT trade_date::text, style, composite_score FROM market_style_daily WHERE trade_date <= ? ORDER BY trade_date DESC LIMIT 6`, date).Scan(&recentStyles)
-
 	// ── Section 1: 市场总结 ──
 	b.WriteString("## 📊 市场总结\n\n")
+
+	// One-line summary based on sector trend analysis
+	if sector3Day.ReboundSectors != "" || sector3Day.ContinuedDown != "" {
+		b.WriteString("**一句话概览：**")
+		parts := []string{}
+		if sector3Day.ReboundSectors != "" {
+			parts = append(parts, "部分超跌板块触底反弹")
+		}
+		if sector3Day.ContinuedDown != "" {
+			parts = append(parts, "多数板块延续调整")
+		}
+		if sector3Day.ContinuedUp != "" {
+			parts = append(parts, "防御板块持续走强")
+		}
+		if sector3Day.TurnDown != "" {
+			parts = append(parts, "前期强势板块冲高回落")
+		}
+		b.WriteString(strings.Join(parts, "，"))
+		if len(parts) == 0 {
+			b.WriteString("市场分化运行，结构性行情主导")
+		}
+		b.WriteString("\n\n")
+	}
 
 	// Style diagnosis
 	b.WriteString(fmt.Sprintf("**当前风格：%s**（置信度 %.0f%%，已持续 %d 天）\n\n",
@@ -1553,8 +1763,15 @@ func (s *MarketStyleService) generateRichFallback(date string, row StyleRow, ms 
 	b.WriteString("**核心数据：**\n")
 	b.WriteString(fmt.Sprintf("- 涨跌比 **%d:%d**（%.0f%% vs %.0f%%），涨停 **%d** 家，跌停 **%d** 家\n",
 		ms.UpCount, ms.DownCount, upPct, dnPct, ms.LimitUpCount, ms.LimitDownCount))
+	totalAmt := row.TotalAmount
+	nbNet := row.NorthboundNet
+	if totalAmt <= 0 {
+		var amt float64
+		db.PG.Raw("SELECT COALESCE(total_amount,0) FROM market_daily_agg WHERE trade_date = ?", date).Scan(&amt)
+		if amt > 0 { totalAmt = amt }
+	}
 	b.WriteString(fmt.Sprintf("- 成交额 **%.0f 亿**，北向资金 **%+.1f 亿**\n",
-		row.TotalAmount/1e8, row.NorthboundNet/1e8))
+		totalAmt/1e8, nbNet/1e8))
 	b.WriteString(fmt.Sprintf("- 炸板率 **%.1f%%**，资金集中度 **%.1f%%**，轮动速度 **%.0f%%**\n",
 		row.BreakRate*100, row.Concentration*100, row.RotationSpeed*100))
 
@@ -1562,16 +1779,26 @@ func (s *MarketStyleService) generateRichFallback(date string, row StyleRow, ms 
 	if fg != nil {
 		b.WriteString(fmt.Sprintf("- 恐惧贪婪指数：**%.0f**（%s）\n", fg.Score, fg.Zone))
 		if len(fg.Factors) > 0 {
-			for _, f := range fg.Factors {
-				b.WriteString(fmt.Sprintf("  - %s：%.1f（%s）\n", f.Name, f.Score, f.Label))
+			for _, fa := range fg.Factors {
+				b.WriteString(fmt.Sprintf("  - %s：%.1f（%s）\n", fa.Name, fa.Score, fa.Label))
 			}
 		}
 	}
 	b.WriteString("\n")
 
-	// Leading sectors
+	// ── Sector/Concept Performance ──
+	growthCount, defenseCount := 0, 0
+	var growthNames, defenseNames []string
 	if len(topSectors) > 0 {
-		b.WriteString("**领涨行业（Top 5）：**\n")
+		for i, sec := range topSectors {
+			if i >= 10 { break }
+			name, _ := sec["name"].(string)
+			chg, _ := sec["chgPct"].(float64)
+			if chg > 0 && isGrowthSector(name) { growthCount++; growthNames = append(growthNames, name) }
+			if chg > 0 && isDefensiveSector(name) { defenseCount++; defenseNames = append(defenseNames, name) }
+		}
+
+		b.WriteString("**领涨行业：**\n")
 		for i, sec := range topSectors {
 			if i >= 5 { break }
 			name, _ := sec["name"].(string)
@@ -1580,32 +1807,73 @@ func (s *MarketStyleService) generateRichFallback(date string, row StyleRow, ms 
 			arrow := "🔺"
 			if chg < 0 { arrow = "🔻" }
 			b.WriteString(fmt.Sprintf("- %s %s %+.1f%%", arrow, name, chg))
-			if int(days) >= 3 {
-				b.WriteString(fmt.Sprintf("（连续 %d 天）", int(days)))
-			}
+			if int(days) >= 3 { b.WriteString(fmt.Sprintf("（连续%d天）", int(days))) }
 			b.WriteString("\n")
+		}
+		if len(topSectors) >= 8 {
+			b.WriteString("**领跌行业：**\n")
+			for i := len(topSectors) - 1; i >= len(topSectors)-5 && i >= 0; i-- {
+				name, _ := topSectors[i]["name"].(string)
+				chg, _ := topSectors[i]["chgPct"].(float64)
+				b.WriteString(fmt.Sprintf("- 🔻 %s %+.1f%%\n", name, chg))
+			}
 		}
 		b.WriteString("\n")
 	}
 
-	// Hot concepts
 	if len(topConcepts) > 0 {
-		b.WriteString("**热门概念（Top 5）：**\n")
+		b.WriteString("**热门概念：**\n")
 		for i, c := range topConcepts {
 			if i >= 5 { break }
 			name, _ := c["name"].(string)
 			chg, _ := c["chgPct"].(float64)
 			days, _ := c["consecutiveDays"].(float64)
 			b.WriteString(fmt.Sprintf("- %s %+.1f%%", name, chg))
-			if int(days) >= 5 {
-				b.WriteString(fmt.Sprintf(" 🔥%d天", int(days)))
-			} else if int(days) >= 3 {
-				b.WriteString(fmt.Sprintf(" ⚡%d天", int(days)))
-			}
+			if int(days) >= 5 { b.WriteString(fmt.Sprintf(" 🔥%d天", int(days))) } else if int(days) >= 3 { b.WriteString(fmt.Sprintf(" ⚡%d天", int(days))) }
 			b.WriteString("\n")
 		}
 		b.WriteString("\n")
 	}
+
+	// ── Sector 3-Day Trend Narrative ──
+	if sector3Day.Narrative != "" {
+		b.WriteString("**板块3日趋势分析：**\n")
+		if sector3Day.ReboundSectors != "" {
+			b.WriteString(fmt.Sprintf("🔺 触底反弹：%s\n", sector3Day.ReboundSectors))
+		}
+		if sector3Day.ContinuedDown != "" {
+			b.WriteString(fmt.Sprintf("🔻 持续下跌：%s\n", sector3Day.ContinuedDown))
+		}
+		if sector3Day.ContinuedUp != "" {
+			b.WriteString(fmt.Sprintf("🟢 持续走强：%s\n", sector3Day.ContinuedUp))
+		}
+		if sector3Day.TurnDown != "" {
+			b.WriteString(fmt.Sprintf("🟡 冲高回落：%s\n", sector3Day.TurnDown))
+		}
+		b.WriteString("\n")
+	}
+
+	// ── Sector Rotation Narrative ──
+	b.WriteString("**板块轮动分析：**")
+	if growthCount > 0 && defenseCount > 0 {
+		b.WriteString(fmt.Sprintf("成长（%s）与防御（%s）同时走强，市场结构性分化。",
+			strings.Join(growthNames[:min(3, len(growthNames))], "、"),
+			strings.Join(defenseNames[:min(3, len(defenseNames))], "、")))
+	} else if growthCount >= 3 {
+		b.WriteString(fmt.Sprintf("成长/科技主导（%s），资金偏好进攻型。",
+			strings.Join(growthNames[:min(3, len(growthNames))], "、")))
+	} else if defenseCount >= 3 {
+		b.WriteString(fmt.Sprintf("防御板块主导（%s），资金从成长撤向避险，风险偏好降低。",
+			strings.Join(defenseNames[:min(3, len(defenseNames))], "、")))
+	} else {
+		b.WriteString("板块表现分化，缺乏明确主线。")
+	}
+	if row.RotationSpeed > 0.7 {
+		b.WriteString(fmt.Sprintf("轮动极快（%.0f%%），追高风险大。", row.RotationSpeed*100))
+	} else if row.RotationSpeed > 0.4 {
+		b.WriteString(fmt.Sprintf("轮动加速（%.0f%%），关注新主线。", row.RotationSpeed*100))
+	}
+	b.WriteString("\n\n")
 
 	// Capital flow preference
 	flowLabel := "均衡"
@@ -1623,7 +1891,6 @@ func (s *MarketStyleService) generateRichFallback(date string, row StyleRow, ms 
 	// ── Section 2: 趋势预测 ──
 	b.WriteString("## 🔮 趋势预测\n\n")
 
-	// Trend analysis based on score trend and style
 	if row.ScoreTrend > 0.5 {
 		b.WriteString("📈 评分趋势向上，市场动能偏强。")
 	} else if row.ScoreTrend > 0 {
@@ -1637,7 +1904,6 @@ func (s *MarketStyleService) generateRichFallback(date string, row StyleRow, ms 
 	}
 	b.WriteString("\n\n")
 
-	// Style-specific trend prediction
 	switch MarketStyle(row.Style) {
 	case StyleBroadRally, StyleTrendUp:
 		b.WriteString("**短期（1-3天）：**趋势延续概率较大，关注成交量是否维持。若缩量上涨需警惕动能衰减。\n\n")
@@ -1655,11 +1921,10 @@ func (s *MarketStyleService) generateRichFallback(date string, row StyleRow, ms 
 		b.WriteString("**短期（1-3天）：**下跌趋势中，反弹多为技术性修复，不构成反转信号。\n\n")
 		b.WriteString("**中期（1-2周）：**等待情绪评分止跌回升 + up_ratio 回升至 35%% 以上再考虑入场。\n\n")
 	case StyleCrash:
-		b.WriteString("**短期（1-3天）：**恐慌情绪主导，非理性抛售可能过度。关注跌停家数是否减少、炸板率是否回落。\n\n")
+		b.WriteString("**短期（1-3天）：**恐慌情绪主导，注意超跌反弹机会。关注跌停家数是否减少、炸板率是否回落。\n\n")
 		b.WriteString(fmt.Sprintf("**中期（1-2周）：**新低数量 %d 远超新高 %d，市场信心需时间修复。等待波动率回落 + 北向资金转正信号。\n\n", row.N60Low, row.N52High))
 	}
 
-	// Transition signal
 	switch row.TransitionSignal {
 	case "warming":
 		b.WriteString("🔥 **回暖信号：**情绪连续改善，关注是否能形成趋势反转。\n\n")
@@ -1669,7 +1934,6 @@ func (s *MarketStyleService) generateRichFallback(date string, row StyleRow, ms 
 		b.WriteString("🔄 **切换信号：**风格可能切换，降低仓位等待新主线确认。\n\n")
 	}
 
-	// Key thresholds to watch
 	b.WriteString("**关键观察指标：**\n")
 	b.WriteString(fmt.Sprintf("- up_ratio 突破 %.0f%% → 风格可能升级\n", 43.0))
 	b.WriteString(fmt.Sprintf("- up_ratio 跌破 %.0f%% → 警惕风格降级\n", 35.0))
@@ -1686,14 +1950,18 @@ func (s *MarketStyleService) generateRichFallback(date string, row StyleRow, ms 
 	b.WriteString("\n")
 
 	// Style history context
+	var recentStyles []struct {
+		Date  string
+		Style string
+		Score float64
+	}
+	db.PG.Raw(`SELECT trade_date::text, style, composite_score FROM market_style_daily WHERE trade_date <= ? ORDER BY trade_date DESC LIMIT 6`, date).Scan(&recentStyles)
 	if len(recentStyles) > 1 {
 		b.WriteString("**近期风格演变：**\n")
-		for i, rs := range recentStyles {
-			if i == 0 || rs.Date == "" { continue }
+		for _, rs := range recentStyles {
+			if rs.Date == "" { continue }
 			dateDisplay := rs.Date
-			if len(rs.Date) >= 10 {
-				dateDisplay = rs.Date[5:10]
-			}
+			if len(rs.Date) >= 10 { dateDisplay = rs.Date[5:10] }
 			sn := formatStyleDisplay(rs.Style)
 			b.WriteString(fmt.Sprintf("- %s → %s（%.0f 分）\n", dateDisplay, sn, rs.Score))
 		}
