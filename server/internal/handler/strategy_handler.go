@@ -6753,7 +6753,8 @@ func hasAnyData(code, date, indicator string) bool {
 		var count int64
 		db.PG.Raw("SELECT COUNT(*) FROM ai_stock_scores WHERE code = ?", code).Scan(&count)
 		return count > 0
-	case indicator == "streak_count", indicator == "algo_score":
+	case indicator == "streak_count", indicator == "algo_score",
+		indicator == "pick_count_5d", indicator == "pick_count_20d":
 		var count int64
 		db.PG.Raw("SELECT COUNT(*) FROM algorithm_pick_details WHERE stock_code = ? AND pick_date <= ?", code, date).Scan(&count)
 		return count > 0
