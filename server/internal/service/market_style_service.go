@@ -1404,9 +1404,14 @@ func (s *MarketStyleService) GenerateFullAIInterpretation(date string) (string, 
 	// Build style transition history
 	styleHistory := ""
 	for i, rs := range recentStyles {
+		dateDisplay := rs.Date
+		if len(rs.Date) >= 10 {
+			dateDisplay = rs.Date[5:10]
+		}
+
 		if i == 0 { continue } // skip today
 		styleName := formatStyleDisplay(rs.Style)
-		styleHistory += fmt.Sprintf("%s: %s(%.0f分) ", rs.Date[5:10], styleName, rs.Score)
+		styleHistory += fmt.Sprintf("%s: %s(%.0f分) ", dateDisplay, styleName, rs.Score)
 	}
 
 	// Fear-greed context
