@@ -43,8 +43,8 @@ func (r *OvertradingRule) Evaluate(ctx context.Context, codes []string, holdings
 	for key := range groups {
 		var count int64
 		db.MySQL.Model(&model.LiveTrade{}).
-			Where("user_id = ? AND strategy_id = ? AND DATE(executed_at) = CURRENT_DATE AND status = 'filled'",
-				key.UserID, key.StrategyID).
+			Where("user_id = ? AND DATE(created_at) = CURRENT_DATE",
+				key.UserID).
 			Count(&count)
 		if int(count) > maxTrades {
 			alerts = append(alerts, model.RiskAlert{
@@ -159,7 +159,7 @@ func (r *LiveBacktestDivergenceRule) Evaluate(ctx context.Context, _ []string, h
 	for key := range groups {
 		// Get latest live snapshot
 		var snap model.DailyPortfolioSnapshot
-		if err := db.MySQL.Where("user_id = ? AND strategy_id = ?", key.UserID, key.StrategyID).
+		if err := db.MySQL.Where("user_id = ?", key.UserID).
 			Order("snapshot_date DESC").First(&snap).Error; err != nil {
 			continue
 		}
