@@ -1409,7 +1409,7 @@ func (s *MarketStyleService) GenerateFullAIInterpretation(date string) (string, 
 			dateDisplay = rs.Date[5:10]
 		}
 
-		if i == 0 { continue } // skip today
+		if i == 0 || rs.Date == "" { continue } // skip today
 		styleName := formatStyleDisplay(rs.Style)
 		styleHistory += fmt.Sprintf("%s: %s(%.0f分) ", dateDisplay, styleName, rs.Score)
 	}
@@ -1503,18 +1503,201 @@ func (s *MarketStyleService) GenerateFullAIInterpretation(date string) (string, 
 	aiText, err := s.callSystemAI(userPrompt, systemPrompt)
 	if err != nil {
 		log.Printf("[market_style] Full AI interpretation failed for %s: %v", date, err)
-		// Fallback: use the existing generateAdvice + generateFallbackSummary
-		advice := s.generateAdvice(date, row.Style, row)
-		fallback := s.generateFallbackSummary(date, row.Style, ms.CompositeScore,
-			ms.UpCount, ms.DownCount, ms.TotalStocks, ms.LimitUpCount, ms.LimitDownCount,
-			float64(ms.UpCount)/float64(max(ms.TotalStocks,1)),
-			row.SectorDispersion, row.ScoreChange, row.BreakRate, row.RotationSpeed)
-		return fmt.Sprintf("## 📊 市场总结\n\n%s\n\n## 💡 操作建议\n\n%s",
-			fallback, strings.Join(advice, "\n")), nil
+		return s.generateRichFallback(date, row, ms, fg, topConcepts, topSectors), nil
 	}
 
 	// Store the interpretation back to DB for caching
 	db.PG.Exec(`UPDATE market_style_daily SET analysis_summary = $1 WHERE trade_date = $2`, aiText, date)
 
 	return aiText, nil
+}
+
+// generateRichFallback produces a comprehensive multi-section market analysis
+// when the AI API is unavailable, using all available structured data.
+func (s *MarketStyleService) generateRichFallback(date string, row StyleRow, ms struct {
+	CompositeScore, Volatility, NorthboundNet float64
+	UpCount, DownCount, TotalStocks, LimitUpCount, LimitDownCount int
+}, fg *FearGreedData, topConcepts, topSectors []map[string]interface{}) string {
+
+	var b strings.Builder
+	styleName := formatStyleDisplay(row.Style)
+
+
+	// Query recent style history for context
+	type recentStyle struct {
+		Date  string
+		Style string
+		Score float64
+	}
+	var recentStyles []recentStyle
+	db.PG.Raw(`SELECT trade_date::text, style, composite_score FROM market_style_daily WHERE trade_date <= ? ORDER BY trade_date DESC LIMIT 6`, date).Scan(&recentStyles)
+
+	// ── Section 1: 市场总结 ──
+	b.WriteString("## 📊 市场总结\n\n")
+
+	// Style diagnosis
+	b.WriteString(fmt.Sprintf("**当前风格：%s**（置信度 %.0f%%，已持续 %d 天）\n\n",
+		styleName, row.StyleConfidence, row.StyleDuration))
+
+	// Market regime
+	regimeLabel := row.MarketRegime
+	if regimeLabel == "" { regimeLabel = "neutral" }
+	if regimeLabel == "expansion" { regimeLabel = "📈 上涨格局" }
+	if regimeLabel == "neutral" { regimeLabel = "↔️ 震荡格局" }
+	if regimeLabel == "contraction" { regimeLabel = "📉 下跌格局" }
+	b.WriteString(fmt.Sprintf("大盘格局：%s | 情绪评分：%.1f（Δ%+.1f）\n\n", regimeLabel, ms.CompositeScore, row.ScoreChange))
+
+	// Core metrics
+	upPct := float64(ms.UpCount) / float64(max(ms.TotalStocks, 1)) * 100
+	dnPct := float64(ms.DownCount) / float64(max(ms.TotalStocks, 1)) * 100
+	b.WriteString("**核心数据：**\n")
+	b.WriteString(fmt.Sprintf("- 涨跌比 **%d:%d**（%.0f%% vs %.0f%%），涨停 **%d** 家，跌停 **%d** 家\n",
+		ms.UpCount, ms.DownCount, upPct, dnPct, ms.LimitUpCount, ms.LimitDownCount))
+	b.WriteString(fmt.Sprintf("- 成交额 **%.0f 亿**，北向资金 **%+.1f 亿**\n",
+		row.TotalAmount/1e8, row.NorthboundNet/1e8))
+	b.WriteString(fmt.Sprintf("- 炸板率 **%.1f%%**，资金集中度 **%.1f%%**，轮动速度 **%.0f%%**\n",
+		row.BreakRate*100, row.Concentration*100, row.RotationSpeed*100))
+
+	// Fear & Greed
+	if fg != nil {
+		b.WriteString(fmt.Sprintf("- 恐惧贪婪指数：**%.0f**（%s）\n", fg.Score, fg.Zone))
+		if len(fg.Factors) > 0 {
+			for _, f := range fg.Factors {
+				b.WriteString(fmt.Sprintf("  - %s：%.1f（%s）\n", f.Name, f.Score, f.Label))
+			}
+		}
+	}
+	b.WriteString("\n")
+
+	// Leading sectors
+	if len(topSectors) > 0 {
+		b.WriteString("**领涨行业（Top 5）：**\n")
+		for i, sec := range topSectors {
+			if i >= 5 { break }
+			name, _ := sec["name"].(string)
+			chg, _ := sec["chgPct"].(float64)
+			days, _ := sec["consecutiveDays"].(float64)
+			arrow := "🔺"
+			if chg < 0 { arrow = "🔻" }
+			b.WriteString(fmt.Sprintf("- %s %s %+.1f%%", arrow, name, chg))
+			if int(days) >= 3 {
+				b.WriteString(fmt.Sprintf("（连续 %d 天）", int(days)))
+			}
+			b.WriteString("\n")
+		}
+		b.WriteString("\n")
+	}
+
+	// Hot concepts
+	if len(topConcepts) > 0 {
+		b.WriteString("**热门概念（Top 5）：**\n")
+		for i, c := range topConcepts {
+			if i >= 5 { break }
+			name, _ := c["name"].(string)
+			chg, _ := c["chgPct"].(float64)
+			days, _ := c["consecutiveDays"].(float64)
+			b.WriteString(fmt.Sprintf("- %s %+.1f%%", name, chg))
+			if int(days) >= 5 {
+				b.WriteString(fmt.Sprintf(" 🔥%d天", int(days)))
+			} else if int(days) >= 3 {
+				b.WriteString(fmt.Sprintf(" ⚡%d天", int(days)))
+			}
+			b.WriteString("\n")
+		}
+		b.WriteString("\n")
+	}
+
+	// Capital flow preference
+	flowLabel := "均衡"
+	if row.GDFlow > 1.0 {
+		flowLabel = "🔺 资金偏好进攻型（成长/科技）"
+	} else if row.GDFlow > 0.3 {
+		flowLabel = "↗️ 轻微偏好进攻"
+	} else if row.GDFlow < -1.0 {
+		flowLabel = "🔻 资金偏好防御型（消费/公用）"
+	} else if row.GDFlow < -0.3 {
+		flowLabel = "↘️ 轻微偏好防御"
+	}
+	b.WriteString(fmt.Sprintf("**资金偏好：**%s（攻防差 %+.2f%%）\n\n", flowLabel, row.GDFlow))
+
+	// ── Section 2: 趋势预测 ──
+	b.WriteString("## 🔮 趋势预测\n\n")
+
+	// Trend analysis based on score trend and style
+	if row.ScoreTrend > 0.5 {
+		b.WriteString("📈 评分趋势向上，市场动能偏强。")
+	} else if row.ScoreTrend > 0 {
+		b.WriteString("📊 评分趋势轻微向上，市场在犹豫中修复。")
+	} else if row.ScoreTrend > -0.5 {
+		b.WriteString("📊 评分趋势横盘，短期方向不明。")
+	} else if row.ScoreTrend > -1.5 {
+		b.WriteString("📉 评分趋势向下，市场动能减弱。")
+	} else {
+		b.WriteString("🔻 评分趋势加速下行，需警惕。")
+	}
+	b.WriteString("\n\n")
+
+	// Style-specific trend prediction
+	switch MarketStyle(row.Style) {
+	case StyleBroadRally, StyleTrendUp:
+		b.WriteString("**短期（1-3天）：**趋势延续概率较大，关注成交量是否维持。若缩量上涨需警惕动能衰减。\n\n")
+		b.WriteString("**中期（1-2周）：**关注 up_ratio 是否跌破 43%%，若跌破可能转入结构行情。\n\n")
+	case StyleStructural:
+		b.WriteString("**短期（1-3天）：**资金抱团主线板块，非主线个股赚钱效应差。关注领涨概念是否扩散。\n\n")
+		b.WriteString(fmt.Sprintf("**中期（1-2周）：**若板块离散度继续上升（当前 %.1f%%），可能转入震荡。若主线扩散则可升级为趋势行情。\n\n", row.SectorDispersion*100))
+	case StyleChoppy:
+		b.WriteString("**短期（1-3天）：**方向不明，大概率延续震荡。关注成交量变化和突破信号。\n\n")
+		b.WriteString(fmt.Sprintf("**中期（1-2周）：**轮动速度 %.0f%%，若持续 >60%% 则延续震荡；若回落至 40%% 以下可能出现新主线。\n\n", row.RotationSpeed*100))
+	case StyleWeakRange:
+		b.WriteString("**短期（1-3天）：**弱势格局延续，反弹力度有限。关注 up_ratio 能否站上 40%%。\n\n")
+		b.WriteString(fmt.Sprintf("**中期（1-2周）：**若连续 2 日 up_ratio > 40%% + trend 转正，可转入结构行情。当前 up_ratio %.0f%%。\n\n", upPct))
+	case StyleDecline:
+		b.WriteString("**短期（1-3天）：**下跌趋势中，反弹多为技术性修复，不构成反转信号。\n\n")
+		b.WriteString("**中期（1-2周）：**等待情绪评分止跌回升 + up_ratio 回升至 35%% 以上再考虑入场。\n\n")
+	case StyleCrash:
+		b.WriteString("**短期（1-3天）：**恐慌情绪主导，非理性抛售可能过度。关注跌停家数是否减少、炸板率是否回落。\n\n")
+		b.WriteString(fmt.Sprintf("**中期（1-2周）：**新低数量 %d 远超新高 %d，市场信心需时间修复。等待波动率回落 + 北向资金转正信号。\n\n", row.N60Low, row.N52High))
+	}
+
+	// Transition signal
+	switch row.TransitionSignal {
+	case "warming":
+		b.WriteString("🔥 **回暖信号：**情绪连续改善，关注是否能形成趋势反转。\n\n")
+	case "cooling":
+		b.WriteString("❄️ **转冷信号：**情绪回落 + 波动上升，警惕进一步下行。\n\n")
+	case "reversal":
+		b.WriteString("🔄 **切换信号：**风格可能切换，降低仓位等待新主线确认。\n\n")
+	}
+
+	// Key thresholds to watch
+	b.WriteString("**关键观察指标：**\n")
+	b.WriteString(fmt.Sprintf("- up_ratio 突破 %.0f%% → 风格可能升级\n", 43.0))
+	b.WriteString(fmt.Sprintf("- up_ratio 跌破 %.0f%% → 警惕风格降级\n", 35.0))
+	b.WriteString(fmt.Sprintf("- 轮动速度回落至 %.0f%% 以下 → 新主线形成\n", 40.0))
+	b.WriteString(fmt.Sprintf("- 炸板率超过 %.0f%% → 封板意愿恶化\n", 30.0))
+	b.WriteString("\n")
+
+	// ── Section 3: 操作建议 ──
+	b.WriteString("## 💡 操作建议\n\n")
+	advice := s.generateAdvice(date, row.Style, row)
+	for _, a := range advice {
+		b.WriteString(fmt.Sprintf("- %s\n", a))
+	}
+	b.WriteString("\n")
+
+	// Style history context
+	if len(recentStyles) > 1 {
+		b.WriteString("**近期风格演变：**\n")
+		for i, rs := range recentStyles {
+			if i == 0 || rs.Date == "" { continue }
+			dateDisplay := rs.Date
+			if len(rs.Date) >= 10 {
+				dateDisplay = rs.Date[5:10]
+			}
+			sn := formatStyleDisplay(rs.Style)
+			b.WriteString(fmt.Sprintf("- %s → %s（%.0f 分）\n", dateDisplay, sn, rs.Score))
+		}
+	}
+
+	return b.String()
 }
