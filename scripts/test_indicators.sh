@@ -1,67 +1,90 @@
 #!/bin/bash
-# 全量指标测试脚本
+# 全量指标测试脚本（纯 Python 实现，容器内无 curl 也可用）
 set -e
 
 BASE_URL="${API_BASE_URL:-http://localhost:8080}"
-
-echo "🔑 登录..."
-TOKEN=$(curl -s -X POST "$BASE_URL/api/v1/auth/login" \
-  -H 'Content-Type: application/json' \
-  -d '{"username":"admin","password":"admin123"}' | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['accessToken'])")
-AUTH="Authorization: Bearer $TOKEN"
-
 STOCK="${1:-000001}"
 DATE="${2:-$(date +%Y-%m-%d)}"
-echo "  股票: $STOCK  日期: $DATE"
+
+python3 << PYEOF
+import urllib.request, json, sys
+
+BASE = "${BASE_URL}"
+STOCK = "${STOCK}"
+DATE = "${DATE}"
+TOKEN = ""
+
+def req(method, path, body=None):
+    url = BASE + path
+    data = json.dumps(body).encode() if body else None
+    r = urllib.request.Request(url, data=data, method=method)
+    r.add_header("Content-Type", "application/json")
+    if TOKEN:
+        r.add_header("Authorization", "Bearer " + TOKEN)
+    try:
+        with urllib.request.urlopen(r, timeout=10) as resp:
+            return json.loads(resp.read())
+    except Exception as e:
+        return {"error": str(e)}
+
+# Login
+print("🔑 登录...")
+resp = req("POST", "/api/v1/auth/login", {"username": "admin", "password": "admin123"})
+if not resp or resp.get("code") != 0:
+    print("❌ 登录失败:", resp.get("error", ""))
+    sys.exit(1)
+TOKEN = resp["data"]["accessToken"]
 
 # Get all indicators
-INDICATORS=$(curl -s "$BASE_URL/api/v1/strategies/indicators" -H "$AUTH" | python3 -c "
-import sys, json
-data = json.load(sys.stdin).get('data', [])
-for ind in data:
-    print(ind['key'])
-")
+print("📋 获取指标列表...")
+resp = req("GET", "/api/v1/strategies/indicators")
+indicators = resp.get("data", []) if resp else []
+total = len(indicators)
+print(f"  共 {total} 个指标")
 
-TOTAL=$(echo "$INDICATORS" | wc -l | tr -d ' ')
-PASS=0
-NODATA=0
-ZERO=0
-FAIL_KEYS=""
+pass_cnt = 0
+zero_cnt = 0
+nodata_cnt = 0
+nodata_keys = []
 
-echo ""
-echo "╔══════════════════════════════════════════════════════════════════════╗"
-printf "║  Stock: %-6s  Date: %-10s  Total: %-3s indicators      ║\n" "$STOCK" "$DATE" "$TOTAL"
-echo "╠══════════════════════════════════════════════════════════════════════╣"
+print()
+print("╔══════════════════════════════════════════════════════════════════════╗")
+print(f"║  Stock: {STOCK:<6s}  Date: {DATE:<10s}  Total: {total:<3d} indicators      ║")
+print("╠══════════════════════════════════════════════════════════════════════╣")
 
-for IND in $INDICATORS; do
-  RESULT=$(curl -s -X POST "$BASE_URL/api/v1/strategies/test-indicator" \
-    -H "$AUTH" -H "Content-Type: application/json" \
-    -d "{\"stockCode\":\"$STOCK\",\"date\":\"$DATE\",\"indicator\":\"$IND\",\"operator\":\"gte\",\"value\":0}" 2>/dev/null)
-  
-  HAS_DATA=$(echo "$RESULT" | python3 -c "import sys,json; d=json.load(sys.stdin); print('true' if d.get('data',{}).get('hasData') else 'false')" 2>/dev/null)
-  VALUE=$(echo "$RESULT" | python3 -c "import sys,json; d=json.load(sys.stdin); v=d.get('data',{}).get('computedValue','N/A'); print(v)" 2>/dev/null)
-  
-  if [ "$HAS_DATA" = "true" ]; then
-    if [ "$VALUE" = "0" ] || [ "$VALUE" = "0.0" ]; then
-      ZERO=$((ZERO + 1))
-      printf "  ⚡ %-30s → %s (zero)\n" "$IND" "$VALUE"
-    else
-      PASS=$((PASS + 1))
-      printf "  ✅ %-30s → %s\n" "$IND" "$VALUE"
-    fi
-  else
-    NODATA=$((NODATA + 1))
-    FAIL_KEYS="$FAIL_KEYS $IND"
-    printf "  ❌ %-30s → NO DATA\n" "$IND"
-  fi
-done
+for ind in indicators:
+    key = ind["key"]
+    body = {
+        "stockCode": STOCK,
+        "date": DATE,
+        "indicator": key,
+        "operator": "gte",
+        "value": 0
+    }
+    resp = req("POST", "/api/v1/strategies/test-indicator", body)
+    data = resp.get("data", {}) if resp else {}
+    has = data.get("hasData", False)
+    val = data.get("computedValue", "N/A")
 
-echo "╠══════════════════════════════════════════════════════════════════════╣"
-printf "║  ✅ Pass: %-3d  ⚡ Zero: %-3d  ❌ NoData: %-3d                   ║\n" $PASS $ZERO $NODATA
-echo "╚══════════════════════════════════════════════════════════════════════╝"
+    if has:
+        if val == 0 or val == 0.0:
+            zero_cnt += 1
+            print(f"  ⚡ {key:<30s} → {val} (zero)")
+        else:
+            pass_cnt += 1
+            print(f"  ✅ {key:<30s} → {val}")
+    else:
+        nodata_cnt += 1
+        nodata_keys.append(key)
+        print(f"  ❌ {key:<30s} → NO DATA")
 
-if [ $NODATA -gt 0 ]; then
-  echo ""
-  echo "⚠️  无数据指标:"
-  for k in $FAIL_KEYS; do echo "    - $k"; done
-fi
+print("╠══════════════════════════════════════════════════════════════════════╣")
+print(f"║  ✅ Pass: {pass_cnt:<3d}  ⚡ Zero: {zero_cnt:<3d}  ❌ NoData: {nodata_cnt:<3d}                   ║")
+print("╚══════════════════════════════════════════════════════════════════════╝")
+
+if nodata_keys:
+    print()
+    print("⚠️  无数据指标:")
+    for k in nodata_keys:
+        print(f"    - {k}")
+PYEOF
