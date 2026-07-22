@@ -83,7 +83,8 @@ type Strategy struct {
 
 	// Risk limits
 	PositionConcentrationLimit float64 `gorm:"default:0.25" json:"positionConcentrationLimit"` // 单票最大仓位占比 (0-1)
-	MaxDailyLoss               float64 `gorm:"default:-0.05" json:"maxDailyLoss"`               // 单日最大亏损比例 (负数)
+	MaxDailyLoss               float64 `gorm:"default:-0.05" json:"maxDailyLoss"`               // 单日最大亏损比例 (负数) — deprecated, 使用 MaxCumulativeLoss
+	MaxCumulativeLoss          float64 `gorm:"default:0" json:"maxCumulativeLoss"`              // 累计亏损熔断比例 (负数), 0=不限制. 如 -30 表示亏 30% 清仓停止
 
 	// ── Dynamic Position Sizing (动态仓位管理) ──
 	EnableDynamicSizing  bool    `gorm:"default:true" json:"enableDynamicSizing"`    // 开启动态仓位管理（跟随市场）

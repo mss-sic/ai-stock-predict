@@ -32,7 +32,8 @@ type PositionBudget struct {
 	DailyBuyPct         float64        // 单日买入上限 (占资金 %)
 	MaxBuyCash          float64        // 单日买入金额上限
 	SinglePositionLimit float64        // 单票最大仓位 (占资金 %, 0=无限制)
-	DailyLossLimit      float64        // 单日最大亏损 (负数, 0=无限制)
+	DailyLossLimit      float64        // 当日亏损限制 (负数) — deprecated
+	CumulativeLossLimit float64        // 累计亏损熔断 (负数), 0=不限制. 触发后清仓停止
 	Reason              string         // 决策理由
 	Regime              StrategyRegime `json:"regime"`           // 当前风控强度
 	RegimeReason        string         `json:"regimeReason"`     // 风控强度判定理由
@@ -85,7 +86,7 @@ func (e *PositionSizingEngine) Calculate(
 	dailyPct := e.gradualBuildLimit(runDays, cumulativePnl, totalPct)
 	budget.DailyBuyPct = dailyPct
 	budget.MaxBuyCash = cash * dailyPct / 100
-	budget.DailyLossLimit = -5.0 // default: -5% daily loss cap
+	budget.CumulativeLossLimit = 0 // default: 0 = disabled
 
 	// Build reason
 	budget.Reason = e.buildReason(style, fearGreed, runDays, cumulativePnl, riskAlertCount, totalPct, dailyPct)
@@ -188,14 +189,8 @@ func (e *PositionSizingEngine) CalculateWithStrategy(
 	if strategy.PositionConcentrationLimit > 0 && budget.SinglePositionLimit > 0 {
 		budget.SinglePositionLimit = strategy.PositionConcentrationLimit * 100
 	}
-	if strategy.MaxDailyLoss < 0 {
-		// Normalize: if value is <= -1 (e.g. -5), it's already in percentage, convert to budget format
-		// If value is -1 < x < 0 (e.g. -0.05), it's decimal, convert to percentage
-		if strategy.MaxDailyLoss <= -1 {
-			budget.DailyLossLimit = strategy.MaxDailyLoss // already in % (e.g., -5 = -5%)
-		} else {
-			budget.DailyLossLimit = strategy.MaxDailyLoss * 100 // convert decimal to % (e.g., -0.05 → -5%)
-		}
+	if strategy.MaxCumulativeLoss < 0 {
+		budget.CumulativeLossLimit = strategy.MaxCumulativeLoss
 	}
 	// Industry diversification overrides
 	budget.MaxSingleIndustry = strategy.MaxSingleIndustry

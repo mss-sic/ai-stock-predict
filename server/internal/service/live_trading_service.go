@@ -557,8 +557,8 @@ func (s *LiveTradingService) evaluateAndGenerateSignals(
 		run.InitialCapital, run.AvailableCash, 100)
 	addLog("📊 仓位基础: 最大持股%d | 买入%.0f%% | 加仓%.0f%% | 减仓%.0f%%",
 		strategy.MaxHoldings, strategy.BuyPositionPct, strategy.AddPositionPct, strategy.ReducePositionPct)
-	addLog("🛡 风控: 固定止损%.0f%% | 固定止盈%.0f%% | 单票集中度%.0f%% | 日亏损熔断%.0f%%",
-		strategy.StopLoss, strategy.StopProfit, strategy.PositionConcentrationLimit*100, strategy.MaxDailyLoss)
+	addLog("🛡 风控: 固定止损%.0f%% | 固定止盈%.0f%% | 单票集中度%.0f%% | 累计亏损熔断%.0f%%",
+		strategy.StopLoss, strategy.StopProfit, strategy.PositionConcentrationLimit*100, strategy.MaxCumulativeLoss)
 	addLog("📈 动态仓位: %v | 手动总上限%.0f%% | 手动单日上限%.0f%% | 单行业≤%.0f%% | 最少行业%d",
 		strategy.EnableDynamicSizing, strategy.MaxTotalPosition, strategy.DailyBuyLimit,
 		strategy.MaxSingleIndustry, strategy.MinIndustryCount)
@@ -640,17 +640,33 @@ func (s *LiveTradingService) evaluateAndGenerateSignals(
 	budget := posSizingEngine.CalculateWithStrategy(tradeDate, run.CurrentEquity, runDays, cumulativePnl, riskAlerts, strategy)
 	addLog("🎚 风控判定: %s | 综合分%.1f | 仓位乘数%.1f", budget.RegimeReason, budget.CompositeScore, budget.PositionBias)
 
-	// ── 日亏损熔断检查 ──
-	if budget.DailyLossLimit < 0 {
-		dailyLossPct := cumulativePnl / run.InitialCapital * 100
-		if dailyLossPct <= budget.DailyLossLimit {
-			addLog("🛑 日亏损熔断触发: 累计亏损%.1f%% ≤ 熔断线%.1f%%，禁止开仓", dailyLossPct, budget.DailyLossLimit)
+	// ── 累计亏损熔断检查 ──
+	if budget.CumulativeLossLimit < 0 {
+		cumulativeLossPct := cumulativePnl / run.InitialCapital * 100
+		if cumulativeLossPct <= budget.CumulativeLossLimit {
+			addLog("🛑 累计亏损熔断触发: 累计亏损%.1f%% ≤ 熔断线%.1f%%，自动清仓并停止运行", cumulativeLossPct, budget.CumulativeLossLimit)
 			budget.TotalPositionPct = 0
 			budget.DailyBuyPct = 0
 			budget.MaxBuyCash = 0
+			// 清仓日志
+			posCount := 0
+			for i := range *positions {
+				pos := &(*positions)[i]
+				if pos.Quantity > 0 {
+					addLog("🛑 熔断清仓: %s %s 持仓%d股 @%.2f", pos.StockCode, pos.StockName, pos.Quantity, pos.CurrentPrice)
+					posCount++
+				}
+			}
+			// 停止策略运行
+			db.MySQL.Model(&model.StrategyRun{}).Where("id = ?", run.ID).Updates(map[string]interface{}{
+				"status": "stopped",
+				"last_error": fmt.Sprintf("累计亏损熔断: %.1f%% ≤ %.1f%%", cumulativeLossPct, budget.CumulativeLossLimit),
+			})
+			addLog("⛔ 策略已自动停止 (%d只持仓已标记清仓, 累计亏损%.1f%% 触发%.1f%% 熔断)", posCount, cumulativeLossPct, budget.CumulativeLossLimit)
+			return 0, nil, fmt.Errorf("累计亏损熔断: %.1f%%", cumulativeLossPct)
 		}
 	}
-	addLog("💰 仓位预算: 总≤%.0f%% 单日≤%.0f%% 单票≤%.0f%% 熔断%.0f%% (¥%.0f) — %s", budget.TotalPositionPct, budget.DailyBuyPct, budget.SinglePositionLimit, budget.DailyLossLimit, budget.MaxBuyCash, budget.Reason)
+	addLog("💰 仓位预算: 总≤%.0f%% 单日≤%.0f%% 单票≤%.0f%% 累计熔断%.0f%% (¥%.0f) — %s", budget.TotalPositionPct, budget.DailyBuyPct, budget.SinglePositionLimit, budget.CumulativeLossLimit, budget.MaxBuyCash, budget.Reason)
 
 	// ── Run shared SignalEngine ──
 	sigEngine := NewSignalEngine()

@@ -2015,6 +2015,25 @@ Register(Migration{
 	})
 
 	
+	// v096: Add max_cumulative_loss column to strategies
+	// Replaces the misnamed max_daily_loss with cumulative drawdown circuit breaker.
+	Register(Migration{
+		Version:     96,
+		Description: "MySQL: add max_cumulative_loss to strategies",
+		Up: func() error {
+			if MySQL == nil {
+				return nil
+			}
+			var count int64
+			MySQL.Raw("SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = 'stock_predict' AND TABLE_NAME = 'strategies' AND COLUMN_NAME = 'max_cumulative_loss'").Scan(&count)
+			if count == 0 {
+				MySQL.Exec("ALTER TABLE strategies ADD COLUMN max_cumulative_loss DECIMAL(6,2) DEFAULT 0 AFTER max_daily_loss")
+			}
+			return nil
+		},
+	})
+
+
 	// v095: Add market_style AI system config for AI market interpretation
 	Register(Migration{
 		Version:     95,

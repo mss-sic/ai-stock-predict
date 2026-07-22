@@ -8,7 +8,7 @@ import { fetchIndicators, fetchLiveRun, fetchLiveSnapshots, runLiveDaily, fetchD
 import ReactMarkdown from 'react-markdown';
 
 interface Run { id: number; strategyId: number; name: string; status: string; startDate: string; initialCapital: number; availableCash?: number; positionValue?: number; currentEquity: number; totalReturn: number; maxDrawdown: number; winRate: number; tradeCount: number; lastRunDate: string; autoDailyCron?: string; autoTradeExecCron?: string; notifyEnabled?: boolean; notifyChannels?: string; executionMode?: string; aiReviewEnabled?: boolean; }
-interface Strategy { id: number; name: string; description: string; stopProfit: number; stopLoss: number; maxHoldings: number; buyPositionPct: number; addPositionPct: number; positionSizing: string; positionConcentrationLimit: number; maxDailyLoss: number; initialCapital: number; enableAIAgent?: boolean; }
+interface Strategy { id: number; name: string; description: string; stopProfit: number; stopLoss: number; maxHoldings: number; buyPositionPct: number; addPositionPct: number; positionSizing: string; positionConcentrationLimit: number; maxDailyLoss: number; maxCumulativeLoss: number; initialCapital: number; enableAIAgent?: boolean; }
 // Allocation removed — fields are now on Run directly (availableCash, positionValue)
 interface Position { id: number; stockCode: string; stockName: string; quantity: number; avgCost: number; currentPrice: number; unrealizedPnl: number; unrealizedPnlPct: number; realizedPnl: number; holdDays: number; todayBuyQty?: number; availSellQty?: number; updatedAt?: string; }
 interface Trade { id: number; tradeDate: string; stockCode: string; stockName: string; actionType: string; price: number; quantity: number; amount: number; pnl: number; pnlPct: number; reason: string; }
@@ -809,7 +809,7 @@ export default function LiveRunDetailPage() {
                 <span style={{ color: 'var(--color-text-3)' }}>止损 <b style={{ color: '#00B42A' }}>{strategy.stopLoss < 0 ? strategy.stopLoss + '%' : '—'}</b></span>
                 <span style={{ color: 'var(--color-text-3)' }}>持仓 ≤ <b>{strategy.maxHoldings}只</b></span>
                 <span style={{ color: 'var(--color-text-3)' }}>单票/首仓/加仓 <b>{(strategy.positionConcentrationLimit*100).toFixed(0)}%/{strategy.buyPositionPct}%/{strategy.addPositionPct}%</b></span>
-                <span style={{ color: 'var(--color-text-3)' }}>日熔断 <b>{strategy.maxDailyLoss ? strategy.maxDailyLoss + '%' : '—'}</b></span>
+                <span style={{ color: 'var(--color-text-3)' }}>累计熔断 <b>{strategy.maxCumulativeLoss ? strategy.maxCumulativeLoss + '%' : '未设'}</b></span>
               </div>
 
               {/* Conditions grouped by type */}
