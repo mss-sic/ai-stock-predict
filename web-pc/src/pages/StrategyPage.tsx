@@ -1533,7 +1533,7 @@ export default function StrategyPage() {
                   <div style={{ padding: '14px 18px', background: 'var(--color-bg-1)', borderRadius: 10, border: '1px solid var(--color-border-1)' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
                       <DollarSign size={16} style={{ color: '#00B42A' }} />
-                      <Tooltip content="手动设定仓位边界：单票最大仓位限制单只股票买入金额上限，单日亏损熔断在亏损超过阈值时停止新开仓">
+                      <Tooltip content="手动设定仓位边界：单票最大仓位限制单只股票买入金额上限，累计亏损熔断在总亏损超过阈值时自动清仓并停止策略运行（0=不限制）">
                       <span style={{ fontSize: 14, fontWeight: 600, cursor: 'help' }}>仓位 & 风控上限 <Info size={12} style={{ verticalAlign: -2 }} /></span>
                     </Tooltip>
                     </div>
@@ -1543,8 +1543,8 @@ export default function StrategyPage() {
                         <InputNumber value={(activeStrategy.positionConcentrationLimit || 0.25) * 100} onChange={v => handleUpdateStrategy('positionConcentrationLimit', (v || 25) / 100)} min={5} max={50} step={5} suffix="%" style={{ width: 85 }} size="small" />
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>单日最大亏损</span>
-                        <InputNumber value={activeStrategy.maxDailyLoss || -5} onChange={v => handleUpdateStrategy('maxDailyLoss', v || -5)} max={0} step={1} suffix="%" style={{ width: 85 }} size="small" />
+                        <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>累计亏损熔断</span>
+                        <InputNumber value={activeStrategy.maxCumulativeLoss || 0} onChange={v => handleUpdateStrategy('maxCumulativeLoss', -(Math.abs(v || 0)))} max={0} step={5} suffix="%" style={{ width: 85 }} size="small" placeholder="0=不限制" />
                       </div>
                     </div>
                   </div>
