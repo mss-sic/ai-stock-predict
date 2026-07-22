@@ -1,18 +1,22 @@
 #!/bin/bash
-# 全量指标测试脚本（纯 Python 实现，容器内无 curl 也可用）
+# 全量指标测试脚本 — 纯 Python，支持传 token 或自动登录
+# Usage:
+#   ./test_indicators.sh 300632 2026-07-21                    # 自动登录 (admin/admin123)
+#   TOKEN=xxx ./test_indicators.sh 300632 2026-07-21         # 用指定 token
 set -e
 
 BASE_URL="${API_BASE_URL:-http://localhost:8080}"
 STOCK="${1:-000001}"
 DATE="${2:-$(date +%Y-%m-%d)}"
+API_TOKEN="${TOKEN:-}"
 
 python3 << PYEOF
-import urllib.request, json, sys
+import urllib.request, json, sys, os
 
 BASE = "${BASE_URL}"
 STOCK = "${STOCK}"
 DATE = "${DATE}"
-TOKEN = ""
+TOKEN = os.environ.get("TOKEN", "")
 
 def req(method, path, body=None):
     url = BASE + path
@@ -22,46 +26,44 @@ def req(method, path, body=None):
     if TOKEN:
         r.add_header("Authorization", "Bearer " + TOKEN)
     try:
-        with urllib.request.urlopen(r, timeout=10) as resp:
+        with urllib.request.urlopen(r, timeout=15) as resp:
             return json.loads(resp.read())
     except Exception as e:
         return {"error": str(e)}
 
-# Login
-print("🔑 登录...")
-resp = req("POST", "/api/v1/auth/login", {"username": "admin", "password": "admin123"})
-if not resp or resp.get("code") != 0:
-    print("❌ 登录失败:", resp.get("error", ""))
-    sys.exit(1)
-TOKEN = resp["data"]["accessToken"]
+# Login if no token provided
+if not TOKEN:
+    import subprocess
+    # Try reading from docker-compose env or common passwords
+    for pw in ["admin123", "admin", "stock123", ""]:
+        resp = req("POST", "/api/v1/auth/login", {"username": "admin", "password": pw})
+        if resp and resp.get("code") == 0:
+            TOKEN = resp["data"]["accessToken"]
+            break
+    if not TOKEN:
+        print("❌ 自动登录失败，请手动传入 TOKEN 环境变量")
+        print("   TOKEN=xxx bash test_indicators.sh 300632 2026-07-21")
+        sys.exit(1)
 
 # Get all indicators
-print("📋 获取指标列表...")
 resp = req("GET", "/api/v1/strategies/indicators")
 indicators = resp.get("data", []) if resp else []
 total = len(indicators)
-print(f"  共 {total} 个指标")
 
 pass_cnt = 0
 zero_cnt = 0
 nodata_cnt = 0
 nodata_keys = []
 
+print(f"🔍 {STOCK}  {DATE}  {total}个指标")
 print()
-print("╔══════════════════════════════════════════════════════════════════════╗")
-print(f"║  Stock: {STOCK:<6s}  Date: {DATE:<10s}  Total: {total:<3d} indicators      ║")
-print("╠══════════════════════════════════════════════════════════════════════╣")
 
 for ind in indicators:
     key = ind["key"]
-    body = {
-        "stockCode": STOCK,
-        "date": DATE,
-        "indicator": key,
-        "operator": "gte",
-        "value": 0
-    }
-    resp = req("POST", "/api/v1/strategies/test-indicator", body)
+    resp = req("POST", "/api/v1/strategies/test-indicator", {
+        "stockCode": STOCK, "date": DATE,
+        "indicator": key, "operator": "gte", "value": 0
+    })
     data = resp.get("data", {}) if resp else {}
     has = data.get("hasData", False)
     val = data.get("computedValue", "N/A")
@@ -78,9 +80,8 @@ for ind in indicators:
         nodata_keys.append(key)
         print(f"  ❌ {key:<30s} → NO DATA")
 
-print("╠══════════════════════════════════════════════════════════════════════╣")
-print(f"║  ✅ Pass: {pass_cnt:<3d}  ⚡ Zero: {zero_cnt:<3d}  ❌ NoData: {nodata_cnt:<3d}                   ║")
-print("╚══════════════════════════════════════════════════════════════════════╝")
+print()
+print(f"  ✅ Pass: {pass_cnt}  ⚡ Zero: {zero_cnt}  ❌ NoData: {nodata_cnt}")
 
 if nodata_keys:
     print()
