@@ -11,6 +11,27 @@ import (
 
 type StockRepo struct{}
 
+// latestTradingDates returns the two most recent trading dates using trade_calendar table.
+// Falls back to stocks_daily_k MAX query if trade_calendar is empty.
+func latestTradingDates() (latestDate, prevDate time.Time) {
+	calRepo := NewTradeCalendarRepo()
+	latest, err := calRepo.LatestTradeDate()
+	if err != nil || latest.IsZero() {
+		// Fallback: trade_calendar table not populated yet
+		db.PG.Raw("SELECT MAX(trade_date) FROM stocks_daily_k WHERE code !~ '^IDX'").Scan(&latestDate)
+		db.PG.Raw("SELECT MAX(trade_date) FROM stocks_daily_k WHERE code !~ '^IDX' AND trade_date < ?", latestDate).Scan(&prevDate)
+		return
+	}
+	latestDate = latest
+	prev, err := calRepo.PrevTradeDate(latest)
+	if err != nil || prev.IsZero() {
+		db.PG.Raw("SELECT MAX(trade_date) FROM stocks_daily_k WHERE code !~ '^IDX' AND trade_date < ?", latestDate).Scan(&prevDate)
+		return
+	}
+	prevDate = prev
+	return
+}
+
 // StockListRow enriched stock list row with latest daily K data.
 type StockListRow struct {
 	Code         string  `json:"code"`
@@ -48,42 +69,40 @@ type UnusualRow struct {
 
 // MarketSnapshot holds aggregate market overview data.
 type MarketSnapshot struct {
-	TradeDate    string `json:"tradeDate"`
-	UpCount      int    `json:"upCount"`
-	DownCount    int    `json:"downCount"`
-	FlatCount    int    `json:"flatCount"`
-	TotalStocks  int    `json:"totalStocks"`
-	LimitUpCount int    `json:"limitUpCount"`
-	LimitDownCount int  `json:"limitDownCount"`
-	Amount       float64 `json:"amount"`     // 亿元
-	PrevAmount   float64 `json:"prevAmount"` // 上一交易日成交额 亿元
-	Change       float64 `json:"change"`
-	ChangePct    float64 `json:"changePct"`
+	TradeDate      string  `json:"tradeDate"`
+	UpCount        int     `json:"upCount"`
+	DownCount      int     `json:"downCount"`
+	FlatCount      int     `json:"flatCount"`
+	TotalStocks    int     `json:"totalStocks"`
+	LimitUpCount   int     `json:"limitUpCount"`
+	LimitDownCount int     `json:"limitDownCount"`
+	Amount         float64 `json:"amount"`     // 亿元
+	PrevAmount     float64 `json:"prevAmount"` // 上一交易日成交额 亿元
+	Change         float64 `json:"change"`
+	ChangePct      float64 `json:"changePct"`
 	CompositeScore float64 `json:"compositeScore"`
-	ShAmount     float64 `json:"shAmount"`   // 上证成交额 亿元
-	SzAmount     float64 `json:"szAmount"`   // 深证成交额 亿元
-	CyAmount     float64 `json:"cyAmount"`   // 创业板成交额 亿元
-	KcAmount     float64 `json:"kcAmount"`   // 科创板成交额 亿元
-	BjAmount     float64 `json:"bjAmount"`   // 北交所成交额 亿元
-	ShUp         int     `json:"shUp"`
-	ShDown       int     `json:"shDown"`
-	ShFlat       int     `json:"shFlat"`
-	SzUp         int     `json:"szUp"`
-	SzDown       int     `json:"szDown"`
-	SzFlat       int     `json:"szFlat"`
-	CyUp         int     `json:"cyUp"`
-	CyDown       int     `json:"cyDown"`
-	CyFlat       int     `json:"cyFlat"`
+	ShAmount       float64 `json:"shAmount"` // 上证成交额 亿元
+	SzAmount       float64 `json:"szAmount"` // 深证成交额 亿元
+	CyAmount       float64 `json:"cyAmount"` // 创业板成交额 亿元
+	KcAmount       float64 `json:"kcAmount"` // 科创板成交额 亿元
+	BjAmount       float64 `json:"bjAmount"` // 北交所成交额 亿元
+	ShUp           int     `json:"shUp"`
+	ShDown         int     `json:"shDown"`
+	ShFlat         int     `json:"shFlat"`
+	SzUp           int     `json:"szUp"`
+	SzDown         int     `json:"szDown"`
+	SzFlat         int     `json:"szFlat"`
+	CyUp           int     `json:"cyUp"`
+	CyDown         int     `json:"cyDown"`
+	CyFlat         int     `json:"cyFlat"`
 }
 
 func (r *StockRepo) List(industry, keyword, boardType, sortBy, sortDir string, offset, limit int) ([]StockListRow, int64, error) {
 	var rows []StockListRow
 	var total int64
 
-	// Find the two most recent trading dates (one query)
-	var latestDate, prevDate time.Time
-	db.PG.Raw("SELECT MAX(trade_date) FROM stocks_daily_k WHERE code !~ '^IDX'").Scan(&latestDate)
-	db.PG.Raw("SELECT MAX(trade_date) FROM stocks_daily_k WHERE code !~ '^IDX' AND trade_date < ?", latestDate).Scan(&prevDate)
+	// Find the two most recent trading dates (uses trade_calendar with fallback)
+	latestDate, prevDate := latestTradingDates()
 
 	// Build WHERE clause for stocks_basic
 	where := " WHERE sb.code !~ '^IDX'"
@@ -239,14 +258,24 @@ func (r *StockRepo) GetMarketSnapshot() (*MarketSnapshot, error) {
 	for _, bd := range buds {
 		switch bd.BoardType {
 		case "sh":
-			snap.ShUp += bd.Up; snap.ShDown += bd.Down; snap.ShFlat += bd.Flat
+			snap.ShUp += bd.Up
+			snap.ShDown += bd.Down
+			snap.ShFlat += bd.Flat
 		case "sz":
-			snap.SzUp += bd.Up; snap.SzDown += bd.Down; snap.SzFlat += bd.Flat
+			snap.SzUp += bd.Up
+			snap.SzDown += bd.Down
+			snap.SzFlat += bd.Flat
 		case "cy":
-			snap.CyUp = bd.Up; snap.CyDown = bd.Down; snap.CyFlat = bd.Flat
-			snap.SzUp += bd.Up; snap.SzDown += bd.Down; snap.SzFlat += bd.Flat
+			snap.CyUp = bd.Up
+			snap.CyDown = bd.Down
+			snap.CyFlat = bd.Flat
+			snap.SzUp += bd.Up
+			snap.SzDown += bd.Down
+			snap.SzFlat += bd.Flat
 		case "kc":
-			snap.ShUp += bd.Up; snap.ShDown += bd.Down; snap.ShFlat += bd.Flat
+			snap.ShUp += bd.Up
+			snap.ShDown += bd.Down
+			snap.ShFlat += bd.Flat
 		}
 	}
 
@@ -258,9 +287,7 @@ func (r *StockRepo) GetRanking(boardType, sortBy string, limit int, asc bool) ([
 	var rows []StockListRow
 
 	// Find the two most recent trading dates
-	var latestDate, prevDate time.Time
-	db.PG.Raw("SELECT MAX(trade_date) FROM stocks_daily_k WHERE code !~ '^IDX'").Scan(&latestDate)
-	db.PG.Raw("SELECT MAX(trade_date) FROM stocks_daily_k WHERE code !~ '^IDX' AND trade_date < ?", latestDate).Scan(&prevDate)
+	latestDate, prevDate := latestTradingDates()
 
 	direction := "DESC"
 	if asc {
@@ -320,9 +347,7 @@ func (r *StockRepo) GetRanking(boardType, sortBy string, limit int, asc bool) ([
 func (r *StockRepo) GetUnusual(boardType string, limit int) ([]UnusualRow, error) {
 	var rows []UnusualRow
 
-	var latestDate, prevDate time.Time
-	db.PG.Raw("SELECT MAX(trade_date) FROM stocks_daily_k WHERE code !~ '^IDX'").Scan(&latestDate)
-	db.PG.Raw("SELECT MAX(trade_date) FROM stocks_daily_k WHERE code !~ '^IDX' AND trade_date < ?", latestDate).Scan(&prevDate)
+	var latestDate, prevDate = latestTradingDates()
 
 	where := " WHERE sb.code !~ '^IDX' AND sb.is_st = false"
 	args := []interface{}{latestDate, prevDate, prevDate}
@@ -607,9 +632,10 @@ func (r *StockRepo) GetBuySellFlow(code, days string) ([]model.BuySellFlowItem, 
 	return rows, err
 }
 
-
 func (r *StockRepo) GetAllAnnouncements(limit int) ([]model.CninfoAnnouncement, error) {
-	if limit <= 0 { limit = 200 }
+	if limit <= 0 {
+		limit = 200
+	}
 	var rows []model.CninfoAnnouncement
 	err := db.PG.Order("ann_date DESC").Limit(limit).Find(&rows).Error
 	return rows, err
@@ -623,7 +649,9 @@ func (r *StockRepo) GetThsEpsForecast(code string) ([]model.ThsEpsForecast, erro
 
 // GetMacroNews returns latest macro news with optional category filter.
 func (r *StockRepo) GetMacroNews(category string, limit int) ([]model.MacroNews, error) {
-	if limit <= 0 { limit = 50 }
+	if limit <= 0 {
+		limit = 50
+	}
 	var rows []model.MacroNews
 	q := db.PG.Order("news_time DESC").Limit(limit)
 	if category != "" && category != "all" {
@@ -737,8 +765,13 @@ func (r *StockRepo) GetDailyDragonTigerEnriched(tradeDate string) ([]model.Drago
 	}
 	if len(codeSet) > 0 {
 		codes := make([]string, 0, len(codeSet))
-		for c := range codeSet { codes = append(codes, c) }
-		type consRow struct { Code string; Days int }
+		for c := range codeSet {
+			codes = append(codes, c)
+		}
+		type consRow struct {
+			Code string
+			Days int
+		}
 		var consRows []consRow
 		db.PG.Raw(`
 			WITH pick_dates AS (
@@ -775,7 +808,6 @@ func (r *StockRepo) GetDailyDragonTigerEnriched(tradeDate string) ([]model.Drago
 
 	return rows, nil
 }
-
 
 func (r *StockRepo) GetDragonTigerSeats(code, tradeDate string) ([]model.DragonTigerDetail, error) {
 	var rows []model.DragonTigerDetail

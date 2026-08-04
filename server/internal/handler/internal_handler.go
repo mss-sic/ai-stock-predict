@@ -5,11 +5,13 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"strings"
 	"time"
 
 	"github.com/ai-stock-predict/server/internal/db"
 	"github.com/ai-stock-predict/server/internal/model"
+	"github.com/ai-stock-predict/server/pkg/response"
 	"github.com/gin-gonic/gin"
 )
 
@@ -161,10 +163,16 @@ func (h *InternalHandler) SyncPredictions(c *gin.Context) {
 
 	imported := len(preds)
 
-	// ── Step 3: Clear old data ──
-	db.PG.Exec("DELETE FROM predictions")
-	db.PG.Exec("DELETE FROM prediction_kdist")
-	db.PG.Exec("DELETE FROM stock_signals WHERE source = 'algo_team'")
+	// ── Step 3: Clear old data in a transaction ──
+	tx := db.PG.Begin()
+	tx.Exec("DELETE FROM predictions")
+	tx.Exec("DELETE FROM prediction_kdist")
+	tx.Exec("DELETE FROM stock_signals WHERE source = 'algo_team'")
+	if err := tx.Commit().Error; err != nil {
+		log.Printf("[internal] clear old data transaction failed: %v", err)
+		c.JSON(500, gin.H{"error": "clear old data failed"})
+		return
+	}
 
 	// ── Step 4: Bulk insert predictions ──
 	batchSize := 2000
@@ -244,6 +252,127 @@ func (h *InternalHandler) SyncPredictions(c *gin.Context) {
 		`, strings.Join(valueStrings, ","))
 		if err := db.PG.Exec(query, valueArgs...).Error; err != nil {
 			log.Printf("[internal] batch insert signals failed at batch %d: %v", i/batchSize, err)
+		}
+	}
+
+	// ── Step 6.5: Precompute KD factors for prediction_factors table ──
+	type factorRec struct {
+		Code                                    string
+		ConsensusD5, ConsensusD10, ConsensusD20 int
+		ExpReturnD5, ExpReturnD10, ExpReturnD20 float64
+		MomentumD5, MomentumD10, MomentumD20    float64
+		StddevD20                               float64
+	}
+	var factors []factorRec
+	for _, unit := range input.DataUnits {
+		if len(unit.KdistributedData) < 7 {
+			continue
+		}
+		var d5, d10, d20, moms []float64
+		var cons5, cons10, cons20 int
+		for _, c := range unit.KdistributedData {
+			if len(c) < 20 {
+				continue
+			}
+			d5v, d10v, d20v := c[4], c[9], c[19]
+			if d5v > 0 {
+				cons5++
+			}
+			if d10v > 0 {
+				cons10++
+			}
+			if d20v > 0 {
+				cons20++
+			}
+			d5 = append(d5, d5v)
+			d10 = append(d10, d10v)
+			d20 = append(d20, d20v)
+			// momentum: last5 avg - first5 avg
+			first5, last5 := 0.0, 0.0
+			for j := 0; j < 5; j++ {
+				first5 += c[j]
+			}
+			for j := 15; j < 20; j++ {
+				last5 += c[j]
+			}
+			moms = append(moms, last5/5.0-first5/5.0)
+		}
+		f := factorRec{Code: unit.StockCode, ConsensusD5: cons5, ConsensusD10: cons10, ConsensusD20: cons20}
+		if len(d5) > 0 {
+			sum := 0.0
+			for _, v := range d5 {
+				sum += v
+			}
+			f.ExpReturnD5 = sum / float64(len(d5))
+			sum = 0.0
+			for _, v := range d10 {
+				sum += v
+			}
+			f.ExpReturnD10 = sum / float64(len(d10))
+			sum = 0.0
+			for _, v := range d20 {
+				sum += v
+			}
+			f.ExpReturnD20 = sum / float64(len(d20))
+			// stddev d20
+			sq := 0.0
+			for _, v := range d20 {
+				d := v - f.ExpReturnD20
+				sq += d * d
+			}
+			if len(d20) > 1 {
+				f.StddevD20 = math.Sqrt(sq / float64(len(d20)))
+			}
+		}
+		if len(moms) > 0 {
+			sum := 0.0
+			for _, v := range moms {
+				sum += v
+			}
+			avg := sum / float64(len(moms))
+			f.MomentumD5, f.MomentumD10, f.MomentumD20 = avg, avg, avg
+		}
+		factors = append(factors, f)
+	}
+
+	// Batch upsert into prediction_factors
+	factorBatchSize := 2000
+	for i := 0; i < len(factors); i += factorBatchSize {
+		end := i + factorBatchSize
+		if end > len(factors) {
+			end = len(factors)
+		}
+		batch := factors[i:end]
+		valueStrings := make([]string, 0, len(batch))
+		valueArgs := make([]interface{}, 0, len(batch)*11)
+		for j, f := range batch {
+			base := j * 11
+			valueStrings = append(valueStrings,
+				fmt.Sprintf("($%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,NOW())",
+					base+1, base+2, base+3, base+4, base+5, base+6,
+					base+7, base+8, base+9, base+10, base+11))
+			valueArgs = append(valueArgs, f.Code,
+				f.ConsensusD5, f.ExpReturnD5, f.MomentumD5,
+				f.ConsensusD10, f.ExpReturnD10, f.MomentumD10,
+				f.ConsensusD20, f.ExpReturnD20, f.MomentumD20,
+				f.StddevD20)
+		}
+		query := fmt.Sprintf(`
+			INSERT INTO prediction_factors (code, consensus_d5, exp_return_d5, momentum_d5,
+				consensus_d10, exp_return_d10, momentum_d10,
+				consensus_d20, exp_return_d20, momentum_d20,
+				stddev_d20, updated_at)
+			VALUES %s
+			ON CONFLICT (code) DO UPDATE SET
+				consensus_d5 = EXCLUDED.consensus_d5, exp_return_d5 = EXCLUDED.exp_return_d5, momentum_d5 = EXCLUDED.momentum_d5,
+				consensus_d10 = EXCLUDED.consensus_d10, exp_return_d10 = EXCLUDED.exp_return_d10, momentum_d10 = EXCLUDED.momentum_d10,
+				consensus_d20 = EXCLUDED.consensus_d20, exp_return_d20 = EXCLUDED.exp_return_d20, momentum_d20 = EXCLUDED.momentum_d20,
+				stddev_d20 = EXCLUDED.stddev_d20, updated_at = NOW()
+		`, strings.Join(valueStrings, ","))
+		if err := db.PG.Exec(query, valueArgs...).Error; err != nil {
+			log.Printf("[internal] batch insert factors failed at batch %d: %v", i/factorBatchSize, err)
+			response.InternalError(c, "预测因子写入失败")
+			return
 		}
 	}
 

@@ -19,6 +19,7 @@ import StockListPage from './pages/StockListPage';
 import LimitStatsPage from "./pages/LimitStatsPage";
 import SentimentDashboard from './pages/SentimentDashboard';
 import DataManagementPage from './pages/DataManagementPage';
+import DataDashboardPage from './pages/DataDashboardPage';
 import SettingsPage from './pages/SettingsPage';
 import PersonalSettingsPage from "./pages/PersonalSettingsPage";
 import UserCostPage from "./pages/UserCostPage";
@@ -124,6 +125,7 @@ const router = createBrowserRouter([
           { path: "industries", element: <IndustryComparePage /> },
 
           { path: 'data', element: <DataManagementPage /> },
+          { path: 'dashboard', element: <DataDashboardPage /> },
           { path: 'settings', element: <SettingsPage /> },
           { path: "profile", element: <PersonalSettingsPage /> },
           { path: "cost", element: <UserCostPage /> },

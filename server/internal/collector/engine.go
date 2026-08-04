@@ -24,7 +24,7 @@ type SSELine struct {
 	Level   string       `json:"level,omitempty"`
 	Result  *PhaseResult `json:"result,omitempty"`
 	// Stats contains key-value statistics from collection (e.g. "records": 1234)
-	Stats   map[string]int64 `json:"stats,omitempty"`
+	Stats map[string]int64 `json:"stats,omitempty"`
 	// ProgressCurrent / ProgressTotal track per-phase sub-progress
 	ProgressCurrent int `json:"progressCurrent,omitempty"`
 	ProgressTotal   int `json:"progressTotal,omitempty"`
@@ -168,34 +168,33 @@ type PhaseResult struct {
 	DurationMs int64  `json:"durationMs"`
 }
 
-
 // PhaseState tracks per-phase running state for concurrent collection.
 type PhaseState struct {
-	Running       bool      `json:"running"`
-	Phase         string    `json:"phase"`
-	Current       int       `json:"current"`
-	Total         int       `json:"total"`
-	Started       time.Time `json:"started"`
-	PhaseCurrent  int       `json:"phaseCurrent"`
-	PhaseTotal    int       `json:"phaseTotal"`
+	Running      bool      `json:"running"`
+	Phase        string    `json:"phase"`
+	Current      int       `json:"current"`
+	Total        int       `json:"total"`
+	Started      time.Time `json:"started"`
+	PhaseCurrent int       `json:"phaseCurrent"`
+	PhaseTotal   int       `json:"phaseTotal"`
 }
 type CollectionProgress struct {
-	mu       sync.RWMutex
-	Running  bool              `json:"running"`
-	ExtraArgs []string          `json:"extraArgs,omitempty"`
-	Phase    string        `json:"phase"`
-	Current  int           `json:"current"`
-	Total    int           `json:"total"`
-	Message  string        `json:"message"`
-	Results  []PhaseResult `json:"results"`
-	Started  time.Time     `json:"started"`
-	Finished *time.Time    `json:"finished"`
-	LastRun  interface{}   `json:"lastRun"`
-	Errors   []string      `json:"errors"`
-	LastOutput time.Time   `json:"-"`
+	mu         sync.RWMutex
+	Running    bool          `json:"running"`
+	ExtraArgs  []string      `json:"extraArgs,omitempty"`
+	Phase      string        `json:"phase"`
+	Current    int           `json:"current"`
+	Total      int           `json:"total"`
+	Message    string        `json:"message"`
+	Results    []PhaseResult `json:"results"`
+	Started    time.Time     `json:"started"`
+	Finished   *time.Time    `json:"finished"`
+	LastRun    interface{}   `json:"lastRun"`
+	Errors     []string      `json:"errors"`
+	LastOutput time.Time     `json:"-"`
 	// Per-phase sub-progress
-	PhaseCurrent int `json:"phaseCurrent"`
-	PhaseTotal   int `json:"phaseTotal"`
+	PhaseCurrent int                    `json:"phaseCurrent"`
+	PhaseTotal   int                    `json:"phaseTotal"`
 	ActivePhases map[string]*PhaseState `json:"activePhases"` // per-phase concurrency tracking
 	// Accumulated behavior stats across all phases
 	BehaviorStats map[string]int64 `json:"behaviorStats"`
@@ -230,7 +229,21 @@ func GetProgress() *CollectionProgress {
 	if !hasRunning {
 		progress.Phase = "done"
 	}
-	cp := *progress
+	cp := CollectionProgress{
+		Running:       progress.Running,
+		ExtraArgs:     append([]string(nil), progress.ExtraArgs...),
+		Phase:         progress.Phase,
+		Current:       progress.Current,
+		Total:         progress.Total,
+		Message:       progress.Message,
+		Started:       progress.Started,
+		Finished:      progress.Finished,
+		LastRun:       progress.LastRun,
+		LastOutput:    progress.LastOutput,
+		PhaseCurrent:  progress.PhaseCurrent,
+		PhaseTotal:    progress.PhaseTotal,
+		BehaviorStats: make(map[string]int64, len(progress.BehaviorStats)),
+	}
 	cp.Results = make([]PhaseResult, len(progress.Results))
 	copy(cp.Results, progress.Results)
 	cp.Errors = make([]string, len(progress.Errors))
@@ -238,6 +251,9 @@ func GetProgress() *CollectionProgress {
 	cp.ActivePhases = make(map[string]*PhaseState, len(progress.ActivePhases))
 	for k, v := range progress.ActivePhases {
 		cp.ActivePhases[k] = &PhaseState{Running: v.Running, Phase: v.Phase, Current: v.Current, Total: v.Total, Started: v.Started, PhaseCurrent: v.PhaseCurrent, PhaseTotal: v.PhaseTotal}
+	}
+	for k, v := range progress.BehaviorStats {
+		cp.BehaviorStats[k] = v
 	}
 	progress.mu.RUnlock()
 	return &cp
@@ -429,7 +445,7 @@ func RunManualCollection(phases []string, extraArgs ...string) error {
 			"behavior_stats": string(statsJSON),
 		})
 		sseSend(SSELine{Type: "done", Phase: "done", Level: "success",
-			Stats: progress.BehaviorStats,
+			Stats:   progress.BehaviorStats,
 			Message: fmt.Sprintf("采集完成: 新增 %d, 跳过 %d, 错误 %d, 耗时 %dms", totalNew, totalSkipped, totalErrors, durationMs)})
 	}()
 
@@ -547,7 +563,6 @@ func RunManualCollection(phases []string, extraArgs ...string) error {
 	return nil
 }
 
-
 // runStatsPhase runs a Python script and returns PhaseResult populated from STAT: output.
 // STAT:records_new=X,records_skip=Y,records_err=Z lines from the script drive the counts.
 func runStatsPhase(phase, label, script string, args ...string) PhaseResult {
@@ -600,7 +615,9 @@ func runStatsPhase(phase, label, script string, args ...string) PhaseResult {
 }
 
 func ternary(cond bool, a, b string) string {
-	if cond { return a }
+	if cond {
+		return a
+	}
 	return b
 }
 
@@ -759,8 +776,8 @@ func runKLinePhase() PhaseResult {
 	db.PG.Model(&model.StockBasic{}).Count(&totalStocks)
 	var stocksWithK int64
 	if err := db.PG.Raw("SELECT COUNT(DISTINCT code) FROM stocks_daily_k WHERE code NOT LIKE 'IDX%%' AND code NOT IN ('511010','511090','511520')").Scan(&stocksWithK).Error; err != nil {
-	log.Printf("[collector] stocksWithK query failed: %v", err)
-}
+		log.Printf("[collector] stocksWithK query failed: %v", err)
+	}
 
 	// Always run K-line collection — script handles incremental per-stock,
 	// fetching recent trading days and filling gaps via ON CONFLICT DO UPDATE.
@@ -780,11 +797,13 @@ func runKLinePhase() PhaseResult {
 
 	var after int64
 	if err := db.PG.Raw("SELECT COUNT(DISTINCT code) FROM stocks_daily_k").Scan(&after).Error; err != nil {
-	log.Printf("[collector] after count query failed: %v", err)
-}
+		log.Printf("[collector] after count query failed: %v", err)
+	}
 	phaseRes := PhaseResult{Phase: "kline", Total: int(after), New: int(after - stocksWithK), Skipped: int(stocksWithK), DurationMs: time.Since(t0).Milliseconds()}
 	idxMsg := ""
-	if indexCollected { idxMsg = " +大盘指数" }
+	if indexCollected {
+		idxMsg = " +大盘指数"
+	}
 	sseSend(SSELine{Type: "result", Phase: "kline", Result: &phaseRes, Level: "success", Message: fmt.Sprintf("K线: %d 只%s", after, idxMsg)})
 	return phaseRes
 }
@@ -855,8 +874,6 @@ func runIndustryPhase() PhaseResult {
 	return phaseRes
 }
 
-
-
 func runShareholderPhase() PhaseResult {
 	setPhase("shareholder", "采集股东户数...")
 	sseSend(SSELine{Type: "phase", Phase: "shareholder", Message: "开始采集股东户数...", Level: "info"})
@@ -887,8 +904,8 @@ func runFinancialPhase() PhaseResult {
 	db.PG.Model(&model.StockBasic{}).Count(&totalStocks)
 	var existing int64
 	if err := db.PG.Model(&model.StockFinancial{}).Select("COUNT(DISTINCT code)").Scan(&existing).Error; err != nil {
-	log.Printf("[collector] financial existing query failed: %v", err)
-}
+		log.Printf("[collector] financial existing query failed: %v", err)
+	}
 	need := totalStocks - existing
 	if need <= 0 {
 		pr := PhaseResult{Phase: "financial", Total: int(existing), Skipped: int(existing), DurationMs: time.Since(t0).Milliseconds()}
@@ -900,8 +917,8 @@ func runFinancialPhase() PhaseResult {
 	phaseRes := PhaseResult{Phase: "financial", Skipped: int(existing)}
 	var after int64
 	if err := db.PG.Model(&model.StockFinancial{}).Select("COUNT(DISTINCT code)").Scan(&after).Error; err != nil {
-	log.Printf("[collector] financial after query failed: %v", err)
-}
+		log.Printf("[collector] financial after query failed: %v", err)
+	}
 	phaseRes.Total = int(after)
 	phaseRes.New = int(after - existing)
 	phaseRes.DurationMs = time.Since(t0).Milliseconds()
@@ -922,8 +939,8 @@ func runNewsPhase() PhaseResult {
 	db.PG.Model(&model.StockBasic{}).Count(&totalStocks)
 	var existing int64
 	if err := db.PG.Model(&model.StockNews{}).Select("COUNT(DISTINCT code)").Scan(&existing).Error; err != nil {
-	log.Printf("[collector] news existing query failed: %v", err)
-}
+		log.Printf("[collector] news existing query failed: %v", err)
+	}
 	need := totalStocks - existing
 	if need <= 0 {
 		pr := PhaseResult{Phase: "news", Total: int(existing), Skipped: int(existing), DurationMs: time.Since(t0).Milliseconds()}
@@ -935,8 +952,8 @@ func runNewsPhase() PhaseResult {
 	phaseRes := PhaseResult{Phase: "news", Skipped: int(existing)}
 	var after int64
 	if err := db.PG.Model(&model.StockNews{}).Select("COUNT(DISTINCT code)").Scan(&after).Error; err != nil {
-	log.Printf("[collector] news after query failed: %v", err)
-}
+		log.Printf("[collector] news after query failed: %v", err)
+	}
 	phaseRes.Total = int(after)
 	phaseRes.New = int(after - existing)
 	phaseRes.DurationMs = time.Since(t0).Milliseconds()
@@ -1210,8 +1227,19 @@ func runKLineYouziPhase() PhaseResult {
 }
 
 // RepairStock runs the repair_kline.py script to delete + refetch + recalc all data for a stock.
+
+// ComputeAllIndicatorsBatch computes all 84 technical indicators for all stocks
+// and writes to the stock_daily_indicators JSONB cache table.
+func ComputeAllIndicatorsBatch(days int) error {
+	return runPythonStreamWithArgs("compute_all_indicators.py", "--days", fmt.Sprintf("%d", days))
+}
+
 func RepairStock(code string) error {
-	return runPythonStreamWithArgs("repair_kline.py", code)
+	if err := runPythonStreamWithArgs("repair_kline.py", code); err != nil {
+		return err
+	}
+	// Also compute indicators after K-line repair
+	return runPythonStreamWithArgs("compute_all_indicators.py", "--code", code, "--days", "250")
 }
 
 func runNorthboundPhase() PhaseResult {

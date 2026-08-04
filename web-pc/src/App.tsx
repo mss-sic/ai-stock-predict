@@ -57,6 +57,7 @@ const navGroups = [
     ]
   },
   { label: '系统', items: [
+      { key: '/dashboard', label: '数据仪表盘', icon: BarChart3 },
       { key: '/data', label: '数据管理', icon: Database },
       { key: '/settings', label: '系统设置', icon: Settings },
     ]

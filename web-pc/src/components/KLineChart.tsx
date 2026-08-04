@@ -42,6 +42,9 @@ interface PredMarker {
   sellQty?: number;
 }
 
+
+type SubchartType = 'volume' | 'macd' | 'rsi' | 'kdj';
+
 interface Props {
   data: KLineItem[];
   height?: number;
@@ -54,6 +57,14 @@ interface Props {
   selectedRange?: [number, number] | null;
   onRangeChange?: (startIdx: number, endIdx: number) => void;
   costLine?: number | null;
+  subcharts?: SubchartType[];
+  subchartData?: {
+    rsi14?: (number | null)[];
+    kdjK?: (number | null)[];
+    kdjD?: (number | null)[];
+    kdjJ?: (number | null)[];
+  };
+
 }
 
 export default function KLineChart({
@@ -67,6 +78,9 @@ export default function KLineChart({
   selectedRange = null,
   onRangeChange,
   costLine = null,
+  subcharts: propsSubcharts = ['volume', 'macd'],
+  subchartData = {},
+
   onMarkerClick,
 }: Props) {
   const { isDark } = useTheme();
@@ -120,9 +134,12 @@ export default function KLineChart({
   const W = 960;
   const H = height;
   const padL = 54, padR = 60, padT = 14, padB = 30;
-  const volH = 50;
-  const macdH = 100;
-  const priceH = H - padT - padB - volH - macdH - 14;
+  const subcharts = Array.isArray(propsSubcharts) ? propsSubcharts : ['volume', 'macd'];
+  const SUBCHART_H = 60;
+  const SUBCHART_GAP = 4;
+  const subchartGaps = SUBCHART_GAP * subcharts.length; // gap above first + between
+  const totalSubH = subcharts.length * SUBCHART_H + (subcharts.length - 1) * SUBCHART_GAP;
+  const priceH = H - padT - padB - totalSubH - subchartGaps - 6;
   const innerW = W - padL - padR;
 
   const step = innerW / (visCount || 1);
@@ -142,17 +159,18 @@ export default function KLineChart({
       }
     }
   }
+
   const range = extHi - extLo || 1;
   const padding = range * 0.03;
   const plotLo = extLo - padding;
   const plotRange = extHi - extLo + padding * 2;
   const py = (v: number) => padT + priceH - ((v - plotLo) / plotRange) * priceH;
 
-  const volMax = visibleSlice.length === 0 ? 1 : Math.max(...visibleSlice.map(d => d.volume || 0)) || 1;
-  const volBaseY = padT + priceH + 8 + volH;
-  const vy = (v: number) => volBaseY - (v / volMax) * volH;
+  // ═══ Subchart helpers ═══
+  const subchartBaseY = (idx: number) => padT + priceH + SUBCHART_GAP + SUBCHART_H + idx * (SUBCHART_H + SUBCHART_GAP);
+  const subchartZeroY = (idx: number) => subchartBaseY(idx) - SUBCHART_H / 2;
 
-  // ═══ MACD calculation ═══
+  // ═══ EMA helper ═══
   const calcEMA = (arr: number[], period: number) => {
     if (arr.length === 0) return [];
     const k = 2 / (period + 1);
@@ -161,21 +179,21 @@ export default function KLineChart({
     return result;
   };
   const closes = safeData.map(d => d.close);
+
+  // ═══ Volume ═══
+  const volMax = visibleSlice.length === 0 ? 1 : Math.max(...visibleSlice.map(d => d.volume || 0)) || 1;
+
+  // ═══ MACD (12,26,9) ═══
   const ema12Arr = calcEMA(closes, 12);
   const ema26Arr = calcEMA(closes, 26);
   const difArr = ema12Arr.map((v, i) => v - (ema26Arr[i] ?? 0));
   const deaArr = calcEMA(difArr, 9);
   const macdArr = difArr.map((v, i) => (v - (deaArr[i] ?? 0)) * 2);
-
-  const macdVisible = macdArr.slice(startIdx, Math.min(startIdx + visCount, macdArr.length));
+  const macdVisSlice = macdArr.slice(startIdx, Math.min(startIdx + visCount, macdArr.length));
   const macdAbsMax = Math.max(
-    Math.abs(Math.max(...macdVisible.filter(v => !isNaN(v)), 0)),
-    Math.abs(Math.min(...macdVisible.filter(v => !isNaN(v)), 0)),
-    1
+    Math.abs(Math.max(...macdVisSlice.filter(v => !isNaN(v)), 0)),
+    Math.abs(Math.min(...macdVisSlice.filter(v => !isNaN(v)), 0)), 1
   );
-  const macdBaseY = volBaseY + 6 + macdH;
-  const my = (v: number) => macdBaseY - macdH / 2 - (v / macdAbsMax) * (macdH / 2);
-  const macdZeroY = macdBaseY - macdH / 2;
 
   // Cross detection
   type CrossSignal = { i: number; type: 'golden' | 'death' };
@@ -186,9 +204,13 @@ export default function KLineChart({
     else if (difArr[i - 1] >= (deaArr[i - 1] ?? 0) && difArr[i] < (deaArr[i] ?? 0))
       crosses.push({ i, type: 'death' });
   }
+
+  // ═══ RSI/KDJ from API ═══
+  const rsiArr = subchartData.rsi14 || [];
+  const kdjK = subchartData.kdjK || [];
+  const kdjD = subchartData.kdjD || [];
+  const kdjJ = subchartData.kdjJ || [];
   const fx = (i: number) => padL + (i - startIdx) * step + step / 2;
-  const visStartIdx = startIdx;
-  const visEndIdx = startIdx + visCount;
 
   const yTicks = 5;
   const grids = Array.from({ length: yTicks }, (_, i) => {
@@ -412,12 +434,12 @@ export default function KLineChart({
   }
 
   return (
-    <div style={{ position: 'relative', width: '100%', height }}>
+    <div style={{ position: 'relative', width: '100%', height, overflow: 'hidden' }}>
       <svg
         ref={svgRef}
         viewBox={`0 0 ${W} ${H}`}
         preserveAspectRatio="xMidYMid meet"
-        style={{ width: '100%', height, background: chartBg, borderRadius: 10, cursor: chartCursor }}
+        style={{ width: '100%', height, background: chartBg, borderRadius: 10, cursor: chartCursor, display: 'block' }}
         onMouseMove={handleMouseMove}
         onMouseLeave={handleMouseLeave}
         onMouseDown={handleMouseDown}
@@ -441,66 +463,105 @@ export default function KLineChart({
           </g>
         ))}
 
-      {/* Volume label */}
-        <text x={padL} y={padT + priceH + 12} fontSize="10" fill={textColor} fontWeight={500}>▎成交量</text>
+      {/* ═══ Dynamic subcharts ═══ */}
+        {subcharts.map((sc, sci) => {
+          const baseY = subchartBaseY(sci);
+          const zeroY = subchartZeroY(sci);
+          const scH = SUBCHART_H;
 
-        {/* Volume bars */}
-        {safeData.map((d, i) => {
-          const isUp = d.close >= d.open;
-          const c = isUp ? UP : DOWN;
-          const x = fx(i);
-          const vh = Math.max(1, volBaseY - vy(d.volume || 0));
-          return <rect key={`v${i}`} x={x - bw / 2} y={volBaseY - vh} width={bw} height={Math.max(1, vh)} fill={c} opacity={isUp ? 0.3 : 0.25} />;
-        })}
+          // Helper: scale value to subchart y-coord (centered on zeroY)
+          const sy = (v: number, maxAbs: number) => zeroY - (v / (maxAbs || 1)) * (scH / 2);
 
-        {/* ═══ MACD ═══ */}
-        {/* MACD label */}
-        <text x={padL} y={volBaseY + 14} fontSize="10" fill={textColor} fontWeight={500}>▎MACD</text>
-        {/* Legend */}
-        <text x={padL + 48} y={volBaseY + 14} fontSize="9" fill="#F77234">DIF</text>
-        <text x={padL + 78} y={volBaseY + 14} fontSize="9" fill="#3491FA">DEA</text>
+          if (sc === 'volume') {
+            const vh = (v: number) => (v / (volMax || 1)) * scH;
+            return (
+              <g key={`sub-${sci}`}>
+                <text x={padL} y={baseY - scH + 12} fontSize="10" fill={textColor} fontWeight={500}>▎成交量</text>
+                {safeData.map((d, i) => {
+                  const isUp = d.close >= d.open;
+                  const c = isUp ? UP : DOWN;
+                  const x = fx(i);
+                  const h = Math.max(1, vh(d.volume || 0));
+                  return <rect key={`v${i}`} x={x - bw / 2} y={baseY - h} width={bw} height={h} fill={c} opacity={isUp ? 0.3 : 0.25} />;
+                })}
+                <line x1={padL} x2={W - padR} y1={baseY - scH} y2={baseY - scH} stroke={gridColor} strokeWidth="0.6" />
+              </g>
+            );
+          }
 
-        {/* Zero line */}
-        <line x1={padL} x2={W - padR} y1={macdZeroY} y2={macdZeroY} stroke={gridColor} strokeWidth="0.8" />
+          if (sc === 'macd') {
+            return (
+              <g key={`sub-${sci}`}>
+                <text x={padL} y={baseY - scH + 12} fontSize="10" fill={textColor} fontWeight={500}>▎MACD</text>
+                <text x={padL + 48} y={baseY - scH + 12} fontSize="9" fill="#F77234">DIF</text>
+                <text x={padL + 78} y={baseY - scH + 12} fontSize="9" fill="#3491FA">DEA</text>
+                <line x1={padL} x2={W - padR} y1={zeroY} y2={zeroY} stroke={gridColor} strokeWidth="0.8" />
+                {safeData.map((d, i) => {
+                  if (i >= macdArr.length) return null;
+                  const v = macdArr[i];
+                  if (isNaN(v)) return null;
+                  const x = fx(i);
+                  const h = Math.max(1, Math.abs(v) / macdAbsMax * (scH / 2));
+                  return <rect key={`macd-${i}`} x={x - bw / 2} y={v >= 0 ? zeroY - h : zeroY} width={bw} height={h}
+                    fill={v >= 0 ? UP : DOWN} opacity={v >= 0 ? 0.4 : 0.3} rx="1" />;
+                })}
+                <polyline points={difArr.map((v, i) => v != null && !isNaN(v) ? `${fx(i).toFixed(1)},${sy(v, macdAbsMax).toFixed(1)}` : '').filter(Boolean).join(' ')}
+                  stroke="#F77234" strokeWidth="1.2" fill="none" />
+                <polyline points={deaArr.map((v, i) => v != null && !isNaN(v) ? `${fx(i).toFixed(1)},${sy(v, macdAbsMax).toFixed(1)}` : '').filter(Boolean).join(' ')}
+                  stroke="#3491FA" strokeWidth="1.2" fill="none" />
+                {crosses.map((c, k) => {
+                  const x = fx(c.i);
+                  const y = sy(difArr[c.i], macdAbsMax);
+                  return (
+                    <g key={`cross-${k}`}>
+                      <circle cx={x} cy={y} r={4} fill={c.type === 'golden' ? '#F53F3F' : '#00B42A'} stroke="#fff" strokeWidth="1.2" opacity="0.85" />
+                      <text x={x} y={y - 8} fontSize="8" fill={c.type === 'golden' ? '#F53F3F' : '#00B42A'} textAnchor="middle" fontWeight={700}>
+                        {c.type === 'golden' ? '金叉' : '死叉'}
+                      </text>
+                    </g>
+                  );
+                })}
+              </g>
+            );
+          }
 
-        {/* MACD histogram */}
-        {safeData.map((d, i) => {
-          if (i >= macdArr.length) return null;
-          const v = macdArr[i];
-          if (isNaN(v)) return null;
-          const x = fx(i);
-          const h = Math.max(1, Math.abs(v) / macdAbsMax * (macdH / 2));
-          const isUp = v >= 0;
-          return <rect key={`macd-${i}`} x={x - bw / 2} y={isUp ? macdZeroY - h : macdZeroY} width={bw} height={h}
-            fill={isUp ? UP : DOWN} opacity={isUp ? 0.4 : 0.3} rx="1" />;
-        })}
+          if (sc === 'rsi') {
+            const rsiAbsMax = 100;
+            return (
+              <g key={`sub-${sci}`}>
+                <text x={padL} y={baseY - scH + 12} fontSize="10" fill={textColor} fontWeight={500}>▎RSI(14)</text>
+                <line x1={padL} x2={W - padR} y1={sy(70, rsiAbsMax)} y2={sy(70, rsiAbsMax)} stroke="#F53F3F" strokeWidth="0.5" strokeDasharray="3 3" opacity="0.4" />
+                <line x1={padL} x2={W - padR} y1={sy(30, rsiAbsMax)} y2={sy(30, rsiAbsMax)} stroke="#00B42A" strokeWidth="0.5" strokeDasharray="3 3" opacity="0.4" />
+                <line x1={padL} x2={W - padR} y1={sy(50, rsiAbsMax)} y2={sy(50, rsiAbsMax)} stroke={gridColor} strokeWidth="0.5" />
+                <polyline points={rsiArr.map((v, i) => v > 0 && !isNaN(v) ? `${fx(i).toFixed(1)},${sy(v, rsiAbsMax).toFixed(1)}` : '').filter(Boolean).join(' ')}
+                  stroke="#165DFF" strokeWidth="1.5" fill="none" />
+                <text x={padL + 50} y={baseY - scH + 12} fontSize="9" fill="#F53F3F" opacity="0.6">70</text>
+                <text x={padL + 70} y={baseY - scH + 12} fontSize="9" fill="#00B42A" opacity="0.6">30</text>
+              </g>
+            );
+          }
 
-        {/* DIF line */}
-        <polyline
-          points={difArr.map((v, i) => v != null && !isNaN(v) ? `${fx(i).toFixed(1)},${my(v).toFixed(1)}` : '').filter(Boolean).join(' ')}
-          stroke="#F77234" strokeWidth="1.2" fill="none" />
+          if (sc === 'kdj') {
+            const kdjMax = 100;
+            return (
+              <g key={`sub-${sci}`}>
+                <text x={padL} y={baseY - scH + 12} fontSize="10" fill={textColor} fontWeight={500}>▎KDJ</text>
+                <text x={padL + 36} y={baseY - scH + 12} fontSize="9" fill="#F77234">K</text>
+                <text x={padL + 50} y={baseY - scH + 12} fontSize="9" fill="#3491FA">D</text>
+                <text x={padL + 64} y={baseY - scH + 12} fontSize="9" fill="#722ED1">J</text>
+                <line x1={padL} x2={W - padR} y1={sy(80, kdjMax)} y2={sy(80, kdjMax)} stroke="#F53F3F" strokeWidth="0.5" strokeDasharray="3 3" opacity="0.3" />
+                <line x1={padL} x2={W - padR} y1={sy(20, kdjMax)} y2={sy(20, kdjMax)} stroke="#00B42A" strokeWidth="0.5" strokeDasharray="3 3" opacity="0.3" />
+                <polyline points={kdjK.map((v, i) => v != null && !isNaN(v) ? `${fx(i).toFixed(1)},${sy(v, kdjMax).toFixed(1)}` : '').filter(Boolean).join(' ')}
+                  stroke="#F77234" strokeWidth="1.2" fill="none" />
+                <polyline points={kdjD.map((v, i) => v != null && !isNaN(v) ? `${fx(i).toFixed(1)},${sy(v, kdjMax).toFixed(1)}` : '').filter(Boolean).join(' ')}
+                  stroke="#3491FA" strokeWidth="1.2" fill="none" />
+                <polyline points={kdjJ.map((v, i) => v != null && !isNaN(v) ? `${fx(i).toFixed(1)},${sy(v, kdjMax).toFixed(1)}` : '').filter(Boolean).join(' ')}
+                  stroke="#722ED1" strokeWidth="1.2" fill="none" strokeDasharray="4 2" />
+              </g>
+            );
+          }
 
-        {/* DEA line */}
-        <polyline
-          points={deaArr.map((v, i) => v != null && !isNaN(v) ? `${fx(i).toFixed(1)},${my(v).toFixed(1)}` : '').filter(Boolean).join(' ')}
-          stroke="#3491FA" strokeWidth="1.2" fill="none" />
-
-        {/* Cross signals */}
-        {crosses.map((c, k) => {
-          const x = fx(c.i);
-          const y = my(difArr[c.i]);
-          const isGolden = c.type === 'golden';
-          return (
-            <g key={`cross-${k}`}>
-              <circle cx={x} cy={y} r={4}
-                fill={isGolden ? '#F53F3F' : '#00B42A'} stroke="#fff" strokeWidth="1.2"
-                opacity="0.85" />
-              <text x={x} y={y - 8} fontSize="8"
-                fill={isGolden ? '#F53F3F' : '#00B42A'} textAnchor="middle" fontWeight={700}>
-                {isGolden ? '金叉' : '死叉'}
-              </text>
-            </g>
-          );
+          return null;
         })}
 
         {/* Prediction lines */}
@@ -568,6 +629,8 @@ export default function KLineChart({
         {maPath(ma5, '#F77234')}
         {maPath(ma10, '#722ED1')}
         {maPath(ma20, '#3491FA')}
+
+
 
         {/* Cost line — horizontal dashed line at holding cost */}
         {costLine != null && costLine > 0 && (() => {
@@ -749,6 +812,7 @@ export default function KLineChart({
           <text x="50" y="0" fill="#722ED1">— MA10</text>
           <text x="108" y="0" fill="#3491FA">— MA20</text>
           {predictionLines.length > 0 && <text x="170" y="0" fill={predictionLines[0].color}>--- 预测</text>}
+
         </g>
       {/* Scrollbar */}
         {totalN > visCount && (

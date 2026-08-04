@@ -95,22 +95,22 @@ func (p *WorkerPool) runWorker(id int) {
 		logger := NewStructuredLogger(job.TraceID, job.DefinitionID, job.Kind)
 		logger.WithInstance(job.InstanceID, ResourceRef{}) // owner set by caller
 		logger.Info("job_started", map[string]any{
-			"worker_id":  id,
-			"job_id":     job.ID,
+			"worker_id":   id,
+			"job_id":      job.ID,
 			"queue_depth": p.queue.Len(),
 		})
 
 		// Execute with timeout
 		execCtx := job.Context()
+		cancel := func() {}
 		if job.Timeout > 0 {
-			var cancel context.CancelFunc
 			execCtx, cancel = context.WithTimeout(p.ctx, job.Timeout)
-			defer cancel()
 		}
 		execCtx = context.WithValue(execCtx, ctxKeyWorkerID, id)
 
 		start := time.Now()
 		err = job.Handler(execCtx, nil, logger) // instance will be passed by the handler itself
+		cancel()
 
 		elapsed := time.Since(start)
 		atomic.AddInt64(&p.busyWorkers, -1)
@@ -163,9 +163,5 @@ func WorkerIDFromContext(ctx context.Context) int {
 
 // Context returns a fresh context for the job's execution, with scheduler attached.
 func (j *Job) Context() context.Context {
-	ctx := context.Background()
-	if j.Timeout > 0 {
-		ctx, _ = context.WithTimeout(ctx, j.Timeout)
-	}
-	return ctx
+	return context.Background()
 }

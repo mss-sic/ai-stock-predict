@@ -36,14 +36,20 @@ type IndustryStock struct {
 	ChangePct  float64 `gorm:"column:change_pct" json:"changePct"`
 }
 
+// getLatestDate returns the latest trading date using trade_calendar (with fallback).
 func getLatestDate() (string, error) {
-	var latest time.Time
-	// Use stocks_daily_k which always has data (vs market_daily_agg which may be empty)
-	if err := db.PG.Raw(`SELECT MAX(trade_date) FROM stocks_daily_k`).Scan(&latest).Error; err != nil {
-		return "", fmt.Errorf("get latest date: %w", err)
-	}
-	if latest.IsZero() {
-		return time.Now().Format("2006-01-02"), nil
+	calSvc := NewTradeCalendarService()
+	latest, err := calSvc.LatestTradeDate()
+	if err != nil || latest.IsZero() {
+		// Fallback to stocks_daily_k MAX query
+		var t time.Time
+		if err2 := db.PG.Raw(`SELECT MAX(trade_date) FROM stocks_daily_k`).Scan(&t).Error; err2 != nil {
+			return "", fmt.Errorf("get latest date: %w", err2)
+		}
+		if t.IsZero() {
+			return time.Now().Format("2006-01-02"), nil
+		}
+		return t.Format("2006-01-02"), nil
 	}
 	return latest.Format("2006-01-02"), nil
 }
@@ -58,7 +64,9 @@ func GetIndustryList(date string, industryType string) ([]IndustrySummary, error
 			return nil, err
 		}
 	}
-	if industryType == "" { industryType = "tdx" }
+	if industryType == "" {
+		industryType = "tdx"
+	}
 	log.Printf("[industry] GetIndustryList industryType=%s date=%s", industryType, date)
 
 	var col string

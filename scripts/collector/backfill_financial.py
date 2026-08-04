@@ -44,8 +44,10 @@ def sina_financial_report(code, report_type="lrb", num=8):
         result[period_str] = items
     return result
 
-def extract_metrics(code, lrb_data, fzb_data):
+def extract_metrics(code, lrb_data, fzb_data, llb_data=None):
     all_dates = sorted(set(list(lrb_data.keys()) + list(fzb_data.keys())), reverse=True)
+    if llb_data:
+        all_dates = sorted(set(all_dates + list(llb_data.keys())), reverse=True)
     metrics = {}
     
     for report_date in all_dates:
@@ -53,15 +55,19 @@ def extract_metrics(code, lrb_data, fzb_data):
         fzb = fzb_data.get(report_date, {})
         if not lrb and not fzb:
             continue
-        
+
         m = {
             'reportDate': report_date,
             'totalRevenue': 0, 'netProfit': 0,
             'totalAssets': 0, 'totalLiabilities': 0, 'netAssets': 0,
             'roe': 0, 'eps': 0, 'bps': 0,
             'grossMargin': 0, 'netMargin': 0, 'debtRatio': 0,
+            'revenueGrowth': 0, 'profitGrowth': 0,
+            # v099: cash flow fields
+            'operatingCF': 0, 'investingCF': 0, 'financingCF': 0,
+            'netCashFlow': 0, 'freeCF': 0, 'cfRatio': 0,
         }
-        
+
         for key, val in lrb.items():
             v = float(val) if val else 0
             if key in ('营业总收入', '营业收入') and not m['totalRevenue']:
@@ -87,6 +93,24 @@ def extract_metrics(code, lrb_data, fzb_data):
             elif ('所有者权益' in key or '股东权益' in key) and '负债' not in key and not m['netAssets']:
                 m['netAssets'] = v
         
+        # 现金流量表 (v099)
+        if llb_data:
+            llb = llb_data.get(report_date, {})
+            for key, val in llb.items():
+                v = float(val) if val else 0
+                if '经营活动' in key and '现金流量净额' in key:
+                    m['operatingCF'] = v
+                elif '投资活动' in key and '现金流量净额' in key:
+                    m['investingCF'] = v
+                elif '筹资活动' in key and '现金流量净额' in key:
+                    m['financingCF'] = v
+                elif ('现金及现金等价物' in key or '现金及' in key) and '净增加额' in key:
+                    m['netCashFlow'] = v
+            if m['operatingCF'] != 0 or m['investingCF'] != 0:
+                m['freeCF'] = round(m['operatingCF'] + m['investingCF'], 2)
+            if m['netProfit'] != 0:
+                m['cfRatio'] = round(m['operatingCF'] / m['netProfit'] * 100, 2)
+
         if m['netAssets'] > 0 and m['netProfit'] != 0:
             m['roe'] = round(m['netProfit'] / m['netAssets'] * 100, 2)
         if m['totalRevenue'] > 0 and m['netProfit'] != 0:
@@ -170,8 +194,10 @@ def main():
             lrb_data = sina_financial_report(code, "lrb", 8)
             time.sleep(0.12)
             fzb_data = sina_financial_report(code, "fzb", 8)
+            time.sleep(0.12)
+            llb_data = sina_financial_report(code, "llb", 8)
             
-            metrics = extract_metrics(code, lrb_data, fzb_data)
+            metrics = extract_metrics(code, lrb_data, fzb_data, llb_data)
             
             if metrics:
                 had_data = False
@@ -187,21 +213,27 @@ def main():
                             INSERT INTO stock_financials (code, report_date, report_type, 
                                 total_revenue, net_profit, revenue_growth, profit_growth,
                                 total_assets, total_liabilities, net_assets, 
-                                roe, eps, bps, gross_margin, net_margin, debt_ratio)
-                            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                                roe, eps, bps, gross_margin, net_margin, debt_ratio,
+                                operating_cf, investing_cf, financing_cf, net_cash_flow, free_cf, cf_ratio)
+                            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                             ON CONFLICT (code, report_date) DO UPDATE SET
                                 total_revenue=EXCLUDED.total_revenue, net_profit=EXCLUDED.net_profit,
                                 revenue_growth=EXCLUDED.revenue_growth, profit_growth=EXCLUDED.profit_growth,
                                 total_assets=EXCLUDED.total_assets, total_liabilities=EXCLUDED.total_liabilities,
                                 net_assets=EXCLUDED.net_assets, roe=EXCLUDED.roe, eps=EXCLUDED.eps,
                                 bps=EXCLUDED.bps, gross_margin=EXCLUDED.gross_margin,
-                                net_margin=EXCLUDED.net_margin, debt_ratio=EXCLUDED.debt_ratio
+                                net_margin=EXCLUDED.net_margin, debt_ratio=EXCLUDED.debt_ratio,
+                                operating_cf=EXCLUDED.operating_cf, investing_cf=EXCLUDED.investing_cf,
+                                financing_cf=EXCLUDED.financing_cf, net_cash_flow=EXCLUDED.net_cash_flow,
+                                free_cf=EXCLUDED.free_cf, cf_ratio=EXCLUDED.cf_ratio
                         """, (code, m['reportDate'], m['reportType'],
                               m['totalRevenue'], m['netProfit'],
                               m.get('revenueGrowth', 0), m.get('profitGrowth', 0),
                               m['totalAssets'], m['totalLiabilities'], m['netAssets'],
                               m['roe'], m['eps'], m['bps'],
-                              m['grossMargin'], m['netMargin'], m['debtRatio']))
+                              m['grossMargin'], m['netMargin'], m['debtRatio'],
+                              m['operatingCF'], m['investingCF'], m['financingCF'],
+                              m['netCashFlow'], m['freeCF'], m['cfRatio']))
                         total_periods += 1
                     except Exception as e:
                         pass

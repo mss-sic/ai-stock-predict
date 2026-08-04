@@ -66,7 +66,7 @@ TDX_INDUSTRY_MAP = {
     56: "水力发电",
 }
 
-PG_DSN = "host=localhost dbname=stock_predict user=stock password=stock123"
+PG_DSN = os.environ.get("PG_DSN", "host=localhost dbname=stock_predict user=stock password=stock123")
 
 def main():
     from mootdx.quotes import Quotes

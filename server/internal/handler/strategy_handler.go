@@ -96,20 +96,23 @@ func (h *StrategyHandler) Create(c *gin.Context) {
 	}
 	if err := db.MySQL.Create(&s).Error; err != nil {
 		log.Printf("[strategy] create error: %v", err)
-		response.InternalError(c, "创建失败: " + err.Error())
+		response.InternalError(c, "创建失败: "+err.Error())
 		return
 	}
 	log.Printf("[strategy] created id=%d name=%s uid=%d", s.ID, s.Name, uid)
 	response.Created(c, s)
 }
 
-
 func toFloat64(v interface{}) (float64, bool) {
 	switch val := v.(type) {
-	case float64: return val, true
-	case float32: return float64(val), true
-	case int: return float64(val), true
-	case int64: return float64(val), true
+	case float64:
+		return val, true
+	case float32:
+		return float64(val), true
+	case int:
+		return float64(val), true
+	case int64:
+		return float64(val), true
 	case json.Number:
 		f, err := val.Float64()
 		return f, err == nil
@@ -127,23 +130,77 @@ func (h *StrategyHandler) Update(c *gin.Context) {
 		return
 	}
 	updates := map[string]interface{}{}
-	if v, ok := raw["name"]; ok && v != "" { updates["name"] = v }
-	if _, ok := raw["description"]; ok { updates["description"] = raw["description"] }
-	if _, ok := raw["stopProfit"]; ok { updates["stop_profit"] = raw["stopProfit"] }
-	if _, ok := raw["stopLoss"]; ok { updates["stop_loss"] = raw["stopLoss"] }
-	if v, ok := raw["maxHoldings"]; ok { if n, _ := toFloat64(v); n > 0 { updates["max_holdings"] = int(n) } }
-	if v, ok := raw["initialCapital"]; ok { if n, _ := toFloat64(v); n > 0 { updates["initial_capital"] = n } }
-	if v, ok := raw["buyPositionPct"]; ok { if n, _ := toFloat64(v); n > 0 { updates["buy_position_pct"] = n } }
-	if v, ok := raw["addPositionPct"]; ok { if n, _ := toFloat64(v); n > 0 { updates["add_position_pct"] = n } }
-	if v, ok := raw["reducePositionPct"]; ok { if n, _ := toFloat64(v); n > 0 { updates["reduce_position_pct"] = n } }
-	if v, ok := raw["positionConcentrationLimit"]; ok { if n, _ := toFloat64(v); n > 0 { updates["position_concentration_limit"] = n } }
-	if v, ok := raw["maxDailyLoss"]; ok { if n, _ := toFloat64(v); n < 0 { updates["max_daily_loss"] = n } }
+	if v, ok := raw["name"]; ok && v != "" {
+		updates["name"] = v
+	}
+	if _, ok := raw["description"]; ok {
+		updates["description"] = raw["description"]
+	}
+	if _, ok := raw["stopProfit"]; ok {
+		updates["stop_profit"] = raw["stopProfit"]
+	}
+	if _, ok := raw["stopLoss"]; ok {
+		updates["stop_loss"] = raw["stopLoss"]
+	}
+	if v, ok := raw["maxHoldings"]; ok {
+		if n, _ := toFloat64(v); n > 0 {
+			updates["max_holdings"] = int(n)
+		}
+	}
+	if v, ok := raw["initialCapital"]; ok {
+		if n, _ := toFloat64(v); n > 0 {
+			updates["initial_capital"] = n
+		}
+	}
+	if v, ok := raw["buyPositionPct"]; ok {
+		if n, _ := toFloat64(v); n > 0 {
+			updates["buy_position_pct"] = n
+		}
+	}
+	if v, ok := raw["addPositionPct"]; ok {
+		if n, _ := toFloat64(v); n > 0 {
+			updates["add_position_pct"] = n
+		}
+	}
+	if v, ok := raw["reducePositionPct"]; ok {
+		if n, _ := toFloat64(v); n > 0 {
+			updates["reduce_position_pct"] = n
+		}
+	}
+	if v, ok := raw["positionConcentrationLimit"]; ok {
+		if n, _ := toFloat64(v); n > 0 {
+			updates["position_concentration_limit"] = n
+		}
+	}
+	if v, ok := raw["maxDailyLoss"]; ok {
+		if n, _ := toFloat64(v); n < 0 {
+			updates["max_daily_loss"] = n
+		}
+	}
 	// Dynamic Position Sizing
-	if _, ok := raw["enableDynamicSizing"]; ok { updates["enable_dynamic_sizing"] = raw["enableDynamicSizing"] }
-	if v, ok := raw["maxTotalPosition"]; ok { if n, _ := toFloat64(v); n >= 0 { updates["max_total_position"] = n } }
-	if v, ok := raw["dailyBuyLimit"]; ok { if n, _ := toFloat64(v); n >= 0 { updates["daily_buy_limit"] = n } }
-	if v, ok := raw["maxSingleIndustry"]; ok { if n, _ := toFloat64(v); n >= 0 { updates["max_single_industry"] = n } }
-	if v, ok := raw["minIndustryCount"]; ok { if n, _ := toFloat64(v); n >= 0 { updates["min_industry_count"] = int(n) } }
+	if _, ok := raw["enableDynamicSizing"]; ok {
+		updates["enable_dynamic_sizing"] = raw["enableDynamicSizing"]
+	}
+	if v, ok := raw["maxTotalPosition"]; ok {
+		if n, _ := toFloat64(v); n >= 0 {
+			updates["max_total_position"] = n
+		}
+	}
+	if v, ok := raw["dailyBuyLimit"]; ok {
+		if n, _ := toFloat64(v); n >= 0 {
+			updates["daily_buy_limit"] = n
+		}
+	}
+	if v, ok := raw["maxSingleIndustry"]; ok {
+		if n, _ := toFloat64(v); n >= 0 {
+			updates["max_single_industry"] = n
+		}
+	}
+	if v, ok := raw["minIndustryCount"]; ok {
+		if n, _ := toFloat64(v); n >= 0 {
+			updates["min_industry_count"] = int(n)
+		}
+	}
 	// Scoring Config
 	if v, ok := raw["scoringConfig"]; ok {
 		if b, err := json.Marshal(v); err == nil {
@@ -151,29 +208,71 @@ func (h *StrategyHandler) Update(c *gin.Context) {
 		}
 	}
 	// Trailing stop
-	if _, ok := raw["enableTrailingStop"]; ok { updates["enable_trailing_stop"] = raw["enableTrailingStop"] }
-	if _, ok := raw["trailingStopActivation"]; ok { updates["trailing_stop_activation"] = raw["trailingStopActivation"] }
-	if _, ok := raw["trailingStopDrawdown"]; ok { updates["trailing_stop_drawdown"] = raw["trailingStopDrawdown"] }
+	if _, ok := raw["enableTrailingStop"]; ok {
+		updates["enable_trailing_stop"] = raw["enableTrailingStop"]
+	}
+	if _, ok := raw["trailingStopActivation"]; ok {
+		updates["trailing_stop_activation"] = raw["trailingStopActivation"]
+	}
+	if _, ok := raw["trailingStopDrawdown"]; ok {
+		updates["trailing_stop_drawdown"] = raw["trailingStopDrawdown"]
+	}
 	// Dip buy
-	if _, ok := raw["enableDipBuy"]; ok { updates["enable_dip_buy"] = raw["enableDipBuy"] }
-	if _, ok := raw["dipBuyThreshold"]; ok { updates["dip_buy_threshold"] = raw["dipBuyThreshold"] }
-	if _, ok := raw["dipBuyAmountPct"]; ok { updates["dip_buy_amount_pct"] = raw["dipBuyAmountPct"] }
-	if _, ok := raw["dipTargetReturn"]; ok { updates["dip_target_return"] = raw["dipTargetReturn"] }
-	if _, ok := raw["dipMaxHoldDays"]; ok { updates["dip_max_hold_days"] = raw["dipMaxHoldDays"] }
-	if _, ok := raw["dipCooldownDays"]; ok { updates["dip_cooldown_days"] = raw["dipCooldownDays"] }
+	if _, ok := raw["enableDipBuy"]; ok {
+		updates["enable_dip_buy"] = raw["enableDipBuy"]
+	}
+	if _, ok := raw["dipBuyThreshold"]; ok {
+		updates["dip_buy_threshold"] = raw["dipBuyThreshold"]
+	}
+	if _, ok := raw["dipBuyAmountPct"]; ok {
+		updates["dip_buy_amount_pct"] = raw["dipBuyAmountPct"]
+	}
+	if _, ok := raw["dipTargetReturn"]; ok {
+		updates["dip_target_return"] = raw["dipTargetReturn"]
+	}
+	if _, ok := raw["dipMaxHoldDays"]; ok {
+		updates["dip_max_hold_days"] = raw["dipMaxHoldDays"]
+	}
+	if _, ok := raw["dipCooldownDays"]; ok {
+		updates["dip_cooldown_days"] = raw["dipCooldownDays"]
+	}
 	// Grid trading
-	if _, ok := raw["enableGrid"]; ok { updates["enable_grid"] = raw["enableGrid"] }
-	if _, ok := raw["gridTriggerSqueeze"]; ok { updates["grid_trigger_squeeze"] = raw["gridTriggerSqueeze"] }
-	if _, ok := raw["gridLevels"]; ok { updates["grid_levels"] = raw["gridLevels"] }
-	if _, ok := raw["gridLotPct"]; ok { updates["grid_lot_pct"] = raw["gridLotPct"] }
-	if v, ok := raw["investmentType"]; ok && v != "" { updates["investment_type"] = v }
-	if _, ok := raw["regularAmount"]; ok { updates["regular_amount"] = raw["regularAmount"] }
-	if v, ok := raw["regularInterval"]; ok && v != "" { updates["regular_interval"] = v }
-	if _, ok := raw["stockCodes"]; ok { updates["stock_codes"] = raw["stockCodes"] }
-	if _, ok := raw["enableMarketContext"]; ok { updates["enable_market_context"] = raw["enableMarketContext"] }
-	if _, ok := raw["defensiveThreshold"]; ok { updates["defensive_threshold"] = raw["defensiveThreshold"] }
-	if _, ok := raw["aggressiveThreshold"]; ok { updates["aggressive_threshold"] = raw["aggressiveThreshold"] }
-	if _, ok := raw["marketCompositeMin"]; ok { updates["market_composite_min"] = raw["marketCompositeMin"] }
+	if _, ok := raw["enableGrid"]; ok {
+		updates["enable_grid"] = raw["enableGrid"]
+	}
+	if _, ok := raw["gridTriggerSqueeze"]; ok {
+		updates["grid_trigger_squeeze"] = raw["gridTriggerSqueeze"]
+	}
+	if _, ok := raw["gridLevels"]; ok {
+		updates["grid_levels"] = raw["gridLevels"]
+	}
+	if _, ok := raw["gridLotPct"]; ok {
+		updates["grid_lot_pct"] = raw["gridLotPct"]
+	}
+	if v, ok := raw["investmentType"]; ok && v != "" {
+		updates["investment_type"] = v
+	}
+	if _, ok := raw["regularAmount"]; ok {
+		updates["regular_amount"] = raw["regularAmount"]
+	}
+	if v, ok := raw["regularInterval"]; ok && v != "" {
+		updates["regular_interval"] = v
+	}
+	if _, ok := raw["stockCodes"]; ok {
+		updates["stock_codes"] = raw["stockCodes"]
+	}
+	if _, ok := raw["enableMarketContext"]; ok {
+		updates["enable_market_context"] = raw["enableMarketContext"]
+	}
+	if _, ok := raw["defensiveThreshold"]; ok {
+		updates["defensive_threshold"] = raw["defensiveThreshold"]
+	}
+	if _, ok := raw["aggressiveThreshold"]; ok {
+		updates["aggressive_threshold"] = raw["aggressiveThreshold"]
+	}
+	if _, ok := raw["marketCompositeMin"]; ok {
+		updates["market_composite_min"] = raw["marketCompositeMin"]
+	}
 	if err := h.strategyRepo.UpdateFields(id, uid, updates); err != nil {
 		log.Printf("[strategy] update error: %v", err)
 		response.InternalError(c, "更新失败")
@@ -195,7 +294,9 @@ func (h *StrategyHandler) Delete(c *gin.Context) {
 
 func (h *StrategyHandler) Reorder(c *gin.Context) {
 	uid := getUID(c)
-	var body struct{ IDs []uint `json:"ids"` }
+	var body struct {
+		IDs []uint `json:"ids"`
+	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		response.BadRequest(c, "参数错误")
 		return
@@ -301,8 +402,8 @@ func (h *StrategyHandler) AIGenerate(c *gin.Context) {
 		return
 	}
 	var rawResult struct {
-		Name        string `json:"name"`
-		Description string `json:"description"`
+		Name        string  `json:"name"`
+		Description string  `json:"description"`
 		StopProfit  float64 `json:"stopProfit"`
 		StopLoss    float64 `json:"stopLoss"`
 		MaxHoldings int     `json:"maxHoldings"`
@@ -317,18 +418,20 @@ func (h *StrategyHandler) AIGenerate(c *gin.Context) {
 	}
 	if err := json.Unmarshal([]byte(reply), &rawResult); err != nil {
 		preview := reply
-		if len(preview) > 300 { preview = preview[:300] + "..." }
+		if len(preview) > 300 {
+			preview = preview[:300] + "..."
+		}
 		response.Error(c, 500, response.CodeAIModelError, "AI返回解析失败: "+err.Error()+" | 原文: "+preview)
 		return
 	}
 
 	// Convert conditions with flexible values
 	result := struct {
-		Name        string                   `json:"name"`
-		Description string                   `json:"description"`
-		StopProfit  float64                  `json:"stopProfit"`
-		StopLoss    float64                  `json:"stopLoss"`
-		MaxHoldings int                      `json:"maxHoldings"`
+		Name        string                    `json:"name"`
+		Description string                    `json:"description"`
+		StopProfit  float64                   `json:"stopProfit"`
+		StopLoss    float64                   `json:"stopLoss"`
+		MaxHoldings int                       `json:"maxHoldings"`
 		Conditions  []model.StrategyCondition `json:"conditions"`
 	}{
 		Name:        rawResult.Name,
@@ -387,14 +490,22 @@ func buildIndicatorReference() string {
 
 	opSymbol := func(op string) string {
 		switch op {
-		case "gte": return "≥"
-		case "lte": return "≤"
-		case "gt": return ">"
-		case "lt": return "<"
-		case "eq": return "="
-		case "cross_up": return "↑上穿"
-		case "cross_down": return "↓下穿"
-		default: return op
+		case "gte":
+			return "≥"
+		case "lte":
+			return "≤"
+		case "gt":
+			return ">"
+		case "lt":
+			return "<"
+		case "eq":
+			return "="
+		case "cross_up":
+			return "↑上穿"
+		case "cross_down":
+			return "↓下穿"
+		default:
+			return op
 		}
 	}
 	opsJoin := func(ops []string) string {
@@ -429,9 +540,12 @@ func buildIndicatorReference() string {
 			valueRange := buildValueRangeHint(m)
 			useFor := ""
 			switch m.UseFor {
-			case "buy": useFor = "买入"
-			case "sell": useFor = "卖出"
-			case "both": useFor = "买卖"
+			case "buy":
+				useFor = "买入"
+			case "sell":
+				useFor = "卖出"
+			case "both":
+				useFor = "买卖"
 			}
 			sb.WriteString("| `")
 			sb.WriteString(m.Key)
@@ -642,15 +756,16 @@ func GetIndicatorList() []*IndicatorMeta {
 	})
 	return result
 }
+
 // loadSystemConfig loads AI system config for a scene, returning defaults if not found
 func (h *StrategyHandler) loadSystemConfig(scene string) model.AISystemConfig {
 	var cfg model.AISystemConfig
 	if err := db.PG.Where("scene = ?", scene).First(&cfg).Error; err != nil {
 		return model.AISystemConfig{
-			Scene: scene,
+			Scene:        scene,
 			SystemPrompt: "",
-			Temperature: 0.7,
-			MaxTokens: 4096,
+			Temperature:  0.7,
+			MaxTokens:    4096,
 		}
 	}
 	return cfg
@@ -674,7 +789,7 @@ func (h *StrategyHandler) buildAIGeneratePrompt(indicators, name, description, s
   ]
 }`
 	}
-	
+
 	indicatorRules := `__INDICATORS__
 
 ## 条件构建规范
@@ -715,12 +830,12 @@ func (h *StrategyHandler) buildAIGeneratePrompt(indicators, name, description, s
     {"condType": "sell", "indicator": "daily_change", "operator": "lt", "value": -5, "logicGroup": 2, "sortOrder": 2}
   ]
 }`
-	
+
 	fullPrompt := basePrompt + "\n\n" + indicatorRules + "\n\n用户策略名: __STRATEGY_NAME__\n用户描述: __STRATEGY_DESC__\n风险偏好: __STRATEGY_STYLE__"
 	vars := map[string]string{
-		"INDICATORS": indicators,
-		"STRATEGY_NAME": name,
-		"STRATEGY_DESC": description,
+		"INDICATORS":     indicators,
+		"STRATEGY_NAME":  name,
+		"STRATEGY_DESC":  description,
 		"STRATEGY_STYLE": style,
 	}
 	return renderPrompt(fullPrompt, vars)
@@ -744,7 +859,9 @@ func (h *StrategyHandler) OptimizePrompt(c *gin.Context) {
 		return
 	}
 	style := body.Style
-	if style == "" { style = "moderate" }
+	if style == "" {
+		style = "moderate"
+	}
 	sysCfg := h.loadSystemConfig("strategy_opt")
 	optPrompt := sysCfg.SystemPrompt
 	if optPrompt == "" {
@@ -759,22 +876,24 @@ func (h *StrategyHandler) OptimizePrompt(c *gin.Context) {
 	response.Success(c, map[string]string{"optimized": reply})
 }
 
-
 // ── Orchestration Endpoints ──
 
 func (h *StrategyHandler) GetOrchestration(c *gin.Context) {
 	uid := getUID(c)
 	id, _ := strconv.Atoi(c.Param("id"))
 	s, err := h.strategyRepo.GetByID(id, uid)
-	if err != nil { response.NotFound(c, "策略不存在"); return }
+	if err != nil {
+		response.NotFound(c, "策略不存在")
+		return
+	}
 	response.Success(c, map[string]interface{}{
 		"orchestrationMode": s.OrchestrationMode, "enableMarketContext": s.EnableMarketContext,
 		"marketCompositeMin": s.MarketCompositeMin, "marketPositionBias": s.MarketPositionBias,
-		"enableAIAgent": s.EnableAIAgent,
+		"enableAIAgent":      s.EnableAIAgent,
 		"aiAgentReviewScope": s.AIAgentReviewScope, "aiAgentMaxDailyTrades": s.AIAgentMaxDailyTrades,
-		"policyMode": s.PolicyMode,
+		"policyMode":         s.PolicyMode,
 		"defensiveThreshold": s.DefensiveThreshold,
-		"policyAggressive": s.PolicyAggressive, "policyDefensive": s.PolicyDefensive, "policyCash": s.PolicyCash,
+		"policyAggressive":   s.PolicyAggressive, "policyDefensive": s.PolicyDefensive, "policyCash": s.PolicyCash,
 	})
 }
 
@@ -782,21 +901,56 @@ func (h *StrategyHandler) SaveOrchestration(c *gin.Context) {
 	uid := getUID(c)
 	id, _ := strconv.Atoi(c.Param("id"))
 	var body map[string]interface{}
-	if err := c.ShouldBindJSON(&body); err != nil { response.BadRequest(c, "参数错误"); return }
+	if err := c.ShouldBindJSON(&body); err != nil {
+		response.BadRequest(c, "参数错误")
+		return
+	}
 	updates := map[string]interface{}{}
-	if v, ok := body["orchestrationMode"]; ok { updates["orchestration_mode"] = v }
-	if v, ok := body["enableMarketContext"]; ok { updates["enable_market_context"] = v }
-	if v, ok := body["marketCompositeMin"]; ok { updates["market_composite_min"] = v }
-	if v, ok := body["marketPositionBias"]; ok { updates["market_position_bias"] = v }
-	if v, ok := body["enableAIAgent"]; ok { updates["enable_ai_agent"] = v }
-	if v, ok := body["aiAgentReviewScope"]; ok { updates["ai_agent_review_scope"] = v }
-	if v, ok := body["aiAgentMaxDailyTrades"]; ok { updates["ai_agent_max_daily_trades"] = v }
-	if v, ok := body["policyMode"]; ok { updates["policy_mode"] = v }
-	if v, ok := body["aggressiveThreshold"]; ok { updates["aggressive_threshold"] = v }
-	if v, ok := body["defensiveThreshold"]; ok { updates["defensive_threshold"] = v }
-	if v, ok := body["policyAggressive"]; ok { if b, err := json.Marshal(v); err == nil { updates["policy_aggressive"] = string(b) } }
-	if v, ok := body["policyDefensive"]; ok { if b, err := json.Marshal(v); err == nil { updates["policy_defensive"] = string(b) } }
-	if v, ok := body["policyCash"]; ok { if b, err := json.Marshal(v); err == nil { updates["policy_cash"] = string(b) } }
+	if v, ok := body["orchestrationMode"]; ok {
+		updates["orchestration_mode"] = v
+	}
+	if v, ok := body["enableMarketContext"]; ok {
+		updates["enable_market_context"] = v
+	}
+	if v, ok := body["marketCompositeMin"]; ok {
+		updates["market_composite_min"] = v
+	}
+	if v, ok := body["marketPositionBias"]; ok {
+		updates["market_position_bias"] = v
+	}
+	if v, ok := body["enableAIAgent"]; ok {
+		updates["enable_ai_agent"] = v
+	}
+	if v, ok := body["aiAgentReviewScope"]; ok {
+		updates["ai_agent_review_scope"] = v
+	}
+	if v, ok := body["aiAgentMaxDailyTrades"]; ok {
+		updates["ai_agent_max_daily_trades"] = v
+	}
+	if v, ok := body["policyMode"]; ok {
+		updates["policy_mode"] = v
+	}
+	if v, ok := body["aggressiveThreshold"]; ok {
+		updates["aggressive_threshold"] = v
+	}
+	if v, ok := body["defensiveThreshold"]; ok {
+		updates["defensive_threshold"] = v
+	}
+	if v, ok := body["policyAggressive"]; ok {
+		if b, err := json.Marshal(v); err == nil {
+			updates["policy_aggressive"] = string(b)
+		}
+	}
+	if v, ok := body["policyDefensive"]; ok {
+		if b, err := json.Marshal(v); err == nil {
+			updates["policy_defensive"] = string(b)
+		}
+	}
+	if v, ok := body["policyCash"]; ok {
+		if b, err := json.Marshal(v); err == nil {
+			updates["policy_cash"] = string(b)
+		}
+	}
 	if err := h.strategyRepo.UpdateFields(id, uid, updates); err != nil {
 		log.Printf("[strategy] save orchestration error: %v", err)
 		response.InternalError(c, "保存编排配置失败")
@@ -814,10 +968,21 @@ func (h *StrategyHandler) ListTemplates(c *gin.Context) {
 
 func (h *StrategyHandler) CreateTemplate(c *gin.Context) {
 	uid := getUID(c)
-	var body struct { Name string `json:"name"`; Description string `json:"description"`; Category string `json:"category"`; CondType string `json:"condType"` }
-	if err := c.ShouldBindJSON(&body); err != nil || body.Name == "" { response.BadRequest(c, "模板名称不能为空"); return }
+	var body struct {
+		Name        string `json:"name"`
+		Description string `json:"description"`
+		Category    string `json:"category"`
+		CondType    string `json:"condType"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil || body.Name == "" {
+		response.BadRequest(c, "模板名称不能为空")
+		return
+	}
 	tmpl := model.ConditionTemplate{Name: body.Name, Description: body.Description, Category: body.Category, CondType: body.CondType, CreatedBy: uid}
-	if err := db.MySQL.Create(&tmpl).Error; err != nil { response.InternalError(c, "创建模板失败"); return }
+	if err := db.MySQL.Create(&tmpl).Error; err != nil {
+		response.InternalError(c, "创建模板失败")
+		return
+	}
 	response.Created(c, tmpl)
 }
 
@@ -832,11 +997,16 @@ func (h *StrategyHandler) AIReview(c *gin.Context) {
 	uid := getUID(c)
 	id, _ := strconv.Atoi(c.Param("id"))
 	s, err := h.strategyRepo.GetByID(id, uid)
-	if err != nil { response.NotFound(c, "策略不存在"); return }
-	if !s.EnableAIAgent { response.BadRequest(c, "该策略未启用AI代理"); return }
+	if err != nil {
+		response.NotFound(c, "策略不存在")
+		return
+	}
+	if !s.EnableAIAgent {
+		response.BadRequest(c, "该策略未启用AI代理")
+		return
+	}
 	response.SuccessMsg(c, "AI审查请求已提交（异步）")
 }
-
 
 // ── Backtest ──
 
@@ -930,12 +1100,12 @@ func resolveStockPoolLabel(poolKey, poolParamsJSON string) string {
 
 // backtestPreloadData holds all preloaded data needed by both legacy and V2 backtest engines.
 type backtestPreloadData struct {
-	universe   []struct{ Code, Name string }
-	kcache     *KlineCache
-	icache     *IndicatorCache
-	allDates   []string
-	dateIdx    map[string]int
-	conds      []model.StrategyCondition
+	universe []struct{ Code, Name string }
+	kcache   *KlineCache
+	icache   *IndicatorCache
+	allDates []string
+	dateIdx  map[string]int
+	conds    []model.StrategyCondition
 }
 
 // preloadBacktestData loads universe, K-line cache, and indicator cache for backtest.
@@ -1063,10 +1233,10 @@ func (h *StrategyHandler) StartBacktest(c *gin.Context) {
 
 	// Serialize params
 	paramsBytes, _ := json.Marshal(map[string]interface{}{
-		"startDate":   body.StartDate,
-		"endDate":     body.EndDate,
-		"stockCodes":  resolvedCodes,
-		"stockPool":   body.StockPool,
+		"startDate":  body.StartDate,
+		"endDate":    body.EndDate,
+		"stockCodes": resolvedCodes,
+		"stockPool":  body.StockPool,
 	})
 
 	// Create task
@@ -1123,15 +1293,15 @@ func (h *StrategyHandler) BacktestStatus(c *gin.Context) {
 	}
 
 	resp := map[string]interface{}{
-		"taskId":     task.ID,
-		"status":     task.Status,
-		"phase":      task.Phase,
-		"currentDay": task.CurrentDay,
-		"totalDays":  task.TotalDays,
+		"taskId":      task.ID,
+		"status":      task.Status,
+		"phase":       task.Phase,
+		"currentDay":  task.CurrentDay,
+		"totalDays":   task.TotalDays,
 		"progressPct": task.ProgressPct,
-		"errorMsg":   task.ErrorMsg,
-		"resultId":   task.ResultID,
-		"startedAt":  task.StartedAt,
+		"errorMsg":    task.ErrorMsg,
+		"resultId":    task.ResultID,
+		"startedAt":   task.StartedAt,
 		"completedAt": task.CompletedAt,
 	}
 
@@ -1377,7 +1547,6 @@ func (h *StrategyHandler) DeleteBacktestTask(c *gin.Context) {
 	response.SuccessMsg(c, "已删除")
 }
 
-
 // BacktestStockAnalysis returns per-stock profit analysis for a backtest task.
 func (h *StrategyHandler) BacktestStockAnalysis(c *gin.Context) {
 	uid := getUID(c)
@@ -1404,13 +1573,13 @@ func (h *StrategyHandler) BacktestStockAnalysis(c *gin.Context) {
 	}
 
 	type StockAnalysis struct {
-		StockCode  string       `json:"stockCode"`
-		StockName  string       `json:"stockName"`
-		TotalPnl   float64      `json:"totalPnl"`
-		TotalPnlPct float64     `json:"totalPnlPct"`
-		BuyCount   int          `json:"buyCount"`
-		SellCount  int          `json:"sellCount"`
-		Trades     []StockTrade `json:"trades"`
+		StockCode   string       `json:"stockCode"`
+		StockName   string       `json:"stockName"`
+		TotalPnl    float64      `json:"totalPnl"`
+		TotalPnlPct float64      `json:"totalPnlPct"`
+		BuyCount    int          `json:"buyCount"`
+		SellCount   int          `json:"sellCount"`
+		Trades      []StockTrade `json:"trades"`
 	}
 
 	var signals []model.BacktestSignal
@@ -1476,6 +1645,7 @@ func (h *StrategyHandler) BacktestStockAnalysis(c *gin.Context) {
 		"total":  len(result),
 	})
 }
+
 // BacktestTaskLogs returns execution logs for a task.
 // Supports incremental polling: ?afterSeq=N returns only logs with seq > N.
 func (h *StrategyHandler) BacktestTaskLogs(c *gin.Context) {
@@ -1670,7 +1840,9 @@ func (kc *KlineCache) GetClose(code, date string) float64 {
 func (kc *KlineCache) GetDailyChange(code, date string) float64 {
 	cur := kc.GetClose(code, date)
 	prev := getPrevClose(kc, code, date)
-	if prev > 0 { return (cur - prev) / prev * 100 }
+	if prev > 0 {
+		return (cur - prev) / prev * 100
+	}
 	return 0
 }
 
@@ -1696,8 +1868,6 @@ func (kc *KlineCache) GetNextOpen(code, date string) float64 {
 	nextDate := kc.dates[idx+1]
 	return kc.GetOpen(code, nextDate)
 }
-
-
 
 // getNextDate returns the next trading day after the given date.
 // Returns empty string if date is the last in cache.
@@ -1737,13 +1907,20 @@ func (kc *KlineCache) GetNextClose(code, date string) float64 {
 // checkOp evaluates a comparison between a float value and threshold.
 func checkOp(val float64, op string, threshold float64) bool {
 	switch op {
-	case "gte": return val >= threshold
-	case "lte": return val <= threshold
-	case "gt": return val > threshold
-	case "lt": return val < threshold
-	case "eq": return val == threshold
-	case "cross_up": return val > 0
-	case "cross_down": return val < 0
+	case "gte":
+		return val >= threshold
+	case "lte":
+		return val <= threshold
+	case "gt":
+		return val > threshold
+	case "lt":
+		return val < threshold
+	case "eq":
+		return val == threshold
+	case "cross_up":
+		return val > 0
+	case "cross_down":
+		return val < 0
 	}
 	return false
 }
@@ -1782,7 +1959,6 @@ func getCloseNDaysAgo(kc *KlineCache, code, date string, n int) float64 {
 
 // ── Indicator batch preloader ──
 
-
 // IndicatorValue holds a preloaded indicator value for a stock on a date.
 type IndicatorValue struct {
 	Code  string
@@ -1792,8 +1968,8 @@ type IndicatorValue struct {
 
 // IndicatorCache stores preloaded indicator values: map[indicatorName]map[code|date]value
 type IndicatorCache struct {
-	data              map[string]map[string]float64 // key: indicator, inner key: "code|date"
-	hasIndicatorData  map[string]map[string]bool    // indicator -> code -> has any data
+	data             map[string]map[string]float64 // key: indicator, inner key: "code|date"
+	hasIndicatorData map[string]map[string]bool    // indicator -> code -> has any data
 }
 
 func newIndicatorCache() *IndicatorCache {
@@ -1863,8 +2039,59 @@ func (ic *IndicatorCache) batchScanWithCodes(indicator string, codes []string, q
 }
 
 // preloadIndicators batch-loads all indicator values needed by the strategy for the given universe.
+// loadFromIndicatorCache attempts to populate IndicatorCache from the
+// stock_daily_indicators JSONB cache table. Returns number of stocks loaded.
+func loadFromIndicatorCache(cache *IndicatorCache, codes []string, startDate, endDate string) int {
+	// Check if cache table has data for the date range
+	var rowCount int64
+	db.PG.Raw("SELECT COUNT(*) FROM stock_daily_indicators WHERE trade_date BETWEEN ? AND ?",
+		startDate, endDate).Scan(&rowCount)
+	if rowCount == 0 {
+		return 0
+	}
+
+	// Batch-load all indicators for requested codes
+	type cacheRow struct {
+		Code       string
+		TradeDate  string
+		Indicators string
+	}
+	var rows []cacheRow
+	query := `SELECT code, trade_date::text, indicators::text
+		FROM stock_daily_indicators
+		WHERE code = ANY(?) AND trade_date BETWEEN ? AND ?`
+	if err := db.PG.Raw(query, codes, startDate, endDate).Scan(&rows).Error; err != nil {
+		log.Printf("[backtest] indicator cache load failed: %v", err)
+		return 0
+	}
+
+	loaded := make(map[string]bool)
+	for _, r := range rows {
+		var vals map[string]float64
+		if err := json.Unmarshal([]byte(r.Indicators), &vals); err != nil {
+			continue
+		}
+		for key, val := range vals {
+			if val != 0 {
+				cache.set(key, r.Code, r.TradeDate, val)
+				cache.markHasData(key, r.Code)
+			}
+		}
+		loaded[r.Code] = true
+	}
+	return len(loaded)
+}
+
 func preloadIndicators(conds []model.StrategyCondition, codes []string, startDate, endDate string, kcache *KlineCache) *IndicatorCache {
 	cache := newIndicatorCache()
+
+	// Fast-path: try loading from stock_daily_indicators JSONB cache
+	if loaded := loadFromIndicatorCache(cache, codes, startDate, endDate); loaded > 0 {
+		log.Printf("[backtest] cache hit: %d stocks loaded from stock_daily_indicators, skipping %d batch queries",
+			loaded, len(conds))
+		// Only preload non-cached indicators (AI scores, picks, shareholders)
+		// The expensive batch queries are skipped entirely
+	}
 
 	// Collect unique indicator names to preload (use Registry for safety check)
 	needPreload := make(map[string]bool)
@@ -1885,7 +2112,7 @@ func preloadIndicators(conds []model.StrategyCondition, codes []string, startDat
 			continue
 		case ind == "shareholder_change", ind == "inst_hold_ratio":
 			continue
-		// Note: AI scores, financial metrics, algo_score, signal_value are batch-preloaded below
+			// Note: AI scores, financial metrics, algo_score, signal_value are batch-preloaded below
 		}
 		needPreload[ind] = true
 	}
@@ -2027,13 +2254,21 @@ func preloadIndicators(conds []model.StrategyCondition, codes []string, startDat
 		if err := db.PG.Raw(closeQuery, startDate, endDate).Scan(&closes).Error; err != nil {
 			log.Printf("[backtest] MACD close fetch failed: %v", err)
 		} else {
-			codeCloses := map[string][]struct{ date string; close float64 }{}
+			codeCloses := map[string][]struct {
+				date  string
+				close float64
+			}{}
 			for _, c := range closes {
-				codeCloses[c.Code] = append(codeCloses[c.Code], struct{ date string; close float64 }{c.Date, c.Close})
+				codeCloses[c.Code] = append(codeCloses[c.Code], struct {
+					date  string
+					close float64
+				}{c.Date, c.Close})
 			}
 			const alpha12, alpha26, alphaDea = 0.1538, 0.0741, 0.2
 			for code, rows := range codeCloses {
-				if len(rows) < 12 { continue }
+				if len(rows) < 12 {
+					continue
+				}
 				var ema12, ema26, dea float64
 				ema12, ema26 = rows[0].close, rows[0].close
 				for i, r := range rows {
@@ -2044,11 +2279,21 @@ func preloadIndicators(conds []model.StrategyCondition, codes []string, startDat
 						ema26 = alpha26*r.close + (1-alpha26)*ema26
 					}
 					dif := ema12 - ema26
-					if i == 0 { dea = dif } else { dea = alphaDea*dif + (1-alphaDea)*dea }
+					if i == 0 {
+						dea = dif
+					} else {
+						dea = alphaDea*dif + (1-alphaDea)*dea
+					}
 					hist := dif - dea
-					if needPreload["macd"] { cache.set("macd", code, r.date, hist) }
-					if needPreload["macd_dif"] { cache.set("macd_dif", code, r.date, dif) }
-					if needPreload["macd_dea"] { cache.set("macd_dea", code, r.date, dea) }
+					if needPreload["macd"] {
+						cache.set("macd", code, r.date, hist)
+					}
+					if needPreload["macd_dif"] {
+						cache.set("macd_dif", code, r.date, dif)
+					}
+					if needPreload["macd_dea"] {
+						cache.set("macd_dea", code, r.date, dea)
+					}
 				}
 			}
 		}
@@ -2098,9 +2343,15 @@ func preloadIndicators(conds []model.StrategyCondition, codes []string, startDat
 			log.Printf("[backtest] KDJ preload failed: %v", err)
 		} else {
 			for _, r := range kdjRows {
-				if needPreload["kdj_k"] { cache.set("kdj_k", r.Code, r.Date, r.K) }
-				if needPreload["kdj_d"] { cache.set("kdj_d", r.Code, r.Date, r.D) }
-				if needPreload["kdj_j"] { cache.set("kdj_j", r.Code, r.Date, r.J) }
+				if needPreload["kdj_k"] {
+					cache.set("kdj_k", r.Code, r.Date, r.K)
+				}
+				if needPreload["kdj_d"] {
+					cache.set("kdj_d", r.Code, r.Date, r.D)
+				}
+				if needPreload["kdj_j"] {
+					cache.set("kdj_j", r.Code, r.Date, r.J)
+				}
 			}
 		}
 		delete(needPreload, "kdj_k")
@@ -2204,16 +2455,22 @@ func preloadIndicators(conds []model.StrategyCondition, codes []string, startDat
 			log.Printf("[backtest] BB preload failed: %v", err)
 		} else {
 			for _, r := range rows {
-				if needPreload["boll_upper"]  { cache.set("boll_upper",  r.Code, r.Date, r.Upper)  }
-				if needPreload["boll_middle"] { cache.set("boll_middle", r.Code, r.Date, r.Middle) }
-				if needPreload["boll_lower"]  { cache.set("boll_lower",  r.Code, r.Date, r.Lower)  }
+				if needPreload["boll_upper"] {
+					cache.set("boll_upper", r.Code, r.Date, r.Upper)
+				}
+				if needPreload["boll_middle"] {
+					cache.set("boll_middle", r.Code, r.Date, r.Middle)
+				}
+				if needPreload["boll_lower"] {
+					cache.set("boll_lower", r.Code, r.Date, r.Lower)
+				}
 			}
 		}
 		delete(needPreload, "boll_upper")
 		delete(needPreload, "boll_middle")
 		delete(needPreload, "boll_lower")
-	delete(needPreload, "boll_position")
-	delete(needPreload, "boll_width")
+		delete(needPreload, "boll_position")
+		delete(needPreload, "boll_width")
 	}
 
 	// Batch preload: PSY/PSYMA psychological line
@@ -2247,8 +2504,12 @@ func preloadIndicators(conds []model.StrategyCondition, codes []string, startDat
 			log.Printf("[backtest] PSY preload failed: %v", err)
 		} else {
 			for _, r := range rows {
-				if needPreload["psy_12"] { cache.set("psy_12", r.Code, r.Date, r.PSY) }
-				if needPreload["psy_ma"] { cache.set("psy_ma", r.Code, r.Date, r.PSYMA) }
+				if needPreload["psy_12"] {
+					cache.set("psy_12", r.Code, r.Date, r.PSY)
+				}
+				if needPreload["psy_ma"] {
+					cache.set("psy_ma", r.Code, r.Date, r.PSYMA)
+				}
 			}
 		}
 		delete(needPreload, "psy_12")
@@ -2292,9 +2553,15 @@ func preloadIndicators(conds []model.StrategyCondition, codes []string, startDat
 			log.Printf("[backtest] multi-RSI preload failed: %v", err)
 		} else {
 			for _, r := range rows {
-				if needPreload["rsi_6"]  { cache.set("rsi_6",  r.Code, r.Date, r.RSI6)  }
-				if needPreload["rsi_12"] { cache.set("rsi_12", r.Code, r.Date, r.RSI12) }
-				if needPreload["rsi_24"] { cache.set("rsi_24", r.Code, r.Date, r.RSI24) }
+				if needPreload["rsi_6"] {
+					cache.set("rsi_6", r.Code, r.Date, r.RSI6)
+				}
+				if needPreload["rsi_12"] {
+					cache.set("rsi_12", r.Code, r.Date, r.RSI12)
+				}
+				if needPreload["rsi_24"] {
+					cache.set("rsi_24", r.Code, r.Date, r.RSI24)
+				}
 			}
 		}
 		delete(needPreload, "rsi_6")
@@ -2329,11 +2596,21 @@ func preloadIndicators(conds []model.StrategyCondition, codes []string, startDat
 			log.Printf("[backtest] MA preload failed: %v", err)
 		} else {
 			for _, r := range rows {
-				if needPreload["ma_5"]  { cache.set("ma_5",  r.Code, r.Date, r.MA5)  }
-				if needPreload["ma_10"] { cache.set("ma_10", r.Code, r.Date, r.MA10) }
-				if needPreload["ma_20"] { cache.set("ma_20", r.Code, r.Date, r.MA20) }
-				if needPreload["ma_30"] { cache.set("ma_30", r.Code, r.Date, r.MA30) }
-				if needPreload["ma_60"] { cache.set("ma_60", r.Code, r.Date, r.MA60) }
+				if needPreload["ma_5"] {
+					cache.set("ma_5", r.Code, r.Date, r.MA5)
+				}
+				if needPreload["ma_10"] {
+					cache.set("ma_10", r.Code, r.Date, r.MA10)
+				}
+				if needPreload["ma_20"] {
+					cache.set("ma_20", r.Code, r.Date, r.MA20)
+				}
+				if needPreload["ma_30"] {
+					cache.set("ma_30", r.Code, r.Date, r.MA30)
+				}
+				if needPreload["ma_60"] {
+					cache.set("ma_60", r.Code, r.Date, r.MA60)
+				}
 			}
 		}
 		delete(needPreload, "ma_5")
@@ -2341,7 +2618,7 @@ func preloadIndicators(conds []model.StrategyCondition, codes []string, startDat
 		delete(needPreload, "ma_20")
 		delete(needPreload, "ma_30")
 		delete(needPreload, "ma_60")
-	delete(needPreload, "ma_deviation")
+		delete(needPreload, "ma_deviation")
 	}
 
 	if len(needPreload) > 0 {
@@ -2370,14 +2647,14 @@ func preloadIndicators(conds []model.StrategyCondition, codes []string, startDat
 			WHERE code IN (%s) AND created_at <= ?::date
 		`, inClause)
 		type AIRow struct {
-			Code           string
-			AiScore        float64
-			AiFundamental  float64
-			AiTechnical    float64
-			AiValuation    float64
-			AiGrowth       float64
-			AiIndustry     float64
-			AiCapital      float64
+			Code          string
+			AiScore       float64
+			AiFundamental float64
+			AiTechnical   float64
+			AiValuation   float64
+			AiGrowth      float64
+			AiIndustry    float64
+			AiCapital     float64
 		}
 		var rows []AIRow
 		if err := db.PG.Raw(query, endDate).Scan(&rows).Error; err != nil {
@@ -2385,13 +2662,27 @@ func preloadIndicators(conds []model.StrategyCondition, codes []string, startDat
 		} else {
 			// AI scores are date-independent (one row per stock), store with empty date
 			for _, r := range rows {
-				if needPreload["ai_score"]       { cache.set("ai_score",       r.Code, "", r.AiScore) }
-				if needPreload["ai_fundamental"]  { cache.set("ai_fundamental",  r.Code, "", r.AiFundamental) }
-				if needPreload["ai_technical"]    { cache.set("ai_technical",    r.Code, "", r.AiTechnical) }
-				if needPreload["ai_valuation"]    { cache.set("ai_valuation",    r.Code, "", r.AiValuation) }
-				if needPreload["ai_growth"]       { cache.set("ai_growth",       r.Code, "", r.AiGrowth) }
-				if needPreload["ai_industry"]     { cache.set("ai_industry",     r.Code, "", r.AiIndustry) }
-				if needPreload["ai_capital"]      { cache.set("ai_capital",      r.Code, "", r.AiCapital) }
+				if needPreload["ai_score"] {
+					cache.set("ai_score", r.Code, "", r.AiScore)
+				}
+				if needPreload["ai_fundamental"] {
+					cache.set("ai_fundamental", r.Code, "", r.AiFundamental)
+				}
+				if needPreload["ai_technical"] {
+					cache.set("ai_technical", r.Code, "", r.AiTechnical)
+				}
+				if needPreload["ai_valuation"] {
+					cache.set("ai_valuation", r.Code, "", r.AiValuation)
+				}
+				if needPreload["ai_growth"] {
+					cache.set("ai_growth", r.Code, "", r.AiGrowth)
+				}
+				if needPreload["ai_industry"] {
+					cache.set("ai_industry", r.Code, "", r.AiIndustry)
+				}
+				if needPreload["ai_capital"] {
+					cache.set("ai_capital", r.Code, "", r.AiCapital)
+				}
 			}
 		}
 		delete(needPreload, "ai_score")
@@ -2435,13 +2726,27 @@ func preloadIndicators(conds []model.StrategyCondition, codes []string, startDat
 			log.Printf("[backtest] financials preload failed: %v", err)
 		} else {
 			for _, r := range rows {
-				if needPreload["roe"]            { cache.set("roe",            r.Code, "", r.ROE) }
-				if needPreload["revenue_growth"] { cache.set("revenue_growth", r.Code, "", r.RevenueGrowth) }
-				if needPreload["profit_growth"]  { cache.set("profit_growth",  r.Code, "", r.ProfitGrowth) }
-				if needPreload["gross_margin"]   { cache.set("gross_margin",   r.Code, "", r.GrossMargin) }
-				if needPreload["net_margin"]     { cache.set("net_margin",     r.Code, "", r.NetMargin) }
-				if needPreload["debt_ratio"]     { cache.set("debt_ratio",     r.Code, "", r.DebtRatio) }
-				if needPreload["eps"]            { cache.set("eps",            r.Code, "", r.EPS) }
+				if needPreload["roe"] {
+					cache.set("roe", r.Code, "", r.ROE)
+				}
+				if needPreload["revenue_growth"] {
+					cache.set("revenue_growth", r.Code, "", r.RevenueGrowth)
+				}
+				if needPreload["profit_growth"] {
+					cache.set("profit_growth", r.Code, "", r.ProfitGrowth)
+				}
+				if needPreload["gross_margin"] {
+					cache.set("gross_margin", r.Code, "", r.GrossMargin)
+				}
+				if needPreload["net_margin"] {
+					cache.set("net_margin", r.Code, "", r.NetMargin)
+				}
+				if needPreload["debt_ratio"] {
+					cache.set("debt_ratio", r.Code, "", r.DebtRatio)
+				}
+				if needPreload["eps"] {
+					cache.set("eps", r.Code, "", r.EPS)
+				}
 			}
 		}
 		delete(needPreload, "roe")
@@ -2508,60 +2813,59 @@ func preloadIndicators(conds []model.StrategyCondition, codes []string, startDat
 	return cache
 }
 
-
 // ═══════════════════════════════════════════════════════════════
 // ConceptRankCache — 概念板块强度排名缓存
 // ═══════════════════════════════════════════════════════════════
 
 type ConceptRankCache struct {
-    // date -> concept_name -> rank percentile (0.0=worst, 1.0=best)
-    dateRanks map[string]map[string]float64
-    // code -> concept_names (preloaded stock→concept mapping)
-    codeConcepts map[string][]string
+	// date -> concept_name -> rank percentile (0.0=worst, 1.0=best)
+	dateRanks map[string]map[string]float64
+	// code -> concept_names (preloaded stock→concept mapping)
+	codeConcepts map[string][]string
 }
 
 // GetMultiplier returns a score multiplier based on the stock's concept rankings.
 // Top 20% concepts: 1.3x, 20-50%: 1.0x, 50-80%: 0.7x, bottom 20%: 0.4x
 func (crc *ConceptRankCache) GetMultiplier(code, date string) float64 {
-    if crc == nil {
-        return 1.0
-    }
-    concepts, ok := crc.codeConcepts[code]
-    if !ok || len(concepts) == 0 {
-        return 1.0 // no concept data, neutral
-    }
-    
-    dateRanks, ok := crc.dateRanks[date]
-    if !ok {
-        return 1.0
-    }
-    
-    // Average rank percentile across all concepts this stock belongs to
-    var sumRank float64
-    var count int
-    for _, c := range concepts {
-        if rank, ok := dateRanks[c]; ok {
-            sumRank += rank
-            count++
-        }
-    }
-    if count == 0 {
-        return 1.0
-    }
-    
-    avgRank := sumRank / float64(count)
-    
-    // Map percentile to multiplier
-    switch {
-    case avgRank >= 0.80:
-        return 1.30 // top 20% concepts
-    case avgRank >= 0.50:
-        return 1.00 // middle
-    case avgRank >= 0.20:
-        return 0.70 // bottom 50-80%
-    default:
-        return 0.40 // bottom 20% concepts
-    }
+	if crc == nil {
+		return 1.0
+	}
+	concepts, ok := crc.codeConcepts[code]
+	if !ok || len(concepts) == 0 {
+		return 1.0 // no concept data, neutral
+	}
+
+	dateRanks, ok := crc.dateRanks[date]
+	if !ok {
+		return 1.0
+	}
+
+	// Average rank percentile across all concepts this stock belongs to
+	var sumRank float64
+	var count int
+	for _, c := range concepts {
+		if rank, ok := dateRanks[c]; ok {
+			sumRank += rank
+			count++
+		}
+	}
+	if count == 0 {
+		return 1.0
+	}
+
+	avgRank := sumRank / float64(count)
+
+	// Map percentile to multiplier
+	switch {
+	case avgRank >= 0.80:
+		return 1.30 // top 20% concepts
+	case avgRank >= 0.50:
+		return 1.00 // middle
+	case avgRank >= 0.20:
+		return 0.70 // bottom 50-80%
+	default:
+		return 0.40 // bottom 20% concepts
+	}
 }
 
 // preloadStreakCounts batch-loads streak_count for all codes over the date range.
@@ -2651,38 +2955,38 @@ func preloadPickCounts(codes []string, startDate, endDate string) map[string]map
 
 // preloadConceptRanks precomputes concept daily performance rankings.
 func preloadConceptRanks(codes []string, startDate, endDate string) *ConceptRankCache {
-    crc := &ConceptRankCache{
-        dateRanks:    make(map[string]map[string]float64),
-        codeConcepts: make(map[string][]string),
-    }
-    
-    // 1. Preload stock→concept mappings
-    type conceptRow struct {
-        Code        string
-        ConceptName string
-    }
-    var mappings []conceptRow
-    inClause1 := db.CodesToInClause(codes)
-    query1 := fmt.Sprintf(`SELECT code, concept_name FROM stock_concepts 
+	crc := &ConceptRankCache{
+		dateRanks:    make(map[string]map[string]float64),
+		codeConcepts: make(map[string][]string),
+	}
+
+	// 1. Preload stock→concept mappings
+	type conceptRow struct {
+		Code        string
+		ConceptName string
+	}
+	var mappings []conceptRow
+	inClause1 := db.CodesToInClause(codes)
+	query1 := fmt.Sprintf(`SELECT code, concept_name FROM stock_concepts
         WHERE concept_type = 'concept' AND code IN (%s)`, inClause1)
-    if err := db.PG.Raw(query1).Scan(&mappings).Error; err != nil {
-        log.Printf("[concept_cache] stock→concept preload failed: %v", err)
-        return crc
-    }
-    for _, m := range mappings {
-        crc.codeConcepts[m.Code] = append(crc.codeConcepts[m.Code], m.ConceptName)
-    }
-    log.Printf("[concept_cache] loaded %d stock→concept mappings for %d stocks", len(mappings), len(crc.codeConcepts))
-    
-    // 2. Compute per-date per-concept average daily_change
-    type conceptPerf struct {
-        TradeDate   string
-        ConceptName string
-        AvgChg      float64
-    }
-    var perfs []conceptPerf
-    inClause2 := db.CodesToInClause(codes)
-    query2 := fmt.Sprintf(`
+	if err := db.PG.Raw(query1).Scan(&mappings).Error; err != nil {
+		log.Printf("[concept_cache] stock→concept preload failed: %v", err)
+		return crc
+	}
+	for _, m := range mappings {
+		crc.codeConcepts[m.Code] = append(crc.codeConcepts[m.Code], m.ConceptName)
+	}
+	log.Printf("[concept_cache] loaded %d stock→concept mappings for %d stocks", len(mappings), len(crc.codeConcepts))
+
+	// 2. Compute per-date per-concept average daily_change
+	type conceptPerf struct {
+		TradeDate   string
+		ConceptName string
+		AvgChg      float64
+	}
+	var perfs []conceptPerf
+	inClause2 := db.CodesToInClause(codes)
+	query2 := fmt.Sprintf(`
         WITH daily_chg AS (
             SELECT code, trade_date,
                    (close - LAG(close) OVER (PARTITION BY code ORDER BY trade_date)) 
@@ -2701,42 +3005,43 @@ func preloadConceptRanks(codes []string, startDate, endDate string) *ConceptRank
         HAVING COUNT(*) >= 3
         ORDER BY dc.trade_date
     `, inClause2)
-    if err := db.PG.Raw(query2, startDate, endDate).Scan(&perfs).Error; err != nil {
-        log.Printf("[concept_cache] concept performance query failed: %v", err)
-        return crc
-    }
-    log.Printf("[concept_cache] loaded %d concept-day performance records", len(perfs))
-    
-    // 3. Group by date and compute rank percentiles
-    datePerfs := make(map[string][]float64)
-    dateConcepts := make(map[string][]string)
-    for _, p := range perfs {
-        datePerfs[p.TradeDate] = append(datePerfs[p.TradeDate], p.AvgChg)
-        dateConcepts[p.TradeDate] = append(dateConcepts[p.TradeDate], p.ConceptName)
-    }
-    
-    for date, perfs_ := range datePerfs {
-        concepts := dateConcepts[date]
-        n := len(perfs_)
-        if n < 3 {
-            continue
-        }
-        // Create sorted copy for ranking
-        sorted := make([]float64, n)
-        copy(sorted, perfs_)
-        sort.Float64s(sorted)
-        
-        crc.dateRanks[date] = make(map[string]float64)
-        for i, p := range perfs_ {
-            // Find rank percentile: position in sorted / total
-            rank := float64(sort.SearchFloat64s(sorted, p)) / float64(n-1)
-            crc.dateRanks[date][concepts[i]] = rank
-        }
-    }
-    
-    log.Printf("[concept_cache] computed ranks for %d dates", len(crc.dateRanks))
-    return crc
+	if err := db.PG.Raw(query2, startDate, endDate).Scan(&perfs).Error; err != nil {
+		log.Printf("[concept_cache] concept performance query failed: %v", err)
+		return crc
+	}
+	log.Printf("[concept_cache] loaded %d concept-day performance records", len(perfs))
+
+	// 3. Group by date and compute rank percentiles
+	datePerfs := make(map[string][]float64)
+	dateConcepts := make(map[string][]string)
+	for _, p := range perfs {
+		datePerfs[p.TradeDate] = append(datePerfs[p.TradeDate], p.AvgChg)
+		dateConcepts[p.TradeDate] = append(dateConcepts[p.TradeDate], p.ConceptName)
+	}
+
+	for date, perfs_ := range datePerfs {
+		concepts := dateConcepts[date]
+		n := len(perfs_)
+		if n < 3 {
+			continue
+		}
+		// Create sorted copy for ranking
+		sorted := make([]float64, n)
+		copy(sorted, perfs_)
+		sort.Float64s(sorted)
+
+		crc.dateRanks[date] = make(map[string]float64)
+		for i, p := range perfs_ {
+			// Find rank percentile: position in sorted / total
+			rank := float64(sort.SearchFloat64s(sorted, p)) / float64(n-1)
+			crc.dateRanks[date][concepts[i]] = rank
+		}
+	}
+
+	log.Printf("[concept_cache] computed ranks for %d dates", len(crc.dateRanks))
+	return crc
 }
+
 // ═══════════════════════════════════════════════════════════════
 // MarketStyleEngine — 市场风格识别引擎 (20日滚动多因子)
 // ═══════════════════════════════════════════════════════════════
@@ -2744,148 +3049,148 @@ func preloadConceptRanks(codes []string, startDate, endDate string) *ConceptRank
 type MarketStyle string
 
 const (
-    StyleBullRally    MarketStyle = "bull_rally"    // 🟢 牛市普涨
-    StyleMildBull     MarketStyle = "mild_bull"     // 🟢 温和上涨
-    StyleRecovery     MarketStyle = "recovery"      // 🟡 回暖修复
-    StyleStructural   MarketStyle = "structural"    // 🟠 结构分化
-    StyleRotation     MarketStyle = "rotation"      // 🟡 震荡轮动
-    StyleBottoming    MarketStyle = "bottoming"     // 🟤 底部磨底
-    StyleBear         MarketStyle = "bear"          // 🔴 熊市下跌
-    StyleCrash        MarketStyle = "crash"         // ⚫ 恐慌暴跌
-    StyleTransitional MarketStyle = "transitional"  // ⬜ 过渡
-    StyleTrendUp      MarketStyle = "trend_up"      // 🟢 趋势上涨 (new)
-    StyleRiskOff      MarketStyle = "risk_off"      // 🔴 风险释放 (new)
+	StyleBullRally    MarketStyle = "bull_rally"   // 🟢 牛市普涨
+	StyleMildBull     MarketStyle = "mild_bull"    // 🟢 温和上涨
+	StyleRecovery     MarketStyle = "recovery"     // 🟡 回暖修复
+	StyleStructural   MarketStyle = "structural"   // 🟠 结构分化
+	StyleRotation     MarketStyle = "rotation"     // 🟡 震荡轮动
+	StyleBottoming    MarketStyle = "bottoming"    // 🟤 底部磨底
+	StyleBear         MarketStyle = "bear"         // 🔴 熊市下跌
+	StyleCrash        MarketStyle = "crash"        // ⚫ 恐慌暴跌
+	StyleTransitional MarketStyle = "transitional" // ⬜ 过渡
+	StyleTrendUp      MarketStyle = "trend_up"     // 🟢 趋势上涨 (new)
+	StyleRiskOff      MarketStyle = "risk_off"     // 🔴 风险释放 (new)
 )
 
 // StyleParams holds the strategy parameter adjustments for a market style.
 type StyleParams struct {
-    BuyPct          float64 // 单票仓位%
-    AddPct          float64 // 加仓仓位%
-    BuyLogic        string  // "and" or "or"
-    AllowAdd        bool
-    AllowBuy        bool
-    SellPctMult     float64 // 卖出加速倍数
-    ConceptTopPct   float64 // 概念池范围(0-1), 0=全部
-    PositionBias    float64 // 仓位乘数
-    StopProfitAdj   float64 // 止盈调整(加法)
-    StopLossAdj     float64 // 止损调整(加法，负值=更紧)
-    TrailingStopDrawdown float64 // 移动止盈回撤%(0=默认)
+	BuyPct               float64 // 单票仓位%
+	AddPct               float64 // 加仓仓位%
+	BuyLogic             string  // "and" or "or"
+	AllowAdd             bool
+	AllowBuy             bool
+	SellPctMult          float64 // 卖出加速倍数
+	ConceptTopPct        float64 // 概念池范围(0-1), 0=全部
+	PositionBias         float64 // 仓位乘数
+	StopProfitAdj        float64 // 止盈调整(加法)
+	StopLossAdj          float64 // 止损调整(加法，负值=更紧)
+	TrailingStopDrawdown float64 // 移动止盈回撤%(0=默认)
 }
 
 // defaultStyleParams returns hardcoded optimal parameters per market style.
 func defaultStyleParams(style MarketStyle) StyleParams {
-    switch style {
-    case StyleBullRally, StyleMildBull:
-        return StyleParams{
-            BuyPct: 20, AddPct: 15, BuyLogic: "or",
-            AllowBuy: true, AllowAdd: true,
-            ConceptTopPct: 0.50, PositionBias: 1.2,
-            StopProfitAdj: 5, StopLossAdj: -2,
-            TrailingStopDrawdown: 10, // 牛市允许更大回撤
-        }
-    case StyleRecovery:
-        return StyleParams{
-            BuyPct: 15, AddPct: 10, BuyLogic: "and",
-            AllowBuy: true, AllowAdd: true,
-            ConceptTopPct: 0.40, PositionBias: 1.0,
-            StopProfitAdj: 0, StopLossAdj: 0,
-            TrailingStopDrawdown: 8,
-        }
-    case StyleStructural:
-        return StyleParams{
-            BuyPct: 12, AddPct: 10, BuyLogic: "and",
-            AllowBuy: true, AllowAdd: true,
-            ConceptTopPct: 0.20, PositionBias: 1.0,
-            StopProfitAdj: 0, StopLossAdj: 0,
-            TrailingStopDrawdown: 8,
-        }
-    case StyleRotation:
-        return StyleParams{
-            BuyPct: 6, AddPct: 0, BuyLogic: "and",
-            AllowBuy: true, AllowAdd: false,
-            ConceptTopPct: 0.30, PositionBias: 0.6,
-            StopProfitAdj: -5, StopLossAdj: 2, // tighter stops
-            TrailingStopDrawdown: 5, // 轮动收紧回撤
-        }
-    case StyleBottoming:
-        return StyleParams{
-            BuyPct: 4, AddPct: 0, BuyLogic: "and",
-            AllowBuy: true, AllowAdd: false,
-            ConceptTopPct: 0.15, PositionBias: 0.4,
-            StopProfitAdj: -5, StopLossAdj: 3,
-            TrailingStopDrawdown: 4, // 磨底收紧回撤
-        }
-    case StyleTrendUp:
-        return StyleParams{
-            BuyPct: 20, AddPct: 12, BuyLogic: "or",
-            AllowBuy: true, AllowAdd: true,
-            ConceptTopPct: 0.40, PositionBias: 1.2,
-            StopProfitAdj: 5, StopLossAdj: -3,
-            TrailingStopDrawdown: 10,
-        }
-    case StyleRiskOff:
-        return StyleParams{
-            BuyPct: 0, AddPct: 0, BuyLogic: "and",
-            AllowBuy: false, AllowAdd: false,
-            ConceptTopPct: 0, PositionBias: 0.1,
-            SellPctMult: 1.5,
-        }
-    case StyleBear, StyleCrash:
-        return StyleParams{
-            BuyPct: 0, AddPct: 0, BuyLogic: "and",
-            AllowBuy: false, AllowAdd: false,
-            ConceptTopPct: 0, PositionBias: 0,
-            StopProfitAdj: 0, StopLossAdj: 0,
-            SellPctMult: 2.0,
-            TrailingStopDrawdown: 0,
-        }
-    default: // transitional
-        return StyleParams{
-            BuyPct: 10, AddPct: 5, BuyLogic: "and",
-            AllowBuy: true, AllowAdd: false,
-            ConceptTopPct: 0.50, PositionBias: 0.8,
-            StopProfitAdj: 0, StopLossAdj: 0,
-            TrailingStopDrawdown: 0,
-        }
-    }
+	switch style {
+	case StyleBullRally, StyleMildBull:
+		return StyleParams{
+			BuyPct: 20, AddPct: 15, BuyLogic: "or",
+			AllowBuy: true, AllowAdd: true,
+			ConceptTopPct: 0.50, PositionBias: 1.2,
+			StopProfitAdj: 5, StopLossAdj: -2,
+			TrailingStopDrawdown: 10, // 牛市允许更大回撤
+		}
+	case StyleRecovery:
+		return StyleParams{
+			BuyPct: 15, AddPct: 10, BuyLogic: "and",
+			AllowBuy: true, AllowAdd: true,
+			ConceptTopPct: 0.40, PositionBias: 1.0,
+			StopProfitAdj: 0, StopLossAdj: 0,
+			TrailingStopDrawdown: 8,
+		}
+	case StyleStructural:
+		return StyleParams{
+			BuyPct: 12, AddPct: 10, BuyLogic: "and",
+			AllowBuy: true, AllowAdd: true,
+			ConceptTopPct: 0.20, PositionBias: 1.0,
+			StopProfitAdj: 0, StopLossAdj: 0,
+			TrailingStopDrawdown: 8,
+		}
+	case StyleRotation:
+		return StyleParams{
+			BuyPct: 6, AddPct: 0, BuyLogic: "and",
+			AllowBuy: true, AllowAdd: false,
+			ConceptTopPct: 0.30, PositionBias: 0.6,
+			StopProfitAdj: -5, StopLossAdj: 2, // tighter stops
+			TrailingStopDrawdown: 5, // 轮动收紧回撤
+		}
+	case StyleBottoming:
+		return StyleParams{
+			BuyPct: 4, AddPct: 0, BuyLogic: "and",
+			AllowBuy: true, AllowAdd: false,
+			ConceptTopPct: 0.15, PositionBias: 0.4,
+			StopProfitAdj: -5, StopLossAdj: 3,
+			TrailingStopDrawdown: 4, // 磨底收紧回撤
+		}
+	case StyleTrendUp:
+		return StyleParams{
+			BuyPct: 20, AddPct: 12, BuyLogic: "or",
+			AllowBuy: true, AllowAdd: true,
+			ConceptTopPct: 0.40, PositionBias: 1.2,
+			StopProfitAdj: 5, StopLossAdj: -3,
+			TrailingStopDrawdown: 10,
+		}
+	case StyleRiskOff:
+		return StyleParams{
+			BuyPct: 0, AddPct: 0, BuyLogic: "and",
+			AllowBuy: false, AllowAdd: false,
+			ConceptTopPct: 0, PositionBias: 0.1,
+			SellPctMult: 1.5,
+		}
+	case StyleBear, StyleCrash:
+		return StyleParams{
+			BuyPct: 0, AddPct: 0, BuyLogic: "and",
+			AllowBuy: false, AllowAdd: false,
+			ConceptTopPct: 0, PositionBias: 0,
+			StopProfitAdj: 0, StopLossAdj: 0,
+			SellPctMult:          2.0,
+			TrailingStopDrawdown: 0,
+		}
+	default: // transitional
+		return StyleParams{
+			BuyPct: 10, AddPct: 5, BuyLogic: "and",
+			AllowBuy: true, AllowAdd: false,
+			ConceptTopPct: 0.50, PositionBias: 0.8,
+			StopProfitAdj: 0, StopLossAdj: 0,
+			TrailingStopDrawdown: 0,
+		}
+	}
 }
 
 func styleName(style MarketStyle) string {
-    names := map[MarketStyle]string{
-        StyleBullRally: "🟢 牛市普涨", StyleMildBull: "🟢 温和上涨",
-        StyleRecovery: "🟡 回暖修复", StyleStructural: "🟠 结构分化",
-        StyleRotation: "🟡 震荡轮动", StyleBottoming: "🟤 底部磨底",
-        StyleBear: "🔴 熊市下跌", StyleCrash: "⚫ 恐慌暴跌",
-        StyleTransitional: "⬜ 过渡整理",
-        StyleTrendUp: "🟢 趋势上涨", StyleRiskOff: "🔴 风险释放",
-    }
-    return names[style]
+	names := map[MarketStyle]string{
+		StyleBullRally: "🟢 牛市普涨", StyleMildBull: "🟢 温和上涨",
+		StyleRecovery: "🟡 回暖修复", StyleStructural: "🟠 结构分化",
+		StyleRotation: "🟡 震荡轮动", StyleBottoming: "🟤 底部磨底",
+		StyleBear: "🔴 熊市下跌", StyleCrash: "⚫ 恐慌暴跌",
+		StyleTransitional: "⬜ 过渡整理",
+		StyleTrendUp:      "🟢 趋势上涨", StyleRiskOff: "🔴 风险释放",
+	}
+	return names[style]
 }
 
 // MarketStyleEngine detects the current market regime using 20-day rolling statistics.
 type MarketStyleEngine struct {
-    cache map[string]MarketStyle
+	cache map[string]MarketStyle
 }
 
 func NewMarketStyleEngine() *MarketStyleEngine {
-    return &MarketStyleEngine{cache: make(map[string]MarketStyle)}
+	return &MarketStyleEngine{cache: make(map[string]MarketStyle)}
 }
 
 // DetectStyle classifies the market regime for a given date using multi-factor rolling analysis.
 func (mse *MarketStyleEngine) DetectStyle(date string) MarketStyle {
-    if s, ok := mse.cache[date]; ok {
-        return s
-    }
+	if s, ok := mse.cache[date]; ok {
+		return s
+	}
 
-    // Query rolling 20-day stats from market_sentiment
-    var row struct {
-        AvgScore    float64
-        AvgUpRatio  float64
-        AvgDiff     float64
-        AvgVol      float64
-        ScoreTrend  float64 // 10-day slope of composite_score
-    }
-    err := db.PG.Raw(`
+	// Query rolling 20-day stats from market_sentiment
+	var row struct {
+		AvgScore   float64
+		AvgUpRatio float64
+		AvgDiff    float64
+		AvgVol     float64
+		ScoreTrend float64 // 10-day slope of composite_score
+	}
+	err := db.PG.Raw(`
         WITH rolling AS (
             SELECT trade_date, composite_score,
                    up_count::float / NULLIF(total_stocks,0) as up_ratio,
@@ -2911,50 +3216,49 @@ func (mse *MarketStyleEngine) DetectStyle(date string) MarketStyle {
         SELECT s.*, COALESCE(t.slope, 0) as score_trend FROM stats s, trend t
     `, date, date, date, date, date, date).Scan(&row).Error
 
-    if err != nil {
-        log.Printf("[market_style] query failed for %s: %v", date, err)
-        return StyleTransitional
-    }
+	if err != nil {
+		log.Printf("[market_style] query failed for %s: %v", date, err)
+		return StyleTransitional
+	}
 
-    // Multi-factor classification
-    s20 := row.AvgScore
-    u20 := row.AvgUpRatio
-    d20 := row.AvgDiff
-    v20 := row.AvgVol
-    trend := row.ScoreTrend
+	// Multi-factor classification
+	s20 := row.AvgScore
+	u20 := row.AvgUpRatio
+	d20 := row.AvgDiff
+	v20 := row.AvgVol
+	trend := row.ScoreTrend
 
-    var style MarketStyle
+	var style MarketStyle
 
-    // ⚫ 恐慌: 极低分 + 高波动
-    if s20 < 18 || (s20 < 25 && v20 > 0.18) {
-        style = StyleCrash
-    } else if trend < 0 && u20 < 0.30 && s20 < 32 {
-        style = StyleBear // 🔴 熊市
-    } else if s20 < 30 && u20 < 0.35 && trend >= -0.5 && trend <= 0.5 {
-        style = StyleBottoming // 🟤 磨底
-    } else if trend > 0.5 && u20 < 0.48 {
-        style = StyleRecovery // 🟡 回暖
-    } else if u20 > 0.48 && d20 > 0.45 && trend > 0.3 {
-        style = StyleBullRally // 🟢 普涨
-    } else if u20 > 0.45 && trend > 0.2 {
-        style = StyleMildBull // 🟢 温和
-    } else if u20 < 0.35 && d20 < 0.30 {
-        style = StyleStructural // 🟠 结构
-    } else if 0.30 <= u20 && u20 < 0.50 && d20 >= 0.30 {
-        style = StyleRotation // 🟡 轮动
-    } else {
-        style = StyleTransitional
-    }
+	// ⚫ 恐慌: 极低分 + 高波动
+	if s20 < 18 || (s20 < 25 && v20 > 0.18) {
+		style = StyleCrash
+	} else if trend < 0 && u20 < 0.30 && s20 < 32 {
+		style = StyleBear // 🔴 熊市
+	} else if s20 < 30 && u20 < 0.35 && trend >= -0.5 && trend <= 0.5 {
+		style = StyleBottoming // 🟤 磨底
+	} else if trend > 0.5 && u20 < 0.48 {
+		style = StyleRecovery // 🟡 回暖
+	} else if u20 > 0.48 && d20 > 0.45 && trend > 0.3 {
+		style = StyleBullRally // 🟢 普涨
+	} else if u20 > 0.45 && trend > 0.2 {
+		style = StyleMildBull // 🟢 温和
+	} else if u20 < 0.35 && d20 < 0.30 {
+		style = StyleStructural // 🟠 结构
+	} else if 0.30 <= u20 && u20 < 0.50 && d20 >= 0.30 {
+		style = StyleRotation // 🟡 轮动
+	} else {
+		style = StyleTransitional
+	}
 
-    mse.cache[date] = style
-    return style
+	mse.cache[date] = style
+	return style
 }
 
 // GetStyleParams returns the trading parameters for the detected style.
 func (mse *MarketStyleEngine) GetStyleParams(date string) StyleParams {
-    return defaultStyleParams(mse.DetectStyle(date))
+	return defaultStyleParams(mse.DetectStyle(date))
 }
-
 
 // ── V2 Backtest Engine (new architecture) ──
 
@@ -3065,6 +3369,7 @@ func (h *StrategyHandler) runBacktestAsyncV2(
 	log.Printf("[backtest_v2] completed: task=%d return=%.1f%% sharpe=%.2f trades=%d",
 		task.ID, result.TotalReturnPct, result.SharpeRatio, result.TradeCount)
 }
+
 // ── The async backtest runner (runs in goroutine) ──
 
 func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.BacktestTask, s *model.Strategy, startDate, endDate string, stockCodes []string) {
@@ -3072,8 +3377,8 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 		if r := recover(); r != nil {
 			log.Printf("[backtest] PANIC in task %d: %v", task.ID, r)
 			db.MySQL.Model(task).Updates(map[string]interface{}{
-				"status": "failed",
-				"phase":  "回测异常",
+				"status":    "failed",
+				"phase":     "回测异常",
 				"error_msg": fmt.Sprintf("panic: %v", r),
 			})
 		}
@@ -3099,7 +3404,7 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 			pct = float64(day) / float64(total) * 100
 		}
 		updates := map[string]interface{}{
-			"current_day": day,
+			"current_day":  day,
 			"progress_pct": pct,
 		}
 		if phase != "" {
@@ -3120,20 +3425,30 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 	reduceConds := filterConds(conds, "reduce")
 
 	buyPct := s.BuyPositionPct
-	if buyPct <= 0 { buyPct = 15 }
+	if buyPct <= 0 {
+		buyPct = 15
+	}
 	addPct := s.AddPositionPct
-	if addPct <= 0 { addPct = 10 }
+	if addPct <= 0 {
+		addPct = 10
+	}
 	reducePct := s.ReducePositionPct
-	if reducePct <= 0 { reducePct = 50 }
+	if reducePct <= 0 {
+		reducePct = 50
+	}
 
 	capital := s.InitialCapital
-	if capital <= 0 { capital = 100000 }
+	if capital <= 0 {
+		capital = 100000
+	}
 	remainingCash := capital
 	maxHold := s.MaxHoldings
 
 	// Record initial capital on task
 	db.MySQL.Model(task).Update("initial_capital", capital)
-	if maxHold <= 0 { maxHold = 20 }
+	if maxHold <= 0 {
+		maxHold = 20
+	}
 	// Default to V2 (hybrid) for all strategies unless explicitly set to legacy
 	useV2 := s.OrchestrationMode != "legacy"
 
@@ -3164,7 +3479,7 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 			Where("k.trade_date <= ?", endDate).
 			Where("s.is_st IS NULL OR s.is_st = false").
 			Group("k.code, s.name").
-			Order("code ASC").Limit(3000).  // deterministic for reproducibility
+			Order("code ASC").Limit(3000). // deterministic for reproducibility
 			Scan(&universe).Error
 		if err != nil {
 			log.Printf("[backtest] universe query (all) failed: %v", err)
@@ -3175,8 +3490,8 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 
 	if len(universe) == 0 {
 		db.MySQL.Model(task).Updates(map[string]interface{}{
-			"status":  "failed",
-			"phase":   "无可用股票数据",
+			"status":    "failed",
+			"phase":     "无可用股票数据",
 			"error_msg": "所选时间段无可用股票数据",
 		})
 		return
@@ -3235,7 +3550,10 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 			dates := kcache.dates
 			idx := -1
 			for i, d := range dates {
-				if d == date { idx = i; break }
+				if d == date {
+					idx = i
+					break
+				}
 			}
 			for i := idx; i >= 0; i-- {
 				if val, ok := icache.get(ind, code, dates[i]); ok {
@@ -3287,7 +3605,9 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 
 	// Local evaluateConditions that uses the cached evalSingle
 	evalConds := func(conds_ []model.StrategyCondition, code, date string) bool {
-		if len(conds_) == 0 { return false }
+		if len(conds_) == 0 {
+			return false
+		}
 		groups := make(map[int][]model.StrategyCondition)
 		for _, c := range conds_ {
 			groups[c.LogicGroup] = append(groups[c.LogicGroup], c)
@@ -3300,7 +3620,9 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 					break
 				}
 			}
-			if allMet { return true }
+			if allMet {
+				return true
+			}
 		}
 		return false
 	}
@@ -3318,11 +3640,15 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 			dates := kcache.dates
 			idx := -1
 			for i, d := range dates {
-				if d == date { idx = i; break }
+				if d == date {
+					idx = i
+					break
+				}
 			}
 			for i := idx; i >= 0; i-- {
 				if v, ok := icache.get(ind, code, dates[i]); ok {
-					val = v; break
+					val = v
+					break
 				}
 			}
 		} else {
@@ -3330,15 +3656,21 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 			case "daily_change":
 				cur := kcache.GetClose(code, date)
 				prev := getPrevClose(kcache, code, date)
-				if prev > 0 { val = (cur - prev) / prev * 100 }
+				if prev > 0 {
+					val = (cur - prev) / prev * 100
+				}
 			case "momentum_5":
 				cur := kcache.GetClose(code, date)
 				prev := getCloseNDaysAgo(kcache, code, date, 5)
-				if prev > 0 { val = (cur - prev) / prev * 100 }
+				if prev > 0 {
+					val = (cur - prev) / prev * 100
+				}
 			case "momentum_20":
 				cur := kcache.GetClose(code, date)
 				prev := getCloseNDaysAgo(kcache, code, date, 20)
-				if prev > 0 { val = (cur - prev) / prev * 100 }
+				if prev > 0 {
+					val = (cur - prev) / prev * 100
+				}
 			case "boll_position":
 				upper, ok1 := icache.get("boll_upper", code, date)
 				lower, ok2 := icache.get("boll_lower", code, date)
@@ -3369,7 +3701,9 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 	// evalCondsWithDetail evaluates conditions grouped by LogicGroup and returns
 	// (passed, detail_string) where detail explains which group matched.
 	evalCondsWithDetail := func(conds_ []model.StrategyCondition, code, date string) (bool, string) {
-		if len(conds_) == 0 { return false, "无条件" }
+		if len(conds_) == 0 {
+			return false, "无条件"
+		}
 		groups := make(map[int][]model.StrategyCondition)
 		for _, c := range conds_ {
 			groups[c.LogicGroup] = append(groups[c.LogicGroup], c)
@@ -3396,8 +3730,8 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 
 	if len(allDates) == 0 {
 		db.MySQL.Model(task).Updates(map[string]interface{}{
-			"status":  "failed",
-			"phase":   "无交易日数据",
+			"status":    "failed",
+			"phase":     "无交易日数据",
 			"error_msg": "所选时间段无交易日数据",
 		})
 		return
@@ -3422,14 +3756,19 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 		for _, d := range allDates {
 			add := false
 			switch s.RegularInterval {
-			case "daily": add = true
-			case "weekly": add = lastReg == "" || d > lastReg
-			case "monthly": add = lastReg == "" || d[:7] != lastReg[:7]
+			case "daily":
+				add = true
+			case "weekly":
+				add = lastReg == "" || d > lastReg
+			case "monthly":
+				add = lastReg == "" || d[:7] != lastReg[:7]
 			}
-			if add { regDates[d] = true; lastReg = d }
+			if add {
+				regDates[d] = true
+				lastReg = d
+			}
 		}
 	}
-
 
 	// ────────────────────────────────────────────────────────────
 	// Signal Generation & Execution helpers
@@ -3466,11 +3805,11 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 					TaskID: task.ID, StrategyID: task.StrategyID, UserID: task.UserID,
 					SignalDate: date, ExecDate: getNextDate(kcache, date),
 					StockCode: pos.Code, StockName: pos.Name,
-					ActionType: "stop",
+					ActionType:   "stop",
 					PlannedPrice: closePrice, PlannedQty: pos.Quantity,
 					PlannedAmount: closePrice * float64(pos.Quantity),
-					Status: "pending",
-					Reason: fmt.Sprintf("止损触发 %.1f%% ≤ %.1f%%", chgPct, s.StopLoss),
+					Status:        "pending",
+					Reason:        fmt.Sprintf("止损触发 %.1f%% ≤ %.1f%%", chgPct, s.StopLoss),
 				})
 				stopCodeSet[pos.Code] = true
 				continue
@@ -3481,11 +3820,11 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 					TaskID: task.ID, StrategyID: task.StrategyID, UserID: task.UserID,
 					SignalDate: date, ExecDate: getNextDate(kcache, date),
 					StockCode: pos.Code, StockName: pos.Name,
-					ActionType: "stop",
+					ActionType:   "stop",
 					PlannedPrice: closePrice, PlannedQty: pos.Quantity,
 					PlannedAmount: closePrice * float64(pos.Quantity),
-					Status: "pending",
-					Reason: fmt.Sprintf("止盈触发 %.1f%% ≥ %.1f%%", chgPct, s.StopProfit),
+					Status:        "pending",
+					Reason:        fmt.Sprintf("止盈触发 %.1f%% ≥ %.1f%%", chgPct, s.StopProfit),
 				})
 				stopCodeSet[pos.Code] = true
 			}
@@ -3504,17 +3843,19 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 
 			if ok, detail := evalCondsWithDetail(sellConds, pos.Code, date); ok {
 				reason := "满足卖出条件"
-				if detail != "" { reason = reason + " | " + detail }
+				if detail != "" {
+					reason = reason + " | " + detail
+				}
 				signals = append(signals, model.BacktestSignal{
 					TaskID: task.ID, StrategyID: task.StrategyID, UserID: task.UserID,
 					SignalDate: date, ExecDate: getNextDate(kcache, date),
 					StockCode: pos.Code, StockName: pos.Name,
-					ActionType: "sell",
-					PlannedPrice: kcache.GetClose(pos.Code, date),
-					PlannedQty: pos.Quantity,
+					ActionType:    "sell",
+					PlannedPrice:  kcache.GetClose(pos.Code, date),
+					PlannedQty:    pos.Quantity,
 					PlannedAmount: kcache.GetClose(pos.Code, date) * float64(pos.Quantity),
-					Status: "pending",
-					Reason: reason,
+					Status:        "pending",
+					Reason:        reason,
 				})
 			} else if ok, detail := evalCondsWithDetail(reduceConds, pos.Code, date); ok {
 				// Cooldown guard: skip reduce if already reduced within cooldown
@@ -3529,24 +3870,24 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 							TaskID: task.ID, StrategyID: task.StrategyID, UserID: task.UserID,
 							SignalDate: date, ExecDate: getNextDate(kcache, date),
 							StockCode: pos.Code, StockName: pos.Name,
-							ActionType: "sell",
-							PlannedPrice: kcache.GetClose(pos.Code, date),
-							PlannedQty: reduceQty,
+							ActionType:    "sell",
+							PlannedPrice:  kcache.GetClose(pos.Code, date),
+							PlannedQty:    reduceQty,
 							PlannedAmount: kcache.GetClose(pos.Code, date) * float64(reduceQty),
-							Status: "pending",
-							Reason: fmt.Sprintf("满足减仓条件 | %s (%.0f%%, 碎片化转清仓)", detail, reducePct),
+							Status:        "pending",
+							Reason:        fmt.Sprintf("满足减仓条件 | %s (%.0f%%, 碎片化转清仓)", detail, reducePct),
 						})
 					} else if reduceQty >= MIN_REDUCE_QTY {
 						signals = append(signals, model.BacktestSignal{
 							TaskID: task.ID, StrategyID: task.StrategyID, UserID: task.UserID,
 							SignalDate: date, ExecDate: getNextDate(kcache, date),
 							StockCode: pos.Code, StockName: pos.Name,
-							ActionType: "reduce",
-							PlannedPrice: kcache.GetClose(pos.Code, date),
-							PlannedQty: reduceQty,
+							ActionType:    "reduce",
+							PlannedPrice:  kcache.GetClose(pos.Code, date),
+							PlannedQty:    reduceQty,
 							PlannedAmount: kcache.GetClose(pos.Code, date) * float64(reduceQty),
-							Status: "pending",
-							Reason: fmt.Sprintf("满足减仓条件 | %s (%.0f%%)", detail, reducePct),
+							Status:        "pending",
+							Reason:        fmt.Sprintf("满足减仓条件 | %s (%.0f%%)", detail, reducePct),
 						})
 					}
 				}
@@ -3575,7 +3916,7 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 				if closePrice <= 0 {
 					continue
 				}
-				plannedQty := int(buyAmountPerStock / closePrice / 100) * 100
+				plannedQty := int(buyAmountPerStock/closePrice/100) * 100
 				if plannedQty < 100 && buyAmountPerStock >= closePrice*100 {
 					plannedQty = 100
 				}
@@ -3587,11 +3928,11 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 					TaskID: task.ID, StrategyID: task.StrategyID, UserID: task.UserID,
 					SignalDate: date, ExecDate: getNextDate(kcache, date),
 					StockCode: si.Code, StockName: si.Name,
-					ActionType: "buy",
+					ActionType:   "buy",
 					PlannedPrice: closePrice, PlannedQty: plannedQty,
 					PlannedAmount: closePrice * float64(plannedQty),
-					Status: "pending",
-					Reason: fmt.Sprintf("满足买入条件 | %s", detail),
+					Status:        "pending",
+					Reason:        fmt.Sprintf("满足买入条件 | %s", detail),
 				})
 				boughtThisRound++
 			}
@@ -3605,7 +3946,7 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 					continue
 				}
 				addAmount := cash * addPct / 100
-				addQty := int(addAmount / closePrice / 100) * 100
+				addQty := int(addAmount/closePrice/100) * 100
 				if addQty <= 0 {
 					continue
 				}
@@ -3614,11 +3955,11 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 					TaskID: task.ID, StrategyID: task.StrategyID, UserID: task.UserID,
 					SignalDate: date, ExecDate: getNextDate(kcache, date),
 					StockCode: pos.Code, StockName: pos.Name,
-					ActionType: "add",
+					ActionType:   "add",
 					PlannedPrice: closePrice, PlannedQty: addQty,
 					PlannedAmount: closePrice * float64(addQty),
-					Status: "pending",
-					Reason: fmt.Sprintf("满足加仓条件 | %s", detail),
+					Status:        "pending",
+					Reason:        fmt.Sprintf("满足加仓条件 | %s", detail),
 				})
 			}
 		}
@@ -3638,7 +3979,7 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 		switch sig.ActionType {
 		case "buy":
 			// T+1 re-calc: actual qty based on open price
-			actualQty := int(sig.PlannedAmount / openPrice / 100) * 100
+			actualQty := int(sig.PlannedAmount/openPrice/100) * 100
 			if actualQty <= 0 {
 				sig.Status = "skipped"
 				sig.SkipReason = "开盘价过高，可买数量不足1手"
@@ -3646,7 +3987,7 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 			}
 			actualAmount := openPrice * float64(actualQty)
 			if actualAmount > *cash {
-				actualQty = int(*cash / openPrice / 100) * 100
+				actualQty = int(*cash/openPrice/100) * 100
 				actualAmount = openPrice * float64(actualQty)
 			}
 			if actualQty <= 0 {
@@ -3675,7 +4016,7 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 			}
 
 		case "add":
-			actualQty := int(sig.PlannedAmount / openPrice / 100) * 100
+			actualQty := int(sig.PlannedAmount/openPrice/100) * 100
 			if actualQty <= 0 {
 				sig.Status = "skipped"
 				sig.SkipReason = "开盘价过高，加仓数量不足"
@@ -3683,7 +4024,7 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 			}
 			actualAmount := openPrice * float64(actualQty)
 			if actualAmount > *cash {
-				actualQty = int(*cash / openPrice / 100) * 100
+				actualQty = int(*cash/openPrice/100) * 100
 				actualAmount = openPrice * float64(actualQty)
 			}
 			if actualQty <= 0 {
@@ -3800,7 +4141,7 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 			}
 
 		case "dip_buy":
-			actualQty := int(sig.PlannedAmount / openPrice / 100) * 100
+			actualQty := int(sig.PlannedAmount/openPrice/100) * 100
 			if actualQty <= 0 || actualQty < 100 {
 				sig.Status = "skipped"
 				sig.SkipReason = "抄底数量不足"
@@ -3808,7 +4149,7 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 			}
 			actualAmount := openPrice * float64(actualQty)
 			if actualAmount > *cash {
-				actualQty = int(*cash / openPrice / 100) * 100
+				actualQty = int(*cash/openPrice/100) * 100
 				actualAmount = openPrice * float64(actualQty)
 			}
 			if actualQty <= 0 {
@@ -3878,7 +4219,7 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 				sig.SkipReason = "网格未激活"
 				return nil
 			}
-			actualQty := int(sig.PlannedAmount / openPrice / 100) * 100
+			actualQty := int(sig.PlannedAmount/openPrice/100) * 100
 			if actualQty <= 0 || actualQty < 100 {
 				sig.Status = "skipped"
 				sig.SkipReason = "网格数量不足"
@@ -3886,7 +4227,7 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 			}
 			actualAmount := openPrice * float64(actualQty)
 			if actualAmount > *cash {
-				actualQty = int(*cash / openPrice / 100) * 100
+				actualQty = int(*cash/openPrice/100) * 100
 				actualAmount = openPrice * float64(actualQty)
 			}
 			if actualQty <= 0 {
@@ -4094,14 +4435,14 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 					TaskID: task.ID, StrategyID: task.StrategyID, UserID: task.UserID,
 					SignalDate: date, ExecDate: date,
 					StockCode: pos.Code, StockName: pos.Name,
-					ActionType: "sell",
+					ActionType:   "sell",
 					PlannedPrice: closePrice, PlannedQty: pos.Quantity,
 					PlannedAmount: sellAmount,
-					ExecPrice: closePrice, ExecQty: pos.Quantity, ExecAmount: sellAmount,
-					Pnl: math.Round(pnl*100)/100, PnlPct: math.Round(pnlPct*100)/100,
-					Status: "executed",
+					ExecPrice:     closePrice, ExecQty: pos.Quantity, ExecAmount: sellAmount,
+					Pnl: math.Round(pnl*100) / 100, PnlPct: math.Round(pnlPct*100) / 100,
+					Status:     "executed",
 					SkipReason: "最后交易日强制清仓",
-					Reason: "最后交易日强制清仓",
+					Reason:     "最后交易日强制清仓",
 				}
 				db.MySQL.Create(&forceSig)
 
@@ -4110,8 +4451,8 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 					Code: pos.Code, Name: pos.Name,
 					Action: "sell", Price: closePrice, Quantity: pos.Quantity,
 					Reason: "最后交易日强制清仓",
-					Pnl: math.Round(pnl*100)/100,
-					PnlPct: math.Round(pnlPct*100)/100,
+					Pnl:    math.Round(pnl*100) / 100,
+					PnlPct: math.Round(pnlPct*100) / 100,
 				}
 				todayTrades = append(todayTrades, trade)
 				allTrades = append(allTrades, trade)
@@ -4124,8 +4465,8 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 						pos.Code, pos.Name, pos.Quantity, closePrice, pnl, pnlPct),
 					map[string]interface{}{
 						"action": "sell", "price": closePrice, "quantity": pos.Quantity,
-						"reason": "最后交易日强制清仓", "pnl": math.Round(pnl*100)/100,
-						"pnlPct": math.Round(pnlPct*100)/100, "signalDate": date,
+						"reason": "最后交易日强制清仓", "pnl": math.Round(pnl*100) / 100,
+						"pnlPct": math.Round(pnlPct*100) / 100, "signalDate": date,
 					})
 				logSeq++
 			}
@@ -4145,7 +4486,9 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 		if useV2 {
 			// Convert universe from StockInfo to dcStockInfo
 			v2universe := make([]dcStockInfo, len(universe))
-			for i, si := range universe { v2universe[i] = dcStockInfo{Code: si.Code, Name: si.Name} }
+			for i, si := range universe {
+				v2universe[i] = dcStockInfo{Code: si.Code, Name: si.Name}
+			}
 			newSignals = generateSignalsV2(date, remainingCash, isLastDay,
 				positions, v2universe, task, s,
 				buyConds, sellConds, addConds, reduceConds,
@@ -4177,11 +4520,16 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 		buyCnt, sellCnt, addCnt, reduceCnt, stopCnt := 0, 0, 0, 0, 0
 		for _, ns := range newSignals {
 			switch ns.ActionType {
-			case "buy": buyCnt++
-			case "sell": sellCnt++
-			case "add": addCnt++
-			case "reduce": reduceCnt++
-			case "stop": stopCnt++
+			case "buy":
+				buyCnt++
+			case "sell":
+				sellCnt++
+			case "add":
+				addCnt++
+			case "reduce":
+				reduceCnt++
+			case "stop":
+				stopCnt++
 			}
 		}
 		if len(newSignals) > 0 {
@@ -4200,14 +4548,18 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 			mv := cp * float64(pos.Quantity)
 			pnl := (cp - pos.BuyPrice) * float64(pos.Quantity)
 			pnlPct := 0.0
-			if pos.BuyPrice > 0 { pnlPct = (cp - pos.BuyPrice) / pos.BuyPrice * 100 }
+			if pos.BuyPrice > 0 {
+				pnlPct = (cp - pos.BuyPrice) / pos.BuyPrice * 100
+			}
 			// Track highest price for trailing stop
-			if cp > pos.HighestPrice { pos.HighestPrice = cp }
+			if cp > pos.HighestPrice {
+				pos.HighestPrice = cp
+			}
 			posList = append(posList, map[string]interface{}{
 				"code": pos.Code, "name": pos.Name, "qty": pos.Quantity,
 				"price": cp, "costPrice": pos.BuyPrice,
-				"marketVal": math.Round(mv*100)/100,
-				"pnl": math.Round(pnl*100)/100, "pnlPct": math.Round(pnlPct*100)/100,
+				"marketVal": math.Round(mv*100) / 100,
+				"pnl":       math.Round(pnl*100) / 100, "pnlPct": math.Round(pnlPct*100) / 100,
 			})
 			totalEquity += mv
 		}
@@ -4219,25 +4571,25 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 				soldList = append(soldList, map[string]interface{}{
 					"code": t.Code, "name": t.Name, "qty": 0,
 					"soldQty": t.Quantity,
-					"price": t.Price, "costPrice": 0,
+					"price":   t.Price, "costPrice": 0,
 					"marketVal": 0,
-					"pnl": math.Round(t.Pnl*100)/100,
-					"pnlPct": math.Round(t.PnlPct*100)/100,
-					"sold": true,
+					"pnl":       math.Round(t.Pnl*100) / 100,
+					"pnlPct":    math.Round(t.PnlPct*100) / 100,
+					"sold":      true,
 				})
 			}
 		}
 		allPositions := append(posList, soldList...)
 
 		posData := map[string]interface{}{
-			"date": date, "day": di+1, "totalDays": totalDays,
-			"cash": math.Round(remainingCash*100)/100,
-			"totalEquity": math.Round(totalEquity*100)/100,
-			"totalReturn": math.Round((totalEquity-capital)/capital*10000)/100,
-			"positions": allPositions,
+			"date": date, "day": di + 1, "totalDays": totalDays,
+			"cash":          math.Round(remainingCash*100) / 100,
+			"totalEquity":   math.Round(totalEquity*100) / 100,
+			"totalReturn":   math.Round((totalEquity-capital)/capital*10000) / 100,
+			"positions":     allPositions,
 			"positionCount": len(positions),
-			"soldCount": len(soldList),
-			"recentTrades": todayTrades,
+			"soldCount":     len(soldList),
+			"recentTrades":  todayTrades,
 		}
 		posBytes, _ := json.Marshal(posData)
 		updateProgress(di+1, totalDays, "", string(posBytes))
@@ -4263,13 +4615,16 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 		peak := capital
 		for _, eq := range equityPoints {
 			e := eq["equity"].(float64)
-			if e > peak { peak = e }
+			if e > peak {
+				peak = e
+			}
 		}
 		currentDD := 0.0
-		if peak > 0 { currentDD = (peak - totalEquity) / peak * 100 }
+		if peak > 0 {
+			currentDD = (peak - totalEquity) / peak * 100
+		}
 		insertDailySnapshot(task.ID, task.StrategyID, task.UserID, date, di+1,
 			remainingCash, totalEquity, dailyRet, cumRet, currentDD, len(positions), posList)
-
 
 		// Day end summary
 		dailyPnl := totalEquity - prevDayEquity
@@ -4283,14 +4638,20 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 	// Calculate final metrics
 	winCount := 0
 	for _, t := range allTrades {
-		if (t.Action == "sell" || t.Action == "reduce" || t.Action == "stop" || t.Action == "dip_sell" || t.Action == "grid_sell") && t.Pnl > 0 { winCount++ }
+		if (t.Action == "sell" || t.Action == "reduce" || t.Action == "stop" || t.Action == "dip_sell" || t.Action == "grid_sell") && t.Pnl > 0 {
+			winCount++
+		}
 	}
 	sellCount := 0
 	for _, t := range allTrades {
-		if t.Action == "sell" || t.Action == "reduce" || t.Action == "stop" || t.Action == "dip_sell" || t.Action == "grid_sell" { sellCount++ }
+		if t.Action == "sell" || t.Action == "reduce" || t.Action == "stop" || t.Action == "dip_sell" || t.Action == "grid_sell" {
+			sellCount++
+		}
 	}
 	winRate := 0.0
-	if sellCount > 0 { winRate = float64(winCount) / float64(sellCount) * 100 }
+	if sellCount > 0 {
+		winRate = float64(winCount) / float64(sellCount) * 100
+	}
 
 	finalEquity := equityPoints[len(equityPoints)-1]["equity"].(float64)
 	totalReturn := (finalEquity - capital) / capital * 100
@@ -4299,9 +4660,13 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 	maxDD := 0.0
 	for _, eq := range equityPoints {
 		e := eq["equity"].(float64)
-		if e > peak { peak = e }
+		if e > peak {
+			peak = e
+		}
 		dd := (peak - e) / peak * 100
-		if dd > maxDD { maxDD = dd }
+		if dd > maxDD {
+			maxDD = dd
+		}
 	}
 
 	// Sharpe Ratio: annualized (mean daily return / std dev of daily returns) * sqrt(252)
@@ -4412,22 +4777,22 @@ func (h *StrategyHandler) runBacktestAsync(ctx context.Context, task *model.Back
 		fmt.Sprintf("回测完成: 收益率%.2f%%, 夏普%.2f, 最大回撤%.2f%%, 胜率%.2f%%, 交易%d次",
 			totalReturn, sharpe, maxDD, winRate, len(allTrades)),
 		map[string]interface{}{
-			"totalReturn": math.Round(totalReturn*100)/100,
-			"sharpe": math.Round(sharpe*100)/100,
-			"maxDrawdown": math.Round(maxDD*100)/100,
-			"winRate": math.Round(winRate*100)/100,
-			"tradeCount": len(allTrades),
+			"totalReturn": math.Round(totalReturn*100) / 100,
+			"sharpe":      math.Round(sharpe*100) / 100,
+			"maxDrawdown": math.Round(maxDD*100) / 100,
+			"winRate":     math.Round(winRate*100) / 100,
+			"tradeCount":  len(allTrades),
 		})
 
 	now2 := time.Now()
 	db.MySQL.Model(task).Updates(map[string]interface{}{
-		"status":        "completed",
-		"phase":         "回测完成",
-		"result_id":     bt.ID,
-		"final_equity":  math.Round(finalEquity*100) / 100,
-		"total_return":  math.Round(totalReturn*100) / 100,
-		"progress_pct":  100,
-		"completed_at":  now2,
+		"status":       "completed",
+		"phase":        "回测完成",
+		"result_id":    bt.ID,
+		"final_equity": math.Round(finalEquity*100) / 100,
+		"total_return": math.Round(totalReturn*100) / 100,
+		"progress_pct": 100,
+		"completed_at": now2,
 	})
 
 	// Clean up running map
@@ -4598,7 +4963,7 @@ func (h *StrategyHandler) GetBacktestResult(c *gin.Context) {
 // StockPool returns available stock pools for backtest selection
 func (h *StrategyHandler) StockPool(c *gin.Context) {
 	uid := getUID(c)
-	
+
 	type PoolItem struct {
 		Code string `json:"code"`
 		Name string `json:"name"`
@@ -4654,9 +5019,9 @@ func (h *StrategyHandler) StockPool(c *gin.Context) {
 		var items []PoolItem
 		if len(codes) > 0 {
 			if err := db.PG.Raw(fmt.Sprintf("SELECT code, COALESCE(name,'') as name FROM stocks_basic WHERE code IN (%s) ORDER BY code", db.CodesToInClause(codes))).Scan(&items).Error; err != nil {
-			log.Printf("[strategy] watchlist stock names query failed: %v", err)
-			continue
-		}
+				log.Printf("[strategy] watchlist stock names query failed: %v", err)
+				continue
+			}
 		}
 		pools = append(pools, PoolGroup{
 			Key:   fmt.Sprintf("watchlist_%d", g.ID),
@@ -4774,7 +5139,6 @@ func buildIndicatorListLegacy() []map[string]interface{} {
 		{"key": "price_position_20", "label": "20日价格位置", "type": "number", "operators": []string{"gte", "lte", "gt", "lt"}, "desc": "收盘价在近20日最高最低之间的位置%，>80高位", "backtestSafe": true, "dataNote": "✅ K线衍生，全量历史覆盖", "suggestion": "买入建议 < 0.3 低位，> 0.7 高位注意风险"},
 		{"key": "price_position_60", "label": "60日价格位置", "type": "number", "operators": []string{"gte", "lte", "gt", "lt"}, "desc": "收盘价在近60日最高最低之间的位置%", "backtestSafe": true, "dataNote": "✅ K线衍生，全量历史覆盖", "suggestion": "买入建议 < 0.3 中长期低位区域"},
 
-
 		// ═══ 技术面 — 进阶：趋势系统 ═══
 		{"key": "adx", "label": "ADX(14)", "type": "number", "operators": []string{"gte", "lte", "gt", "lt"}, "desc": "平均趋向指数，>25有趋势 >50强趋势", "backtestSafe": true, "dataNote": "✅ K线衍生，全量历史覆盖", "suggestion": "买入建议 > 25 趋势明确，> 40 强趋势"},
 		{"key": "dmi_plus", "label": "DMI+ (PDI)", "type": "number", "operators": []string{"gte", "lte", "gt", "lt"}, "desc": "上升方向线，PDI>MDI多头占优", "backtestSafe": true, "dataNote": "✅ K线衍生，全量历史覆盖", "suggestion": "PDI > MDI 多头占优，差值越大越强"},
@@ -4838,13 +5202,13 @@ func (h *StrategyHandler) IndicatorGuide(c *gin.Context) {
 		Label        string   `json:"label"`
 		Category     string   `json:"category"`
 		Unit         string   `json:"unit"`
-		Type         string   `json:"type"`         // number / cross
-		Operators    []string `json:"operators"`    // available operators for this indicator
+		Type         string   `json:"type"`      // number / cross
+		Operators    []string `json:"operators"` // available operators for this indicator
 		Desc         string   `json:"desc"`
 		BacktestSafe bool     `json:"backtestSafe"`
 		DataNote     string   `json:"dataNote"`
 		Suggestion   string   `json:"suggestion"`
-		UseFor       string   `json:"useFor"`       // buy / sell / both
+		UseFor       string   `json:"useFor"` // buy / sell / both
 		DataSource   string   `json:"dataSource"`
 		ValueType    string   `json:"valueType"`    // "number" | "cross"
 		ValueExample string   `json:"valueExample"` // example value for UI hint
@@ -4929,9 +5293,9 @@ func (h *StrategyHandler) IndicatorGuide(c *gin.Context) {
 	}
 
 	response.Success(c, map[string]interface{}{
-		"categories":  result,
-		"operators":   operatorEnum,
-		"totalCount":  len(IndicatorRegistry),
+		"categories": result,
+		"operators":  operatorEnum,
+		"totalCount": len(IndicatorRegistry),
 	})
 }
 
@@ -5126,7 +5490,9 @@ func parseValue(v interface{}, indicator string, op string) float64 {
 	case string:
 		// Try parse as number
 		f, err := strconv.ParseFloat(val, 64)
-		if err == nil { return f }
+		if err == nil {
+			return f
+		}
 		// Handle "5/20" format for ma_cross → encode as 5.020
 		if indicator == "ma_cross" && strings.Contains(val, "/") {
 			parts := strings.Split(val, "/")
@@ -5139,8 +5505,12 @@ func parseValue(v interface{}, indicator string, op string) float64 {
 			}
 		}
 		// For cross operators: direction encoded
-		if op == "cross_up" { return 1 }
-		if op == "cross_down" { return -1 }
+		if op == "cross_up" {
+			return 1
+		}
+		if op == "cross_down" {
+			return -1
+		}
 		return 0
 	default:
 		return 0
@@ -5149,7 +5519,9 @@ func parseValue(v interface{}, indicator string, op string) float64 {
 
 // truncate returns first n chars
 func truncate(s string, n int) string {
-	if len(s) <= n { return s }
+	if len(s) <= n {
+		return s
+	}
 	return s[:n] + "..."
 }
 
@@ -5192,7 +5564,6 @@ func evaluateConditions(conds []model.StrategyCondition, code, date string) bool
 	}
 	return false
 }
-
 
 // ── Backtest execution logging helpers ──
 
@@ -5328,8 +5699,12 @@ func getIndicatorValue(cond model.StrategyCondition, code, date string) float64 
 	case "ma_cross":
 		ma1 := int(cond.Value)
 		ma2 := int(math.Round((cond.Value - float64(ma1)) * 1000))
-		if ma1 < 1 { ma1 = 5 }
-		if ma2 < 1 { ma2 = 20 }
+		if ma1 < 1 {
+			ma1 = 5
+		}
+		if ma2 < 1 {
+			ma2 = 20
+		}
 		return checkMACross(code, date, ma1, ma2)
 	case "macd":
 		return checkMACD(code, date)
@@ -5449,8 +5824,12 @@ func getIndicatorValue(cond model.StrategyCondition, code, date string) float64 
 	case "ema_cross":
 		ma1 := int(cond.Value)
 		ma2 := int(math.Round((cond.Value - float64(ma1)) * 1000))
-		if ma1 < 1 { ma1 = 12 }
-		if ma2 < 1 { ma2 = 26 }
+		if ma1 < 1 {
+			ma1 = 12
+		}
+		if ma2 < 1 {
+			ma2 = 26
+		}
 		return checkEMACross(code, date, ma1, ma2)
 
 	// ── 技术面 — 进阶：超买超卖扩展 ──
@@ -5845,14 +6224,18 @@ func getTurnoverRate(code, date string) float64 {
 func getNetFlowRatio(code, date string) float64 {
 	var buy, sell, vol float64
 	db.PG.Raw("SELECT COALESCE(buy_vol, 0), COALESCE(sell_vol, 0), COALESCE(volume, 1) FROM stocks_daily_k WHERE code = ? AND trade_date <= ?::date ORDER BY trade_date DESC LIMIT 1", code, date).Row().Scan(&buy, &sell, &vol)
-	if vol == 0 { return 0 }
+	if vol == 0 {
+		return 0
+	}
 	return (buy - sell) / vol * 100
 }
 
 func getBuySellRatio(code, date string) float64 {
 	var buy, sell float64
 	db.PG.Raw("SELECT COALESCE(buy_vol, 0), COALESCE(sell_vol, 1) FROM stocks_daily_k WHERE code = ? AND trade_date <= ?::date ORDER BY trade_date DESC LIMIT 1", code, date).Row().Scan(&buy, &sell)
-	if sell == 0 { return 1 }
+	if sell == 0 {
+		return 1
+	}
 	return buy / sell
 }
 
@@ -6255,7 +6638,6 @@ func getIndexRelative(code, date string, days int) float64 {
 	return rel
 }
 
-
 // ═══════════════════════════════════════════════════════════════
 // 估值
 // ═══════════════════════════════════════════════════════════════
@@ -6286,7 +6668,9 @@ func getPBPercentile(code, date string) float64 {
 func getPredictionUpside(code, date string) float64 {
 	var upside float64
 	price := getClosePrice(code, date)
-	if price <= 0 { return 0 }
+	if price <= 0 {
+		return 0
+	}
 	// Predictions are forward-looking; only use if predict_date > backtest_date
 	db.PG.Raw(`SELECT COALESCE((AVG(predicted_price) - ?) / ? * 100, 0)
 		FROM predictions WHERE code = ? AND predict_date > ?::date
@@ -6298,7 +6682,9 @@ func getPredictionUpside(code, date string) float64 {
 func getPredictionConsensus(code, date string) float64 {
 	var consensus float64
 	price := getClosePrice(code, date)
-	if price <= 0 { return 0 }
+	if price <= 0 {
+		return 0
+	}
 	db.PG.Raw(`SELECT COALESCE(
 		SUM(CASE WHEN predicted_price > ? THEN 1 ELSE 0 END)::float / NULLIF(COUNT(*), 0), 0)
 		FROM predictions WHERE code = ? AND predict_date > ?::date
@@ -6337,14 +6723,18 @@ func trimSpace(s string) string {
 
 func findChar(s string, c byte) int {
 	for i := 0; i < len(s); i++ {
-		if s[i] == c { return i }
+		if s[i] == c {
+			return i
+		}
 	}
 	return -1
 }
 
 func findLastChar(s string, c byte) int {
 	for i := len(s) - 1; i >= 0; i-- {
-		if s[i] == c { return i }
+		if s[i] == c {
+			return i
+		}
 	}
 	return -1
 }
@@ -6398,17 +6788,17 @@ type TestIndicatorResp struct {
 
 // StrategyIndicatorView represents an indicator with its enable status per condType.
 type StrategyIndicatorView struct {
-	Key          string            `json:"key"`
-	Label        string            `json:"label"`
-	Category     string            `json:"category"`
-	Unit         string            `json:"unit"`
-	Type         string            `json:"type"`
-	Desc         string            `json:"desc"`
-	BacktestSafe bool              `json:"backtestSafe"`
-	DataNote     string            `json:"dataNote"`
-	Suggestion   string            `json:"suggestion"`
-	Enabled      map[string]bool   `json:"enabled"` // condType -> enabled
-	Conditions   []CondSummary     `json:"conditions"` // existing conditions for this indicator
+	Key          string          `json:"key"`
+	Label        string          `json:"label"`
+	Category     string          `json:"category"`
+	Unit         string          `json:"unit"`
+	Type         string          `json:"type"`
+	Desc         string          `json:"desc"`
+	BacktestSafe bool            `json:"backtestSafe"`
+	DataNote     string          `json:"dataNote"`
+	Suggestion   string          `json:"suggestion"`
+	Enabled      map[string]bool `json:"enabled"`    // condType -> enabled
+	Conditions   []CondSummary   `json:"conditions"` // existing conditions for this indicator
 }
 
 // CondSummary is a lightweight view of a condition.
@@ -6497,7 +6887,7 @@ func (h *StrategyHandler) ListStrategyIndicators(c *gin.Context) {
 
 // ToggleIndicatorCondition toggles the enabled state of a specific condition.
 type ToggleIndicatorReq struct {
-	CondID  uint `json:"condId"`  // toggle specific condition
+	CondID  uint  `json:"condId"`  // toggle specific condition
 	Enabled *bool `json:"enabled"` // nil = toggle, true = enable, false = disable
 }
 
@@ -6658,13 +7048,20 @@ func getIndicatorMeta(key string) map[string]interface{} {
 
 func getOperatorLabel(op string) string {
 	switch op {
-	case "gte": return "≥ (大于等于)"
-	case "lte": return "≤ (小于等于)"
-	case "gt": return "> (大于)"
-	case "lt": return "< (小于)"
-	case "eq": return "= (等于)"
-	case "cross_up": return "↑ 上穿"
-	case "cross_down": return "↓ 下穿"
+	case "gte":
+		return "≥ (大于等于)"
+	case "lte":
+		return "≤ (小于等于)"
+	case "gt":
+		return "> (大于)"
+	case "lt":
+		return "< (小于)"
+	case "eq":
+		return "= (等于)"
+	case "cross_up":
+		return "↑ 上穿"
+	case "cross_down":
+		return "↓ 下穿"
 	}
 	return op
 }

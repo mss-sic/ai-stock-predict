@@ -6,9 +6,9 @@ import (
 	"time"
 
 	"github.com/ai-stock-predict/server/internal/collector"
-	"log"
-	"github.com/ai-stock-predict/server/internal/service"
 	"github.com/ai-stock-predict/server/internal/db"
+	"github.com/ai-stock-predict/server/internal/service"
+	"log"
 )
 
 // ── System Pipeline Definitions ──
@@ -59,6 +59,12 @@ var AfterCloseDataPipeline = Pipeline{
 			DependsOn: []string{"market_style"},
 			Timeout:   10 * time.Minute,
 			Handler:   wrapRiskFullScan("risk_full_scan", "风控全量扫描"),
+		},
+		{
+			Name:      "compute_indicators",
+			DependsOn: []string{"risk_full_scan"},
+			Timeout:   30 * time.Minute,
+			Handler:   wrapIndicatorsCompute("compute_indicators", "技术指标预计算"),
 		},
 	},
 	OnComplete: EventDataReady,
@@ -178,19 +184,18 @@ func SystemTaskDefs() []*TaskDefinition {
 			Handler: makeTaskHandlerWithEvent("margin", "融资融券", EventMorningReady, ""),
 		},
 
-
 		// ── 实盘交易调度: 定义在此, 实例由 per-run RegisterStrategyRunTasks 创建 ──
 		// Trigger.Cron 由 StrategyRun.AutoDailyCron / AutoTradeExecCron 覆盖
 		// MinInterval 防止短时间内重复触发（cron解析容错机制）
 		{
 			ID: "live_daily_run", Kind: KindStrategy, Label: "盘后策略执行(信号生成)",
 			Timeout: 30 * time.Minute, MaxConcurrent: 1,
-			Handler:  makeLiveDailyRunHandler(),
+			Handler: makeLiveDailyRunHandler(),
 		},
 		{
 			ID: "live_trade_exec", Kind: KindStrategy, Label: "交易执行",
 			Timeout: 30 * time.Minute, MaxConcurrent: 1,
-			Handler:  makeLiveTradeExecHandler(),
+			Handler: makeLiveTradeExecHandler(),
 		},
 		{
 			ID: "live_position_patrol", Kind: KindStrategy, Label: "持仓巡检(止损止盈)",
@@ -201,7 +206,7 @@ func SystemTaskDefs() []*TaskDefinition {
 			ID: "order_sync", Kind: KindPipeline, Label: "订单状态同步(委托查询)",
 			Trigger: TriggerSpec{Cron: "0 */30 9-15 * * 1-5", TradingDay: true},
 			Timeout: 5 * time.Minute, MaxConcurrent: 1,
-			Handler:  makeOrderSyncHandler(),
+			Handler: makeOrderSyncHandler(),
 		},
 		{
 			ID: "live_snapshot", Kind: KindStrategy, Label: "盘后快照(净值记录)",
@@ -450,6 +455,19 @@ func wrapRiskEventScan(phase, label string) func(ctx context.Context, logger *St
 	}
 }
 
+// wrapIndicatorsCompute runs the daily indicator cache update.
+func wrapIndicatorsCompute(phase, label string) func(ctx context.Context, logger *StructuredLogger) error {
+	return func(ctx context.Context, logger *StructuredLogger) error {
+		logger.Phase("indicators_compute_start", map[string]any{"phase": phase})
+		if err := collector.ComputeAllIndicatorsBatch(5); err != nil {
+			logger.Error("indicators_compute_failed", err, nil)
+			return err
+		}
+		logger.Info("indicators_compute_done", map[string]any{"phase": phase})
+		return nil
+	}
+}
+
 // ── Context helper ──
 
 func SchedulerFromContext(ctx context.Context) *UnifiedScheduler {
@@ -458,7 +476,6 @@ func SchedulerFromContext(ctx context.Context) *UnifiedScheduler {
 	}
 	return nil
 }
-
 
 // ── Live Trading Handlers ──
 
@@ -572,13 +589,13 @@ func makeOrderSyncHandler() TaskHandler {
 			return err
 		}
 		logger.Info("order_sync_complete", map[string]any{
-			"scanned":        result.TotalScanned,
-			"updated":        result.Updated,
-			"executed":       result.Executed,
-			"partialFilled":  result.PartialFilled,
-			"cancelled":      result.Cancelled,
-			"failed":         result.Failed,
-			"skipped":        result.Skipped,
+			"scanned":       result.TotalScanned,
+			"updated":       result.Updated,
+			"executed":      result.Executed,
+			"partialFilled": result.PartialFilled,
+			"cancelled":     result.Cancelled,
+			"failed":        result.Failed,
+			"skipped":       result.Skipped,
 		})
 		// Log detailed per-order results
 		for _, l := range result.Logs {

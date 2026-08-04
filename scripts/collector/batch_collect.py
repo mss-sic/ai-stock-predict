@@ -20,7 +20,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Lock
 
 import psycopg2
-from psycopg2.extras import execute_values
 
 os.environ['PYTHONUNBUFFERED'] = '1'
 
@@ -72,6 +71,7 @@ def build_rows(code, klines, qt):
     ind_rows = []
 
     is_gu_board = any(code.startswith(p) for p in BOARDS_VOL_IN_GU)
+    prev_close = 0.0
 
     for row in klines:
         if len(row) < 6:
@@ -84,6 +84,9 @@ def build_rows(code, klines, qt):
         high_p  = float(row[3])
         low_p   = float(row[4])
         vol_shou = float(row[5])
+        pre_close = prev_close
+        change_amount = close_p - pre_close if pre_close > 0 else 0.0
+        prev_close = close_p
 
         # Normalize volume → 股
         vol_gu = int(vol_shou) if is_gu_board else int(vol_shou * 100)
@@ -127,7 +130,7 @@ def build_rows(code, klines, qt):
         final_amount = amount_wan * 1e4 if amount_wan > 0 else amt
 
         k_rows.append((code, td, open_p, high_p, low_p, close_p,
-                       vol_gu, final_amount, turnover,
+                       pre_close, change_amount, vol_gu, final_amount, turnover,
                        buy_vol, sell_vol, change_pct, amplitude, volume_ratio))
 
         if is_latest and (pe > 0 or pb > 0):
@@ -135,34 +138,8 @@ def build_rows(code, klines, qt):
 
     return k_rows, ind_rows
 
-# ── SQL templates ────────────────────────────────────────────────
-UPSERT_KLINE = """
-    INSERT INTO stocks_daily_k (code, trade_date, open, high, low, close,
-        volume, amount, turnover_rate, buy_vol, sell_vol, change_pct, amplitude, volume_ratio)
-    VALUES %s
-    ON CONFLICT (code, trade_date) DO UPDATE SET
-        open = EXCLUDED.open, high = EXCLUDED.high, low = EXCLUDED.low,
-        close = EXCLUDED.close, volume = EXCLUDED.volume, amount = EXCLUDED.amount,
-        turnover_rate = CASE WHEN EXCLUDED.turnover_rate > 0 THEN EXCLUDED.turnover_rate ELSE stocks_daily_k.turnover_rate END,
-        buy_vol = EXCLUDED.buy_vol, sell_vol = EXCLUDED.sell_vol,
-        change_pct = EXCLUDED.change_pct, amplitude = EXCLUDED.amplitude,
-        volume_ratio = EXCLUDED.volume_ratio
-"""
-
-UPSERT_INDICATOR = """
-    INSERT INTO stocks_daily_indicator (code, trade_date, pe, pb, ps, total_market_cap, circulating_market_cap)
-    VALUES %s
-    ON CONFLICT (code, trade_date) DO UPDATE SET
-        pe = EXCLUDED.pe, pb = EXCLUDED.pb, ps = EXCLUDED.ps,
-        total_market_cap = EXCLUDED.total_market_cap,
-        circulating_market_cap = EXCLUDED.circulating_market_cap
-"""
-
-def batch_upsert(cur, sql, rows):
-    if not rows:
-        return 0
-    execute_values(cur, sql, rows, page_size=200)
-    return len(rows)
+# ── Unified writer (priority-aware) ──────────────────────────────
+from kline_writer import upsert_kline, upsert_indicator
 
 # ── Main ─────────────────────────────────────────────────────────
 def main():
@@ -226,8 +203,8 @@ def main():
                 if is_new:
                     new_count += 1
 
-        upserted_k = batch_upsert(cur, UPSERT_KLINE, all_k_rows)
-        upserted_ind = batch_upsert(cur, UPSERT_INDICATOR, all_ind_rows)
+        upserted_k = upsert_kline(cur, all_k_rows, source='tencent')
+        upserted_ind = upsert_indicator(cur, all_ind_rows)
         conn.commit()
 
         total_k_records += upserted_k

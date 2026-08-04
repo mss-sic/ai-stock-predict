@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """研报数据采集 — 批量拉取全量研报入库，来源: 东财 reportapi"""
-import sys, json, time, random, psycopg2, requests
+import os, sys, json, time, random, psycopg2, requests
 from datetime import datetime
 
-PG_DSN = "host=localhost dbname=stock_predict user=stock password=stock123"
+PG_DSN = os.environ.get("PG_DSN", "host=localhost dbname=stock_predict user=stock password=stock123")
 UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
 API = "https://reportapi.eastmoney.com/report/list"
 HEADERS = {"User-Agent": UA, "Referer": "https://data.eastmoney.com/"}

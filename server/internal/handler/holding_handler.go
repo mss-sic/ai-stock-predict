@@ -1,21 +1,26 @@
 package handler
 
 import (
-	"log"
 	"fmt"
+	"log"
 	"math"
 	"strconv"
 	"time"
 
 	"github.com/ai-stock-predict/server/internal/db"
 	"github.com/ai-stock-predict/server/internal/model"
+	"github.com/ai-stock-predict/server/internal/repository"
 	"github.com/ai-stock-predict/server/pkg/response"
 	"github.com/gin-gonic/gin"
 )
 
-type HoldingHandler struct{}
+type HoldingHandler struct {
+	priceRepo *repository.PriceRepo
+}
 
-func NewHoldingHandler() *HoldingHandler { return &HoldingHandler{} }
+func NewHoldingHandler() *HoldingHandler {
+	return &HoldingHandler{priceRepo: repository.NewPriceRepo()}
+}
 
 type HoldingOut struct {
 	ID           uint    `json:"id"`
@@ -43,20 +48,20 @@ type HoldingOut struct {
 }
 
 type AccountOverview struct {
-	AccountID      uint    `json:"accountId"`
-	AccountName    string  `json:"accountName"`
-	Broker         string  `json:"broker"`
-	AccountType    string  `json:"accountType"`
-	InitialCapital float64 `json:"initialCapital"`
-	AvailableCash  float64 `json:"availableCash"`
-	PositionValue  float64 `json:"positionValue"`
-	TotalEquity    float64 `json:"totalEquity"`
+	AccountID       uint    `json:"accountId"`
+	AccountName     string  `json:"accountName"`
+	Broker          string  `json:"broker"`
+	AccountType     string  `json:"accountType"`
+	InitialCapital  float64 `json:"initialCapital"`
+	AvailableCash   float64 `json:"availableCash"`
+	PositionValue   float64 `json:"positionValue"`
+	TotalEquity     float64 `json:"totalEquity"`
 	CommittedToRuns float64 `json:"committedToRuns"`
 	FreeCash        float64 `json:"freeCash"`
-	TotalPnl       float64 `json:"totalPnl"`
-	TotalPnlPct    float64 `json:"totalPnlPct"`
-	DailyPnl       float64 `json:"dailyPnl"`
-	PositionCount  int     `json:"positionCount"`
+	TotalPnl        float64 `json:"totalPnl"`
+	TotalPnlPct     float64 `json:"totalPnlPct"`
+	DailyPnl        float64 `json:"dailyPnl"`
+	PositionCount   int     `json:"positionCount"`
 }
 
 // AccountsOverview returns per-account breakdown for the holdings page.
@@ -99,28 +104,12 @@ func (h *HoldingHandler) AccountsOverview(c *gin.Context) {
 			codes[i] = h.StockCode
 		}
 
-		// Fetch prices from PG
-		type PriceInfo struct {
-			Code      string
-			Close     float64
-			PrevClose float64
-		}
-		var infos []PriceInfo
-		infoMap := make(map[string]PriceInfo)
-		db.PG.Raw(fmt.Sprintf(`SELECT s.code,
-			COALESCE(k.close, 0) AS close,
-			COALESCE(k2.close, 0) AS prev_close
-			FROM stocks_basic s
-			LEFT JOIN LATERAL (SELECT close FROM stocks_daily_k WHERE code = s.code ORDER BY trade_date DESC LIMIT 1) k ON true
-			LEFT JOIN LATERAL (SELECT close FROM stocks_daily_k WHERE code = s.code ORDER BY trade_date DESC LIMIT 1 OFFSET 1) k2 ON true
-			WHERE s.code IN (%s)`, db.CodesToInClause(codes))).Scan(&infos)
-		for _, info := range infos {
-			infoMap[info.Code] = info
-		}
+		// Fetch prices via repository (single CTE, no LATERAL per row)
+		priceMap, _ := h.priceRepo.GetLatestPrices(codes)
 
 		totalCost := 0.0
 		for _, h := range holdings {
-			pi := infoMap[h.StockCode]
+			pi := priceMap[h.StockCode]
 			mv := pi.Close * float64(h.Quantity)
 			pnl := (pi.Close - h.CostPrice) * float64(h.Quantity)
 			dailyPnl := (pi.Close - pi.PrevClose) * float64(h.Quantity)
@@ -154,8 +143,6 @@ func (h *HoldingHandler) Summary(c *gin.Context) {
 		q = q.Where("account_type = ?", accountType)
 	}
 	q.Find(&accounts)
-
-
 
 	if len(accounts) == 0 {
 		response.Success(c, map[string]interface{}{
@@ -193,22 +180,10 @@ func (h *HoldingHandler) Summary(c *gin.Context) {
 			totalCost += h.CostPrice * float64(h.Quantity)
 		}
 
-		type PriceInfo2 struct { Code string; Close float64; PrevClose float64 }
-		var infos []PriceInfo2
-		infoMap := make(map[string]PriceInfo2)
-		db.PG.Raw(fmt.Sprintf(`SELECT s.code,
-			COALESCE(k.close, 0) AS close,
-			COALESCE(k2.close, 0) AS prev_close
-			FROM stocks_basic s
-			LEFT JOIN LATERAL (SELECT close FROM stocks_daily_k WHERE code = s.code ORDER BY trade_date DESC LIMIT 1) k ON true
-			LEFT JOIN LATERAL (SELECT close FROM stocks_daily_k WHERE code = s.code ORDER BY trade_date DESC LIMIT 1 OFFSET 1) k2 ON true
-			WHERE s.code IN (%s)`, db.CodesToInClause(codes))).Scan(&infos)
-		for _, info := range infos {
-			infoMap[info.Code] = info
-		}
+		priceMap, _ := h.priceRepo.GetLatestPrices(codes)
 
 		for _, h := range holdings {
-			pi := infoMap[h.StockCode]
+			pi := priceMap[h.StockCode]
 			curPrice := h.CurrentPrice
 			if curPrice == 0 {
 				curPrice = pi.Close
@@ -220,7 +195,11 @@ func (h *HoldingHandler) Summary(c *gin.Context) {
 			totalMV += mv
 			totalPnl += pnl
 			totalDailyPnl += dailyPnl
-			if pnl >= 0 { upCount++ } else { downCount++ }
+			if pnl >= 0 {
+				upCount++
+			} else {
+				downCount++
+			}
 		}
 	}
 
@@ -280,35 +259,16 @@ func (h *HoldingHandler) List(c *gin.Context) {
 		codes[i] = h.StockCode
 	}
 
-	type PriceInfo struct {
-		Code      string
-		Name      string
-		Close     float64
-		PriceDate string
-		PrevClose float64
-	}
-	var infos []PriceInfo
-	infoMap := make(map[string]PriceInfo)
-	db.PG.Raw(fmt.Sprintf(`SELECT s.code, s.name,
-		COALESCE(k.close, 0) AS close,
-		TO_CHAR(k.trade_date, 'YYYY-MM-DD') AS price_date,
-		COALESCE(k2.close, 0) AS prev_close
-		FROM stocks_basic s
-		LEFT JOIN LATERAL (SELECT close, trade_date FROM stocks_daily_k WHERE code = s.code ORDER BY trade_date DESC LIMIT 1) k ON true
-		LEFT JOIN LATERAL (SELECT close FROM stocks_daily_k WHERE code = s.code ORDER BY trade_date DESC LIMIT 1 OFFSET 1) k2 ON true
-		WHERE s.code IN (%s)`, db.CodesToInClause(codes))).Scan(&infos)
-	for _, info := range infos {
-		infoMap[info.Code] = info
-	}
+	priceMap, _ := h.priceRepo.GetLatestPrices(codes)
 
 	out := make([]HoldingOut, 0, len(holdings))
 	now := time.Now()
 	for _, h := range holdings {
-		info := infoMap[h.StockCode]
+		pm := priceMap[h.StockCode]
 		// Use holding's broker-synced CurrentPrice if available; fallback to PG close.
 		curPrice := h.CurrentPrice
 		if curPrice == 0 {
-			curPrice = info.Close
+			curPrice = pm.Close
 		}
 		mv := curPrice * float64(h.Quantity)
 		pnl := (curPrice - h.CostPrice) * float64(h.Quantity)
@@ -316,10 +276,10 @@ func (h *HoldingHandler) List(c *gin.Context) {
 		if h.CostPrice > 0 {
 			pnlPct = (curPrice - h.CostPrice) / h.CostPrice * 100
 		}
-		dailyChg := curPrice - info.PrevClose
+		dailyChg := curPrice - pm.PrevClose
 		dailyChgPct := 0.0
-		if info.PrevClose > 0 {
-			dailyChgPct = (curPrice - info.PrevClose) / info.PrevClose * 100
+		if pm.PrevClose > 0 {
+			dailyChgPct = (curPrice - pm.PrevClose) / pm.PrevClose * 100
 		}
 		holdDays := 0
 		if h.BuyDate != "" {
@@ -330,18 +290,18 @@ func (h *HoldingHandler) List(c *gin.Context) {
 
 		out = append(out, HoldingOut{
 			ID: h.ID, AccountID: h.AccountID,
-			StockCode: h.StockCode, StockName: info.Name,
+			StockCode: h.StockCode, StockName: pm.Name,
 			CostPrice: h.CostPrice, Quantity: h.Quantity, TotalCost: h.TotalCost,
-			BuyDate: h.BuyDate, CurPrice: curPrice, PriceDate: info.PriceDate,
-			PrevClose: info.PrevClose, DailyChg: math.Round(dailyChg*100)/100, DailyChgPct: math.Round(dailyChgPct*100)/100,
-			DailyPnl: math.Round((curPrice-info.PrevClose)*float64(h.Quantity)*100)/100,
-			DailyPnlPct: math.Round((curPrice-info.PrevClose)/info.PrevClose*10000)/100,
-			MarketVal: math.Round(mv*100)/100,
-			Pnl: math.Round(pnl*100)/100, PnlPct: math.Round(pnlPct*100)/100,
-			HoldDays: holdDays,
-			TodayBuyQty: h.TodayBuyQty,
+			BuyDate: h.BuyDate, CurPrice: curPrice, PriceDate: pm.PriceDate,
+			PrevClose: pm.PrevClose, DailyChg: math.Round(dailyChg*100) / 100, DailyChgPct: math.Round(dailyChgPct*100) / 100,
+			DailyPnl:    math.Round((curPrice-pm.PrevClose)*float64(h.Quantity)*100) / 100,
+			DailyPnlPct: math.Round((curPrice-pm.PrevClose)/pm.PrevClose*10000) / 100,
+			MarketVal:   math.Round(mv*100) / 100,
+			Pnl:         math.Round(pnl*100) / 100, PnlPct: math.Round(pnlPct*100) / 100,
+			HoldDays:     holdDays,
+			TodayBuyQty:  h.TodayBuyQty,
 			AvailSellQty: h.AvailSellQty,
-			UpdatedAt: h.UpdatedAt.Format("2006-01-02 15:04:05"),
+			UpdatedAt:    h.UpdatedAt.Format("2006-01-02 15:04:05"),
 		})
 	}
 	response.Success(c, out)
@@ -405,7 +365,8 @@ func (h *HoldingHandler) Update(c *gin.Context) {
 	uid := getUID(c)
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		response.BadRequest(c, "参数错误"); return
+		response.BadRequest(c, "参数错误")
+		return
 	}
 	var body struct {
 		CostPrice float64 `json:"costPrice"`
@@ -413,18 +374,22 @@ func (h *HoldingHandler) Update(c *gin.Context) {
 		BuyDate   string  `json:"buyDate"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil || body.Quantity <= 0 || body.CostPrice <= 0 {
-		response.BadRequest(c, "参数错误：costPrice/quantity 必填且大于0"); return
+		response.BadRequest(c, "参数错误：costPrice/quantity 必填且大于0")
+		return
 	}
 
 	totalCost := body.CostPrice * float64(body.Quantity)
 	updates := map[string]interface{}{
 		"cost_price": body.CostPrice, "quantity": body.Quantity, "total_cost": totalCost,
 	}
-	if body.BuyDate != "" { updates["buy_date"] = body.BuyDate }
+	if body.BuyDate != "" {
+		updates["buy_date"] = body.BuyDate
+	}
 
 	result := db.MySQL.Model(&model.Holding{}).Where("id = ? AND user_id = ?", id, uid).Updates(updates)
 	if result.RowsAffected == 0 {
-		response.NotFound(c, "持仓记录不存在"); return
+		response.NotFound(c, "持仓记录不存在")
+		return
 	}
 	response.SuccessMsg(c, "更新成功")
 }
@@ -433,23 +398,30 @@ func (h *HoldingHandler) Update(c *gin.Context) {
 func (h *HoldingHandler) Delete(c *gin.Context) {
 	uid := getUID(c)
 	id, err := strconv.Atoi(c.Param("id"))
-	if err != nil { response.BadRequest(c, "参数错误"); return }
+	if err != nil {
+		response.BadRequest(c, "参数错误")
+		return
+	}
 
 	var holding model.Holding
 	if err := db.MySQL.Where("id = ? AND user_id = ?", id, uid).First(&holding).Error; err != nil {
-		response.NotFound(c, "持仓记录不存在"); return
+		response.NotFound(c, "持仓记录不存在")
+		return
 	}
 
-	var curPrice float64
-	db.PG.Raw("SELECT COALESCE(close, 0) FROM stocks_daily_k WHERE code = ? ORDER BY trade_date DESC LIMIT 1", holding.StockCode).Scan(&curPrice)
+	curPrice, _ := h.priceRepo.GetLatestClose(holding.StockCode)
 
 	sellAmount := curPrice * float64(holding.Quantity)
 	pnl := (curPrice - holding.CostPrice) * float64(holding.Quantity)
 	pnlPct := 0.0
-	if holding.CostPrice > 0 { pnlPct = (curPrice - holding.CostPrice) / holding.CostPrice * 100 }
+	if holding.CostPrice > 0 {
+		pnlPct = (curPrice - holding.CostPrice) / holding.CostPrice * 100
+	}
 	holdDays := 0
 	if holding.BuyDate != "" {
-		if buyT, err := time.Parse("2006-01-02", holding.BuyDate); err == nil { holdDays = int(time.Since(buyT).Hours()/24) + 1 }
+		if buyT, err := time.Parse("2006-01-02", holding.BuyDate); err == nil {
+			holdDays = int(time.Since(buyT).Hours()/24) + 1
+		}
 	}
 
 	// Sync with strategy live_positions: reduce quantity for managed stocks
@@ -464,7 +436,9 @@ func (h *HoldingHandler) Delete(c *gin.Context) {
 			}
 			lp.Quantity -= sellQty
 			lp.AvailSellQty = lp.Quantity - lp.TodayBuyQty
-			if lp.AvailSellQty < 0 { lp.AvailSellQty = 0 }
+			if lp.AvailSellQty < 0 {
+				lp.AvailSellQty = 0
+			}
 			run.AvailableCash += curPrice * float64(sellQty)
 			db.MySQL.Save(&lp)
 			db.MySQL.Save(&run)
@@ -496,7 +470,7 @@ func (h *HoldingHandler) Delete(c *gin.Context) {
 		UserID: uid, StockCode: holding.StockCode, StockName: stockName,
 		TradeType: "sell", TradeDate: time.Now().Format("2006-01-02"),
 		Price: curPrice, Quantity: holding.Quantity, Amount: sellAmount,
-		Pnl: math.Round(pnl*100)/100, PnlPct: math.Round(pnlPct*100)/100,
+		Pnl: math.Round(pnl*100) / 100, PnlPct: math.Round(pnlPct*100) / 100,
 		HoldDays: holdDays,
 	})
 
@@ -521,7 +495,8 @@ func (h *HoldingHandler) UpdateAccount(c *gin.Context) {
 		AccountID uint    `json:"accountId"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil || body.Amount <= 0 {
-		response.BadRequest(c, "参数错误：amount 必须大于0"); return
+		response.BadRequest(c, "参数错误：amount 必须大于0")
+		return
 	}
 
 	// Use specified account or first active
@@ -552,7 +527,8 @@ func (h *HoldingHandler) UpdateAccount(c *gin.Context) {
 		acc.AvailableCash -= body.Amount
 		acc.TotalWithdraw += body.Amount
 	default:
-		response.BadRequest(c, "action 必须是 deposit 或 withdraw"); return
+		response.BadRequest(c, "action 必须是 deposit 或 withdraw")
+		return
 	}
 	db.MySQL.Save(&acc)
 	response.Success(c, acc)

@@ -4,7 +4,7 @@ import os, sys, json, time, urllib.request, psycopg2
 os.environ['NO_PROXY'] = '*'
 from mootdx.quotes import Quotes
 
-PG_DSN = "host=localhost dbname=stock_predict user=stock password=stock123"
+PG_DSN = os.environ.get("PG_DSN", "host=localhost dbname=stock_predict user=stock password=stock123")
 
 def get_sh_codes(client):
     df = client.stocks()

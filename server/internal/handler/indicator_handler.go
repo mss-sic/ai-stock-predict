@@ -51,3 +51,83 @@ func (h *IndicatorHandler) ScanSignals(c *gin.Context) {
 	}
 	response.Success(c, signals)
 }
+
+type indicatorItem struct {
+	Key      string  `json:"key"`
+	Label    string  `json:"label"`
+	Category string  `json:"category"`
+	Value    float64 `json:"value"`
+	Unit     string  `json:"unit"`
+	Desc     string  `json:"desc"`
+	Zero     bool    `json:"zero"`
+	NoData   bool    `json:"noData"`
+}
+
+// GetAllIndicators returns all 84 indicators from the JSONB cache for a stock.
+func (h *IndicatorHandler) GetAllIndicators(c *gin.Context) {
+	code := c.Param("code")
+	if code == "" {
+		response.BadRequest(c, "缺少股票代码")
+		return
+	}
+	date := c.DefaultQuery("date", "")
+	cacheSvc := service.NewIndicatorCacheService()
+
+	var allIndicators map[string]float64
+
+	latest := cacheSvc.LatestDateForStock(code)
+	if date != "" {
+		allIndicators, _ = cacheSvc.GetBatch(code, date)
+		if allIndicators == nil && latest != "" {
+			date = latest
+			allIndicators, _ = cacheSvc.GetBatch(code, latest)
+		}
+	} else {
+		date = latest
+		if latest != "" {
+			allIndicators, _ = cacheSvc.GetBatch(code, latest)
+		}
+	}
+
+	if allIndicators == nil {
+		allIndicators = make(map[string]float64)
+	}
+
+	metaList := AllIndicators("")
+	items := make([]indicatorItem, 0, len(metaList))
+	for _, m := range metaList {
+		v, ok := allIndicators[m.Key]
+		item := indicatorItem{
+			Key:      m.Key,
+			Label:    m.Label,
+			Category: m.Category,
+			Value:    v,
+			Unit:     m.Unit,
+			Desc:     m.Desc,
+			Zero:     ok && v == 0,
+			NoData:   !ok,
+		}
+		items = append(items, item)
+	}
+
+	response.Success(c, map[string]interface{}{
+		"indicators": items,
+		"date":       date,
+		"count":      len(items),
+	})
+}
+
+// GetIndicatorDates returns available dates with cached indicators for a stock.
+func (h *IndicatorHandler) GetIndicatorDates(c *gin.Context) {
+	code := c.Param("code")
+	if code == "" {
+		response.BadRequest(c, "缺少股票代码")
+		return
+	}
+	cacheSvc := service.NewIndicatorCacheService()
+	dates := cacheSvc.AvailableDates(code, 30)
+	if dates == nil {
+		dates = []string{}
+	}
+	response.Success(c, dates)
+}

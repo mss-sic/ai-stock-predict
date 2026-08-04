@@ -178,6 +178,9 @@ export const fetchStockDetail = (code: string) => api.get(`/stocks/${code}`);
 export const fetchKLine = (code: string, from?: string, to?: string) => api.get(`/stocks/${code}/kline`, { params: { from, to } });
 export const fetchIndexKLine = (code: string, from?: string, to?: string) => api.get(`/sentiment/index-kline/${code}`, { params: { from, to } });
 export const fetchIndicator = (code: string) => api.get(`/stocks/${code}/indicator`);
+export const fetchStockIndicators = (code: string, days: number = 120) => api.get(`/stocks/${code}/indicators`, { params: { days } });
+export const fetchAllIndicators = (code: string, date?: string) => api.get(`/stocks/${code}/indicators-all`, { params: date ? { date } : {} });
+export const fetchIndicatorDates = (code: string) => api.get(`/stocks/${code}/indicators-dates`);
 export const fetchSignal = (code: string) => api.get(`/stocks/${code}/signal`);
 export const fetchFinancials = (code: string) => api.get(`/stocks/${code}/financials`);
 export const fetchShareholders = (code: string) => api.get(`/stocks/${code}/shareholders`);
@@ -246,6 +249,9 @@ export const reorderWatchlistGroups = (ids: number[]) => api.put('/watchlist/gro
 
 // ── Stock search ──
 export const searchStock = (keyword: string) => api.get("/stocks", { params: { keyword, pageSize: 20 } });
+
+/** Fetches data quality & coverage dashboard stats. */
+export const fetchStatsDashboard = () => api.get("/stats/dashboard");
 
 
 // ── Strategy ──

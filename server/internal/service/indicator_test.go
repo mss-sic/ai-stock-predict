@@ -17,7 +17,7 @@ var naIndicators = map[string]bool{
 func TestAllIndicators(t *testing.T) {
 	pgDSN := os.Getenv("POSTGRES_DSN")
 	if pgDSN == "" {
-		pgDSN = "host=localhost user=stock password=stock123 dbname=stock_predict sslmode=disable"
+		t.Skip("POSTGRES_DSN is required for the indicator integration test")
 	}
 	db.InitPostgres(pgDSN)
 
@@ -145,7 +145,7 @@ func TestAllIndicators(t *testing.T) {
 func TestIndicatorDetail(t *testing.T) {
 	pgDSN := os.Getenv("POSTGRES_DSN")
 	if pgDSN == "" {
-		pgDSN = "host=localhost user=stock password=stock123 dbname=stock_predict sslmode=disable"
+		t.Skip("POSTGRES_DSN is required for the indicator integration test")
 	}
 	db.InitPostgres(pgDSN)
 

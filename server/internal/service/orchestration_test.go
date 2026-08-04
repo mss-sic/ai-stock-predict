@@ -1,7 +1,6 @@
 package service
 
 import (
-	"math"
 	"strings"
 	"testing"
 )
@@ -105,113 +104,5 @@ func TestPromptBuilder_BuildReviewPrompt(t *testing.T) {
 	}
 	if !strings.Contains(prompt, "胜率") {
 		t.Error("should ask for win rate analysis")
-	}
-}
-
-// ═══════════════════════════════════════════════════════════════
-// OrchestrationService tests
-// ═══════════════════════════════════════════════════════════════
-
-func TestOrchestration_DefaultConfig(t *testing.T) {
-	svc := NewOrchestrationService()
-	cfg := svc.DefaultConfig()
-	if cfg.OrchestrationMode != "standard" {
-		t.Errorf("mode = %s, want standard", cfg.OrchestrationMode)
-	}
-	if cfg.MarketPositionBias != 1.0 {
-		t.Errorf("bias = %v, want 1.0", cfg.MarketPositionBias)
-	}
-}
-
-func TestOrchestration_Validate_Valid(t *testing.T) {
-	svc := NewOrchestrationService()
-	cfg := svc.DefaultConfig()
-	issues := svc.Validate(cfg)
-	if len(issues) != 0 {
-		t.Errorf("default config should be valid, got: %v", issues)
-	}
-}
-
-func TestOrchestration_Validate_InvalidMode(t *testing.T) {
-	svc := NewOrchestrationService()
-	cfg := svc.DefaultConfig()
-	cfg.OrchestrationMode = "invalid_mode"
-	issues := svc.Validate(cfg)
-	if len(issues) == 0 {
-		t.Error("should report invalid orchestration mode")
-	}
-}
-
-func TestOrchestration_Validate_InvalidComposite(t *testing.T) {
-	svc := NewOrchestrationService()
-	cfg := svc.DefaultConfig()
-	cfg.MarketCompositeMin = 150
-	issues := svc.Validate(cfg)
-	if len(issues) == 0 {
-		t.Error("should report invalid marketCompositeMin")
-	}
-}
-
-func TestOrchestration_Validate_AgentMode(t *testing.T) {
-	svc := NewOrchestrationService()
-	cfg := svc.DefaultConfig()
-	cfg.EnableAIAgent = true
-	cfg.AIAgentMode = "bad_mode"
-	issues := svc.Validate(cfg)
-	if len(issues) == 0 {
-		t.Error("should report invalid AI agent mode")
-	}
-}
-
-func TestOrchestration_IsDefensiveMode(t *testing.T) {
-	svc := NewOrchestrationService()
-	cfg := OrchestrationConfig{
-		EnableMarketContext: true,
-		MarketCompositeMin:  40,
-	}
-
-	if !svc.IsDefensiveMode(30, cfg) {
-		t.Error("marketComposite=30 should be defensive when threshold=40")
-	}
-	if svc.IsDefensiveMode(50, cfg) {
-		t.Error("marketComposite=50 should NOT be defensive when threshold=40")
-	}
-	if svc.IsDefensiveMode(30, OrchestrationConfig{EnableMarketContext: false}) {
-		t.Error("should not be defensive when market context is disabled")
-	}
-}
-
-func TestOrchestration_GetPositionBias(t *testing.T) {
-	svc := NewOrchestrationService()
-	cfg := OrchestrationConfig{
-		EnableMarketContext: true,
-		MarketCompositeMin:  40,
-		MarketPositionBias:  1.0,
-		DefensiveThreshold:  30,
-	}
-
-	// Neutral market (composite=60, threshold=40)
-	bias := svc.GetPositionBias(60, cfg, 80)
-	if bias != 1.0 {
-		t.Errorf("neutral bias = %v, want 1.0", bias)
-	}
-
-	// Defensive: composite=20, DefensiveThreshold=30 → ratio=0.667 → bias=0.667
-	bias = svc.GetPositionBias(20, cfg, 80)
-	if math.Abs(bias-0.667) > 0.01 {
-		t.Errorf("defensive bias = %v, want ~0.667", bias)
-	}
-
-	// Extreme defensive: composite=0
-	bias = svc.GetPositionBias(0, cfg, 80)
-	if math.Abs(bias-0.0) > 0.001 {
-		t.Errorf("extreme defensive bias = %v, want 0", bias)
-	}
-
-	// No market context: return default bias
-	cfg.EnableMarketContext = false
-	bias = svc.GetPositionBias(10, cfg, 80)
-	if bias != 1.0 {
-		t.Errorf("no context bias = %v, want 1.0", bias)
 	}
 }

@@ -25,6 +25,9 @@ import tushare as ts
 import psycopg2
 from psycopg2.extras import execute_values
 
+# 统一写入器 (优先级感知 UPSERT)
+from kline_writer import upsert_kline as writer_upsert, SOURCE_PRIORITY
+
 os.environ['PYTHONUNBUFFERED'] = '1'
 
 PG_DSN = os.environ.get("PG_DSN", "host=localhost dbname=stock_predict user=stock password=stock123")
@@ -74,15 +77,9 @@ def fetch_daily(pro, trade_date, ts_code=None):
     return df
 
 # ── 数据转换与入库 ───────────────────────────────────────────────
-UPSERT_SQL = """
-    INSERT INTO stocks_daily_k (code, trade_date, open, high, low, close, pre_close, change_amount,
-                                change_pct, volume, amount, data_source)
-    VALUES %s
-    ON CONFLICT (code, trade_date) DO NOTHING
-"""
-
 def upsert_kline(cur, df, trade_date):
-    """将 Tushare DataFrame 转换为标准格式并 UPSERT。返回入库条数。"""
+    """将 Tushare DataFrame 转换为标准格式并通过 kline_writer UPSERT。
+    返回 (入库条数, 过滤数)。"""
     rows = []
     bad_codes = 0
 
@@ -99,6 +96,9 @@ def upsert_kline(cur, df, trade_date):
         vol_gu = int(float(r['vol']) * 100)
         amt_yuan = round(float(r['amount']) * 1000, 2)
 
+        # 标准化格式: (code, trade_date, open, high, low, close,
+        #   pre_close, change_amount, volume, amount, turnover_rate, buy_vol, sell_vol,
+        #   change_pct, amplitude, volume_ratio)
         rows.append((
             code, trade_date,
             float(r['open']),
@@ -107,15 +107,18 @@ def upsert_kline(cur, df, trade_date):
             float(r['close']),
             float(r['pre_close']),
             float(r['change']),
-            float(r['pct_chg']),
             vol_gu,
             amt_yuan,
-            'tushare',
+            0.0,      # turnover_rate: tushare daily 不包含
+            0,        # buy_vol: tushare daily 不包含
+            0,        # sell_vol: tushare daily 不包含
+            float(r['pct_chg']),
+            0.0,      # amplitude: tushare daily 不包含
+            0.0,      # volume_ratio: tushare daily 不包含
         ))
 
-    if rows:
-        execute_values(cur, UPSERT_SQL, rows, page_size=200)
-    return len(rows), bad_codes
+    n = writer_upsert(cur, rows, source='tushare')
+    return n, bad_codes
 
 # ── 主流程 ───────────────────────────────────────────────────────
 def main():

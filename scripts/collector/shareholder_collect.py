@@ -167,7 +167,7 @@ def main():
             INNER JOIN stocks_daily_k k ON b.code = k.code
             ORDER BY b.code
         """)
-                codes = [r[0] for r in cur.fetchall()]    
+        codes = [r[0] for r in cur.fetchall()]
     if not codes:
         print("股东数据已是最新", flush=True)
         return

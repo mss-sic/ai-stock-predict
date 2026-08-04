@@ -61,8 +61,8 @@ func init() {
 				&model.StockBasic{},
 				&model.StockDailyK{},
 				&model.StockDailyIndicator{},
-				&model.AlgorithmPick{},model.AlgorithmPick{},
-				&model.AlgorithmPick{},model.ConceptAnalysis{},
+				&model.AlgorithmPick{}, model.AlgorithmPick{},
+				&model.AlgorithmPick{}, model.ConceptAnalysis{},
 				&model.AlgorithmPickDetail{},
 				&model.StockSignal{},
 				&model.AIAnalysis{},
@@ -279,7 +279,6 @@ func init() {
 		},
 	})
 
-
 	// ============================================================
 	// v010: backtest_signals table
 	// ============================================================
@@ -291,7 +290,6 @@ func init() {
 			return nil
 		},
 	})
-
 
 	// ============================================================
 	// v011: trading_accounts + trade_records + holding fields
@@ -308,7 +306,6 @@ func init() {
 			return nil
 		},
 	})
-
 
 	// v006: AI system configs per scene
 	migrations = append(migrations, Migration{
@@ -372,7 +369,6 @@ func init() {
 		},
 	})
 
-
 	// v13: composite unique indexes for algorithm_pick_details and predictions
 	migrations = append(migrations, Migration{
 		Version:     13,
@@ -394,7 +390,6 @@ func init() {
 		},
 	})
 
-
 	// v14: add enable_tools column to ai_system_configs
 	migrations = append(migrations, Migration{
 		Version:     14,
@@ -407,7 +402,6 @@ func init() {
 			return nil
 		},
 	})
-
 
 	// v15: add position_sizing column to strategies (idempotent, ignores dup error)
 	migrations = append(migrations, Migration{
@@ -444,7 +438,6 @@ func init() {
 		},
 	})
 
-
 	// ============================================================
 	// v016: stock_profiles table for AI-generated company profiles
 	// ============================================================
@@ -457,7 +450,6 @@ func init() {
 		},
 	})
 
-
 	// v017: stock_realtime_quote table for intraday quote snapshots
 	migrations = append(migrations, Migration{
 		Version:     17,
@@ -468,7 +460,6 @@ func init() {
 		},
 	})
 
-
 	// v018: stock_profile AI system config for company profile generation
 	migrations = append(migrations, Migration{
 		Version:     18,
@@ -477,7 +468,7 @@ func init() {
 			profile := model.AISystemConfig{
 				Scene: "stock_profile", Name: "股票简介",
 				SystemPrompt: "你是一位专业、客观、严谨的金融投资分析师，精通A股市场。\n你的任务是对给定的股票进行深度分析，生成一份精美的结构化 Markdown 公司简介。\n\n## 简介结构（严格按此顺序）\n1. **核心特征** — 一句话概括公司定位、盈利模式和当前经营状态\n2. **主营业务** — 业务结构、护城河来源、行业地位\n3. **最新财报** — 表格展示关键财务数据，分析变化原因\n4. **成长驱动** — 短期和长期增长因素\n5. **风险提示** — 3-5条具体风险\n6. **未来展望** — 至少2个前瞻方向\n\n## 格式：Markdown 表格/引用/标题，每部分200字\n\n输出严格JSON：{\"profileMarkdown\":\"...\"}",
-				Temperature: 0.7, MaxTokens: 2048, EnableSearch: true,
+				Temperature:  0.7, MaxTokens: 2048, EnableSearch: true,
 			}
 			var existing model.AISystemConfig
 			if err := PG.Where("scene = ?", profile.Scene).First(&existing).Error; err != nil {
@@ -487,7 +478,6 @@ func init() {
 		},
 	})
 
-	
 	// v019: agent model config columns for ai_system_configs
 	migrations = append(migrations, Migration{
 		Version:     19,
@@ -498,7 +488,6 @@ func init() {
 		},
 	})
 
-	
 	// v020: ai_cost_logs + model_prices for AI cost tracking
 	migrations = append(migrations, Migration{
 		Version:     20,
@@ -520,8 +509,6 @@ func init() {
 		},
 	})
 
-	
-	
 	// v021: ai_cost_logs add request/response content columns + update model prices
 	migrations = append(migrations, Migration{
 		Version:     21,
@@ -540,10 +527,10 @@ func init() {
 					MySQL.Create(&p)
 				} else {
 					MySQL.Model(&existing).Updates(map[string]interface{}{
-						"input_price": p.InputPrice,
-						"output_price": p.OutputPrice,
+						"input_price":     p.InputPrice,
+						"output_price":    p.OutputPrice,
 						"cache_hit_price": p.CacheHitPrice,
-						"display_name": p.DisplayName,
+						"display_name":    p.DisplayName,
 					})
 				}
 			}
@@ -551,8 +538,6 @@ func init() {
 		},
 	})
 
-	
-	
 	// v022: fix stock_score scene name + add strategy_gen/strategy_opt system configs
 	migrations = append(migrations, Migration{
 		Version:     22,
@@ -560,7 +545,7 @@ func init() {
 		Up: func() error {
 			// Rename stock_scoring to stock_score if old name exists
 			PG.Exec("UPDATE ai_system_configs SET scene = 'stock_score' WHERE scene = 'stock_scoring'")
-			
+
 			// Insert strategy_gen config
 			strategyGen := model.AISystemConfig{
 				Scene: "strategy_gen", Name: "策略生成",
@@ -578,7 +563,7 @@ func init() {
 			if err := PG.Where("scene = ?", strategyGen.Scene).First(&existing).Error; err != nil {
 				PG.Create(&strategyGen)
 			}
-			
+
 			// Insert strategy_opt config
 			strategyOpt := model.AISystemConfig{
 				Scene: "strategy_opt", Name: "策略提示词优化",
@@ -593,12 +578,11 @@ func init() {
 			if err := PG.Where("scene = ?", strategyOpt.Scene).First(&existing).Error; err != nil {
 				PG.Create(&strategyOpt)
 			}
-			
+
 			return nil
 		},
 	})
 
-	
 	// v023: convert %s placeholders in ai_system_configs to __VAR__ template variables
 	migrations = append(migrations, Migration{
 		Version:     23,
@@ -624,8 +608,6 @@ func init() {
 			return nil
 		},
 	})
-
-
 
 	// v024: market sentiment tables + board_type/is_st on stocks_basic
 	migrations = append(migrations, Migration{
@@ -770,8 +752,6 @@ func init() {
 		},
 	})
 
-
-
 	// v025: ETF board_type backfill
 	Register(Migration{
 		Version:     25,
@@ -822,7 +802,6 @@ func init() {
 			return nil
 		},
 	})
-
 
 	// v027: Add Policy Manager v3 fields to MySQL strategies table
 	Register(Migration{
@@ -878,43 +857,42 @@ func init() {
 		},
 	})
 
-// v031: Trailing stop columns on strategies
-Register(Migration{
-    Version:     31,
-    Description: "MySQL: strategies add enable_trailing_stop, trailing_stop_activation, trailing_stop_drawdown columns",
-    Up: func() error {
-        gormAutoMigrate(MySQL, &model.Strategy{})
-        return nil
-    },
-})
+	// v031: Trailing stop columns on strategies
+	Register(Migration{
+		Version:     31,
+		Description: "MySQL: strategies add enable_trailing_stop, trailing_stop_activation, trailing_stop_drawdown columns",
+		Up: func() error {
+			gormAutoMigrate(MySQL, &model.Strategy{})
+			return nil
+		},
+	})
 
-// v032: Dip buy columns on strategies
-Register(Migration{
-    Version:     32,
-    Description: "MySQL: strategies add enable_dip_buy, dip_buy_threshold, dip_buy_amount_pct, dip_target_return, dip_max_hold_days, dip_cooldown_days columns",
-    Up: func() error {
-        gormAutoMigrate(MySQL, &model.Strategy{})
-        return nil
-    },
-})
+	// v032: Dip buy columns on strategies
+	Register(Migration{
+		Version:     32,
+		Description: "MySQL: strategies add enable_dip_buy, dip_buy_threshold, dip_buy_amount_pct, dip_target_return, dip_max_hold_days, dip_cooldown_days columns",
+		Up: func() error {
+			gormAutoMigrate(MySQL, &model.Strategy{})
+			return nil
+		},
+	})
 
-// v033: Grid trading columns on strategies
-Register(Migration{
-    Version:     33,
-    Description: "MySQL: strategies add enable_grid, grid_trigger_squeeze, grid_levels, grid_lot_pct columns",
-    Up: func() error {
-        gormAutoMigrate(MySQL, &model.Strategy{})
-        return nil
-    },
-})
+	// v033: Grid trading columns on strategies
+	Register(Migration{
+		Version:     33,
+		Description: "MySQL: strategies add enable_grid, grid_trigger_squeeze, grid_levels, grid_lot_pct columns",
+		Up: func() error {
+			gormAutoMigrate(MySQL, &model.Strategy{})
+			return nil
+		},
+	})
 
-
-// v034: market_style_daily table for daily market style classification and review
-Register(Migration{
-    Version:     34,
-    Description: "PG: market_style_daily table with style classification, structural analysis, and review data",
-    Up: func() error {
-        safeExec(`CREATE TABLE IF NOT EXISTS market_style_daily (
+	// v034: market_style_daily table for daily market style classification and review
+	Register(Migration{
+		Version:     34,
+		Description: "PG: market_style_daily table with style classification, structural analysis, and review data",
+		Up: func() error {
+			safeExec(`CREATE TABLE IF NOT EXISTS market_style_daily (
             trade_date        DATE PRIMARY KEY,
             style             VARCHAR(20) NOT NULL,
             style_confidence  NUMERIC(5,2) DEFAULT 0,
@@ -937,16 +915,15 @@ Register(Migration{
             analysis_summary  TEXT,
             created_at        TIMESTAMPTZ DEFAULT now()
         )`)
-        safeExec(`CREATE INDEX IF NOT EXISTS idx_market_style_date ON market_style_daily(trade_date)`)
-        safeExec(`CREATE INDEX IF NOT EXISTS idx_market_style_name ON market_style_daily(style)`)
-        return nil
-    },
-})
-
+			safeExec(`CREATE INDEX IF NOT EXISTS idx_market_style_date ON market_style_daily(trade_date)`)
+			safeExec(`CREATE INDEX IF NOT EXISTS idx_market_style_name ON market_style_daily(style)`)
+			return nil
+		},
+	})
 
 	// v035: concept_analyses table for AI-generated concept board analysis
 	Register(Migration{
-		Version: 35,
+		Version:     35,
 		Description: "PG: concept_analyses table for AI concept board analysis cache",
 		Up: func() error {
 			safeExec(`CREATE TABLE IF NOT EXISTS concept_analyses (
@@ -973,7 +950,7 @@ Register(Migration{
 					Scene:        "concept_analysis",
 					Name:         "概念分析",
 					SystemPrompt: "你是一位资深证券分析师，请对以下概念板块进行全面分析。\n\n## 要求\n1. **概念概述**：用一段话简要介绍该概念的核心定义、行业背景\n2. **龙头股票**：列出3-5只核心龙头股（代码+名称+简要逻辑）\n3. **商业模式**：分析该概念的典型商业模式和盈利模式\n4. **利润拆分**：拆解产业链各环节的利润分配（上游/中游/下游）\n5. **上下游产业链**：详细分析上游供应商、中游制造/服务、下游应用\n6. **投资逻辑**：核心投资逻辑和关键跟踪指标\n7. **风险提示**：行业面临的主要风险\n\n请使用专业的Markdown格式输出，适当使用表格和列表，语言精炼专业。",
-					Temperature: 0.7, MaxTokens: 4096, EnableSearch: false,
+					Temperature:  0.7, MaxTokens: 4096, EnableSearch: false,
 				})
 			}
 			return nil
@@ -1163,7 +1140,6 @@ Register(Migration{
 		},
 	})
 
-
 	Register(Migration{
 		Version:     42,
 		Description: "PG: stock_fund_flow table — daily main/small/mid/large/super net flow",
@@ -1186,7 +1162,6 @@ Register(Migration{
 		},
 	})
 
-
 	Register(Migration{
 		Version:     43,
 		Description: "PG: add unique indexes for ON CONFLICT support on collector tables",
@@ -1206,9 +1181,6 @@ Register(Migration{
 	})
 
 	log.Printf("[migrate] registered %d migrations", len(migrations))
-
-
-
 
 	// ============================================================
 	// v044: MySQL seed missing scheduled_tasks rows
@@ -1283,7 +1255,6 @@ Register(Migration{
 		},
 	})
 
-
 	// v048: Tushare daily fields: pre_close + change_amount
 	Register(Migration{
 		Version:     48,
@@ -1294,7 +1265,6 @@ Register(Migration{
 			return nil
 		},
 	})
-
 
 	// v049: Tushare daily_basic indicator fields
 	Register(Migration{
@@ -1315,7 +1285,6 @@ Register(Migration{
 			return nil
 		},
 	})
-
 
 	// v050: add sector_dispersion and score_change to market_style_daily
 	Register(Migration{
@@ -1374,7 +1343,6 @@ Register(Migration{
 			return nil
 		},
 	})
-
 
 	// v054: Multi-account support — alter trading_accounts
 	Register(Migration{
@@ -1439,7 +1407,7 @@ Register(Migration{
 						initialCapital := totalCost + 100000.0 // cost + some buffer
 						MySQL.Exec(`INSERT INTO trading_accounts (user_id, name, broker, account_type, account_number, initial_capital, available_cash, total_deposit, status, created_at, updated_at)
 							VALUES (?, '历史真实账户', '默认券商', 'real', '', ?, ?, ?, 'active', NOW(), NOW())`,
-							uid, initialCapital, initialCapital - totalCost, initialCapital)
+							uid, initialCapital, initialCapital-totalCost, initialCapital)
 					}
 
 					// Get the user's default account
@@ -1762,7 +1730,7 @@ Register(Migration{
 			_ = MySQL.Exec("ALTER TABLE holdings ADD COLUMN buy_date VARCHAR(10) DEFAULT NULL").Error
 			_ = MySQL.Exec("ALTER TABLE holdings ADD COLUMN total_cost DECIMAL(16,2) DEFAULT 0").Error
 			_ = MySQL.Exec("CREATE INDEX IF NOT EXISTS idx_holdings_account_id ON holdings(account_id)").Error
-		return nil
+			return nil
 		},
 	})
 
@@ -1793,8 +1761,6 @@ Register(Migration{
 			return nil
 		},
 	})
-
-
 
 	// v80: live_positions T+1 field additions
 	Register(Migration{
@@ -1847,8 +1813,6 @@ Register(Migration{
 			return nil
 		},
 	})
-
-
 
 	// v083: Risk alert system overhaul — expanded fields, rules table, snapshots table
 	Register(Migration{
@@ -1947,9 +1911,6 @@ Register(Migration{
 		},
 	})
 
-
-
-
 	// v090: API keys for external team data import
 	Register(Migration{
 		Version:     90,
@@ -2014,7 +1975,6 @@ Register(Migration{
 		},
 	})
 
-	
 	// v096: Add max_cumulative_loss column to strategies
 	// Replaces the misnamed max_daily_loss with cumulative drawdown circuit breaker.
 	Register(Migration{
@@ -2033,7 +1993,6 @@ Register(Migration{
 		},
 	})
 
-
 	// v095: Add market_style AI system config for AI market interpretation
 	Register(Migration{
 		Version:     95,
@@ -2047,7 +2006,6 @@ Register(Migration{
 			return nil
 		},
 	})
-
 
 	// v094: Add available_cash and position_value columns to strategy_runs
 	// These were added to the Go model in commit c1804a7 but no migration was created.
@@ -2070,4 +2028,170 @@ Register(Migration{
 			return nil
 		},
 	})
+
+	// ============================================================
+	// v097: trade_calendar table for efficient trading day lookups
+	// ============================================================
+	Register(Migration{
+		Version:     97,
+		Description: "PG: trade_calendar table with index",
+		Up: func() error {
+			safeExec(`CREATE TABLE IF NOT EXISTS trade_calendar (
+				trade_date      DATE PRIMARY KEY,
+				is_trading_day  BOOLEAN DEFAULT true,
+				holiday_name    VARCHAR(50),
+				data_source     VARCHAR(20) DEFAULT 'tushare',
+				updated_at      TIMESTAMPTZ DEFAULT NOW()
+			)`)
+			safeExec(`CREATE INDEX IF NOT EXISTS idx_trade_calendar_date ON trade_calendar(trade_date)`)
+			safeExec(`CREATE INDEX IF NOT EXISTS idx_trade_calendar_trading ON trade_calendar(is_trading_day, trade_date)`)
+			return nil
+		},
+	})
+
+	// ============================================================
+	// v098: stocks_daily_k — adj_factor, source metadata, precomputed tech indicators
+	// ============================================================
+	Register(Migration{
+		Version:     98,
+		Description: "PG: stocks_daily_k add adj_factor, source_priority, data_quality, ema12/26, macd_bar",
+		Up: func() error {
+			safeExec(`ALTER TABLE stocks_daily_k ADD COLUMN IF NOT EXISTS adj_factor NUMERIC(12,8) DEFAULT 1.0`)
+			safeExec(`ALTER TABLE stocks_daily_k ADD COLUMN IF NOT EXISTS source_priority INT DEFAULT 0`)
+			safeExec(`ALTER TABLE stocks_daily_k ADD COLUMN IF NOT EXISTS data_quality VARCHAR(20) DEFAULT 'ok'`)
+			safeExec(`ALTER TABLE stocks_daily_k ADD COLUMN IF NOT EXISTS ema12 NUMERIC(12,4)`)
+			safeExec(`ALTER TABLE stocks_daily_k ADD COLUMN IF NOT EXISTS ema26 NUMERIC(12,4)`)
+			safeExec(`ALTER TABLE stocks_daily_k ADD COLUMN IF NOT EXISTS macd_bar NUMERIC(12,4)`)
+			return nil
+		},
+	})
+
+	// ============================================================
+	// v099: stock_financials — cash flow statement fields
+	// ============================================================
+	Register(Migration{
+		Version:     99,
+		Description: "PG: stock_financials add operating_cf, investing_cf, financing_cf, net_cash_flow, free_cf, cf_ratio",
+		Up: func() error {
+			safeExec(`ALTER TABLE stock_financials ADD COLUMN IF NOT EXISTS operating_cf NUMERIC(20,2)`)
+			safeExec(`ALTER TABLE stock_financials ADD COLUMN IF NOT EXISTS investing_cf NUMERIC(20,2)`)
+			safeExec(`ALTER TABLE stock_financials ADD COLUMN IF NOT EXISTS financing_cf NUMERIC(20,2)`)
+			safeExec(`ALTER TABLE stock_financials ADD COLUMN IF NOT EXISTS net_cash_flow NUMERIC(20,2)`)
+			safeExec(`ALTER TABLE stock_financials ADD COLUMN IF NOT EXISTS free_cf NUMERIC(20,2)`)
+			safeExec(`ALTER TABLE stock_financials ADD COLUMN IF NOT EXISTS cf_ratio NUMERIC(10,4)`)
+			return nil
+		},
+	})
+
+	// ============================================================
+	// v100: stock_daily_indicators — JSONB 指标缓存表
+	// Hot columns for cross-stock filtering, cold indicators in JSONB.
+	// ============================================================
+	Register(Migration{
+		Version:     100,
+		Description: "PG: stock_daily_indicators JSONB cache table for 84 precomputed indicators",
+		Up: func() error {
+			safeExec(`CREATE TABLE IF NOT EXISTS stock_daily_indicators (
+				code            VARCHAR(10) NOT NULL,
+				trade_date      DATE NOT NULL,
+				-- Hot indicators (独立列，用于跨股筛选/排序/聚合)
+				daily_change    NUMERIC(8,4),
+				pe              NUMERIC(12,4),
+				pb              NUMERIC(12,4),
+				rsi             NUMERIC(8,2),
+				volume_ratio    NUMERIC(8,4),
+				turnover_rate   NUMERIC(8,4),
+				total_market_cap NUMERIC(20,2),
+				algo_score      NUMERIC(8,2),
+				-- Cold indicators (JSONB, 按需读取)
+				indicators      JSONB NOT NULL DEFAULT '{}',
+				adj_factor      NUMERIC(12,8) DEFAULT 1.0,
+				data_quality    VARCHAR(10) DEFAULT 'ok',
+				computed_at     TIMESTAMP DEFAULT NOW(),
+				PRIMARY KEY (code, trade_date)
+			)`)
+			safeExec(`CREATE INDEX IF NOT EXISTS idx_sdi_date ON stock_daily_indicators(trade_date)`)
+			safeExec(`CREATE INDEX IF NOT EXISTS idx_sdi_pe ON stock_daily_indicators(trade_date, pe) WHERE pe > 0`)
+			safeExec(`CREATE INDEX IF NOT EXISTS idx_sdi_rsi ON stock_daily_indicators(trade_date, rsi)`)
+			safeExec(`CREATE INDEX IF NOT EXISTS idx_sdi_change ON stock_daily_indicators(trade_date, daily_change)`)
+			return nil
+		},
+	})
+
+	// ============================================================
+	// v101: prediction_factors — precomputed KD curve factors
+	// Eliminates per-request JSONB parsing of prediction_kdist (5000+ rows).
+	// Computed during SyncPredictions import, queried by PredictionScreening.
+	// ============================================================
+	Register(Migration{
+		Version:     101,
+		Description: "PG: prediction_factors precomputed KD curve factors table",
+		Up: func() error {
+			safeExec(`CREATE TABLE IF NOT EXISTS prediction_factors (
+				code            VARCHAR(10) PRIMARY KEY,
+				consensus_d5    INT NOT NULL DEFAULT 0,
+				exp_return_d5   NUMERIC(10,6) NOT NULL DEFAULT 0,
+				momentum_d5     NUMERIC(10,6) NOT NULL DEFAULT 0,
+				consensus_d10   INT NOT NULL DEFAULT 0,
+				exp_return_d10  NUMERIC(10,6) NOT NULL DEFAULT 0,
+				momentum_d10    NUMERIC(10,6) NOT NULL DEFAULT 0,
+				consensus_d20   INT NOT NULL DEFAULT 0,
+				exp_return_d20  NUMERIC(10,6) NOT NULL DEFAULT 0,
+				momentum_d20    NUMERIC(10,6) NOT NULL DEFAULT 0,
+				stddev_d20      NUMERIC(10,6) NOT NULL DEFAULT 0,
+				updated_at      TIMESTAMPTZ DEFAULT NOW()
+			)`)
+			safeExec(`WITH curves AS (
+				SELECT pk.code, pk.updated_at, curve
+				FROM prediction_kdist pk
+				CROSS JOIN LATERAL jsonb_array_elements(COALESCE(pk.kd_data, '[]'::jsonb)) AS curve
+				WHERE jsonb_typeof(curve) = 'array' AND jsonb_array_length(curve) >= 20
+			), values_by_curve AS (
+				SELECT code, updated_at,
+					(curve->>4)::numeric AS d5,
+					(curve->>9)::numeric AS d10,
+					(curve->>19)::numeric AS d20,
+					(((curve->>15)::numeric + (curve->>16)::numeric + (curve->>17)::numeric +
+					  (curve->>18)::numeric + (curve->>19)::numeric) / 5 -
+					 ((curve->>0)::numeric + (curve->>1)::numeric + (curve->>2)::numeric +
+					  (curve->>3)::numeric + (curve->>4)::numeric) / 5) AS momentum
+				FROM curves
+			), aggregated AS (
+				SELECT code,
+					COUNT(*) FILTER (WHERE d5 > 0)::int AS consensus_d5,
+					AVG(d5) AS exp_return_d5,
+					AVG(momentum) AS momentum_d5,
+					COUNT(*) FILTER (WHERE d10 > 0)::int AS consensus_d10,
+					AVG(d10) AS exp_return_d10,
+					AVG(momentum) AS momentum_d10,
+					COUNT(*) FILTER (WHERE d20 > 0)::int AS consensus_d20,
+					AVG(d20) AS exp_return_d20,
+					AVG(momentum) AS momentum_d20,
+					COALESCE(STDDEV_POP(d20), 0) AS stddev_d20,
+					MAX(updated_at) AS updated_at
+				FROM values_by_curve GROUP BY code
+			)
+			INSERT INTO prediction_factors (code, consensus_d5, exp_return_d5, momentum_d5,
+				consensus_d10, exp_return_d10, momentum_d10,
+				consensus_d20, exp_return_d20, momentum_d20, stddev_d20, updated_at)
+			SELECT code, consensus_d5, exp_return_d5, momentum_d5,
+				consensus_d10, exp_return_d10, momentum_d10,
+				consensus_d20, exp_return_d20, momentum_d20, stddev_d20, updated_at
+			FROM aggregated
+			ON CONFLICT (code) DO UPDATE SET
+				consensus_d5 = EXCLUDED.consensus_d5,
+				exp_return_d5 = EXCLUDED.exp_return_d5,
+				momentum_d5 = EXCLUDED.momentum_d5,
+				consensus_d10 = EXCLUDED.consensus_d10,
+				exp_return_d10 = EXCLUDED.exp_return_d10,
+				momentum_d10 = EXCLUDED.momentum_d10,
+				consensus_d20 = EXCLUDED.consensus_d20,
+				exp_return_d20 = EXCLUDED.exp_return_d20,
+				momentum_d20 = EXCLUDED.momentum_d20,
+				stddev_d20 = EXCLUDED.stddev_d20,
+				updated_at = EXCLUDED.updated_at`)
+			return nil
+		},
+	})
+
 }

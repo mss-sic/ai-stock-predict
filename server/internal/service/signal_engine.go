@@ -30,32 +30,32 @@ type DataProvider interface {
 
 // SignalEngineConfig holds strategy parameters for signal generation.
 type SignalEngineConfig struct {
-	MaxHoldings        int
-	MaxTotalBuyPct     float64 // 单日最大买入仓位 (占总资金%), 默认60
-	BuyPositionPct     float64 // 单票买入仓位 (占总资金%)
-	AddPositionPct     float64
-	ReducePositionPct  float64
-	StopLoss           float64
-	StopProfit         float64
-	CommissionRate     float64
-	MinCommission      float64
-	StampTaxRate       float64
+	MaxHoldings                int
+	MaxTotalBuyPct             float64 // 单日最大买入仓位 (占总资金%), 默认60
+	BuyPositionPct             float64 // 单票买入仓位 (占总资金%)
+	AddPositionPct             float64
+	ReducePositionPct          float64
+	StopLoss                   float64
+	StopProfit                 float64
+	CommissionRate             float64
+	MinCommission              float64
+	StampTaxRate               float64
 	PositionConcentrationLimit float64
-	ScoringConfig          model.ScoringConfig   // 候选评分配置
-	EnableTrailingStop     bool                  // 启用移动止盈
-	TrailingStopActivation float64               // 激活阈值%
-	TrailingStopDrawdown   float64               // 回撤比例%
+	ScoringConfig              model.ScoringConfig // 候选评分配置
+	EnableTrailingStop         bool                // 启用移动止盈
+	TrailingStopActivation     float64             // 激活阈值%
+	TrailingStopDrawdown       float64             // 回撤比例%
 }
 
 // ── Position ──
 
 type SignalPosition struct {
-	AvailSellQty int  // available sell quantity (excludes T+1 locked shares)
-	Code     string
-	Name     string
-	Quantity int
-	BuyPrice float64
-	BuyDate  string
+	AvailSellQty int // available sell quantity (excludes T+1 locked shares)
+	Code         string
+	Name         string
+	Quantity     int
+	BuyPrice     float64
+	BuyDate      string
 }
 
 // ── SignalRecord ──
@@ -122,8 +122,8 @@ func (e *SignalEngine) GenerateSignals(
 				StockCode: code, StockName: pos.Name,
 				ActionType: "stop", PlannedPrice: closePrice, PlannedQty: pos.Quantity,
 				PlannedAmount: closePrice * float64(pos.AvailSellQty),
-				Status: "pending",
-				Reason: fmt.Sprintf("止损触发 %.1f%% ≤ %.1f%%", chgPct, cfg.StopLoss),
+				Status:        "pending",
+				Reason:        fmt.Sprintf("止损触发 %.1f%% ≤ %.1f%%", chgPct, cfg.StopLoss),
 			})
 			stopSet[code] = true
 			logFn("🛑 STOP %s(%s) 止损 %.1f%% ≤ %.1f%%", pos.Name, code, chgPct, cfg.StopLoss)
@@ -135,7 +135,9 @@ func (e *SignalEngine) GenerateSignals(
 			logFn("🔺 %s(%s) 触发移动止盈评估: 涨幅%.1f%%≥激活%.0f%%", pos.Name, code, chgPct, cfg.TrailingStopActivation)
 			// Compute peak price since activation (approximate with close as peak)
 			drawdown := cfg.TrailingStopDrawdown
-			if drawdown <= 0 { drawdown = 8 }
+			if drawdown <= 0 {
+				drawdown = 8
+			}
 			peakPrice := closePrice // simplified: use close as peak for now
 			stopPrice := peakPrice * (1 - drawdown/100)
 			if closePrice <= stopPrice {
@@ -144,8 +146,8 @@ func (e *SignalEngine) GenerateSignals(
 					StockCode: code, StockName: pos.Name,
 					ActionType: "stop", PlannedPrice: closePrice, PlannedQty: pos.Quantity,
 					PlannedAmount: closePrice * float64(pos.AvailSellQty),
-					Status: "pending",
-					Reason: fmt.Sprintf("移动止盈: 从峰值¥%.2f回撤%.0f%% → ¥%.2f", peakPrice, drawdown, stopPrice),
+					Status:        "pending",
+					Reason:        fmt.Sprintf("移动止盈: 从峰值¥%.2f回撤%.0f%% → ¥%.2f", peakPrice, drawdown, stopPrice),
 				})
 				stopSet[code] = true
 				logFn("🎯 TRAIL %s(%s) 移动止盈 峰值¥%.2f 回撤%.0f%%", pos.Name, code, peakPrice, drawdown)
@@ -160,8 +162,8 @@ func (e *SignalEngine) GenerateSignals(
 				StockCode: code, StockName: pos.Name,
 				ActionType: "stop", PlannedPrice: closePrice, PlannedQty: pos.Quantity,
 				PlannedAmount: closePrice * float64(pos.AvailSellQty),
-				Status: "pending",
-				Reason: fmt.Sprintf("止盈触发 %.1f%% ≥ %.1f%%", chgPct, cfg.StopProfit),
+				Status:        "pending",
+				Reason:        fmt.Sprintf("止盈触发 %.1f%% ≥ %.1f%%", chgPct, cfg.StopProfit),
 			})
 			stopSet[code] = true
 			logFn("🎯 STOP %s(%s) 止盈 %.1f%% ≥ %.1f%%", pos.Name, code, chgPct, cfg.StopProfit)
@@ -192,8 +194,8 @@ func (e *SignalEngine) GenerateSignals(
 				StockCode: code, StockName: pos.Name,
 				ActionType: "sell", PlannedPrice: closePrice, PlannedQty: pos.AvailSellQty,
 				PlannedAmount: closePrice * float64(pos.AvailSellQty),
-				Status: "pending",
-				Reason: fmt.Sprintf("满足卖出条件: %s", reason),
+				Status:        "pending",
+				Reason:        fmt.Sprintf("满足卖出条件: %s", reason),
 			})
 			logFn("📤 SELL %s(%s) %d股(可卖%d) @¥%.2f — %s", pos.Name, code, pos.AvailSellQty, pos.Quantity, closePrice, reason)
 			continue
@@ -221,18 +223,23 @@ func (e *SignalEngine) GenerateSignals(
 				StockCode: code, StockName: pos.Name,
 				ActionType: actionType, PlannedPrice: closePrice, PlannedQty: reduceQty,
 				PlannedAmount: closePrice * float64(reduceQty),
-				Status: "pending",
-				Reason: fmt.Sprintf("满足减仓条件 (%.0f%%)", cfg.ReducePositionPct),
+				Status:        "pending",
+				Reason:        fmt.Sprintf("满足减仓条件 (%.0f%%)", cfg.ReducePositionPct),
 			})
 			logFn("📉 REDUCE %s(%s) %d股 @¥%.2f", pos.Name, code, reduceQty, closePrice)
 		}
 	}
 
 	// Count sell/reduce signals generated so far
-	sellSigCount := 0; reduceSigCount := 0
+	sellSigCount := 0
+	reduceSigCount := 0
 	for _, s := range signals {
-		if s.ActionType == "sell" || s.ActionType == "stop" { sellSigCount++ }
-		if s.ActionType == "reduce" { reduceSigCount++ }
+		if s.ActionType == "sell" || s.ActionType == "stop" {
+			sellSigCount++
+		}
+		if s.ActionType == "reduce" {
+			reduceSigCount++
+		}
 	}
 	if sellSigCount == 0 && reduceSigCount == 0 && len(positions) > 0 {
 		logFn("📤 卖出/减仓检查: %d只持仓 → 无触发（条件未满足或止损/止盈未到）", len(positions)-stopCount)
@@ -247,14 +254,18 @@ func (e *SignalEngine) GenerateSignals(
 	}
 	slotCount := cfg.MaxHoldings - activeCount
 	maxTotalBuy := cfg.MaxTotalBuyPct
-	if maxTotalBuy <= 0 { maxTotalBuy = 60 }
+	if maxTotalBuy <= 0 {
+		maxTotalBuy = 60
+	}
 	maxBuyCash := cash * maxTotalBuy / 100
 	buyAmountPer := cash * cfg.BuyPositionPct / 100
-	if buyAmountPer <= 0 { buyAmountPer = cash * 10 / 100 }
+	if buyAmountPer <= 0 {
+		buyAmountPer = cash * 10 / 100
+	}
 
 	// Industry budget from strategy config (via budget or defaults)
-	maxSingleIndustryPct := 30.0
-	minIndustryCount := 3
+	maxSingleIndustryPct := 100.0
+	minIndustryCount := 1
 	if budget != nil {
 		if budget.MaxSingleIndustry > 0 {
 			maxSingleIndustryPct = budget.MaxSingleIndustry
@@ -275,17 +286,19 @@ func (e *SignalEngine) GenerateSignals(
 	if slotCount > 0 && cash > 0 && len(buyConds) > 0 {
 		totalStocks := len(universe)
 		progressStep := 500
-		if totalStocks < 500 { progressStep = totalStocks }
+		if totalStocks < 500 {
+			progressStep = totalStocks
+		}
 		scanStart := time.Now()
 
 		// ── Stage 1: Collect all candidates with scores ──
 		type candidate struct {
-			code        string
-			name        string
-			price       float64
-			volumeRank  float64 // 1 = highest volume
-			chgPct      float64 // daily change %
-			score       float64 // composite score
+			code       string
+			name       string
+			price      float64
+			volumeRank float64 // 1 = highest volume
+			chgPct     float64 // daily change %
+			score      float64 // composite score
 		}
 		var candidates []candidate
 		scanned := 0
@@ -327,7 +340,7 @@ func (e *SignalEngine) GenerateSignals(
 			})
 
 			// Get industry for each candidate
-			type indInfo struct { industry string }
+			type indInfo struct{ industry string }
 			codeToIndustry := make(map[string]string)
 			industryAlloc := make(map[string]float64) // total allocated per industry
 			var rankedCandidates []candidate
@@ -352,11 +365,19 @@ func (e *SignalEngine) GenerateSignals(
 					allocAmt := singlePosLimit
 					lot := BoardLotSize(c.code)
 					qty := int(allocAmt/c.price/float64(lot)) * lot
-					if qty < lot && allocAmt >= c.price*float64(lot) { qty = lot }
-					if qty <= 0 { continue }
+					if qty < lot && allocAmt >= c.price*float64(lot) {
+						qty = lot
+					}
+					if qty <= 0 {
+						continue
+					}
 					amount := c.price * float64(qty)
-					if totalAllocated+amount > maxBuyCash { continue }
-					if industryAlloc[ind]+amount > maxBuyCash*maxSingleIndustryPct/100 { continue }
+					if totalAllocated+amount > maxBuyCash {
+						continue
+					}
+					if industryAlloc[ind]+amount > maxBuyCash*maxSingleIndustryPct/100 {
+						continue
+					}
 
 					signals = append(signals, SignalRecord{
 						SignalDate: date, ExecDate: data.GetNextDate(date),
@@ -384,11 +405,19 @@ func (e *SignalEngine) GenerateSignals(
 				allocAmt := singlePosLimit
 				lot := BoardLotSize(c.code)
 				qty := int(allocAmt/c.price/float64(lot)) * lot
-				if qty < lot && allocAmt >= c.price*float64(lot) { qty = lot }
-				if qty <= 0 { continue }
+				if qty < lot && allocAmt >= c.price*float64(lot) {
+					qty = lot
+				}
+				if qty <= 0 {
+					continue
+				}
 				amount := c.price * float64(qty)
-				if totalAllocated+amount > maxBuyCash { continue }
-				if industryAlloc[ind]+amount > maxBuyCash*maxSingleIndustryPct/100 { continue }
+				if totalAllocated+amount > maxBuyCash {
+					continue
+				}
+				if industryAlloc[ind]+amount > maxBuyCash*maxSingleIndustryPct/100 {
+					continue
+				}
 
 				signals = append(signals, SignalRecord{
 					SignalDate: date, ExecDate: data.GetNextDate(date),
@@ -449,8 +478,8 @@ func (e *SignalEngine) GenerateSignals(
 				StockCode: code, StockName: pos.Name,
 				ActionType: "add", PlannedPrice: closePrice, PlannedQty: addQty,
 				PlannedAmount: closePrice * float64(addQty),
-				Status: "pending",
-				Reason: "满足加仓条件",
+				Status:        "pending",
+				Reason:        "满足加仓条件",
 			})
 			logFn("➕ ADD   %s(%s) %d股 @¥%.2f", pos.Name, code, addQty, closePrice)
 		}
@@ -492,10 +521,14 @@ func (e *SignalEngine) computeCandidateScore(
 	}
 	var totalScore, totalWeight float64
 	for _, dim := range dims {
-		if dim.Weight <= 0 { continue }
+		if dim.Weight <= 0 {
+			continue
+		}
 		raw := e.computeDimensionScore(dim, code, date, scanned, total, data)
 		// Normalize: direction asc (lower=better) → invert
-		if dim.Direction == "asc" { raw = 1.0 - raw }
+		if dim.Direction == "asc" {
+			raw = 1.0 - raw
+		}
 		totalScore += raw * dim.Weight
 		totalWeight += dim.Weight
 	}
@@ -540,9 +573,13 @@ func (e *SignalEngine) computeDimensionScore(
 	case "rsi_14":
 		rsi, _ := data.GetIndicatorValue("rsi", code, date)
 		if rsi > 0 {
-			if rsi > 70 { return 0.2 }   // overbought
-			if rsi < 30 { return 0.9 }   // oversold
-			return (rsi - 30) / 40 * 0.7 + 0.3 // 30→0.3, 70→0.5
+			if rsi > 70 {
+				return 0.2
+			} // overbought
+			if rsi < 30 {
+				return 0.9
+			} // oversold
+			return (rsi-30)/40*0.7 + 0.3 // 30→0.3, 70→0.5
 		}
 		return 0.5
 	case "alpha_score":
@@ -555,12 +592,19 @@ func (e *SignalEngine) computeDimensionScore(
 
 // floatParam extracts a float64 parameter from JSONMap with fallback.
 func floatParam(p model.JSONMap, key string, fallback float64) float64 {
-	if p == nil { return fallback }
+	if p == nil {
+		return fallback
+	}
 	if v, ok := p[key]; ok {
 		switch vv := v.(type) {
-		case float64: return vv
-		case json.Number: if f, err := vv.Float64(); err == nil { return f }
-		case int: return float64(vv)
+		case float64:
+			return vv
+		case json.Number:
+			if f, err := vv.Float64(); err == nil {
+				return f
+			}
+		case int:
+			return float64(vv)
 		}
 	}
 	return fallback
@@ -568,12 +612,19 @@ func floatParam(p model.JSONMap, key string, fallback float64) float64 {
 
 // intParam extracts an int parameter from JSONMap with fallback.
 func intParam(p model.JSONMap, key string, fallback int) int {
-	if p == nil { return fallback }
+	if p == nil {
+		return fallback
+	}
 	if v, ok := p[key]; ok {
 		switch vv := v.(type) {
-		case float64: return int(vv)
-		case json.Number: if f, err := vv.Float64(); err == nil { return int(f) }
-		case int: return vv
+		case float64:
+			return int(vv)
+		case json.Number:
+			if f, err := vv.Float64(); err == nil {
+				return int(f)
+			}
+		case int:
+			return vv
 		}
 	}
 	return fallback
@@ -627,35 +678,55 @@ func (e *SignalEngine) evalConds(conds []ConditionDef, code, date string, data D
 
 func (e *SignalEngine) operatorLabel(op string) string {
 	switch op {
-	case "gte": return ">="
-	case "lte": return "<="
-	case "gt": return ">"
-	case "lt": return "<"
-	case "eq": return "="
-	case "cross_up": return "上穿"
-	case "cross_down": return "下穿"
+	case "gte":
+		return ">="
+	case "lte":
+		return "<="
+	case "gt":
+		return ">"
+	case "lt":
+		return "<"
+	case "eq":
+		return "="
+	case "cross_up":
+		return "上穿"
+	case "cross_down":
+		return "下穿"
 	}
 	return op
 }
 
 func (e *SignalEngine) opLabel(op string) string {
 	switch op {
-	case "gte": return "<"
-	case "lte": return ">"
-	case "gt": return "≤"
-	case "lt": return "≥"
-	case "eq": return "≠"
-	case "cross_up": return "未上穿"
-	case "cross_down": return "未下穿"
-	default: return op
+	case "gte":
+		return "<"
+	case "lte":
+		return ">"
+	case "gt":
+		return "≤"
+	case "lt":
+		return "≥"
+	case "eq":
+		return "≠"
+	case "cross_up":
+		return "未上穿"
+	case "cross_down":
+		return "未下穿"
+	default:
+		return op
 	}
 }
 
 // getIndustry returns the Shenwan L1 industry for a stock code.
 func (e *SignalEngine) getIndustry(code string) string {
+	if db.PG == nil {
+		return "其他"
+	}
 	var ind string
 	db.PG.Raw("SELECT COALESCE(sw_l1, industry, '其他') FROM stocks_basic WHERE code = ?", code).Scan(&ind)
-	if ind == "" { ind = "其他" }
+	if ind == "" {
+		ind = "其他"
+	}
 	return ind
 }
 
@@ -716,36 +787,35 @@ func (p *PGDataProvider) GetNextDate(date string) string {
 
 func (p *PGDataProvider) Dates() []string { return p.dates }
 
-
 // indicatorColumnMap maps UI indicator names to database column names.
 // Keys are lowercase; if a name isn't here, it's tried as a direct column name.
 var indicatorColumnMap = map[string]string{
 	// ── stocks_daily_k aliases ──
-	"daily_change": "change_pct",
-	"pct_chg":      "change_pct",
-	"change":       "change_pct",
-	"vol":          "volume",
-	"turnover":     "turnover_rate",
-	"amplitude":    "amplitude",
-	"avg_price":    "avg_price",
-	"pre_close":    "pre_close",
-	"change_amount":"change_amount",
-	"high_limit":   "high_limit",
-	"low_limit":    "low_limit",
-	"buy_vol":      "buy_vol",
-	"sell_vol":     "sell_vol",
-	"macd_dif":     "macd_dif",
-	"macd_dea":     "macd_dea",
-	"ema12":        "ema12",
-	"ema26":        "ema26",
-	"volume_ratio": "volume_ratio",
-	"turnover_rate":"turnover_rate",
-	"close":        "close",
-	"open":         "open",
-	"high":         "high",
-	"low":          "low",
-	"volume":       "volume",
-	"amount":       "amount",
+	"daily_change":  "change_pct",
+	"pct_chg":       "change_pct",
+	"change":        "change_pct",
+	"vol":           "volume",
+	"turnover":      "turnover_rate",
+	"amplitude":     "amplitude",
+	"avg_price":     "avg_price",
+	"pre_close":     "pre_close",
+	"change_amount": "change_amount",
+	"high_limit":    "high_limit",
+	"low_limit":     "low_limit",
+	"buy_vol":       "buy_vol",
+	"sell_vol":      "sell_vol",
+	"macd_dif":      "macd_dif",
+	"macd_dea":      "macd_dea",
+	"ema12":         "ema12",
+	"ema26":         "ema26",
+	"volume_ratio":  "volume_ratio",
+	"turnover_rate": "turnover_rate",
+	"close":         "close",
+	"open":          "open",
+	"high":          "high",
+	"low":           "low",
+	"volume":        "volume",
+	"amount":        "amount",
 
 	// ── stock_financials aliases ──
 	"roe":            "roe",
@@ -879,7 +949,6 @@ func isComputedPattern(indicator string) bool {
 	return false
 }
 
-
 func isSafeColumn(col string) bool {
 	if len(col) == 0 || len(col) > 64 {
 		return false
@@ -963,7 +1032,9 @@ func getComputedIndicator(indicator, code, date string) (float64, bool) {
 			nStr := strings.TrimPrefix(strings.ToLower(indicator), "ma")
 			n := 5
 			fmt.Sscanf(nStr, "%d", &n)
-			if n <= 0 { n = 5 }
+			if n <= 0 {
+				n = 5
+			}
 			var v float64
 			db.PG.Raw("SELECT COALESCE(AVG(close) OVER (PARTITION BY code ORDER BY trade_date ROWS BETWEEN ? PRECEDING AND CURRENT ROW), 0) FROM stocks_daily_k WHERE code = ? AND trade_date <= ? ORDER BY trade_date DESC LIMIT 1", n-1, code, date).Scan(&v)
 			return v, v > 0
@@ -974,7 +1045,9 @@ func getComputedIndicator(indicator, code, date string) (float64, bool) {
 			nStr := strings.TrimSuffix(strings.TrimPrefix(strings.ToLower(indicator), "chg_"), "d")
 			n := 5
 			fmt.Sscanf(nStr, "%d", &n)
-			if n <= 0 { n = 5 }
+			if n <= 0 {
+				n = 5
+			}
 			var v float64
 			db.PG.Raw(`SELECT COALESCE(
 				(SELECT close FROM stocks_daily_k WHERE code = ? AND trade_date <= ? ORDER BY trade_date DESC LIMIT 1) /
@@ -989,7 +1062,9 @@ func getComputedIndicator(indicator, code, date string) (float64, bool) {
 			nStr := strings.TrimPrefix(strings.TrimSuffix(strings.ToLower(indicator), "_pct"), "atr_")
 			n := 14
 			fmt.Sscanf(nStr, "%d", &n)
-			if n <= 0 { n = 14 }
+			if n <= 0 {
+				n = 14
+			}
 			var v float64
 			db.PG.Raw(`WITH tr AS (
 				SELECT GREATEST(high-low, ABS(high-LAG(close,1) OVER (PARTITION BY code ORDER BY trade_date)), ABS(low-LAG(close,1) OVER (PARTITION BY code ORDER BY trade_date))) as tr_val, close
@@ -1007,7 +1082,9 @@ func getComputedIndicator(indicator, code, date string) (float64, bool) {
 			if parsed, err := fmt.Sscanf(nStr, "%d", &n); err != nil || parsed == 0 {
 				n = 5
 			}
-			if n <= 0 { n = 5 }
+			if n <= 0 {
+				n = 5
+			}
 			var v float64
 			db.PG.Raw(`SELECT COALESCE(
 				(SELECT close FROM stocks_daily_k WHERE code = ? AND trade_date <= ? ORDER BY trade_date DESC LIMIT 1) /
@@ -1022,7 +1099,9 @@ func getComputedIndicator(indicator, code, date string) (float64, bool) {
 			nStr := strings.TrimPrefix(strings.ToLower(indicator), "drawdown_")
 			n := 20
 			fmt.Sscanf(nStr, "%d", &n)
-			if n <= 0 { n = 20 }
+			if n <= 0 {
+				n = 20
+			}
 			var v float64
 			db.PG.Raw(`SELECT COALESCE(
 				(SELECT close FROM stocks_daily_k WHERE code = ? AND trade_date <= ? ORDER BY trade_date DESC LIMIT 1) /

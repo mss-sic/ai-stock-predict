@@ -11,8 +11,9 @@ import {
   RefreshCw, Send, Trash2, Loader2, Check, X, Layers, FileText, Users, Newspaper, Star, StarOff, ChevronLeft, ChevronRight, ExternalLink, Wrench, Clock,
 } from 'lucide-react';
 import { showToast } from '../components/Toast';
-import { authFetch, checkAPIError, fetchStockDetail, fetchKLine, fetchIndicator, fetchPredictionResult, fetchPredictionHitRate, fetchStockHeatmap, fetchSignal, fetchFinancials, fetchShareholders, fetchStockNews, fetchReports, fetchStockConceptTags, addToWatchlist, removeFromWatchlist, fetchWatchlist, fetchWatchlistGroups, createWatchlistGroup, fetchHoldings, fetchProfile, runProfile, repairStock, fetchRealtimeQuoteSingle, fetchDragonTiger, fetchBlockTrades, fetchAnnouncements, fetchUnlocks, fetchEpsForecast, fetchDragonTigerSeats, fetchFundFlow, fetchFundFlowMinute, fetchConceptHeatmap, fetchIndustryHeatmap } from '../services/api';
+import { authFetch, checkAPIError, fetchStockDetail, fetchKLine, fetchIndicator, fetchPredictionResult, fetchPredictionHitRate, fetchStockHeatmap, fetchSignal, fetchFinancials, fetchShareholders, fetchStockNews, fetchReports, fetchStockConceptTags, addToWatchlist, removeFromWatchlist, fetchWatchlist, fetchWatchlistGroups, createWatchlistGroup, fetchHoldings, fetchProfile, runProfile, repairStock, fetchRealtimeQuoteSingle, fetchDragonTiger, fetchBlockTrades, fetchAnnouncements, fetchUnlocks, fetchEpsForecast, fetchDragonTigerSeats, fetchFundFlow, fetchFundFlowMinute, fetchConceptHeatmap, fetchIndustryHeatmap, fetchAllIndicators, fetchStockIndicators, fetchIndicatorDates } from '../services/api';
 import KLineChart from '../components/KLineChart';
+import IndicatorTable from '../components/IndicatorTable';
 import BoardSidebar from '../components/BoardSidebar';
 import StockFundFlowTab from '../components/StockFundFlowTab';
 
@@ -86,7 +87,7 @@ function FinCard({ label, value, color, prefix, extra, extraLabel }: { label: st
       <div style={{ fontSize: 17, fontWeight: 600, color: color || 'var(--color-text-1)', fontFamily: "'SF Mono', 'Menlo', monospace" }}>
         {prefix || ''}{value}
       </div>
-      {extra && <div style={{ fontSize: 10, color: 'var(--color-text-3)', marginTop: 16 }}>{extraLabel || '环比'}: <span style={{ fontWeight: 500, color: color || 'var(--color-text-2)' }}>{extra}</span></div>}
+      {extra && <div style={{ fontSize: 10, color: 'var(--color-text-3)', marginTop: 24 }}>{extraLabel || '环比'}: <span style={{ fontWeight: 500, color: color || 'var(--color-text-2)' }}>{extra}</span></div>}
     </div>
   );
 }
@@ -440,12 +441,20 @@ function SectionCards({ md }: { md: string }) {
   );
 }
 
+type SubchartType = 'volume' | 'macd' | 'rsi' | 'kdj';
+
 export default function StockDetailPage() {
   const { code } = useParams<{ code: string }>();
   const [stock, setStock] = useState<any>(null);
   const [klines, setKlines] = useState<any[]>([]);
   const safeKlines = useMemo(() => klines.filter((k: any) => k != null), [klines]);
   const [indicator, setIndicator] = useState<any>(null);
+  const [allIndicatorsData, setAllIndicatorsData] = useState<any[]>([]);
+  const [indicatorDates, setIndicatorDates] = useState<string[]>([]);
+  const [indicatorDate, setIndicatorDate] = useState<string>('');
+  const [indicatorRows, setIndicatorRows] = useState<any[]>([]);
+  const [indicatorsLoading, setIndicatorsLoading] = useState(false);
+  const [subchartSelection, setSubchartSelection] = useState<SubchartType[]>(['volume', 'macd']);
   const [predictions, setPredictions] = useState<any[]>([]);
   const [realHitRates, setRealHitRates] = useState<any>(null);
   const [boardRanks, setBoardRanks] = useState<Record<string, number>>({});
@@ -514,6 +523,17 @@ export default function StockDetailPage() {
       }
     }).catch(() => setHoldingCost(null));
     fetchIndicator(code).then((r: any) => setIndicator(r.data?.data ?? r.data)).catch((e: any) => { console.error(e); });
+    fetchStockIndicators(code, 120).then((r: any) => setIndicatorRows(r.data?.data || [])).catch(() => {});
+    fetchAllIndicators(code).then((r: any) => {
+      const d = r.data?.data?.indicators || [];
+      setAllIndicatorsData(d);
+      const respDate = r.data?.data?.date || '';
+      if (respDate && !indicatorDate) setIndicatorDate(respDate);
+    }).catch(() => {});
+    fetchIndicatorDates(code).then((r: any) => {
+      const dates = r.data?.data || [];
+      setIndicatorDates(dates);
+    }).catch(() => {});
     fetchFinancials(code).then((r: any) => setFinancials(r.data?.data || [])).catch((e: any) => { console.error(e); });
     fetchShareholders(code).then((r: any) => setShareholders(r.data?.data || [])).catch((e: any) => { console.error(e); });
     fetchStockNews(code, 20).then((r: any) => setStockNews(r.data?.data || [])).catch((e: any) => { console.error(e); });
@@ -785,6 +805,23 @@ fetchPredictionResult(code).then((r: any) => {
       rsi: rsi[last], boll: { ma: boll.ma[last], upper: boll.upper[last], lower: boll.lower[last] },
     };
   }, [klines]);
+
+
+
+  // Subchart data from API indicators endpoint
+  const subchartData = useMemo(() => {
+    if (!indicatorRows || indicatorRows.length === 0) return {};
+    const len = indicatorRows.length;
+    // Pad to match kline length (indicatorRows may have fewer rows than safeKlines)
+    const pad = Math.max(0, safeKlines.length - len);
+    const padNull = Array(pad).fill(null);
+    return {
+      rsi14: [...padNull, ...indicatorRows.map((r: any) => r.rsi14)],
+      kdjK: [...padNull, ...indicatorRows.map((r: any) => r.kdjK)],
+      kdjD: [...padNull, ...indicatorRows.map((r: any) => r.kdjD)],
+      kdjJ: [...padNull, ...indicatorRows.map((r: any) => r.kdjJ)],
+    };
+  }, [indicatorRows, safeKlines.length]);
 
   // Interval statistics
   const intervalStats = useMemo(() => {
@@ -1158,7 +1195,7 @@ const handleChatSend = async (text?: string) => {
                 </Tooltip>
               </div>
               <div style={{ padding: '0 4px 4px' }}>
-                <KLineChart data={klines} height={460} markers={markers} splitIdx={predOverlay.splitIdx} predictionLines={predOverlay.lines} predMarkers={predOverlay.markers} costLine={holdingCost} />
+                <KLineChart data={klines} height={460} markers={markers} splitIdx={predOverlay.splitIdx} predictionLines={predOverlay.lines} predMarkers={predOverlay.markers} subcharts={subchartSelection} subchartData={subchartData} costLine={holdingCost} />
                 {/* ── Prediction metadata bar ── */}
                 {predOverlay.totalFuture > 0 && (
                   <div style={{
@@ -2141,38 +2178,14 @@ const handleChatSend = async (text?: string) => {
       {/* ── Technical Tab ── */}
       {tab === 'kline' && (
         <div className="card">
-          <div className="card-header"><span style={{ fontWeight: 600, fontSize: 14 }}><Activity size={14} /> 技术指标</span></div>
+          <div className="card-header">
+            <span style={{ fontWeight: 600, fontSize: 14 }}><Activity size={14} /> 技术指标</span>
+
+          </div>
           <div className="card-body">
             {indicators ? (
               <>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 16 }}>
-                  {[
-                    { name: 'MACD DIF', val: indicators.macd.dif?.toFixed(3), sig: (indicators.macd.dif ?? 0) > (indicators.macd.dea ?? 0) ? '金叉' : '死叉', up: (indicators.macd.dif ?? 0) > (indicators.macd.dea ?? 0), strength: Math.min(3, Math.abs((indicators.macd.dif ?? 0) - (indicators.macd.dea ?? 0)) / Math.max(0.01, Math.abs(indicators.macd.dea ?? 0.01))) },
-                    { name: 'MACD DEA', val: indicators.macd.dea?.toFixed(3), sig: (indicators.macd.bar ?? 0) >= 0 ? '多头' : '空头', up: (indicators.macd.bar ?? 0) >= 0, strength: Math.abs(indicators.macd.bar ?? 0) > 0.1 ? 2 : 1 },
-                    { name: 'KDJ-K', val: indicators.kdj.k?.toFixed(2), sig: (indicators.kdj.k ?? 50) > 80 ? '超买' : (indicators.kdj.k ?? 50) < 20 ? '超卖' : '中性', up: (indicators.kdj.k ?? 50) > 50, strength: (indicators.kdj.k ?? 50) > 80 ? 2 : (indicators.kdj.k ?? 50) < 20 ? 2 : 1 },
-                    { name: 'KDJ-D', val: indicators.kdj.d?.toFixed(2), sig: (indicators.kdj.j ?? 50) > (indicators.kdj.k ?? 50) ? '上行' : '下行', up: (indicators.kdj.j ?? 50) > (indicators.kdj.k ?? 50), strength: 1 },
-                    { name: 'KDJ-J', val: indicators.kdj.j?.toFixed(2), sig: (indicators.kdj.j ?? 50) > 100 ? '钝化' : (indicators.kdj.j ?? 50) < 0 ? '钝化' : '正常', up: (indicators.kdj.j ?? 50) > 50, strength: (indicators.kdj.j ?? 50) > 100 ? 2 : (indicators.kdj.j ?? 50) < 0 ? 2 : 1 },
-                    { name: 'RSI(14)', val: indicators.rsi?.toFixed(2), sig: (indicators.rsi ?? 50) > 70 ? '超买' : (indicators.rsi ?? 50) < 30 ? '超卖' : '中性', up: (indicators.rsi ?? 50) > 50, strength: (indicators.rsi ?? 50) > 70 ? 2 : (indicators.rsi ?? 50) < 30 ? 2 : Math.abs((indicators.rsi ?? 50) - 50) / 10 },
-                    { name: 'BOLL上轨', val: indicators.boll.upper?.toFixed(2), sig: (priceStats?.price ?? 0) > (indicators.boll.upper ?? 0) ? '突破上轨' : '轨内', up: (priceStats?.price ?? 0) > (indicators.boll.upper ?? 0), strength: (priceStats?.price ?? 0) > (indicators.boll.upper ?? 0) ? 2 : 0 },
-                    { name: 'BOLL下轨', val: indicators.boll.lower?.toFixed(2), sig: (priceStats?.price ?? 0) < (indicators.boll.lower ?? 0) ? '跌破下轨' : '轨内', up: false, strength: (priceStats?.price ?? 0) < (indicators.boll.lower ?? 0) ? 2 : 0 },
-                  ].map((r, i) => {
-                    const bias = getBiasInfo(r.up, Math.round(r.strength));
-                    return (
-                      <div key={i} style={{ padding: '10px 12px', background: 'var(--color-fill-2)', borderRadius: 4, borderLeft: `3px solid ${bias.color}`, cursor: 'help', transition: 'box-shadow 0.15s' }}
-                        title={INDICATOR_DESC[r.name] || ''}
-                        onMouseEnter={e => (e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)')}
-                        onMouseLeave={e => (e.currentTarget.style.boxShadow = 'none')}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                          <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text-2)' }}>{r.name}</span>
-                          <span style={{ fontSize: 10, fontWeight: 600, color: bias.color, background: bias.bg, padding: '1px 5px', borderRadius: 3 }}>{bias.label}</span>
-                        </div>
-                        <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text-1)' }}>{r.val}</div>
-                        <div style={{ fontSize: 10, color: bias.color, marginTop: 3 }}>{r.sig}</div>
-                      </div>
-                    );
-                  })}
-                </div>
-              {/* Interval controls */}
+                {/* Interval controls */}
                 <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                   <Button size="mini" type={intervalMode ? 'primary' : 'outline'} onClick={() => { setIntervalMode(!intervalMode); if (!intervalMode) setIntervalRange(null); }}>
                     📐 区间统计 {intervalMode ? '开' : '关'}
@@ -2182,18 +2195,47 @@ const handleChatSend = async (text?: string) => {
                   )}
                   {intervalMode && <span className="muted" style={{ fontSize: 11 }}>拖拽图表手柄调整区间 · 左右拖动边缘调整范围 · 中间拖动整体移动</span>}
                 </div>
-                {/* Chart + Stats side-by-side layout when interval mode is active */}
+
+                {/* Subchart selector */}
+                <div style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 11, color: 'var(--color-text-3)', marginRight: 4 }}>副图:</span>
+                  {(['volume', 'macd', 'rsi', 'kdj'] as SubchartType[]).map(sc => {
+                    const active = subchartSelection.includes(sc);
+                    const labels: Record<SubchartType, string> = { volume: '成交量', macd: 'MACD', rsi: 'RSI', kdj: 'KDJ' };
+                    const colors: Record<SubchartType, string> = { volume: '#86909C', macd: '#F77234', rsi: '#165DFF', kdj: '#722ED1' };
+                    return (
+                      <span
+                        key={sc}
+                        onClick={() => {
+                          if (active && subchartSelection.length <= 1) return; // keep at least 1
+                          setSubchartSelection(active ? subchartSelection.filter(s => s !== sc) : [...subchartSelection, sc].slice(0, 3));
+                        }}
+                        style={{
+                          cursor: 'pointer', padding: '2px 8px', borderRadius: 4, fontSize: 11, fontWeight: active ? 600 : 400,
+                          background: active ? colors[sc] + '20' : 'var(--color-fill-2)',
+                          color: active ? colors[sc] : 'var(--color-text-3)',
+                          border: `1px solid ${active ? colors[sc] + '40' : 'var(--color-border-1)'}`,
+                          userSelect: 'none',
+                        }}
+                      >
+                        {labels[sc]}
+                      </span>
+                    );
+                  })}
+                </div>
+
+                {/* K-line Chart + overlay indicators */}
                 {intervalMode && intervalRange ? (
                   <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
-                    {/* Chart on the left */}
                     <div style={{ flex: '1 1 60%', minWidth: 0 }}>
-                      <KLineChart data={klines} height={300} markers={markers}
+                      <KLineChart data={klines} height={300 + subchartSelection.length * 45} markers={markers}
                         enableRangeSelect={intervalMode}
                         selectedRange={intervalRange}
                         onRangeChange={handleRangeChange}
-                      costLine={holdingCost} />
+                        subcharts={subchartSelection}
+                        subchartData={subchartData}
+                        costLine={holdingCost} />
                     </div>
-                    {/* Stats panel on the right */}
                     {intervalStats && (
                       <div style={{
                         flex: '0 0 300px',
@@ -2203,107 +2245,94 @@ const handleChatSend = async (text?: string) => {
                         boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
                         overflow: 'hidden',
                       }}>
-                        {/* Header */}
                         <div style={{
                           padding: '12px 16px',
                           background: 'linear-gradient(135deg, #165DFF 0%, #4080FF 100%)',
                           color: '#fff',
                         }}>
                           <div style={{ fontSize: 14, fontWeight: 600 }}>📐 区间统计</div>
-                          <div style={{ fontSize: 11, opacity: 0.85, marginTop: 16 }}>
+                          <div style={{ fontSize: 11, opacity: 0.85, marginTop: 4 }}>
                             {intervalStats.startDate?.slice(0,10) || ''} → {intervalStats.endDate?.slice(0,10) || ''} · {intervalStats.bars}根K线
                           </div>
                         </div>
-                        {/* Key metrics */}
                         <div style={{ padding: '14px 16px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px 16px' }}>
-                          {/* 涨跌幅 */}
-                          <div style={{
-                            background: intervalStats.changePct >= 0 ? 'rgba(245,63,63,0.06)' : 'rgba(0,180,42,0.06)',
-                            borderRadius: 8, padding: '10px 12px',
-                            border: `1px solid ${intervalStats.changePct >= 0 ? 'rgba(245,63,63,0.18)' : 'rgba(0,180,42,0.18)'}`,
-                          }}>
+                          <div style={{ background: intervalStats.changePct >= 0 ? 'rgba(245,63,63,0.06)' : 'rgba(0,180,42,0.06)', borderRadius: 8, padding: '10px 12px', border: `1px solid ${intervalStats.changePct >= 0 ? 'rgba(245,63,63,0.18)' : 'rgba(0,180,42,0.18)'}` }}>
                             <div style={{ fontSize: 10, color: 'var(--color-text-3)', marginBottom: 2 }}>涨跌幅</div>
-                            <div style={{
-                              fontSize: 20, fontWeight: 700,
-                              color: intervalStats.changePct >= 0 ? '#F53F3F' : '#00B42A',
-                              fontFamily: 'monospace',
-                            }}>
+                            <div style={{ fontSize: 20, fontWeight: 700, color: intervalStats.changePct >= 0 ? '#F53F3F' : '#00B42A', fontFamily: 'monospace' }}>
                               {intervalStats.changePct >= 0 ? '+' : ''}{intervalStats.changePct.toFixed(2)}%
                             </div>
-                            <div style={{ fontSize: 10, color: 'var(--color-text-3)', marginTop: 16 }}>
+                            <div style={{ fontSize: 10, color: 'var(--color-text-3)', marginTop: 4 }}>
                               {intervalStats.startPrice?.toFixed(2)} → {intervalStats.endPrice?.toFixed(2)}
                             </div>
                           </div>
-                          {/* 振幅 */}
-                          <div style={{
-                            background: 'var(--color-fill-2)', borderRadius: 8, padding: '10px 12px',
-                          }}>
+                          <div style={{ background: 'var(--color-fill-2)', borderRadius: 8, padding: '10px 12px' }}>
                             <div style={{ fontSize: 10, color: 'var(--color-text-3)', marginBottom: 2 }}>振幅</div>
                             <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--color-text-1)', fontFamily: 'monospace' }}>
                               {intervalStats.amplitude.toFixed(2)}%
                             </div>
-                            <div style={{ fontSize: 10, color: 'var(--color-text-3)', marginTop: 16 }}>
+                            <div style={{ fontSize: 10, color: 'var(--color-text-3)', marginTop: 4 }}>
                               {intervalStats.high?.toFixed(2)} / {intervalStats.low?.toFixed(2)}
                             </div>
                           </div>
-                          {/* 最大回撤 */}
-                          <div style={{
-                            background: 'rgba(247,114,52,0.06)', borderRadius: 8, padding: '10px 12px',
-                            border: '1px solid rgba(247,114,52,0.18)',
-                          }}>
+                          <div style={{ background: 'rgba(247,114,52,0.06)', borderRadius: 8, padding: '10px 12px', border: '1px solid rgba(247,114,52,0.18)' }}>
                             <div style={{ fontSize: 10, color: 'var(--color-text-3)', marginBottom: 2 }}>最大回撤</div>
                             <div style={{ fontSize: 20, fontWeight: 700, color: '#F77234', fontFamily: 'monospace' }}>
                               -{intervalStats.maxDrawdown.toFixed(2)}%
                             </div>
-                            <div style={{ fontSize: 10, color: 'var(--color-text-3)', marginTop: 16 }}>区间内峰值回落</div>
+                            <div style={{ fontSize: 10, color: 'var(--color-text-3)', marginTop: 4 }}>区间内峰值回落</div>
                           </div>
-                          {/* 涨跌天数比 */}
-                          <div style={{
-                            background: 'var(--color-fill-2)', borderRadius: 8, padding: '10px 12px',
-                          }}>
+                          <div style={{ background: 'var(--color-fill-2)', borderRadius: 8, padding: '10px 12px' }}>
                             <div style={{ fontSize: 10, color: 'var(--color-text-3)', marginBottom: 2 }}>涨跌比</div>
                             <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--color-text-1)', fontFamily: 'monospace' }}>
                               <span style={{ color: '#F53F3F' }}>{intervalStats.upDays}</span>
                               <span style={{ color: 'var(--color-text-3)', margin: '0 4px' }}>/</span>
                               <span style={{ color: '#00B42A' }}>{intervalStats.downDays}</span>
                             </div>
-                            <div style={{ fontSize: 10, color: 'var(--color-text-3)', marginTop: 16 }}>
+                            <div style={{ fontSize: 10, color: 'var(--color-text-3)', marginTop: 4 }}>
                               阳{intervalStats.upDays}天 · 阴{intervalStats.downDays}天
                             </div>
                           </div>
                         </div>
-                        {/* Divider + additional info */}
-                        <div style={{
-                          borderTop: '1px solid var(--color-border-1)', padding: '10px 16px',
-                          display: 'flex', justifyContent: 'space-between',
-                          background: 'var(--color-fill-1)', fontSize: 11, color: 'var(--color-text-3)',
-                        }}>
+                        <div style={{ borderTop: '1px solid var(--color-border-1)', padding: '10px 16px', display: 'flex', justifyContent: 'space-between', background: 'var(--color-fill-1)', fontSize: 11, color: 'var(--color-text-3)' }}>
                           <span>最高 <b style={{ color: '#F53F3F', fontSize: 12 }}>{intervalStats.high?.toFixed(2)}</b></span>
                           <span>最低 <b style={{ color: '#00B42A', fontSize: 12 }}>{intervalStats.low?.toFixed(2)}</b></span>
                           <span>收 <b style={{ color: 'var(--color-text-1)', fontSize: 12 }}>{intervalStats.endPrice?.toFixed(2)}</b></span>
-                        </div>
-                        <div style={{
-                          padding: '8px 16px', fontSize: 10, color: '#C9CDD4',
-                          background: '#FAFBFC', borderTop: '1px solid #F2F3F5',
-                        }}>
-                          提示：拖拽图表左右手柄调整区间 · 中间拖动整体平移
                         </div>
                       </div>
                     )}
                   </div>
                 ) : (
-                  <KLineChart data={klines} height={300} markers={markers}
+                  <KLineChart data={klines} height={300 + subchartSelection.length * 45} markers={markers}
                     enableRangeSelect={intervalMode}
                     selectedRange={intervalRange}
                     onRangeChange={handleRangeChange}
-                  costLine={holdingCost} />
+                    subcharts={subchartSelection}
+                    subchartData={subchartData}
+                    costLine={holdingCost} />
                 )}
+
+                {/* All indicators table */}
+                <div style={{ marginTop: 56 }}>
+                  <IndicatorTable
+                    data={allIndicatorsData}
+                    loading={indicatorsLoading}
+                    dates={indicatorDates}
+                    selectedDate={indicatorDate}
+                    currentDate={indicatorDate}
+                    onDateChange={(date: string) => {
+                      setIndicatorDate(date);
+                      setIndicatorsLoading(true);
+                      fetchAllIndicators(code, date).then((r: any) => {
+                        setAllIndicatorsData(r.data?.data?.indicators || []);
+                      }).finally(() => setIndicatorsLoading(false));
+                    }}
+                  />
+                </div>
               </>
             ) : (<div className="muted" style={{ textAlign: 'center', padding: 40 }}>K线数据不足</div>)}
           </div>
         </div>
       )}
-
       {/* ── Trading Tab ── */}
       {tab === 'kline' && (
         <div className="card">
@@ -2442,14 +2471,14 @@ const handleChatSend = async (text?: string) => {
                     <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--color-text-1)' }}>
                       {(latestSH.totalHolders / 10000).toFixed(2)}<span style={{ fontSize: 12, fontWeight: 400, color: 'var(--color-text-3)' }}>万户</span>
                     </div>
-                    <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginTop: 16 }}>截至 {latestSH.reportDate}</div>
+                    <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginTop: 24 }}>截至 {latestSH.reportDate}</div>
                   </div>
                   <div style={{ background: 'var(--color-fill-2)', borderRadius: 8, padding: '12px 14px' }}>
                     <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 4 }}>环比变化</div>
                     <div style={{ fontSize: 20, fontWeight: 700, color: latestSH.holderChange > 0 ? '#00B42A' : latestSH.holderChange < 0 ? '#F53F3F' : 'var(--color-text-3)' }}>
                       {latestSH.holderChange > 0 ? '+' : ''}{latestSH.holderChange?.toFixed(2)}%
                     </div>
-                    <div style={{ fontSize: 11, color: latestSH.holderChange > 0 ? '#00B42A' : latestSH.holderChange < 0 ? '#F53F3F' : 'var(--color-text-3)', marginTop: 16 }}>
+                    <div style={{ fontSize: 11, color: latestSH.holderChange > 0 ? '#00B42A' : latestSH.holderChange < 0 ? '#F53F3F' : 'var(--color-text-3)', marginTop: 24 }}>
                       {latestSH.holderChange > 0 ? '筹码分散 ↑' : latestSH.holderChange < 0 ? '筹码集中 ↓' : '持平'}
                     </div>
                   </div>
@@ -2458,14 +2487,14 @@ const handleChatSend = async (text?: string) => {
                     <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--color-text-1)' }}>
                       {fmtVol(latestSH.avgHolding)}<span style={{ fontSize: 12, fontWeight: 400, color: 'var(--color-text-3)' }}>股</span>
                     </div>
-                    <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginTop: 16 }}>人均持股市值</div>
+                    <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginTop: 24 }}>人均持股市值</div>
                   </div>
                   <div style={{ background: 'var(--color-fill-2)', borderRadius: 8, padding: '12px 14px' }}>
                     <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 4 }}>机构持股比例</div>
                     <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--color-text-1)' }}>
                       {latestSH.instHoldRatio > 0 ? latestSH.instHoldRatio.toFixed(2) + '%' : '-'}
                     </div>
-                    <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginTop: 16 }}>数据期数 {shList.length} 期</div>
+                    <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginTop: 24 }}>数据期数 {shList.length} 期</div>
                   </div>
                 </div>
 

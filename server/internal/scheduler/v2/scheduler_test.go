@@ -137,7 +137,7 @@ func TestFullPipeline(t *testing.T) {
 		Name:  "test_pipeline",
 		Label: "Test Pipeline",
 		Trigger: TriggerSpec{
-			Cron: "",   // event-driven only
+			Cron:   "", // event-driven only
 			Manual: true,
 		},
 		Stages: []PipelineStage{
@@ -248,6 +248,7 @@ func TestTriggerEval(t *testing.T) {
 	s := New(cfg)
 
 	var ran int32
+	ranCh := make(chan struct{}, 1)
 	def := &TaskDefinition{
 		ID:      "cron_test",
 		Kind:    KindCustom,
@@ -256,6 +257,10 @@ func TestTriggerEval(t *testing.T) {
 		Timeout: 5 * time.Second,
 		Handler: func(ctx context.Context, inst *TaskInstance, logger *StructuredLogger) error {
 			atomic.AddInt32(&ran, 1)
+			select {
+			case ranCh <- struct{}{}:
+			default:
+			}
 			return nil
 		},
 	}
@@ -272,12 +277,16 @@ func TestTriggerEval(t *testing.T) {
 	s.Start()
 	defer s.Stop()
 
-	// eval every 50ms, should fire multiple times in 300ms
-	time.Sleep(300 * time.Millisecond)
+	// The cron fires once per wall-clock second. Wait for the next boundary.
+	select {
+	case <-ranCh:
+	case <-time.After(1500 * time.Millisecond):
+		t.Fatal("cron test did not run within 1.5 seconds")
+	}
 
 	count := atomic.LoadInt32(&ran)
-	if count < 2 {
-		t.Errorf("cron test ran %d times, want >= 2", count)
+	if count < 1 {
+		t.Errorf("cron test ran %d times, want >= 1", count)
 	}
 }
 

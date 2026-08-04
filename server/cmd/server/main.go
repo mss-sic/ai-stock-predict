@@ -3,16 +3,16 @@ package main
 import (
 	"log"
 	"os"
-	"time"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/ai-stock-predict/server/internal/config"
 	"github.com/ai-stock-predict/server/internal/db"
 	"github.com/ai-stock-predict/server/internal/handler"
 	schedv2 "github.com/ai-stock-predict/server/internal/scheduler/v2"
-	"github.com/ai-stock-predict/server/internal/ws"
 	"github.com/ai-stock-predict/server/internal/service"
+	"github.com/ai-stock-predict/server/internal/ws"
 	"github.com/gin-gonic/gin"
 )
 
@@ -29,6 +29,7 @@ func main() {
 	db.AutoMigrate()
 	db.EnsureManualTables()
 	handler.EnsureAdminUser()
+	handler.PrewarmStatsCache()
 
 	// Clean orphaned backtest tasks from previous server run
 	db.MySQL.Exec("UPDATE backtest_tasks SET status='cancelled', phase='服务器重启, 任务已中断', completed_at=NOW() WHERE status IN ('running','pending')")
@@ -38,7 +39,7 @@ func main() {
 	// ── v2 Unified Scheduler (兼容模式，与旧调度器共存) ──
 	schedV2 := schedv2.New(schedv2.Config{
 		Mode:         "standalone",
-		Workers:       4,
+		Workers:      4,
 		InstanceID:   "stock-server",
 		EvalInterval: 10 * time.Second,
 	})
@@ -101,12 +102,11 @@ func main() {
 	r.GET("/api/v1/sentiment/fear-greed", sentimentH.GetFearGreedLatest)
 	r.GET("/api/v1/sentiment/fear-greed/history", sentimentH.GetFearGreedHistory)
 
-
 	// ── Concept Board routes ──
 	boardH := handler.NewBoardHandler()
 	r.GET("/api/v1/concept-boards", boardH.ConceptBoards)
-			r.GET("/api/v1/concept-boards/:code/kline", boardH.ConceptBoardKline)
-			r.GET("/api/v1/concept-boards/:code/stocks", boardH.ConceptBoardStocks)
+	r.GET("/api/v1/concept-boards/:code/kline", boardH.ConceptBoardKline)
+	r.GET("/api/v1/concept-boards/:code/stocks", boardH.ConceptBoardStocks)
 	r.GET("/api/v1/concept-boards/heatmap", boardH.ConceptHeatmap)
 	r.GET("/api/v1/industry/heatmap", boardH.IndustryHeatmap)
 	r.GET("/api/v1/stocks/:code/concept-tags", boardH.StockConcepts)
@@ -170,19 +170,19 @@ func main() {
 			admin.GET("/model-prices", costH.GetModelPrices)
 			admin.PUT("/model-prices/:model_name", costH.UpdateModelPrice)
 			// API Key management
-		admin.GET("/api-keys", handler.ListAPIKeys)
-		admin.POST("/api-keys", handler.CreateAPIKey)
-		admin.PUT("/api-keys/:id", handler.UpdateAPIKey)
-		admin.DELETE("/api-keys/:id", handler.DeleteAPIKey)
+			admin.GET("/api-keys", handler.ListAPIKeys)
+			admin.POST("/api-keys", handler.CreateAPIKey)
+			admin.PUT("/api-keys/:id", handler.UpdateAPIKey)
+			admin.DELETE("/api-keys/:id", handler.DeleteAPIKey)
 
-		admin.GET("/data-stats", handler.GetDataStats)
+			admin.GET("/data-stats", handler.GetDataStats)
 			admin.GET("/data-stats/:type/detail", handler.GetDataDetail)
 			admin.POST("/risks/scan", handler.NewRiskHandler().Scan)
 
-		// Scheduled Tasks
-		schedV2Handler := schedv2.NewHandler(schedV2)
-		schedV2Handler.RegisterRoutes(admin.Group("/scheduler/v2"))
-		taskH := handler.NewTaskHandler()
+			// Scheduled Tasks
+			schedV2Handler := schedv2.NewHandler(schedV2)
+			schedV2Handler.RegisterRoutes(admin.Group("/scheduler/v2"))
+			taskH := handler.NewTaskHandler()
 			admin.GET("/scheduled-tasks", taskH.ListTasks)
 			admin.POST("/scheduled-tasks", taskH.CreateTask)
 			admin.PUT("/scheduled-tasks/:id", taskH.UpdateTask)
@@ -194,12 +194,23 @@ func main() {
 			admin.POST("/scheduled-tasks/init-defaults", taskH.InitDefaults)
 			admin.GET("/task-logs", taskH.ListLogs)
 
-		// Scheduler execution history
-		schedLogH := handler.NewSchedulerLogHandler()
-		admin.GET("/scheduler/logs", schedLogH.ListLogs)
-		admin.GET("/scheduler/logs/:id", schedLogH.GetLog)
-		admin.GET("/scheduler/stats", schedLogH.GetStats)
+			// Scheduler execution history
+			schedLogH := handler.NewSchedulerLogHandler()
+			admin.GET("/scheduler/logs", schedLogH.ListLogs)
+			admin.GET("/scheduler/logs/:id", schedLogH.GetLog)
+			admin.GET("/scheduler/stats", schedLogH.GetStats)
 		}
+
+		// Indicator scanning
+		indicatorH := &handler.IndicatorHandler{}
+		api.GET("/indicator/scan", indicatorH.ScanSignals)
+		api.GET("/stocks/:code/indicators", indicatorH.GetIndicators)
+		api.GET("/stocks/:code/indicators-all", indicatorH.GetAllIndicators)
+		api.GET("/stocks/:code/indicators-dates", indicatorH.GetIndicatorDates)
+
+		// Data Stats dashboard
+		statsH := &handler.StatsHandler{}
+		api.GET("/stats/dashboard", statsH.DataStatsSummary)
 
 		// Stocks
 		stockH := handler.NewStockHandler()
@@ -244,8 +255,6 @@ func main() {
 		api.GET("/market/daily-review", marketH.GetDailyReview)
 		api.GET("/market/latest-style", marketH.GetLatestStyle)
 
-
-
 		boardH := handler.NewBoardHandler()
 		api.GET("/board/today", boardH.Today)
 		api.GET("/board/dates", boardH.Dates)
@@ -253,8 +262,8 @@ func main() {
 		api.GET("/board/heatmap", boardH.Heatmap)
 		api.GET("/board/heatmap-enriched", boardH.HeatmapEnriched)
 		api.GET("/board/heatmap/:code", boardH.StockHeatmap)
-			api.GET("/concept-boards/:code/analysis", boardH.GetConceptAnalysis)
-			api.PUT("/concept-boards/analysis-prompt", boardH.UpdateConceptAnalysisPrompt)
+		api.GET("/concept-boards/:code/analysis", boardH.GetConceptAnalysis)
+		api.PUT("/concept-boards/analysis-prompt", boardH.UpdateConceptAnalysisPrompt)
 		// Watchlist
 		watchH := handler.NewWatchlistHandler()
 		api.GET("/watchlist/groups", watchH.ListGroups)
@@ -348,8 +357,7 @@ func main() {
 
 		// Agent WebSocket hub (local auto-trading)
 
-
-	// Live Trading (实盘交易)
+		// Live Trading (实盘交易)
 		liveH := handler.NewLiveTradingHandlerWithHub(agentHub)
 		handler.RegisterLiveTradingRoutes(api.Group("/live"), liveH)
 
@@ -372,8 +380,6 @@ func main() {
 		preMarketGroup.DELETE("/notification-configs/:id", preMarketH.DeleteNotificationConfig)
 		preMarketGroup.POST("/notification-configs/:id/test", preMarketH.TestNotificationConfig)
 		// Agent auto-trading REST API (local agent polling endpoints)
-
-
 
 		// Collector
 		collectorH := handler.NewCollectorHandler()
