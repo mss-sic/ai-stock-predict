@@ -9,19 +9,18 @@
 **固定启动流程，禁止使用其他方式，防止端口冲突：**
 
 ```bash
-# 编译
-cd server && go build -o bin/server ./cmd/server/ && cp bin/server server-bin
-
-# 重启
-kill $(lsof -ti :8080) 2>/dev/null; sleep 1
-launchctl start com.stock.server; sleep 2
-
-# 验证
-lsof -ti :8080
+./start.sh
 ```
 
-- **禁止** `go run`、`./server`、`air` 等其他启动方式
+脚本内部依次完成：编译最新代码 → 停止占用 8080 的旧进程 → 启动新服务 → 校验端口，无需手动执行任何 `go build` / `kill` / `launchctl` 命令。
+
+- **禁止** `go run`、`air`、手动 `nohup` 等其他启动方式
+- **禁止** 直接运行 `server/server-bin`（不会编译最新代码）
 - **禁止** 使用 8080 以外的端口
+- 服务工作目录必须是**项目根目录**（代码依赖 `scripts/collector` 等相对路径）
+- 服务不再由 launchd 托管（`com.stock.server` 已禁用），不要再用 `launchctl`
+- 本地配置（DSN / 端口等）放 `server/.env`，脚本会自动加载；文件不存在则用代码内置默认值
+- 日志：`/tmp/stock-server-out.log`、`/tmp/stock-server-err.log`
 - 前端 Vite HMR 自动热更新，修改前端代码无需重启
 - 修改 Python 脚本无需重启服务端
 
@@ -378,11 +377,8 @@ cd web-pc && npm run build
 # 前端开发
 cd web-pc && npm run dev
 
-# 后端编译
-cd server && go build -o bin/server ./cmd/server/
-
-# 服务重启
-kill $(lsof -ti :8080) 2>/dev/null; sleep 1; launchctl start com.stock.server
+# 后端编译 + 重启（一条命令搞定）
+./start.sh
 
 # 修复单只股票
 cd scripts/collector && python3 repair_kline.py <CODE>

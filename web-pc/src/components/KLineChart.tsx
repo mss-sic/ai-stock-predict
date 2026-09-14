@@ -433,8 +433,10 @@ export default function KLineChart({
     return <div className="muted" style={{ textAlign: 'center', padding: 60 }}>暂无K线数据，请先触发数据采集</div>;
   }
 
+  // 容器高度自适应：SVG 高度为 height，底部还需容纳平移/缩放操作栏，
+  // 若沿用固定 height + overflow:hidden 会把操作栏裁掉
   return (
-    <div style={{ position: 'relative', width: '100%', height, overflow: 'hidden' }}>
+    <div style={{ position: 'relative', width: '100%', height: 'auto', overflow: 'hidden' }}>
       <svg
         ref={svgRef}
         viewBox={`0 0 ${W} ${H}`}
